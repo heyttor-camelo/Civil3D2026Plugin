@@ -1,3 +1,12 @@
+## 2.9.3 - CORRSPLIT v1.3.0 / corrigir getter UseSameSideTarget com 1 ID
+
+- O stack trace no parâmetro 'PAV_DIR / Lane Width' revelou que a API Autodesk valida TargetIds.Count >= 2 também no **getter** UseSameSideTarget;
+- CopyTargets não lê nem grava UseSameSideTarget com menos de 2 IDs no parâmetro de origem ou destino;
+- corrigidas as comparações após SetTargets e no VerifyTargets depois do Rebuild, que também invocavam o getter sem checar a quantidade;
+- TargetToOption também passa a conferir a contagem >= 2 nas duas coleções antes de ler;
+- preserva TargetIds de parâmetros com apenas 1 ID (um target horizontal e um vertical são parâmetros independentes);
+- sem alterações no MFREBAIXO; compilação e ensaio no Civil 3D 2026.2 pendentes.
+
 ## 2.9.2 - CORRSPLIT v1.2.0 / targets por parametro e validacao por etapas
 
 - 0/1 TargetId tratado por parametro de subassembly (horizontal e vertical sao parametros distintos);
