@@ -1,7 +1,24 @@
-# CORRSPLIT v1.4 - Corridor Split
+# CORRSPLIT v1.5 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Atualizacao v1.5 — estacas adicionais apos reconstruir o destino (08/10/2026)
+
+O erro apos transferir targets indicou estacas adicionais divergentes em
+TRECHO - _CURB - 210. A validacao anterior nao distinguia diferencias na frequencia
+de montagem, ordem da lista de estacas ou estacas realmente ausentes.
+
+- Configuracao de frequencias separada da copia de estacas adicionais.
+- Apos o primeiro rebuild do corredor novo, a rotina recria estacas adicionais
+  com BaselineRegion.ClearAdditionalStations e BaselineRegion.AddStation(estaca, descricao).
+- Apos aplicar os targets e reconstruir, confere as estacas sem depender
+  da ordem retornada pela API, tolerancia numerica 1e-6, preservando descricao.
+- Se houver diferenca, tenta uma unica restauracao e rebuild adicionais.
+- Se persistir, cancela a transacao e mostra contagem, valores e descricoes das
+  estacas de origem e destino, para nao perder silenciosamente estaqueamento.
+- Ainda nao foi compilado/testado com as DLLs Autodesk; use somente Copiar
+  no primeiro teste em uma copia do DWG.
 
 ## Atualizacao v1.4 — validacao por tipo de target (08/10/2026)
 
