@@ -122,12 +122,17 @@ internal static class CorridorSplitService
         }
 
         // Aplicar targets somente quando TODAS as regioes foram criadas.
-        foreach (var plan in plans)
+        for (int baseIndex = 0; baseIndex < plans.Count; baseIndex++)
         {
+            var plan = plans[baseIndex];
+            var destinationBase = target.Baselines[baseIndex];
             int position = 0;
             foreach (int index in plan.Indexes.OrderBy(x => x))
             {
-                CopyTargets(plan.Source.BaselineRegions[index], plan.NewRegions[position++]);
+                // Apos Rebuild, obter novos wrappers da colecao atual,
+                // evitando referencias potencialmente invalidadas da fase de criacao.
+                CopyTargets(plan.Source.BaselineRegions[index],
+                    destinationBase.BaselineRegions[position++]);
             }
         }
 
