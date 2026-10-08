@@ -120,6 +120,7 @@ internal static class CorridorSplitService
             int n = 0;
             foreach (int index in plan.Indexes.OrderBy(x => x))
                 CheckRegion(plan.Source.BaselineRegions[index], dstBase.BaselineRegions[n++]);
+            VerifyTransitions(plan.MovingTransitions, dstBase.getTransitions());
         }
 
         if (remove)
@@ -283,8 +284,89 @@ internal static class CorridorSplitService
         var dst = to.AppliedAssemblySetting;
         if (Math.Abs(src.FrequencyAlongTangents - dst.FrequencyAlongTangents) > Tol ||
             Math.Abs(src.FrequencyAlongCurves - dst.FrequencyAlongCurves) > Tol ||
+            Math.Abs(src.FrequencyAlongSpirals - dst.FrequencyAlongSpirals) > Tol ||
+            Math.Abs(src.FrequencyAlongProfileCurves - dst.FrequencyAlongProfileCurves) > Tol ||
+            Math.Abs(src.FrequencyAlongTargetCurves - dst.FrequencyAlongTargetCurves) > Tol ||
+            src.CorridorAlongCurvesOption != dst.CorridorAlongCurvesOption ||
+            src.TargetCurveOption != dst.TargetCurveOption ||
+            src.MODAlongCurves != dst.MODAlongCurves ||
+            src.MODAlongTargetCurves != dst.MODAlongTargetCurves ||
+            src.AppliedAdjacentToOffsetTargetStartEnd != dst.AppliedAdjacentToOffsetTargetStartEnd ||
             src.AdditionalAppliedAssemblies.Count != dst.AdditionalAppliedAssemblies.Count)
             throw new InvalidOperationException("Frequencias/estacas adicionais divergiram na regiao '" + from.Name + "'.");
+        for (int i = 0; i < src.AdditionalAppliedAssemblies.Count; i++)
+        {
+            var sa = src.AdditionalAppliedAssemblies[i];
+            var da = dst.AdditionalAppliedAssemblies[i];
+            if (Math.Abs(sa.Station - da.Station) > Tol || sa.Description != da.Description)
+                throw new InvalidOperationException("Estacas adicionais divergiram na regiao '" + from.Name + "'.");
+        }
+        VerifyTargets(from, to);
+    }
+
+
+    private static void VerifyTargets(CivilDb.BaselineRegion from, CivilDb.BaselineRegion to)
+    {
+        var original = from.GetTargets();
+        var newTargets = to.GetTargets();
+        if (original.Count != newTargets.Count)
+            throw new InvalidOperationException("Quantidade de targets alterada apos Rebuild.");
+        var used = new HashSet<int>();
+        for (int i = 0; i < original.Count; i++)
+        {
+            var src = original[i];
+            int j = 0;
+            for (; j < newTargets.Count; j++)
+                if (!used.Contains(j) && SameTarget(src, newTargets[j]) &&
+                    SameIds(src.TargetIds, newTargets[j].TargetIds) &&
+                    src.TargetToOption == newTargets[j].TargetToOption &&
+                    src.UseSameSideTarget == newTargets[j].UseSameSideTarget) break;
+            if (j == newTargets.Count)
+                throw new InvalidOperationException("Target da regiao '" + from.Name + "' divergiu apos Rebuild: " + src.DisplayName);
+            used.Add(j);
+        }
+    }
+
+    private static void VerifyTransitions(
+        IReadOnlyList<CivilDb.CorridorTransitionSet> originals,
+        List<CivilDb.CorridorTransitionSet> copies)
+    {
+        if (originals.Count != copies.Count)
+            throw new InvalidOperationException("Transition Sets divergiram apos o Rebuild.");
+        var used = new HashSet<int>();
+        foreach (var source in originals)
+        {
+            int match = -1;
+            for (int i = 0; i < copies.Count; i++)
+                if (!used.Contains(i) &&
+                    source.Name == copies[i].Name &&
+                    source.SubassemblyName == copies[i].SubassemblyName &&
+                    source.NameType == copies[i].NameType)
+                {
+                    match = i;
+                    break;
+                }
+            if (match < 0) throw new InvalidOperationException("Transition Set ausente: " + source.Name);
+            used.Add(match);
+            var target = copies[match];
+            if (source.TransitionCount != target.TransitionCount ||
+                source.Comment != target.Comment || source.StationLocked != target.StationLocked)
+                throw new InvalidOperationException("Propriedades de Transition Set divergiram: " + source.Name);
+            for (int i = 0; i < source.TransitionCount; i++)
+            {
+                var a = source.GetTransitionAt(i);
+                var b = target.GetTransitionAt(i);
+                if (a.ParameterName != b.ParameterName ||
+                    Math.Abs(a.StartStation - b.StartStation) > Tol ||
+                    Math.Abs(a.EndStation - b.EndStation) > Tol ||
+                    !Equals(a.StartValue, b.StartValue) ||
+                    !Equals(a.EndValue, b.EndValue) ||
+                    a.TransitionType != b.TransitionType ||
+                    a.HasSide != b.HasSide ||
+                    (a.HasSide && a.Side != b.Side))
+                    throw new InvalidOperationException("Valores de transition divergiram: " + source.Name);
+            }
+        }
     }
 
     private sealed class BaselinePlan
