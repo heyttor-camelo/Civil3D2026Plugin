@@ -87,7 +87,6 @@ internal static class CorridorSplitService
                         copy = new CivilDb.CorridorTransitionSet(original.Name, seed,
                             original.SubassemblyName, original.NameType);
                     copy.Comment = original.Comment;
-                    copy.StationLocked = original.StationLocked;
 
                     for (int i = 0; i < original.TransitionCount; i++)
                     {
@@ -99,6 +98,7 @@ internal static class CorridorSplitService
                         created.EndValue = data.EndValue;
                         created.TransitionType = data.TransitionType;
                     }
+                    copy.StationLocked = original.StationLocked;
                     newSets.Add(copy);
                 }
                 dstBase.SetTransitions(newSets);
@@ -215,6 +215,7 @@ internal static class CorridorSplitService
             throw new InvalidOperationException("A quantidade de targets difere na regiao '" + from.Name + "'.");
 
         var used = new HashSet<int>();
+        var matching = new int[src.Count];
         for (int i = 0; i < src.Count; i++)
         {
             var a = src[i];
@@ -225,12 +226,19 @@ internal static class CorridorSplitService
                 throw new InvalidOperationException("Target nao encontrado: " + a.SubassemblyName +
                     " / " + a.DisplayName);
             used.Add(match);
+            matching[i] = match;
             var b = dst[match];
             var ids = new AcadDb.ObjectIdCollection();
             foreach (AcadDb.ObjectId id in a.TargetIds) ids.Add(id);
             b.TargetIds = ids;
-            b.TargetToOption = a.TargetToOption;
-            b.UseSameSideTarget = a.UseSameSideTarget;
+            if (b.TargetToOption != a.TargetToOption)
+            {
+                if (ids.Count < 2)
+                    throw new InvalidOperationException("Nao foi possivel reproduzir TargetToOption de '" + a.DisplayName + "' com menos de dois targets.");
+                b.TargetToOption = a.TargetToOption;
+            }
+            if (b.UseSameSideTarget != a.UseSameSideTarget)
+                b.UseSameSideTarget = a.UseSameSideTarget;
         }
         to.SetTargets(dst);
         var after = to.GetTargets();
@@ -239,7 +247,7 @@ internal static class CorridorSplitService
         for (int i = 0; i < src.Count; i++)
         {
             var a = src[i];
-            var b = after.Cast<CivilDb.SubassemblyTargetInfo>().FirstOrDefault(t => SameTarget(a, t));
+            var b = after[matching[i]];
             if (b == null || !SameIds(a.TargetIds, b.TargetIds) ||
                 a.TargetToOption != b.TargetToOption ||
                 a.UseSameSideTarget != b.UseSameSideTarget)
