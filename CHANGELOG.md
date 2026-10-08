@@ -1,3 +1,15 @@
+## 2.9.0 - CORRSPLIT v1.0.0 (primeira versao para testes)
+
+- novo comando CORRSPLIT para copiar ou transferir regioes selecionadas de Corridor entre corredores no mesmo DWG;
+- baselines necessarias criadas conforme origem (Alignment/Profile e Feature Line);
+- recriacao de Assembly, frequencias, estacas adicionais, targets e transitions compativeis;
+- interface visual com selecao multipla, modo copiar e modo transferir;
+- protecao para transitions que cruzam regioes e para overrides e offset baselines;
+- copia e exclusao, quando solicitada, na mesma transacao, apos validacoes e rebuild do destino;
+- Corridor Surfaces e outras configuracoes avancadas nao sao clonadas nesta primeira versao;
+- MFREBAIXO mantido integralmente sem alteracoes de codigo; sua versao declarada nao foi alterada.
+- exige build e testes em ambiente com Civil 3D 2026.2 antes do uso em producao.
+
 # Changelog
 
 ## 2.8.0 - PASSAGEM v1.1.0 / duas vias + canteiro + Property Set
