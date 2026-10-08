@@ -1,3 +1,13 @@
+## 2.9.2 - CORRSPLIT v1.2.0 / targets por parametro e validacao por etapas
+
+- 0/1 TargetId tratado por parametro de subassembly (horizontal e vertical sao parametros distintos);
+- targets aplicados somente depois da criacao de todas as baselines e regioes do destino;
+- rebuild inicial sem targets, aplicacao dos mapeamentos e rebuild final antes de remover qualquer regiao de origem;
+- evita chamadas desnecessarias a TargetToOption e SetTargets para parametros sem alteracoes;
+- ao falhar, informa baseline/region, subassembly, nome e tipo de parametro, numero de IDs e etapa exata com stack trace;
+- selecao grafica e highlighing ainda carecem de aperfeicoamento; prioridade desta revisao e validacao do motor de copia.
+- requer recompilar e reiniciar Civil 3D para carregar a DLL atualizada e fazer primeiro teste no modo Copiar em copia do DWG.
+
 ## 2.9.1 - CORRSPLIT v1.1.0 / TargetIds e interface semelhante a Corridor Properties
 
 - corrige atribuicao de TargetToOption quando TargetIds.Count < 2, prevenindo InvalidOperationException;
