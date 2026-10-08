@@ -1,7 +1,28 @@
-# CORRSPLIT v1.5 - Corridor Split
+# CORRSPLIT v1.6 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Atualizacao v1.6 — selecao de regioes diretamente pelo contorno (08/10/2026)
+
+- Botao Selecionar regiao no desenho: o mouse percorre a faixa da regiao do Corridor e exibe contorno azul em tempo real e tooltip com nome/baseline.
+- Um clique dentro do contorno seleciona a regiao; repetir a selecao alterna marcar/desmarcar.
+- Selecao pela tabela: clique no nome mostra destaque no desenho; duplo clique na linha marca/desmarca (ja existia).
+- Selecao grafica usa limites laterais maximo/minimo das secoes AppliedAssembly.Points em cada regiao. Converte estaca e offset de cada secao para XY com Baseline.StationOffsetElevationToXYZ. Nao se baseia na distancia arbitraria de 35 m ate o eixo.
+- Regioes sem AppliedAssemblies calculadas continuam selecionaveis pela arvore; a selecao geometrica requer Corridor reconstruido.
+- Os contornos sao Transient Graphics no modo Highlight: nao persistem como entidades nem poluem o DWG; removidos sempre ao fechar a janela.
+- Motor de transferencia (targets, estacas adicionais, transitions e exclusao protegida) da v1.5 foi mantido sem alteracoes.
+- IMPORTANTE: a silhueta e uma aproximacao derivada das secoes amostradas, nao a mesma rotina interna de selecao do Civil 3D. Em cruzamentos/sobreposicoes, o menor contorno que contem o cursor tem prioridade. Confira pelo tooltip/preview.
+
+### Teste da selecao grafica
+
+1. Em copia do DWG, carregar plugin v2.9.6 e executar CORRSPLIT.
+2. Clicar Selecionar regiao no desenho.
+3. Mover cursor: deve aparecer contorno azul e tooltip com o nome da regiao abaixo do mouse.
+4. Clicar dentro da regiao desejada. Conferir se checkbox correspondente foi marcado e se o highlight permanece.
+5. Clicar no nome de outra regiao na arvore e verificar contorno; duplo clique marca/desmarca.
+6. Fechar a janela e verificar que nenhum contorno permaneceu como entidade no DWG.
+7. Usar modo Copiar e depois Transferir em uma copia do DWG.
 
 ## Atualizacao v1.5 — estacas adicionais apos reconstruir o destino (08/10/2026)
 
