@@ -1,3 +1,14 @@
+## 2.9.6 - CORRSPLIT v1.6.0 / selecao grafica de regiao ao estilo Civil 3D
+
+- Seletor de regioes refeito: usa geometria de AppliedAssembly.Points e os limites de offset por estaca, sem a tolerancia arbitraria de 35 unidades ao eixo.
+- Contorno azul temporario da regiao sob o cursor com tooltip do nome e baseline durante a selecao no DWG.
+- Clique dentro da faixa da regiao marca/desmarca e devolve o foco a janela; ESC cancela a escolha atual.
+- Clique na linha da tabela realca visualmente o contorno; duplo clique marca/desmarca.
+- As regioes marcadas ficam realcadas por TransientManager ate fechar a janela, sem criar polylines permanentes.
+- Regioes sem secoes calculadas devem ser selecionadas na tabela; em sobreposicoes usa a menor area geometrica.
+- Motor CORRSPLIT v1.5, comprovado pelo usuario em Copiar e Transferir, nao foi modificado. MFREBAIXO tambem nao foi alterado.
+- Nota: a silhueta e calculada pelas secoes amostradas, nao a selecao nativa privada do Civil 3D. Compilacao e teste da nova interface pendentes.
+
 ## 2.9.5 - CORRSPLIT v1.5.0 / estacas adicionais apos Rebuild
 
 - Corrige erro de verificacao "Estacas adicionais divergiram" na regiao TRECHO - _CURB - 210: agora frequencias e estacas adicionais sao verificadas separadamente.
