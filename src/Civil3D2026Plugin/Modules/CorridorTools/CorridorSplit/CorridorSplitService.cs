@@ -214,6 +214,7 @@ internal static class CorridorSplitService
     private static void CopyTargets(CivilDb.BaselineRegion from, CivilDb.BaselineRegion to)
     {
         var src = from.GetTargets();
+        if (src.Count == 0) return; // sem mapeamento: evitar SetTargets desnecessario
         var dst = to.GetTargets(); // obrigatoriamente a colecao do DESTINO
         if (src.Count != dst.Count)
             throw new InvalidOperationException("A quantidade de targets difere na regiao '" + from.Name + "'.");
