@@ -22,7 +22,7 @@ No Civil 3D, execute `NETLOAD` nessa DLL. Ao carregar, o plugin mostra:
 
 Use `C3DHELP` a qualquer momento para repetir a arvore, com descricoes.
 
-## CORRSPLIT v1.1.0 (teste)
+## CORRSPLIT v1.2.0 (teste)
 
 Execute CORRSPLIT e selecione o corredor de origem. Na janela em arvore, marque as regioes por baseline ou use Selecionar regiao no desenho,
 informe o novo nome e escolha entre Copiar e Transferir. O comando cria so as
@@ -30,7 +30,7 @@ baselines necessarias e tenta reproduzir assemblies, frequencias, estacas adicio
 targets e transitions compativeis. No modo Transferir, remove as regioes da origem
 somente apos criar e validar o corredor novo.
 
-A primeira versao nao replica Corridor Surfaces, boundaries, overrides e offset
+A versao atual nao replica Corridor Surfaces, boundaries, overrides e offset
 baselines. Consulte Modules/CorridorTools/CorridorSplit/README.md para limitacoes
 e roteiro de testes. Teste primeiro em uma copia do DWG e use Copiar.
 
