@@ -1,7 +1,17 @@
-# CORRSPLIT v1.2 - Corridor Split
+# CORRSPLIT v1.3 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Atualizacao v1.3 — getter protegido (08/10/2026)
+
+O stack trace identificou que a propriedade UseSameSideTarget lanca excecao ate no GET
+quando a subassembly tem apenas um TargetId (por exemplo, PAV_DIR / Lane Width).
+Corrigidas todas as leituras e gravacoes dessa propriedade (CopyTargets e verificacoes)
+para executarem exclusivamente quando as DUAS colecoes, origem e destino, possuem
+pelo menos dois IDs. A comparacao de TargetToOption segue a mesma protecao.
+
+Teste primeiro com o modo Copiar e, em caso de erro, envie o novo stack trace.
 
 ## Atualizacao v1.2 (diagnostico do erro TargetIds)
 
