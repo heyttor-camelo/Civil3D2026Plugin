@@ -1,3 +1,69 @@
+## 2.9.6 - CORRSPLIT v1.6.0 / selecao grafica de regiao ao estilo Civil 3D
+
+- Seletor de regioes refeito: usa geometria de AppliedAssembly.Points e os limites de offset por estaca, sem a tolerancia arbitraria de 35 unidades ao eixo.
+- Contorno azul temporario da regiao sob o cursor com tooltip do nome e baseline durante a selecao no DWG.
+- Clique dentro da faixa da regiao marca/desmarca e devolve o foco a janela; ESC cancela a escolha atual.
+- Clique na linha da tabela realca visualmente o contorno; duplo clique marca/desmarca.
+- As regioes marcadas ficam realcadas por TransientManager ate fechar a janela, sem criar polylines permanentes.
+- Regioes sem secoes calculadas devem ser selecionadas na tabela; em sobreposicoes usa a menor area geometrica.
+- Motor CORRSPLIT v1.5, comprovado pelo usuario em Copiar e Transferir, nao foi modificado. MFREBAIXO tambem nao foi alterado.
+- Nota: a silhueta e calculada pelas secoes amostradas, nao a selecao nativa privada do Civil 3D. Compilacao e teste da nova interface pendentes.
+
+## 2.9.5 - CORRSPLIT v1.5.0 / estacas adicionais apos Rebuild
+
+- Corrige erro de verificacao "Estacas adicionais divergiram" na regiao TRECHO - _CURB - 210: agora frequencias e estacas adicionais sao verificadas separadamente.
+- Em vez de definir AdditionalAppliedAssemblies durante criacao da regiao, restaura usando ClearAdditionalStations + AddStation apos o primeiro Rebuild.
+- Valida sem depender da ordem das estacas, mantendo estacas e descricoes (comparacao de estacas com tolerancia 1e-6).
+- Se o Rebuild apos targets alterar a lista, tenta uma restauracao e rebuild adicionais, com no maximo uma tentativa.
+- Divergencias persistentes ainda bloqueiam a transferencia, mas mensagem passa a listar contagem, estacas e descricoes de origem/destino.
+- MFREBAIXO nao alterado. Teste local e compilacao Autodesk ainda pendentes.
+
+## 2.9.4 - CORRSPLIT v1.4.0 / checar tipo do target em UseSameSideTarget
+
+- O erro em PAV_ESQ / Outside Elevation (Elevation, 2 TargetIds) mostrou que UseSameSideTarget exige nao so >=2 IDs, mas tambem exclusivamente o TargetType Offset; OffsetPipe tambem e rejeitado.
+- Novo predicado CanReadSameSideTarget protege todos os GET/SET de UseSameSideTarget (CopyTargets e verificacoes imediata/pos-rebuild), exigindo Offset nos dois lados e >=2 TargetIds em ambos.
+- Continuam sendo copiados os TargetIds de Elevation e demais tipos, sem consultar UseSameSideTarget.
+- MFREBAIXO nao foi modificado. Compilacao e ensaio com Civil 3D pendentes.
+
+## 2.9.3 - CORRSPLIT v1.3.0 / corrigir getter UseSameSideTarget com 1 ID
+
+- O stack trace no parâmetro 'PAV_DIR / Lane Width' revelou que a API Autodesk valida TargetIds.Count >= 2 também no **getter** UseSameSideTarget;
+- CopyTargets não lê nem grava UseSameSideTarget com menos de 2 IDs no parâmetro de origem ou destino;
+- corrigidas as comparações após SetTargets e no VerifyTargets depois do Rebuild, que também invocavam o getter sem checar a quantidade;
+- TargetToOption também passa a conferir a contagem >= 2 nas duas coleções antes de ler;
+- preserva TargetIds de parâmetros com apenas 1 ID (um target horizontal e um vertical são parâmetros independentes);
+- sem alterações no MFREBAIXO; compilação e ensaio no Civil 3D 2026.2 pendentes.
+
+## 2.9.2 - CORRSPLIT v1.2.0 / targets por parametro e validacao por etapas
+
+- 0/1 TargetId tratado por parametro de subassembly (horizontal e vertical sao parametros distintos);
+- targets aplicados somente depois da criacao de todas as baselines e regioes do destino;
+- rebuild inicial sem targets, aplicacao dos mapeamentos e rebuild final antes de remover qualquer regiao de origem;
+- evita chamadas desnecessarias a TargetToOption e SetTargets para parametros sem alteracoes;
+- ao falhar, informa baseline/region, subassembly, nome e tipo de parametro, numero de IDs e etapa exata com stack trace;
+- selecao grafica e highlighing ainda carecem de aperfeicoamento; prioridade desta revisao e validacao do motor de copia.
+- requer recompilar e reiniciar Civil 3D para carregar a DLL atualizada e fazer primeiro teste no modo Copiar em copia do DWG.
+
+## 2.9.1 - CORRSPLIT v1.1.0 / TargetIds e interface semelhante a Corridor Properties
+
+- corrige atribuicao de TargetToOption quando TargetIds.Count < 2, prevenindo InvalidOperationException;
+- acrescenta janela hierarquica de baselines/regioes com colunas de eixo horizontal/vertical, assembly, estacas e resumo de targets;
+- selecao por regiao, baseline, todas, inverter, expandir/recolher, inclusive selecao pela proximidade de um clique no desenho;
+- pictograma CORRSPLIT e estilo de icones CAD na Ribbon, preservando estrutura e comandos anteriores;
+- CORRSPLIT compilacao e ensaio no Civil 3D ainda pendentes.
+
+## 2.9.0 - CORRSPLIT v1.0.0 (primeira versao para testes)
+
+- novo comando CORRSPLIT para copiar ou transferir regioes selecionadas de Corridor entre corredores no mesmo DWG;
+- baselines necessarias criadas conforme origem (Alignment/Profile e Feature Line);
+- recriacao de Assembly, frequencias, estacas adicionais, targets e transitions compativeis;
+- interface visual com selecao multipla, modo copiar e modo transferir;
+- protecao para transitions que cruzam regioes e para overrides e offset baselines;
+- copia e exclusao, quando solicitada, na mesma transacao, apos validacoes e rebuild do destino;
+- Corridor Surfaces e outras configuracoes avancadas nao sao clonadas nesta primeira versao;
+- MFREBAIXO mantido integralmente sem alteracoes de codigo; sua versao declarada nao foi alterada.
+- exige build e testes em ambiente com Civil 3D 2026.2 antes do uso em producao.
+
 # Changelog
 
 ## 2.8.0 - PASSAGEM v1.1.0 / duas vias + canteiro + Property Set

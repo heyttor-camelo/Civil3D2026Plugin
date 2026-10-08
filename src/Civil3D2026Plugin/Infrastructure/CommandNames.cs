@@ -36,6 +36,7 @@ public static class CommandNames
 
     public static class Corridor
     {
+        public const string Split = "CORRSPLIT";
         public const string MfRebaixo = "MFREBAIXO";
         public const string MfRebaixoCfg = "MFREBAIXOCFG";
         public const string MfRebaixoHelp = "MFREBAIXOHELP";

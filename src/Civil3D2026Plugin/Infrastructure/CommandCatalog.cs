@@ -92,6 +92,16 @@ public static class CommandCatalog
 
             new(
                 "Corridor",
+                "Divisao de Corridor",
+                C3DVersions.CorridorSplit,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Corridor.Split, "Dividir corredor",
+                        "Copia ou transfere regioes entre corredores, preservando baselines, frequencias, targets e transitions compativeis.")
+                }),
+
+            new(
+                "Corridor",
                 "Rebaixos de meio-fio",
                 C3DVersions.MfRebaixo,
                 new[]

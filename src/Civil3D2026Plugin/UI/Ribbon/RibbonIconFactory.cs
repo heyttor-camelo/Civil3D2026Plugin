@@ -14,6 +14,7 @@ using WpfFlowDirection = System.Windows.FlowDirection;
 using WpfFontFamily = System.Windows.Media.FontFamily;
 using WpfImageSource = System.Windows.Media.ImageSource;
 using WpfPoint = System.Windows.Point;
+using WpfPen = System.Windows.Media.Pen;
 using WpfRect = System.Windows.Rect;
 using WpfSolidColorBrush = System.Windows.Media.SolidColorBrush;
 using WpfTypeface = System.Windows.Media.Typeface;
@@ -39,8 +40,10 @@ internal static class RibbonIconFactory
             return cached;
 
         string glyph = GetGlyph(commandName);
-        WpfColor background = GetCategoryColor(category);
+        WpfColor accent = GetCategoryColor(category);
 
+        // Identidade visual estilo ferramentas CAD: icones azulados em
+        // placa escura, separados em paineis pela Ribbon existente.
         var visual = new WpfDrawingVisual();
         using (WpfDrawingContext dc = visual.RenderOpen())
         {
@@ -48,27 +51,41 @@ internal static class RibbonIconFactory
             double radius = Math.Max(2.0, size * 0.16);
 
             dc.DrawRoundedRectangle(
-                new WpfSolidColorBrush(background),
+                new WpfSolidColorBrush(WpfColor.FromRgb(28, 43, 60)),
                 null,
                 new WpfRect(margin, margin, size - (margin * 2.0), size - (margin * 2.0)),
                 radius,
                 radius);
 
-            double fontSize = glyph.Length >= 3 ? size * 0.30 : size * 0.38;
-            var text = new WpfFormattedText(
-                glyph,
-                CultureInfo.InvariantCulture,
-                WpfFlowDirection.LeftToRight,
-                new WpfTypeface(new WpfFontFamily("Segoe UI"), System.Windows.FontStyles.Normal, System.Windows.FontWeights.SemiBold, System.Windows.FontStretches.Normal),
-                fontSize,
-                WpfBrushes.White,
-                1.0);
-
-            WpfPoint origin = new(
-                (size - text.Width) / 2.0,
-                (size - text.Height) / 2.0);
-
-            dc.DrawText(text, origin);
+            if (commandName.Equals("CORRSPLIT", StringComparison.OrdinalIgnoreCase))
+            {
+                // Dois eixos independentes e seta de separacao.
+                var pen = new WpfPen(new WpfSolidColorBrush(accent), Math.Max(1.4, size * 0.07));
+                var thin = new WpfPen(new WpfSolidColorBrush(WpfColor.FromRgb(225, 237, 247)),
+                    Math.Max(0.8, size * 0.037));
+                dc.DrawLine(pen, new WpfPoint(size * 0.29, size * 0.20), new WpfPoint(size * 0.29, size * 0.80));
+                dc.DrawLine(pen, new WpfPoint(size * 0.68, size * 0.20), new WpfPoint(size * 0.68, size * 0.80));
+                dc.DrawLine(thin, new WpfPoint(size * 0.38, size * 0.22), new WpfPoint(size * 0.38, size * 0.78));
+                dc.DrawLine(thin, new WpfPoint(size * 0.59, size * 0.22), new WpfPoint(size * 0.59, size * 0.78));
+                dc.DrawLine(pen, new WpfPoint(size * 0.43, size * 0.50), new WpfPoint(size * 0.54, size * 0.50));
+            }
+            else
+            {
+                double fontSize = glyph.Length >= 3 ? size * 0.30 : size * 0.38;
+                var text = new WpfFormattedText(
+                    glyph,
+                    CultureInfo.InvariantCulture,
+                    WpfFlowDirection.LeftToRight,
+                    new WpfTypeface(new WpfFontFamily("Segoe UI"), System.Windows.FontStyles.Normal,
+                        System.Windows.FontWeights.SemiBold, System.Windows.FontStretches.Normal),
+                    fontSize,
+                    new WpfSolidColorBrush(accent),
+                    1.0);
+                WpfPoint origin = new(
+                    (size - text.Width) / 2.0,
+                    (size - text.Height) / 2.0);
+                dc.DrawText(text, origin);
+            }
         }
 
         var bitmap = new WpfRenderTargetBitmap(size, size, 96.0, 96.0, WpfPixelFormats.Pbgra32);
@@ -113,12 +130,12 @@ internal static class RibbonIconFactory
     private static WpfColor GetCategoryColor(string category) =>
         category switch
         {
-            "Drenagem" => WpfColor.FromRgb(44, 102, 160),
-            "QTO" => WpfColor.FromRgb(82, 126, 78),
-            "Corridor" => WpfColor.FromRgb(178, 104, 38),
-            "Feature Lines" => WpfColor.FromRgb(46, 125, 128),
-            "Superficies" => WpfColor.FromRgb(119, 92, 63),
-            "Geometria" => WpfColor.FromRgb(105, 85, 140),
-            _ => WpfColor.FromRgb(82, 88, 96)
+            "Drenagem" => WpfColor.FromRgb(65, 158, 229),
+            "QTO" => WpfColor.FromRgb(123, 202, 147),
+            "Corridor" => WpfColor.FromRgb(56, 175, 241),
+            "Feature Lines" => WpfColor.FromRgb(78, 198, 187),
+            "Superficies" => WpfColor.FromRgb(218, 172, 98),
+            "Geometria" => WpfColor.FromRgb(162, 141, 225),
+            _ => WpfColor.FromRgb(192, 205, 215)
         };
 }
