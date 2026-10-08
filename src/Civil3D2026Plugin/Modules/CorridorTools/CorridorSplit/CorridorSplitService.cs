@@ -315,11 +315,11 @@ internal static class CorridorSplitService
                     changed = true;
                 }
 
-                // A API valida a quantidade de TargetIds ate no GET.
-                // Para 0/1 alvo essa opcao nao se aplica. Nunca acessar
-                // UseSameSideTarget (nem getter, nem setter) nesses casos.
+                // UseSameSideTarget: a API verifica tanto a quantidade de IDs
+                // quanto o TIPO. So Offset e aceito (nem Elevation, nem
+                // OffsetPipe). O getter tambem lanca excecao fora dessas regras.
                 step = "configurar UseSameSideTarget";
-                if (count >= 2 && b.TargetIds.Count >= 2 &&
+                if (CanReadSameSideTarget(a, b) &&
                     b.UseSameSideTarget != a.UseSameSideTarget)
                 {
                     b.UseSameSideTarget = a.UseSameSideTarget;
@@ -361,7 +361,7 @@ internal static class CorridorSplitService
                 if (!SameTarget(a, b) || !SameIds(a.TargetIds, b.TargetIds) ||
                     (a.TargetIds.Count >= 2 && b.TargetIds.Count >= 2 &&
                         a.TargetToOption != b.TargetToOption) ||
-                    (a.TargetIds.Count >= 2 && b.TargetIds.Count >= 2 &&
+                    (CanReadSameSideTarget(a, b) &&
                         a.UseSameSideTarget != b.UseSameSideTarget))
                     throw new InvalidOperationException("Divergencia no target '" +
                         a.SubassemblyName + " / " + a.DisplayName + "' (" +
@@ -374,6 +374,16 @@ internal static class CorridorSplitService
                 "': verificacao do mapeamento dos targets: " + ex.Message, ex);
         }
     }
+
+    // Evita consultar a propriedade sequer quando o parametro nao possui
+    // suporte da API: so Offset (EXCLUINDO OffsetPipe), com pelo menos dois
+    // TargetIds em AMBOS os lados. Este predicado nao invoca a propriedade.
+    private static bool CanReadSameSideTarget(
+        CivilDb.SubassemblyTargetInfo source, CivilDb.SubassemblyTargetInfo target) =>
+        source.TargetType == CivilDb.SubassemblyLogicalNameType.Offset &&
+        target.TargetType == CivilDb.SubassemblyLogicalNameType.Offset &&
+        source.TargetIds.Count >= 2 &&
+        target.TargetIds.Count >= 2;
 
     private static bool SameTarget(CivilDb.SubassemblyTargetInfo a, CivilDb.SubassemblyTargetInfo b) =>
         a.SubassemblyName == b.SubassemblyName &&
@@ -437,7 +447,7 @@ internal static class CorridorSplitService
                     SameIds(src.TargetIds, newTargets[j].TargetIds) &&
                     (src.TargetIds.Count < 2 || newTargets[j].TargetIds.Count < 2 ||
                         src.TargetToOption == newTargets[j].TargetToOption) &&
-                    (src.TargetIds.Count < 2 || newTargets[j].TargetIds.Count < 2 ||
+                    (!CanReadSameSideTarget(src, newTargets[j]) ||
                         src.UseSameSideTarget == newTargets[j].UseSameSideTarget)) break;
             if (j == newTargets.Count)
                 throw new InvalidOperationException("Target da regiao '" + from.Name + "' divergiu apos Rebuild: " + src.DisplayName);
