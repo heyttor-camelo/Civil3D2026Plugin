@@ -6,7 +6,6 @@ using System.Linq;
 using System.Windows.Forms;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
-using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit;
 
@@ -376,7 +375,7 @@ internal sealed class CorridorSplitDialog : Form
     {
         var editor = _document.Editor;
         PromptPointResult picked;
-        using (editor.StartUserInteraction(this))
+        using (editor.StartUserInteraction(Handle))
             picked = editor.GetPoint(new PromptPointOptions(
                 "\nCORRSPLIT - clique proximo a baseline da regiao desejada: "));
         if (picked.Status != PromptStatus.OK) return;
