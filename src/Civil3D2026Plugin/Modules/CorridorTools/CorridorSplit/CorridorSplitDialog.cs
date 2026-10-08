@@ -62,7 +62,7 @@ internal sealed class CorridorSplitDialog : Form
         _sourceId = sourceId;
         foreach (var x in choices) _expanded.Add(x.BaselineIndex);
 
-        Text = "CORRSPLIT v1.3 - Corridor Properties / Dividir corredor";
+        Text = "CORRSPLIT v1.4 - Corridor Properties / Dividir corredor";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(1170, 735);
         MinimumSize = new Size(940, 550);
