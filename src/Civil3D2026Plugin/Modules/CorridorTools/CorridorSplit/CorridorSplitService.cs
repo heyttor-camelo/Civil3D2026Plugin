@@ -234,14 +234,14 @@ internal static class CorridorSplitService
             var b = dst[match];
             var ids = new AcadDb.ObjectIdCollection();
             foreach (AcadDb.ObjectId id in a.TargetIds) ids.Add(id);
-            b.TargetIds = ids;
-            if (b.TargetToOption != a.TargetToOption)
-            {
-                if (ids.Count < 2)
-                    throw new InvalidOperationException("Nao foi possivel reproduzir TargetToOption de '" + a.DisplayName + "' com menos de dois targets.");
+            // A API Autodesk so aceita TargetToOption com 2 ou mais TargetIds.
+            // Em 0/1 target, a escolha nao tem efeito e NAO deve ser reatribuida.
+            // Nao reatribuir propriedades iguais evita validacao desnecessaria da API.
+            if (!SameIds(b.TargetIds, ids))
+                b.TargetIds = ids;
+            if (ids.Count >= 2 && b.TargetToOption != a.TargetToOption)
                 b.TargetToOption = a.TargetToOption;
-            }
-            if (b.UseSameSideTarget != a.UseSameSideTarget)
+            if (ids.Count > 0 && b.UseSameSideTarget != a.UseSameSideTarget)
                 b.UseSameSideTarget = a.UseSameSideTarget;
         }
         to.SetTargets(dst);
@@ -253,8 +253,8 @@ internal static class CorridorSplitService
             var a = src[i];
             var b = after[matching[i]];
             if (b == null || !SameIds(a.TargetIds, b.TargetIds) ||
-                a.TargetToOption != b.TargetToOption ||
-                a.UseSameSideTarget != b.UseSameSideTarget)
+                (a.TargetIds.Count >= 2 && a.TargetToOption != b.TargetToOption) ||
+                (a.TargetIds.Count > 0 && a.UseSameSideTarget != b.UseSameSideTarget))
                 throw new InvalidOperationException("Falha ao validar o target '" + a.DisplayName + "'.");
         }
     }
@@ -319,8 +319,8 @@ internal static class CorridorSplitService
             for (; j < newTargets.Count; j++)
                 if (!used.Contains(j) && SameTarget(src, newTargets[j]) &&
                     SameIds(src.TargetIds, newTargets[j].TargetIds) &&
-                    src.TargetToOption == newTargets[j].TargetToOption &&
-                    src.UseSameSideTarget == newTargets[j].UseSameSideTarget) break;
+                    (src.TargetIds.Count < 2 || src.TargetToOption == newTargets[j].TargetToOption) &&
+                    (src.TargetIds.Count == 0 || src.UseSameSideTarget == newTargets[j].UseSameSideTarget)) break;
             if (j == newTargets.Count)
                 throw new InvalidOperationException("Target da regiao '" + from.Name + "' divergiu apos Rebuild: " + src.DisplayName);
             used.Add(j);
