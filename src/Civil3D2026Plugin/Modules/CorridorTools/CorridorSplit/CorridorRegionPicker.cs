@@ -183,12 +183,12 @@ internal sealed class CorridorRegionPicker : IDisposable
     {
         var outline = new AcadDb.Polyline(region.Points.Count)
         {
-            Closed = true,
             ColorIndex = colorIndex,
             LineWeight = AcadDb.LineWeight.LineWeight050
         };
         for (int i = 0; i < region.Points.Count; i++)
             outline.AddVertexAt(i, region.Points[i], 0, 0, 0);
+        outline.Closed = true;
         return outline;
     }
 
