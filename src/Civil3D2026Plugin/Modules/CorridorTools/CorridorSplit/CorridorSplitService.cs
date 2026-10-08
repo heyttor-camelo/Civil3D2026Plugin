@@ -47,6 +47,9 @@ internal static class CorridorSplitService
 
         AcadDb.ObjectId targetId = civil.CorridorCollection.Add(targetName);
         var target = (CivilDb.Corridor)tr.GetObject(targetId, AcadDb.OpenMode.ForWrite);
+        target.CodeSetStyleId = source.CodeSetStyleId;
+        target.RegionLockMode = source.RegionLockMode;
+        target.MaximumTriangleSideLength = source.MaximumTriangleSideLength;
 
         foreach (var plan in plans)
         {
