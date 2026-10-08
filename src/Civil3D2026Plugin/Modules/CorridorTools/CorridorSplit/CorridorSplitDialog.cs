@@ -251,8 +251,11 @@ internal sealed class CorridorSplitDialog : Form
                     DrawRows();
                 }
             }
-            else if (row.Tag is RegionChoice region && args.ColumnIndex == 0)
-                ToggleRegion(region);
+            else if (row.Tag is RegionChoice region)
+            {
+                if (args.ColumnIndex == 0) ToggleRegion(region);
+                else PreviewRow(region);
+            }
         };
         _grid.CellDoubleClick += (_, args) =>
         {
@@ -260,6 +263,20 @@ internal sealed class CorridorSplitDialog : Form
             if (_grid.Rows[args.RowIndex].Tag is RegionChoice region && args.ColumnIndex != 0)
                 ToggleRegion(region);
         };
+    }
+
+    private void PreviewRow(RegionChoice region)
+    {
+        try
+        {
+            _picker ??= new CorridorRegionPicker(_document, _sourceId, _choices);
+            _picker.PreviewChoice(region);
+        }
+        catch (System.Exception)
+        {
+            // Se a representacao geometrica nao estiver disponivel,
+            // a selecao pela tabela continua funcionando.
+        }
     }
 
     private void AddTextColumn(string name, string header, int width)
