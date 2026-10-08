@@ -64,8 +64,8 @@ internal static class CorridorSplitService
                 var dstReg = dstBase.BaselineRegions.Add(
                     srcReg.Name, srcReg.AssemblyId, srcReg.StartStation, srcReg.EndStation);
                 CopyFrequency(srcReg, dstReg);
-                CopyTargets(srcReg, dstReg);
-                CheckRegion(srcReg, dstReg);
+                // Os targets sao vinculados apos todas as baselines e regioes existirem.
+                // Nesta fase valida-se apenas a configuracao estrutural.
                 plan.NewRegions.Add(dstReg);
             }
 
@@ -110,8 +110,37 @@ internal static class CorridorSplitService
             }
         }
 
-        // Rebuild do DESTINO antes de alterar o CORRIDOR ORIGINAL.
-        target.Rebuild();
+        // Primeiro rebuild sem target mapping: materializa todas as regioes,
+        // inclusive as que dependem de outras baselines no mesmo Corridor.
+        try
+        {
+            target.Rebuild();
+        }
+        catch (System.Exception ex)
+        {
+            throw new InvalidOperationException("Rebuild inicial do Corridor destino: " + ex.Message, ex);
+        }
+
+        // Aplicar targets somente quando TODAS as regioes foram criadas.
+        foreach (var plan in plans)
+        {
+            int position = 0;
+            foreach (int index in plan.Indexes.OrderBy(x => x))
+            {
+                CopyTargets(plan.Source.BaselineRegions[index], plan.NewRegions[position++]);
+            }
+        }
+
+        // Rebuild final do DESTINO com targets e transitions, antes de
+        // QUALQUER remocao no Corridor original.
+        try
+        {
+            target.Rebuild();
+        }
+        catch (System.Exception ex)
+        {
+            throw new InvalidOperationException("Rebuild final do Corridor destino: " + ex.Message, ex);
+        }
         foreach (var plan in plans)
         {
             CivilDb.Baseline dstBase = target.Baselines[plans.IndexOf(plan)];
