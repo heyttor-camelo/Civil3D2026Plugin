@@ -112,6 +112,16 @@ internal sealed class CorridorRegionPicker : IDisposable
         }
     }
 
+    public void PreviewChoice(RegionChoice? choice)
+    {
+        if (_disposed) return;
+        var footprint = choice == null ? null :
+            _footprints.FirstOrDefault(x =>
+                x.Choice.BaselineIndex == choice.BaselineIndex &&
+                x.Choice.RegionIndex == choice.RegionIndex);
+        ChangeHover(footprint);
+    }
+
     private void OnPointMonitor(object sender, PointMonitorEventArgs args)
     {
         try
