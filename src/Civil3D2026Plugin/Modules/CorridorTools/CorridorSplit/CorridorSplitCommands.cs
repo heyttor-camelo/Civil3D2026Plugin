@@ -94,7 +94,7 @@ public sealed class CorridorSplitCommands
             if (surfaces > 0)
                 ed.WriteMessage("\nAVISO: Corridor Surfaces da origem NAO foram copiadas para o destino.");
         }
-        catch (Exception ex)
+        catch (System.Exception ex)
         {
             ed.WriteMessage("\n[CORRSPLIT] Operacao cancelada (rollback): " + ex.Message);
         }
