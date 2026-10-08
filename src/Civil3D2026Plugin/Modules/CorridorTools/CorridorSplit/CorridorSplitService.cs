@@ -131,8 +131,10 @@ internal static class CorridorSplitService
             {
                 // Apos Rebuild, obter novos wrappers da colecao atual,
                 // evitando referencias potencialmente invalidadas da fase de criacao.
-                CopyTargets(plan.Source.BaselineRegions[index],
-                    destinationBase.BaselineRegions[position++]);
+                var sourceRegion = plan.Source.BaselineRegions[index];
+                var destinationRegion = destinationBase.BaselineRegions[position++];
+                RestoreAdditionalStations(sourceRegion, destinationRegion, "apos Rebuild inicial");
+                CopyTargets(sourceRegion, destinationRegion);
             }
         }
 
@@ -146,6 +148,42 @@ internal static class CorridorSplitService
         {
             throw new InvalidOperationException("Rebuild final do Corridor destino: " + ex.Message, ex);
         }
+        // Algumas versoes do Civil 3D podem normalizar as estacas adicionais no
+        // Rebuild com targets. Fazer uma unica tentativa de reparo, reconstruir
+        // novamente e entao exigir equivalencia (sem ignorar perda de dados).
+        bool needsStationRebuild = false;
+        for (int b = 0; b < plans.Count; b++)
+        {
+            var plan = plans[b];
+            var dstBase = target.Baselines[b];
+            int r = 0;
+            foreach (int originalIndex in plan.Indexes.OrderBy(x => x))
+            {
+                var originalRegion = plan.Source.BaselineRegions[originalIndex];
+                var copyRegion = dstBase.BaselineRegions[r++];
+                if (!SameAdditionalStations(
+                        originalRegion.AppliedAssemblySetting.AdditionalAppliedAssemblies,
+                        copyRegion.AppliedAssemblySetting.AdditionalAppliedAssemblies))
+                {
+                    RestoreAdditionalStations(originalRegion, copyRegion, "apos Rebuild com targets");
+                    needsStationRebuild = true;
+                }
+            }
+        }
+
+        if (needsStationRebuild)
+        {
+            try
+            {
+                target.Rebuild();
+            }
+            catch (System.Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Rebuild de validacao apos restaurar estacas adicionais: " + ex.Message, ex);
+            }
+        }
+
         foreach (var plan in plans)
         {
             CivilDb.Baseline dstBase = target.Baselines[plans.IndexOf(plan)];
@@ -241,8 +279,78 @@ internal static class CorridorSplitService
         dst.MODAlongCurves = src.MODAlongCurves;
         dst.MODAlongTargetCurves = src.MODAlongTargetCurves;
         dst.TargetCurveOption = src.TargetCurveOption;
-        dst.AdditionalAppliedAssemblies = src.AdditionalAppliedAssemblies
-            .Select(a => new CivilDb.AdditionalAppliedAssemblyInfo(a.Station, a.Description)).ToList();
+        // Nao copiar AdditionalAppliedAssemblies aqui: a API pode recalcular essa
+        // colecao durante Rebuild. As estacas manuais sao restauradas explicitamente
+        // via BaselineRegion.AddStation APOS a criacao de todas as regioes.
+    }
+
+    // Evitar a comparacao por indice: a API pode devolver as estacas em ordem
+    // diferente. Ainda exigimos mesma quantidade, estaca e descricao.
+    private static bool SameAdditionalStations(
+        List<CivilDb.AdditionalAppliedAssemblyInfo> original,
+        List<CivilDb.AdditionalAppliedAssemblyInfo> copy)
+    {
+        if (original.Count != copy.Count) return false;
+        var expected = original.OrderBy(x => x.Station)
+            .ThenBy(x => x.Description ?? string.Empty, StringComparer.Ordinal).ToList();
+        var actual = copy.OrderBy(x => x.Station)
+            .ThenBy(x => x.Description ?? string.Empty, StringComparer.Ordinal).ToList();
+
+        for (int i = 0; i < expected.Count; i++)
+        {
+            if (Math.Abs(expected[i].Station - actual[i].Station) > Tol ||
+                !string.Equals(expected[i].Description ?? string.Empty,
+                    actual[i].Description ?? string.Empty, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    private static string FormatAdditionalStations(
+        List<CivilDb.AdditionalAppliedAssemblyInfo> stations)
+    {
+        if (stations.Count == 0) return "(nenhuma)";
+        const int maxDisplay = 12;
+        var ordered = stations.OrderBy(x => x.Station).ToList();
+        string values = string.Join("; ", ordered.Take(maxDisplay).Select(s =>
+            s.Station.ToString("F4", System.Globalization.CultureInfo.InvariantCulture) +
+            " [" + (s.Description ?? "") + "]"));
+        return ordered.Count.ToString(System.Globalization.CultureInfo.InvariantCulture) +
+            " estaca(s): " + values +
+            (ordered.Count > maxDisplay ? "; ... +" + (ordered.Count - maxDisplay) : "");
+    }
+
+    private static void RestoreAdditionalStations(
+        CivilDb.BaselineRegion original, CivilDb.BaselineRegion copy, string phase)
+    {
+        var expected = original.AppliedAssemblySetting.AdditionalAppliedAssemblies;
+        var current = copy.AppliedAssemblySetting.AdditionalAppliedAssemblies;
+        if (SameAdditionalStations(expected, current)) return;
+
+        try
+        {
+            // ClearAdditionalStations e AddStation trabalham diretamente na
+            // BaselineRegion; nao dependem do setter de frequencia antes do Rebuild.
+            copy.ClearAdditionalStations();
+            foreach (var item in expected.OrderBy(x => x.Station))
+                copy.AddStation(item.Station, item.Description ?? string.Empty);
+        }
+        catch (System.Exception ex)
+        {
+            throw new InvalidOperationException(
+                "Regiao '" + original.Name + "': falhou ao restaurar estacas adicionais " +
+                "(" + phase + "). Origem: " + FormatAdditionalStations(expected) +
+                " | Destino antes: " + FormatAdditionalStations(current) +
+                ". Detalhe: " + ex.Message, ex);
+        }
+
+        var after = copy.AppliedAssemblySetting.AdditionalAppliedAssemblies;
+        if (!SameAdditionalStations(expected, after))
+            throw new InvalidOperationException(
+                "Regiao '" + original.Name + "': estacas adicionais nao foram preservadas " +
+                "ao usar AddStation (" + phase + "). Origem: " +
+                FormatAdditionalStations(expected) + " | Destino: " +
+                FormatAdditionalStations(after));
     }
 
     private static void CopyTargets(CivilDb.BaselineRegion from, CivilDb.BaselineRegion to)
@@ -417,16 +525,15 @@ internal static class CorridorSplitService
             src.TargetCurveOption != dst.TargetCurveOption ||
             src.MODAlongCurves != dst.MODAlongCurves ||
             src.MODAlongTargetCurves != dst.MODAlongTargetCurves ||
-            src.AppliedAdjacentToOffsetTargetStartEnd != dst.AppliedAdjacentToOffsetTargetStartEnd ||
-            src.AdditionalAppliedAssemblies.Count != dst.AdditionalAppliedAssemblies.Count)
-            throw new InvalidOperationException("Frequencias/estacas adicionais divergiram na regiao '" + from.Name + "'.");
-        for (int i = 0; i < src.AdditionalAppliedAssemblies.Count; i++)
-        {
-            var sa = src.AdditionalAppliedAssemblies[i];
-            var da = dst.AdditionalAppliedAssemblies[i];
-            if (Math.Abs(sa.Station - da.Station) > Tol || sa.Description != da.Description)
-                throw new InvalidOperationException("Estacas adicionais divergiram na regiao '" + from.Name + "'.");
-        }
+            src.AppliedAdjacentToOffsetTargetStartEnd != dst.AppliedAdjacentToOffsetTargetStartEnd)
+            throw new InvalidOperationException(
+                "Frequencias de assembly divergiram na regiao '" + from.Name + "'.");
+
+        if (!SameAdditionalStations(src.AdditionalAppliedAssemblies, dst.AdditionalAppliedAssemblies))
+            throw new InvalidOperationException(
+                "Estacas adicionais divergiram APOS reconstruir a regiao '" + from.Name +
+                "'. Origem: " + FormatAdditionalStations(src.AdditionalAppliedAssemblies) +
+                " | Destino: " + FormatAdditionalStations(dst.AdditionalAppliedAssemblies));
         VerifyTargets(from, to);
     }
 
