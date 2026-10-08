@@ -1,7 +1,15 @@
-# CORRSPLIT v1.0 - Corridor Split
+# CORRSPLIT v1.1 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Novidades da v1.1
+
+- Janela de baselines e regioes hierarquicas como Corridor Properties: colunas Horizontal Baseline, Vertical Baseline, Assembly, estacas, targets e checkboxes.
+- Selecao individual, por baseline, marcar todas, inverter e expandir/recolher.
+- Selecao de uma regiao pelo desenho com StartUserInteraction do editor e proximidade ao eixo da baseline (tolerancia 35 unidades). Selecoes ambiguas exigem escolha manual para nao marcar a regiao errada.
+- Corrige erro: The count of TargetIds should be greater or equal to 2. A opcao TargetToOption e redefinida apenas quando ha 2+ targets; casos com 0/1 sao transferidos sem impor opcao sem efeito.
+- Iconografia da Ribbon inspirada nas ferramentas CAD da imagem de referencia.
 
 ## Como usar
 
@@ -30,6 +38,7 @@ DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
 - Nao permite regioes com overrides de secoes ou Offset Baselines.
 - Nao permite Corridor Transitions cruzando a fronteira selecionada ou Transition Set misto (transicoes dos dois grupos). Separe os conjuntos primeiro.
 - Nao compara a geometria tridimensional completa das secoes.
+- A selecao pelo desenho e por distancia aproximada do ponto clicado ate o eixo da baseline; quando houver ambiguidades, selecione pela arvore.
 - Targets dependentes de entidades dinamicas podem exigir verificacao manual apos transferencia.
 - Nao exclui baselines vazias no corredor original.
 - Nao promete equivalencia total de corredores complexos nesta primeira versao.
