@@ -243,49 +243,126 @@ internal static class CorridorSplitService
     private static void CopyTargets(CivilDb.BaselineRegion from, CivilDb.BaselineRegion to)
     {
         var src = from.GetTargets();
-        if (src.Count == 0) return; // sem mapeamento: evitar SetTargets desnecessario
-        var dst = to.GetTargets(); // obrigatoriamente a colecao do DESTINO
+        if (src.Count == 0) return;
+
+        var dst = to.GetTargets(); // colecao tem de pertencer a regiao DESTINO
         if (src.Count != dst.Count)
-            throw new InvalidOperationException("A quantidade de targets difere na regiao '" + from.Name + "'.");
+            throw new InvalidOperationException(
+                "Regiao '" + from.Name + "': contagem de parametros target difere (" +
+                src.Count + " na origem, " + dst.Count + " no destino).");
 
         var used = new HashSet<int>();
         var matching = new int[src.Count];
+        bool changed = false;
+
         for (int i = 0; i < src.Count; i++)
         {
             var a = src[i];
             int match = -1;
             for (int j = 0; j < dst.Count; j++)
-                if (!used.Contains(j) && SameTarget(a, dst[j])) { match = j; break; }
+            {
+                if (!used.Contains(j) && SameTarget(a, dst[j]))
+                {
+                    match = j;
+                    break;
+                }
+            }
             if (match < 0)
-                throw new InvalidOperationException("Target nao encontrado: " + a.SubassemblyName +
-                    " / " + a.DisplayName);
+                throw new InvalidOperationException("Regiao '" + from.Name +
+                    "': parametro target nao encontrado no destino: " +
+                    a.SubassemblyName + " / " + a.DisplayName + " / " + a.LogicalName);
+
             used.Add(match);
             matching[i] = match;
             var b = dst[match];
-            var ids = new AcadDb.ObjectIdCollection();
-            foreach (AcadDb.ObjectId id in a.TargetIds) ids.Add(id);
-            // A API Autodesk so aceita TargetToOption com 2 ou mais TargetIds.
-            // Em 0/1 target, a escolha nao tem efeito e NAO deve ser reatribuida.
-            // Nao reatribuir propriedades iguais evita validacao desnecessaria da API.
-            if (!SameIds(b.TargetIds, ids))
-                b.TargetIds = ids;
-            if (ids.Count >= 2 && b.TargetToOption != a.TargetToOption)
-                b.TargetToOption = a.TargetToOption;
-            if (ids.Count > 0 && b.UseSameSideTarget != a.UseSameSideTarget)
-                b.UseSameSideTarget = a.UseSameSideTarget;
+            string step = "identificacao";
+            int count = a.TargetIds.Count;
+
+            try
+            {
+                // A contagem de TargetIds e POR PARAMETRO de subassembly.
+                // Offset (horizontal) e Elevation (vertical) costumam ser
+                // parametros diferentes e cada um pode ter um unico TargetId.
+                //
+                // Nao reescrever parametros sem target: isso evita validacoes
+                // de TargetToOption sobre parametros vazios na API Autodesk.
+                if (count == 0)
+                    continue;
+
+                var ids = new AcadDb.ObjectIdCollection();
+                foreach (AcadDb.ObjectId targetId in a.TargetIds)
+                    ids.Add(targetId);
+
+                step = "atribuir TargetIds";
+                if (!SameIds(b.TargetIds, ids))
+                {
+                    b.TargetIds = ids;
+                    changed = true;
+                }
+
+                // Nao acessar nem atribuir TargetToOption com 0/1 TargetIds.
+                // Tambem exigir que a colecao DESTINO realmente retenha 2 IDs.
+                step = "configurar TargetToOption";
+                if (count >= 2 && b.TargetIds.Count >= 2 &&
+                    b.TargetToOption != a.TargetToOption)
+                {
+                    b.TargetToOption = a.TargetToOption;
+                    changed = true;
+                }
+
+                step = "configurar UseSameSideTarget";
+                if (b.UseSameSideTarget != a.UseSameSideTarget)
+                {
+                    b.UseSameSideTarget = a.UseSameSideTarget;
+                    changed = true;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "Regiao '" + from.Name + "', subassembly '" + a.SubassemblyName +
+                    "', parametro '" + a.DisplayName + "' (" + a.LogicalName +
+                    ", tipo " + a.TargetType + ", " + count +
+                    " TargetIds): falhou em '" + step + "': " + ex.Message, ex);
+            }
         }
-        to.SetTargets(dst);
-        var after = to.GetTargets();
-        if (after.Count != dst.Count)
-            throw new InvalidOperationException("SetTargets nao persistiu todos os targets.");
-        for (int i = 0; i < src.Count; i++)
+
+        if (changed)
         {
-            var a = src[i];
-            var b = after[matching[i]];
-            if (b == null || !SameIds(a.TargetIds, b.TargetIds) ||
-                (a.TargetIds.Count >= 2 && a.TargetToOption != b.TargetToOption) ||
-                (a.TargetIds.Count > 0 && a.UseSameSideTarget != b.UseSameSideTarget))
-                throw new InvalidOperationException("Falha ao validar o target '" + a.DisplayName + "'.");
+            try
+            {
+                to.SetTargets(dst);
+            }
+            catch (System.Exception ex)
+            {
+                throw new InvalidOperationException("Regiao '" + from.Name +
+                    "': erro ao executar BaselineRegion.SetTargets: " + ex.Message, ex);
+            }
+        }
+
+        try
+        {
+            var after = to.GetTargets();
+            if (after.Count != dst.Count)
+                throw new InvalidOperationException("Contagem de parametros target divergente.");
+            for (int i = 0; i < src.Count; i++)
+            {
+                var a = src[i];
+                var b = after[matching[i]];
+                if (!SameTarget(a, b) || !SameIds(a.TargetIds, b.TargetIds) ||
+                    (a.TargetIds.Count >= 2 &&
+                        a.TargetToOption != b.TargetToOption) ||
+                    (a.TargetIds.Count > 0 &&
+                        a.UseSameSideTarget != b.UseSameSideTarget))
+                    throw new InvalidOperationException("Divergencia no target '" +
+                        a.SubassemblyName + " / " + a.DisplayName + "' (" +
+                        a.TargetIds.Count + " IDs).");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            throw new InvalidOperationException("Regiao '" + from.Name +
+                "': verificacao do mapeamento dos targets: " + ex.Message, ex);
         }
     }
 
