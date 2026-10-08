@@ -22,7 +22,7 @@ No Civil 3D, execute `NETLOAD` nessa DLL. Ao carregar, o plugin mostra:
 
 Use `C3DHELP` a qualquer momento para repetir a arvore, com descricoes.
 
-## CORRSPLIT v1.4.0 (teste)
+## CORRSPLIT v1.5.0 (teste)
 
 Execute CORRSPLIT e selecione o corredor de origem. Na janela em arvore, marque as regioes por baseline ou use Selecionar regiao no desenho,
 informe o novo nome e escolha entre Copiar e Transferir. O comando cria so as
