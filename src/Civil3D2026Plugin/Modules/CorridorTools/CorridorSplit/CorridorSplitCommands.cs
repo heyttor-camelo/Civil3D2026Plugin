@@ -6,7 +6,7 @@ using System.Windows.Forms;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Autodesk.Civil.ApplicationServices;
-using AcApp = Autodesk.AutoCAD.ApplicationServices.Core.Application;
+using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit;
 
