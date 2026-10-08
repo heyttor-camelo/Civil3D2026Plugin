@@ -17,6 +17,7 @@ DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
 - Cria apenas baselines com regioes selecionadas.
 - Suporta baselines baseadas em Alignment + Profile e em Feature Line.
 - Reutiliza Assembly e referencias de target ja existentes no mesmo DWG.
+- Copia Code Set Style, modo de travamento das regioes e tamanho maximo do lado de triangulo da superficie.
 - Replica estacas inicial/final, frequencias de assemblies e estacas adicionais com descricoes.
 - Remapeia targets pelo contexto da subassembly no destino: grupo, nome logico, tipo e nome exibido.
 - Replica Corridor Transition Sets inteiros e contidos nas regioes selecionadas, com valores inicial/final, parametros, tipo, comentarios e lado.
@@ -25,7 +26,7 @@ DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
 
 ## Limitacoes deliberadas
 
-- NAO clona Corridor Surfaces, boundaries, slope patterns, code set styles, overrides ou objetos derivados. O operador e avisado se a origem tem superficies.
+- NAO clona Corridor Surfaces, boundaries, slope patterns, overrides ou objetos derivados. O operador e avisado se a origem tem superficies.
 - Nao permite regioes com overrides de secoes ou Offset Baselines.
 - Nao permite Corridor Transitions cruzando a fronteira selecionada ou Transition Set misto (transicoes dos dois grupos). Separe os conjuntos primeiro.
 - Nao compara a geometria tridimensional completa das secoes.
