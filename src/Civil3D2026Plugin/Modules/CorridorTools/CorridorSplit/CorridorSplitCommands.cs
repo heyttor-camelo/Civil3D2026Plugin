@@ -10,7 +10,7 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit;
 
 /// <summary>
-/// CORRSPLIT v1.1: copia/move regioes entre dois corredores do mesmo DWG.
+/// CORRSPLIT v1.2: copia/move regioes entre dois corredores do mesmo DWG.
 /// As alteracoes so sao confirmadas apos recriacao, verificacao e rebuild.
 /// </summary>
 public sealed class CorridorSplitCommands
@@ -112,7 +112,7 @@ public sealed class CorridorSplitCommands
         }
         catch (System.Exception ex)
         {
-            ed.WriteMessage("\n[CORRSPLIT] Operacao cancelada (rollback): " + ex.Message);
+            ed.WriteMessage("\n[CORRSPLIT v1.2] Operacao cancelada (rollback): " + ex.ToString());
         }
     }
 
