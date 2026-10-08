@@ -5,7 +5,6 @@ using System.Globalization;
 using System.Linq;
 using System.Windows.Forms;
 using Autodesk.AutoCAD.EditorInput;
-using Autodesk.AutoCAD.Geometry;
 
 namespace Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit;
 
@@ -45,6 +44,7 @@ internal sealed class CorridorSplitDialog : Form
     private readonly string _origin;
     private readonly Autodesk.AutoCAD.ApplicationServices.Document _document;
     private readonly AcadDb.ObjectId _sourceId;
+    private CorridorRegionPicker? _picker;
     private readonly Color _baselineBackground = Color.FromArgb(224, 233, 241);
     private readonly Color _selectedBackground = Color.FromArgb(220, 238, 250);
 
@@ -62,7 +62,7 @@ internal sealed class CorridorSplitDialog : Form
         _sourceId = sourceId;
         foreach (var x in choices) _expanded.Add(x.BaselineIndex);
 
-        Text = "CORRSPLIT v1.5 - Corridor Properties / Dividir corredor";
+        Text = "CORRSPLIT v1.6 - Seleção de regiões / Corridor Properties";
         StartPosition = FormStartPosition.CenterScreen;
         Size = new Size(1170, 735);
         MinimumSize = new Size(940, 550);
@@ -323,6 +323,7 @@ internal sealed class CorridorSplitDialog : Form
         int bases = _checked.Select(x => x.BaselineIndex).Distinct().Count();
         _count.Text = total + " de " + _choices.Count + " regiões selecionadas  |  " +
             bases + " baseline(s) necessárias";
+        _picker?.ShowSelected(_checked);
     }
 
     private void ToggleRegion(RegionChoice choice)
@@ -367,120 +368,61 @@ internal sealed class CorridorSplitDialog : Form
     }
 
     /// <summary>
-    /// Retorna ao editor durante a janela modal (StartUserInteraction) e
-    /// encontra a regiao cuja baseline esta mais perto do ponto escolhido.
-    /// O criterio aproxima o eixo por segmentos discretizados em planta.
+    /// Um clique dentro da faixa da regiao, como o Select region from drawing.
+    /// O contorno azul e o tooltip acompanham o cursor; o destaque das regioes
+    /// marcadas permanece enquanto a janela estiver aberta.
     /// </summary>
     private void SelectFromDrawing()
     {
-        var editor = _document.Editor;
-        PromptPointResult picked;
-        using (editor.StartUserInteraction(Handle))
-            picked = editor.GetPoint(new PromptPointOptions(
-                "\nCORRSPLIT - clique proximo a baseline da regiao desejada: "));
-        if (picked.Status != PromptStatus.OK) return;
-
         try
         {
-            var candidates = new List<(RegionChoice Region, double Distance)>();
-            using (var tr = _document.Database.TransactionManager.StartTransaction())
-            {
-                var corridor = (CivilDb.Corridor)tr.GetObject(_sourceId, AcadDb.OpenMode.ForRead);
-                foreach (var region in _choices)
-                {
-                    if (region.BaselineIndex >= corridor.Baselines.Count) continue;
-                    var baseline = corridor.Baselines[region.BaselineIndex];
-                    double distance = DistanceToBaselineRegion(baseline, region, picked.Value);
-                    if (!double.IsInfinity(distance))
-                        candidates.Add((region, distance));
-                }
-            }
-
-            var nearest = candidates.OrderBy(x => x.Distance).Take(2).ToList();
-            if (nearest.Count == 0 || nearest[0].Distance > 35.0)
+            _picker ??= new CorridorRegionPicker(_document, _sourceId, _choices);
+            if (_picker.AvailableRegions == 0)
             {
                 MessageBox.Show(this,
-                    "Não foi encontrada uma região a até 35 unidades do ponto. " +
-                    "Clique mais próximo ao eixo ou selecione pela tabela.",
+                    "O corredor não possui seções calculadas disponíveis para seleção gráfica.\n" +
+                    "Selecione as regiões pela tabela ou reconstrua o Corridor.",
                     "CORRSPLIT", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            if (nearest.Count > 1 && nearest[1].Distance - nearest[0].Distance < 0.50)
-            {
-                MessageBox.Show(this,
-                    "Há duas regiões muito próximas do ponto clicado. " +
-                    "Para evitar selecionar a região errada, escolha-a diretamente na tabela.",
-                    "CORRSPLIT", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
-            }
-            var found = nearest[0].Region;
-            _checked.Add(found);
+            RegionChoice? found;
+            using (_document.Editor.StartUserInteraction(Handle))
+                found = _picker.Pick(_document.Editor);
+
+            if (found == null) return;
+            // Repetir o clique alterna o estado da mesma regiao.
+            if (!_checked.Add(found)) _checked.Remove(found);
             _expanded.Add(found.BaselineIndex);
             DrawRows();
             foreach (DataGridViewRow row in _grid.Rows)
             {
-                if (row.Tag is RegionChoice item && item.BaselineIndex == found.BaselineIndex &&
+                if (row.Tag is RegionChoice item &&
+                    item.BaselineIndex == found.BaselineIndex &&
                     item.RegionIndex == found.RegionIndex)
                 {
                     row.Selected = true;
-                    _grid.FirstDisplayedScrollingRowIndex = row.Index;
+                    if (row.Index >= 0) _grid.FirstDisplayedScrollingRowIndex = row.Index;
                     break;
                 }
             }
         }
         catch (System.Exception ex)
         {
-            MessageBox.Show(this, "Falha ao localizar a região: " + ex.Message,
+            MessageBox.Show(this, "Falha na seleção gráfica: " + ex.Message,
                 "CORRSPLIT", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
     }
 
-    private static double DistanceToBaselineRegion(CivilDb.Baseline baseline,
-        RegionChoice region, Point3d point)
+    protected override void Dispose(bool disposing)
     {
-        double length = Math.Abs(region.EndStation - region.StartStation);
-        int segments = Math.Clamp((int)Math.Ceiling(length / 5.0), 8, 140);
-        double best = double.PositiveInfinity;
-        Point3d? last = null;
-        for (int i = 0; i <= segments; i++)
+        if (disposing)
         {
-            double st = region.StartStation + (region.EndStation - region.StartStation) *
-                (i / (double)segments);
-            Point3d sample;
-            try
-            {
-                sample = baseline.StationOffsetElevationToXYZ(new Point3d(st, 0, 0));
-            }
-            catch (System.Exception)
-            {
-                last = null;
-                continue;
-            }
-            if (sample.DistanceTo(Point3d.Origin) < 1e-7)
-            {
-                last = null; // retorno da API para coordenada SOE invalida
-                continue;
-            }
-            if (last.HasValue)
-                best = Math.Min(best, PointToSegmentDistanceXY(point, last.Value, sample));
-            else
-                best = Math.Min(best, Math.Sqrt((point.X - sample.X) * (point.X - sample.X) +
-                    (point.Y - sample.Y) * (point.Y - sample.Y)));
-            last = sample;
+            // Evitar deixar objetos transient (contornos de selecao) no CAD.
+            _picker?.Dispose();
+            _picker = null;
         }
-        return best;
-    }
-
-    private static double PointToSegmentDistanceXY(Point3d p, Point3d a, Point3d b)
-    {
-        double dx = b.X - a.X, dy = b.Y - a.Y;
-        double len2 = dx * dx + dy * dy;
-        if (len2 < 1e-12)
-            return Math.Sqrt((p.X - a.X) * (p.X - a.X) + (p.Y - a.Y) * (p.Y - a.Y));
-        double t = Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2, 0.0, 1.0);
-        double x = p.X - (a.X + t * dx), y = p.Y - (a.Y + t * dy);
-        return Math.Sqrt(x * x + y * y);
+        base.Dispose(disposing);
     }
 
     private void Confirm()
