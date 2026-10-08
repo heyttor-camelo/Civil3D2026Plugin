@@ -1,7 +1,17 @@
-# CORRSPLIT v1.1 - Corridor Split
+# CORRSPLIT v1.2 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Atualizacao v1.2 (diagnostico do erro TargetIds)
+
+- Corrige a ordem da construcao: cria todas as baselines e regioes, faz primeiro Rebuild, aplica targets e faz Rebuild final.
+- Faz a contagem de TargetIds separadamente em cada parametro, nao entre parametros horizontais e verticais distintos.
+- Nao reatribui TargetIds com zero objetos, nem TargetToOption quando existem menos de dois IDs no mesmo parametro.
+- SetTargets e ignorado quando nenhum parametro sofreu alteracao.
+- Falhas de leitura, atribuicao e verificacao informam regiao, subassembly, parametro, contagem de IDs, etapa e stack trace.
+- A funcionalidade de selecionar uma regiao por duplo clique diretamente no desenho e o highlight visual continuam pendentes.
+- Importante: reiniciar o Civil 3D apos recompilar, pois NETLOAD nao substitui necessariamente uma DLL ja carregada.
 
 ## Novidades da v1.1
 
