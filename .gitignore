@@ -1,0 +1,19 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Build intermediates
+**/bin/
+**/obj/
+artifacts/
+
+# NETLOAD receives the latest local build; keep only its README in source control.
+NETLOAD/*
+!NETLOAD/README.txt
+
+# Local/temporary files
+*.tmp
+*.bak
+*.userosscache
+*.sln.docstates

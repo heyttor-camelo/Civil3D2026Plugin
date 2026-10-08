@@ -1,0 +1,82 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <AssemblyName>Civil3D2026Plugin</AssemblyName>
+    <RootNamespace>Civil3D2026Plugin</RootNamespace>
+
+    <!-- Civil 3D 2026.2 atual: .NET 8 / x64 -->
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+
+    <!--
+      Saida fixa para facilitar NETLOAD.
+      Depois de qualquer Build/Rebuild, a DLL atual fica em:
+      <raiz-do-projeto>\NETLOAD\Civil3D2026Plugin.dll
+    -->
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <Deterministic>true</Deterministic>
+  </PropertyGroup>
+
+
+  <!--
+    Referencias do AutoCAD / Civil 3D 2026.
+    Private=False evita copiar DLLs Autodesk para NETLOAD; o Civil 3D ja fornece
+    essas dependencias em runtime.
+  -->
+  <ItemGroup>
+    <Reference Include="accoremgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\accoremgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Acdbmgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acdbmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="acdbmgdbrep">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acdbmgdbrep.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Acmgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\AdWindows.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AecBaseMgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\ACA\AecBaseMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AecPropDataMgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\ACA\AecPropDataMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AeccDbMgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\C3D\AeccDbMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AeccPressurePipesMgd">
+      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\C3D\AeccPressurePipesMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="ShowNetloadPath" AfterTargets="Build">
+    <Message Importance="high" Text="============================================================" />
+    <Message Importance="high" Text="DLL pronta para NETLOAD: $(TargetPath)" />
+    <Message Importance="high" Text="============================================================" />
+  </Target>
+
+</Project>
