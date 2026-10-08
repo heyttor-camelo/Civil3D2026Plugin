@@ -315,8 +315,12 @@ internal static class CorridorSplitService
                     changed = true;
                 }
 
+                // A API valida a quantidade de TargetIds ate no GET.
+                // Para 0/1 alvo essa opcao nao se aplica. Nunca acessar
+                // UseSameSideTarget (nem getter, nem setter) nesses casos.
                 step = "configurar UseSameSideTarget";
-                if (b.UseSameSideTarget != a.UseSameSideTarget)
+                if (count >= 2 && b.TargetIds.Count >= 2 &&
+                    b.UseSameSideTarget != a.UseSameSideTarget)
                 {
                     b.UseSameSideTarget = a.UseSameSideTarget;
                     changed = true;
@@ -355,9 +359,9 @@ internal static class CorridorSplitService
                 var a = src[i];
                 var b = after[matching[i]];
                 if (!SameTarget(a, b) || !SameIds(a.TargetIds, b.TargetIds) ||
-                    (a.TargetIds.Count >= 2 &&
+                    (a.TargetIds.Count >= 2 && b.TargetIds.Count >= 2 &&
                         a.TargetToOption != b.TargetToOption) ||
-                    (a.TargetIds.Count > 0 &&
+                    (a.TargetIds.Count >= 2 && b.TargetIds.Count >= 2 &&
                         a.UseSameSideTarget != b.UseSameSideTarget))
                     throw new InvalidOperationException("Divergencia no target '" +
                         a.SubassemblyName + " / " + a.DisplayName + "' (" +
@@ -431,8 +435,10 @@ internal static class CorridorSplitService
             for (; j < newTargets.Count; j++)
                 if (!used.Contains(j) && SameTarget(src, newTargets[j]) &&
                     SameIds(src.TargetIds, newTargets[j].TargetIds) &&
-                    (src.TargetIds.Count < 2 || src.TargetToOption == newTargets[j].TargetToOption) &&
-                    (src.TargetIds.Count == 0 || src.UseSameSideTarget == newTargets[j].UseSameSideTarget)) break;
+                    (src.TargetIds.Count < 2 || newTargets[j].TargetIds.Count < 2 ||
+                        src.TargetToOption == newTargets[j].TargetToOption) &&
+                    (src.TargetIds.Count < 2 || newTargets[j].TargetIds.Count < 2 ||
+                        src.UseSameSideTarget == newTargets[j].UseSameSideTarget)) break;
             if (j == newTargets.Count)
                 throw new InvalidOperationException("Target da regiao '" + from.Name + "' divergiu apos Rebuild: " + src.DisplayName);
             used.Add(j);
