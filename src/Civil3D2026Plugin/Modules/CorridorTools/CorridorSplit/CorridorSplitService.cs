@@ -344,13 +344,9 @@ internal static class CorridorSplitService
                 ". Detalhe: " + ex.Message, ex);
         }
 
-        var after = copy.AppliedAssemblySetting.AdditionalAppliedAssemblies;
-        if (!SameAdditionalStations(expected, after))
-            throw new InvalidOperationException(
-                "Regiao '" + original.Name + "': estacas adicionais nao foram preservadas " +
-                "ao usar AddStation (" + phase + "). Origem: " +
-                FormatAdditionalStations(expected) + " | Destino: " +
-                FormatAdditionalStations(after));
+        // A colecao de AppliedAssemblySetting pode atualizar apenas apos Rebuild.
+        // Nao exigir equivalencia imediata: CheckRegion valida rigorosamente
+        // depois do ultimo Rebuild, com estacas e descricoes detalhadas no erro.
     }
 
     private static void CopyTargets(CivilDb.BaselineRegion from, CivilDb.BaselineRegion to)
