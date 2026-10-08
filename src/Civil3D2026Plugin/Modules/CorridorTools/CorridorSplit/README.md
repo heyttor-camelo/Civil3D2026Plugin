@@ -1,7 +1,21 @@
-# CORRSPLIT v1.3 - Corridor Split
+# CORRSPLIT v1.4 - Corridor Split
 
 Comando: CORRSPLIT
 DLL: Civil3D2026Plugin.dll (Civil 3D 2026.2 / .NET 8 x64)
+
+## Atualizacao v1.4 — validacao por tipo de target (08/10/2026)
+
+O stack trace do parametro PAV_ESQ / Outside Elevation, tipo Elevation, 2 TargetIds,
+revelou que UseSameSideTarget rejeita targets diferentes de Offset,
+mesmo quando existem dois ou mais. OffsetPipe tambem e rejeitado.
+
+Centralizada a regra CanReadSameSideTarget: so permite GET/SET quando
+TargetType == SubassemblyLogicalNameType.Offset em ambos os lados e
+TargetIds.Count >= 2 em cada lado. Todas as consultas em CopyTargets,
+validacao imediata e VerifyTargets apos rebuild usam essa mesma regra.
+
+O mapeamento de IDs para Elevation, OffsetPipe e outros tipos continua
+intacto, pois a limitacao se refere exclusivamente a UseSameSideTarget.
 
 ## Atualizacao v1.3 — getter protegido (08/10/2026)
 
