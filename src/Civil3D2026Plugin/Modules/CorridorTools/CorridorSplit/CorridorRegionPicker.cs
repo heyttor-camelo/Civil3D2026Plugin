@@ -101,7 +101,7 @@ internal sealed class CorridorRegionPicker : IDisposable
             var poly = NewOutline(footprint, colorIndex: 151);
             try
             {
-                if (Transients.AddTransient(poly, TransientDrawingMode.Main, 0, Viewports))
+                if (Transients.AddTransient(poly, TransientDrawingMode.Highlight, 0, Viewports))
                     _selectedOverlays.Add(poly);
                 else poly.Dispose();
             }
@@ -150,7 +150,7 @@ internal sealed class CorridorRegionPicker : IDisposable
         var poly = NewOutline(value, colorIndex: 5); // azul do CAD
         try
         {
-            if (Transients.AddTransient(poly, TransientDrawingMode.Main, 0, Viewports))
+            if (Transients.AddTransient(poly, TransientDrawingMode.Highlight, 0, Viewports))
                 _hoverOverlay = poly;
             else poly.Dispose();
         }
