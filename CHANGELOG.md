@@ -1,3 +1,13 @@
+## 2.12.0 - C3DSOLIDLIGAR v1.2.0 / atualizar somente estais existentes
+
+- `C3DSOLIDLIGARATUALIZAR` pergunta `[Existentes/Recriar] <Existentes>`;
+- Existentes: a geometria de cada estai restante e refeita no proprio Solid3d (CreateFrustum substitui o corpo), preservando handle, cor e demais edicoes manuais; estais apagados manualmente nao sao recriados e o resumo informa quantos ficaram fora;
+- Recriar: comportamento anterior, apaga e recria todos (os apagados voltam);
+- `C3DSOLIDLIGAREDITAR` com o mesmo N atualiza somente os existentes (e aplica o layer escolhido); com N diferente avisa que a numeracao muda e recria o conjunto;
+- Property Set `C3D_ESTAI` atualizado no mesmo objeto, mantendo o codigo E01... de cada posicao;
+- em ATUALIZAR > Existentes o layer de cada estai nao e alterado (mudancas manuais de layer sao respeitadas);
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.11.0 - C3DSOLIDLIGAR v1.1.0 / descontos nas pontas, material, layer e Property Set
 
 - desconto percentual no inicio e no fim de cada linha, separado por linha (Enter na linha 2 repete a linha 1); os N pontos ficam no trecho util restante, incluindo seus extremos;

@@ -121,14 +121,14 @@ PASSAGEMHELP        -> ajuda do modulo
 
 O Solid3d final recebe, quando a API AEC estiver disponivel, o Property Set `C3D_PASSAGEM`, com parametros geometricos, handles FL1-FL4, cotas das quatro Feature Lines no CG e larguras VIA1/CANTEIRO/VIA2 no CG. Falha na camada de Property Set nao cancela a geracao geometrica.
 
-## Ligacao tubular entre linhas (C3DSOLIDLIGAR v1.1.0)
+## Ligacao tubular entre linhas (C3DSOLIDLIGAR v1.2.0)
 
 Classe `C3DSolidLinkCommands`, em `Modules/CorridorTools/SolidArray`. Liga duas linhas quaisquer (Line, Arc, Polyline, Polyline 2D/3D, Spline, Feature Line ou AutoCorridorFeatureLine) com barras tubulares `Solid3d`.
 
 ```text
 C3DSOLIDLIGAR           -> linha 1, linha 2, N pontos, diametro, previa [Inverter/Aceitar]
 C3DSOLIDLIGAREDITAR     -> altera N, diametro ou sentido de um conjunto
-C3DSOLIDLIGARATUALIZAR  -> recria conjuntos apos alterar as linhas (selecao ou Todos)
+C3DSOLIDLIGARATUALIZAR  -> [Existentes] atualiza no proprio objeto, apagados ficam fora | [Recriar] recria tudo
 C3DSOLIDLIGARHELP       -> ajuda do comando
 ```
 

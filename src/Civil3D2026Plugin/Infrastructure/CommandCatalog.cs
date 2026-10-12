@@ -133,7 +133,7 @@ public static class CommandCatalog
                 {
                     new CommandDefinition(C3DCommands.Corridor.SolidLigar, "Ligar linhas", "Liga N pontos de duas linhas com estais Solid3d: desconto % nas pontas, material, layer proprio e Property Set C3D_ESTAI."),
                     new CommandDefinition(C3DCommands.Corridor.SolidLigarEditar, "Editar ligacao", "Altera pontos, descontos, diametro, material, area, layer ou sentido de um conjunto e recria os estais."),
-                    new CommandDefinition(C3DCommands.Corridor.SolidLigarAtualizar, "Atualizar ligacoes", "Recria conjuntos apos alteracao das linhas de origem."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigarAtualizar, "Atualizar ligacoes", "Atualiza os estais existentes no proprio objeto (apagados continuam fora) ou recria o conjunto."),
                     new CommandDefinition(C3DCommands.Corridor.SolidLigarHelp, "Ajuda ligacao", "Mostra a ajuda do C3DSOLIDLIGAR.")
                 }),
 

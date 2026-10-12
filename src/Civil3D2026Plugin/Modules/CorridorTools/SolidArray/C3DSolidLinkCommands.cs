@@ -29,8 +29,9 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 /// - antes de gerar, mostra previa temporaria das ligacoes com opcao [Inverter];
 /// - um Solid3d por estai, em layer proprio, com Property Set C3D_ESTAI
 ///   (material, comprimento, massa, cargas de escoamento/ruptura etc.);
-/// - o conjunto fica persistido no DWG e e reconstruido por
-///   C3DSOLIDLIGARATUALIZAR apos alteracao das linhas.
+/// - o conjunto fica persistido no DWG; C3DSOLIDLIGARATUALIZAR atualiza os
+///   estais existentes no proprio objeto (apagados continuam apagados) ou,
+///   no modo Recriar, recria o conjunto inteiro.
 /// </summary>
 public sealed class C3DSolidLinkCommands
 {
@@ -84,6 +85,8 @@ public sealed class C3DSolidLinkCommands
     private sealed class GenerationResult
     {
         public int Created { get; set; }
+        public int Updated { get; set; }
+        public int RemovedByUser { get; set; }
         public int Skipped { get; set; }
         public int PropertySetFailures { get; set; }
         public string PropertySetMessage { get; set; } = string.Empty;
@@ -236,17 +239,41 @@ public sealed class C3DSolidLinkCommands
                 return;
             }
 
+            bool sameCount = parameters.Count == data.Parameters.Count;
+
             data.Parameters = parameters;
             data.Reversed = reversed.Value;
 
-            if (!EraseGenerated(tr, db, data, ed))
-                return;
+            GenerationResult? result;
 
-            GenerationResult result = GenerateSolids(tr, db, pointsA, pointsB, data);
-            SaveSet(tr, db, data);
-            tr.Commit();
+            if (sameCount)
+            {
+                // Mesmo N: a numeracao dos estais nao muda, entao os estais
+                // apagados manualmente continuam apagados e os demais sao
+                // atualizados no proprio objeto (handle preservado).
+                result = UpdateExisting(tr, db, pointsA, pointsB, data, applyLayer: true, ed);
+                if (result is null)
+                    return;
 
-            ed.WriteMessage("\nConjunto " + ShortId(data.GroupId) + " recriado.");
+                SaveSet(tr, db, data);
+                tr.Commit();
+                ed.WriteMessage("\nConjunto " + ShortId(data.GroupId) + " atualizado (somente estais existentes).");
+            }
+            else
+            {
+                ed.WriteMessage(
+                    "\nA quantidade de pontos mudou: a numeracao dos estais muda e o conjunto sera recriado" +
+                    " (estais apagados manualmente voltam).");
+
+                if (!EraseGenerated(tr, db, data, ed))
+                    return;
+
+                result = GenerateSolids(tr, db, pointsA, pointsB, data);
+                SaveSet(tr, db, data);
+                tr.Commit();
+                ed.WriteMessage("\nConjunto " + ShortId(data.GroupId) + " recriado.");
+            }
+
             ReportGeneration(ed, data, result, db);
         }
         catch (System.Exception ex)
@@ -296,6 +323,22 @@ public sealed class C3DSolidLinkCommands
                 selection.AddRange(selResult.Value.GetObjectIds());
             }
 
+            PromptKeywordOptions howOptions = new(
+                "\nModo [Existentes/Recriar] <Existentes>: ",
+                "Existentes Recriar")
+            {
+                AllowNone = true
+            };
+
+            PromptResult howResult = ed.GetKeywords(howOptions);
+            if (howResult.Status == PromptStatus.Cancel || howResult.Status == PromptStatus.Error)
+                return;
+
+            // Existentes: atualiza no proprio objeto, mantendo apagados manualmente fora.
+            // Recriar: apaga e recria todos os estais do conjunto (os apagados voltam).
+            bool recreate = howResult.Status == PromptStatus.OK &&
+                            string.Equals(howResult.StringResult, "Recriar", StringComparison.OrdinalIgnoreCase);
+
             using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
 
             List<LinkSetData> allSets = LoadAllSets(tr, db);
@@ -317,6 +360,8 @@ public sealed class C3DSolidLinkCommands
 
             int updated = 0;
             int failed = 0;
+            int stays = 0;
+            int removedByUser = 0;
             int propertySetFailures = 0;
             string lastPropertySetMessage = string.Empty;
 
@@ -332,14 +377,32 @@ public sealed class C3DSolidLinkCommands
                 List<Point3d> pointsA = pathA!.Distribute(p.Count, p.TrimStartA, p.TrimEndA);
                 List<Point3d> pointsB = pathB!.Distribute(p.Count, p.TrimStartB, p.TrimEndB);
 
-                if (!EraseGenerated(tr, db, data, ed))
+                GenerationResult? result;
+
+                if (recreate)
                 {
-                    failed++;
-                    continue;
+                    if (!EraseGenerated(tr, db, data, ed))
+                    {
+                        failed++;
+                        continue;
+                    }
+
+                    result = GenerateSolids(tr, db, pointsA, pointsB, data);
+                }
+                else
+                {
+                    result = UpdateExisting(tr, db, pointsA, pointsB, data, applyLayer: false, ed);
+                    if (result is null)
+                    {
+                        failed++;
+                        continue;
+                    }
                 }
 
-                GenerationResult result = GenerateSolids(tr, db, pointsA, pointsB, data);
                 SaveSet(tr, db, data);
+
+                stays += result.Created + result.Updated;
+                removedByUser += result.RemovedByUser;
 
                 propertySetFailures += result.PropertySetFailures;
                 if (result.PropertySetFailures > 0)
@@ -351,8 +414,16 @@ public sealed class C3DSolidLinkCommands
             tr.Commit();
 
             ed.WriteMessage(
-                "\nConjuntos atualizados: " + updated +
+                "\nConjuntos atualizados: " + updated + " (" + stays + " estai(s), modo " +
+                (recreate ? "Recriar" : "Existentes") + ")" +
                 (failed > 0 ? " | nao atualizados: " + failed + " (ver mensagens acima)." : "."));
+
+            if (removedByUser > 0)
+            {
+                ed.WriteMessage(
+                    "\n  " + removedByUser + " estai(s) apagado(s) manualmente continuam fora." +
+                    " Use o modo Recriar para restaura-los.");
+            }
 
             if (propertySetFailures > 0)
             {
@@ -394,10 +465,15 @@ public sealed class C3DSolidLinkCommands
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigarEditar);
         ed.WriteMessage("\n  Selecione um estai e altere qualquer parametro ou o sentido.");
+        ed.WriteMessage("\n  Mesmo N: atualiza so os estais existentes, no proprio objeto.");
+        ed.WriteMessage("\n  N diferente: a numeracao muda e o conjunto e recriado.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigarAtualizar);
         ed.WriteMessage("\n  Recria os conjuntos apos alterar as linhas de origem.");
         ed.WriteMessage("\n  Selecione estais ou linhas, ou use a opcao Todos.");
+        ed.WriteMessage("\n  Existentes (padrao): refaz a geometria no proprio objeto (mesmo handle,");
+        ed.WriteMessage("\n    cor e edicoes manuais); estais apagados continuam apagados.");
+        ed.WriteMessage("\n  Recriar: apaga e recria todos; estais apagados voltam.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\nPROPERTY SET " + SolidLinkPropertySet.DefinitionName + " (por estai):");
         ed.WriteMessage("\n  codigo, material, diametro, area metalica, comprimento, massa linear,");
@@ -411,7 +487,7 @@ public sealed class C3DSolidLinkCommands
         ed.WriteMessage("\nREGRAS:");
         ed.WriteMessage("\n  Espacamento igual pelo comprimento 3D de cada linha.");
         ed.WriteMessage("\n  Unidades em m/kg dependem de INSUNITS (indefinido = metro).");
-        ed.WriteMessage("\n  Estais apagados manualmente voltam ao atualizar o conjunto.");
+        ed.WriteMessage("\n  Estais apagados manualmente so voltam com ATUALIZAR > Recriar.");
         ed.WriteMessage("\n============================================================");
     }
 
@@ -887,8 +963,12 @@ public sealed class C3DSolidLinkCommands
         LinkParameters p = data.Parameters;
         GetMetersPerUnit(db, out string unitLabel);
 
+        string countText = result.Updated > 0
+            ? result.Updated + " estai(s) atualizado(s)" + (result.Created > 0 ? " + " + result.Created + " criado(s)" : string.Empty)
+            : result.Created + " estai(s)";
+
         ed.WriteMessage(
-            "\n  " + result.Created + " estai(s) | D=" + FormatNumber(p.Diameter) +
+            "\n  " + countText + " | D=" + FormatNumber(p.Diameter) +
             " | " + p.Material.Name + " | layer " + p.Layer);
 
         ed.WriteMessage(
@@ -896,11 +976,18 @@ public sealed class C3DSolidLinkCommands
             " | massa total=" + FormatNumber(result.TotalMassKg, "0.0") + " kg" +
             " | unidade do desenho: " + unitLabel);
 
+        if (result.RemovedByUser > 0)
+        {
+            ed.WriteMessage(
+                "\n  " + result.RemovedByUser + " estai(s) apagado(s) manualmente continuam fora." +
+                " Para restaura-los: " + C3DCommands.Corridor.SolidLigarAtualizar + " > Recriar.");
+        }
+
         if (result.Skipped > 0)
         {
             ed.WriteMessage(
                 "\n[AVISO] " + result.Skipped + " ligacao(oes) com comprimento nulo foram ignoradas" +
-                " (pontos coincidentes nas duas linhas).");
+                " (pontos coincidentes nas duas linhas); estais existentes nessa posicao ficaram inalterados.");
         }
 
         if (result.PropertySetFailures > 0)
@@ -916,6 +1003,33 @@ public sealed class C3DSolidLinkCommands
     // Geracao dos solidos
     // ------------------------------------------------------------------
 
+    /// <summary>Valores comuns a todos os estais de um conjunto (unidades, area, massa).</summary>
+    private sealed class StayContext
+    {
+        public StayContext(AcadDb.Database db, LinkParameters p, int count)
+        {
+            MetersPerUnit = GetMetersPerUnit(db, out _);
+            Radius = p.Diameter / 2.0;
+            AreaCm2 = p.AreaCm2Override > Epsilon ? p.AreaCm2Override : CircleAreaCm2(p.Diameter, db);
+            AreaM2 = AreaCm2 / 10000.0;
+            LinearMass = AreaM2 * p.Material.Density;
+            Count = count;
+            Digits = Math.Max(2, count.ToString(CultureInfo.InvariantCulture).Length);
+        }
+
+        public double MetersPerUnit { get; }
+        public double Radius { get; }
+        public double AreaCm2 { get; }
+        public double AreaM2 { get; }
+        public double LinearMass { get; }
+        public int Count { get; }
+        public int Digits { get; }
+    }
+
+    private static Point3d PartnerPoint(IReadOnlyList<Point3d> pointsB, LinkSetData data, int count, int index) =>
+        pointsB[data.Reversed ? count - 1 - index : index];
+
+    /// <summary>Cria todos os estais do conjunto (criacao, EDITAR com N novo, ATUALIZAR > Recriar).</summary>
     private static GenerationResult GenerateSolids(
         AcadDb.Transaction tr,
         AcadDb.Database db,
@@ -931,26 +1045,22 @@ public sealed class C3DSolidLinkCommands
             AcadDb.OpenMode.ForWrite);
 
         AcadDb.ObjectId layerId = EnsureLayer(tr, db, p.Layer);
-        double metersPerUnit = GetMetersPerUnit(db, out _);
-
-        double radius = p.Diameter / 2.0;
-        double areaCm2 = p.AreaCm2Override > Epsilon ? p.AreaCm2Override : CircleAreaCm2(p.Diameter, db);
-        double areaM2 = areaCm2 / 10000.0;
-        double linearMass = areaM2 * p.Material.Density;
-
         int count = Math.Min(pointsA.Count, pointsB.Count);
-        int digits = Math.Max(2, count.ToString(CultureInfo.InvariantCulture).Length);
+        StayContext ctx = new(db, p, count);
 
         data.GeneratedHandles.Clear();
 
         for (int i = 0; i < count; i++)
         {
             Point3d a = pointsA[i];
-            Point3d b = pointsB[data.Reversed ? count - 1 - i : i];
+            Point3d b = PartnerPoint(pointsB, data, count, i);
 
-            AcadDb.Solid3d? solid = CreateTube(db, a, b, radius);
-            if (solid is null)
+            AcadDb.Solid3d solid = new();
+            solid.SetDatabaseDefaults(db);
+
+            if (!ShapeTube(solid, a, b, ctx.Radius))
             {
+                solid.Dispose();
                 result.Skipped++;
                 continue;
             }
@@ -963,76 +1073,186 @@ public sealed class C3DSolidLinkCommands
             data.GeneratedHandles.Add(solid.Handle.ToString());
             result.Created++;
 
-            Vector3d axis = b - a;
-            double lengthM = axis.Length * metersPerUnit;
-            double horizontal = Math.Sqrt((axis.X * axis.X) + (axis.Y * axis.Y));
-            double inclination = Math.Atan2(Math.Abs(axis.Z), horizontal) * 180.0 / Math.PI;
-            double massKg = linearMass * lengthM;
-
-            result.TotalLengthM += lengthM;
-            result.TotalMassKg += massKg;
-
-            SolidLinkStayValues stay = new(
-                GroupId: data.GroupId,
-                Code: "E" + (i + 1).ToString(new string('0', digits), CultureInfo.InvariantCulture),
-                Number: i + 1,
-                Material: p.Material.Name,
-                DiameterMm: p.Diameter * metersPerUnit * 1000.0,
-                AreaCm2: areaCm2,
-                LengthM: lengthM,
-                LinearMassKgM: linearMass,
-                MassKg: massKg,
-                DensityKgM3: p.Material.Density,
-                YieldMPa: p.Material.YieldMPa,
-                UltimateMPa: p.Material.UltimateMPa,
-                ElasticModulusGPa: p.Material.ElasticModulusGPa,
-                YieldLoadKN: areaM2 * p.Material.YieldMPa * 1000.0,
-                BreakingLoadKN: areaM2 * p.Material.UltimateMPa * 1000.0,
-                InclinationDeg: inclination,
-                TopElevationM: Math.Max(a.Z, b.Z) * metersPerUnit,
-                BottomElevationM: Math.Min(a.Z, b.Z) * metersPerUnit,
-                StartPoint: FormatPoint(a),
-                EndPoint: FormatPoint(b),
-                TrimLine1: FormatTrim(p.TrimStartA, p.TrimEndA),
-                TrimLine2: FormatTrim(p.TrimStartB, p.TrimEndB),
-                Line1Handle: data.HandleA,
-                Line2Handle: data.HandleB);
-
-            if (!SolidLinkPropertySet.TryApply(tr, db, solid, stay, out string psMessage))
-            {
-                result.PropertySetFailures++;
-                result.PropertySetMessage = psMessage;
-            }
+            ApplyStayData(tr, db, solid, data, ctx, i, a, b, result);
         }
 
         return result;
     }
 
     /// <summary>
-    /// Cilindro com eixo de A ate B. CreateFrustum cria o solido centrado na
-    /// origem com altura ao longo de Z; em seguida o eixo Z e alinhado a A->B.
+    /// Atualiza no proprio objeto apenas os estais que ainda existem. Estais
+    /// apagados manualmente nao sao recriados. Handle, cor e demais edicoes
+    /// manuais do solido sao preservados. Retorna null (sem alterar nada) se
+    /// algum estai estiver em layer travado.
     /// </summary>
-    private static AcadDb.Solid3d? CreateTube(AcadDb.Database db, Point3d a, Point3d b, double radius)
+    private static GenerationResult? UpdateExisting(
+        AcadDb.Transaction tr,
+        AcadDb.Database db,
+        IReadOnlyList<Point3d> pointsA,
+        IReadOnlyList<Point3d> pointsB,
+        LinkSetData data,
+        bool applyLayer,
+        Editor ed)
+    {
+        LinkParameters p = data.Parameters;
+        GenerationResult result = new();
+
+        int count = Math.Min(pointsA.Count, pointsB.Count);
+        StayContext ctx = new(db, p, count);
+
+        List<(AcadDb.ObjectId Id, int Index, string Handle)> alive = new();
+        List<string> keepUntouched = new();
+
+        foreach (string handle in data.GeneratedHandles)
+        {
+            AcadDb.ObjectId id = ResolveHandle(db, handle);
+            if (id.IsNull || id.IsErased)
+            {
+                result.RemovedByUser++;
+                continue;
+            }
+
+            (string? groupId, int index) = TryReadTagInfo(tr, id);
+            if (!string.Equals(groupId, data.GroupId, StringComparison.Ordinal))
+            {
+                result.RemovedByUser++;
+                continue;
+            }
+
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Solid3d solid)
+            {
+                result.RemovedByUser++;
+                continue;
+            }
+
+            AcadDb.LayerTableRecord layer = (AcadDb.LayerTableRecord)tr.GetObject(solid.LayerId, AcadDb.OpenMode.ForRead);
+            if (layer.IsLocked)
+            {
+                ed.WriteMessage(
+                    "\n[AVISO] Conjunto " + ShortId(data.GroupId) + ": o layer '" + layer.Name +
+                    "' esta travado. Destrave-o para atualizar os estais.");
+                return null;
+            }
+
+            if (index < 0 || index >= count)
+            {
+                // Sem posicao correspondente: mantem o solido como esta.
+                keepUntouched.Add(handle);
+                continue;
+            }
+
+            alive.Add((id, index, handle));
+        }
+
+        AcadDb.ObjectId layerId = applyLayer ? EnsureLayer(tr, db, p.Layer) : AcadDb.ObjectId.Null;
+
+        data.GeneratedHandles.Clear();
+        data.GeneratedHandles.AddRange(keepUntouched);
+
+        foreach ((AcadDb.ObjectId id, int index, string handle) in alive.OrderBy(item => item.Index))
+        {
+            Point3d a = pointsA[index];
+            Point3d b = PartnerPoint(pointsB, data, count, index);
+
+            AcadDb.Solid3d solid = (AcadDb.Solid3d)tr.GetObject(id, AcadDb.OpenMode.ForWrite, false);
+            data.GeneratedHandles.Add(handle);
+
+            if (!ShapeTube(solid, a, b, ctx.Radius))
+            {
+                result.Skipped++;
+                continue;
+            }
+
+            if (applyLayer)
+                solid.LayerId = layerId;
+
+            result.Updated++;
+            ApplyStayData(tr, db, solid, data, ctx, index, a, b, result);
+        }
+
+        return result;
+    }
+
+    /// <summary>Acumula totais e grava o Property Set C3D_ESTAI de um estai.</summary>
+    private static void ApplyStayData(
+        AcadDb.Transaction tr,
+        AcadDb.Database db,
+        AcadDb.Solid3d solid,
+        LinkSetData data,
+        StayContext ctx,
+        int index,
+        Point3d a,
+        Point3d b,
+        GenerationResult result)
+    {
+        LinkParameters p = data.Parameters;
+
+        Vector3d axis = b - a;
+        double lengthM = axis.Length * ctx.MetersPerUnit;
+        double horizontal = Math.Sqrt((axis.X * axis.X) + (axis.Y * axis.Y));
+        double inclination = Math.Atan2(Math.Abs(axis.Z), horizontal) * 180.0 / Math.PI;
+        double massKg = ctx.LinearMass * lengthM;
+
+        result.TotalLengthM += lengthM;
+        result.TotalMassKg += massKg;
+
+        SolidLinkStayValues stay = new(
+            GroupId: data.GroupId,
+            Code: "E" + (index + 1).ToString(new string('0', ctx.Digits), CultureInfo.InvariantCulture),
+            Number: index + 1,
+            Material: p.Material.Name,
+            DiameterMm: p.Diameter * ctx.MetersPerUnit * 1000.0,
+            AreaCm2: ctx.AreaCm2,
+            LengthM: lengthM,
+            LinearMassKgM: ctx.LinearMass,
+            MassKg: massKg,
+            DensityKgM3: p.Material.Density,
+            YieldMPa: p.Material.YieldMPa,
+            UltimateMPa: p.Material.UltimateMPa,
+            ElasticModulusGPa: p.Material.ElasticModulusGPa,
+            YieldLoadKN: ctx.AreaM2 * p.Material.YieldMPa * 1000.0,
+            BreakingLoadKN: ctx.AreaM2 * p.Material.UltimateMPa * 1000.0,
+            InclinationDeg: inclination,
+            TopElevationM: Math.Max(a.Z, b.Z) * ctx.MetersPerUnit,
+            BottomElevationM: Math.Min(a.Z, b.Z) * ctx.MetersPerUnit,
+            StartPoint: FormatPoint(a),
+            EndPoint: FormatPoint(b),
+            TrimLine1: FormatTrim(p.TrimStartA, p.TrimEndA),
+            TrimLine2: FormatTrim(p.TrimStartB, p.TrimEndB),
+            Line1Handle: data.HandleA,
+            Line2Handle: data.HandleB);
+
+        if (!SolidLinkPropertySet.TryApply(tr, db, solid, stay, out string psMessage))
+        {
+            result.PropertySetFailures++;
+            result.PropertySetMessage = psMessage;
+        }
+    }
+
+    /// <summary>
+    /// Define a geometria do solido como cilindro de A ate B. CreateFrustum
+    /// substitui o corpo atual (vale para solido novo ou existente), centrado
+    /// na origem com altura em Z; em seguida o eixo Z e alinhado a A->B.
+    /// </summary>
+    private static bool ShapeTube(AcadDb.Solid3d solid, Point3d a, Point3d b, double radius)
     {
         Vector3d axis = b - a;
         double length = axis.Length;
 
         if (length <= GeometryTolerance || radius <= Epsilon)
-            return null;
+            return false;
 
         Vector3d zAxis = axis / length;
         Vector3d xAxis = zAxis.GetPerpendicularVector().GetNormal();
         Vector3d yAxis = zAxis.CrossProduct(xAxis).GetNormal();
         Point3d middle = a + (axis * 0.5);
 
-        AcadDb.Solid3d solid = new();
-        solid.SetDatabaseDefaults(db);
         solid.CreateFrustum(length, radius, radius, radius);
         solid.TransformBy(Matrix3d.AlignCoordinateSystem(
             Point3d.Origin, Vector3d.XAxis, Vector3d.YAxis, Vector3d.ZAxis,
             middle, xAxis, yAxis, zAxis));
 
-        return solid;
+        return true;
     }
 
     /// <summary>
@@ -1432,14 +1652,17 @@ public sealed class C3DSolidLinkCommands
         tr.AddNewlyCreatedDBObject(record, true);
     }
 
-    private static string? TryReadTag(AcadDb.Transaction tr, AcadDb.ObjectId id)
+    private static string? TryReadTag(AcadDb.Transaction tr, AcadDb.ObjectId id) =>
+        TryReadTagInfo(tr, id).GroupId;
+
+    private static (string? GroupId, int Index) TryReadTagInfo(AcadDb.Transaction tr, AcadDb.ObjectId id)
     {
         try
         {
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity ||
                 entity.ExtensionDictionary.IsNull)
             {
-                return null;
+                return (null, -1);
             }
 
             AcadDb.DBDictionary dictionary = (AcadDb.DBDictionary)tr.GetObject(
@@ -1447,16 +1670,21 @@ public sealed class C3DSolidLinkCommands
                 AcadDb.OpenMode.ForRead);
 
             if (!dictionary.Contains(TagKey))
-                return null;
+                return (null, -1);
 
             AcadDb.Xrecord record = (AcadDb.Xrecord)tr.GetObject(dictionary.GetAt(TagKey), AcadDb.OpenMode.ForRead);
             AcadDb.TypedValue[]? values = record.Data?.AsArray();
 
-            return values is { Length: > 0 } ? values[0].Value as string : null;
+            if (values is not { Length: > 0 })
+                return (null, -1);
+
+            string? groupId = values[0].Value as string;
+            int index = values.Length > 1 ? AsInt(values[1], -1) : -1;
+            return (groupId, index);
         }
         catch
         {
-            return null;
+            return (null, -1);
         }
     }
 
