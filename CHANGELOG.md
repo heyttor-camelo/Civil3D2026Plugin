@@ -1,3 +1,15 @@
+## 2.11.0 - C3DSOLIDLIGAR v1.1.0 / descontos nas pontas, material, layer e Property Set
+
+- desconto percentual no inicio e no fim de cada linha, separado por linha (Enter na linha 2 repete a linha 1); os N pontos ficam no trecho util restante, incluindo seus extremos;
+- material por catalogo (CP190, A416, CA50, ST85, INOX) ou `Outro` com nome, densidade, fyk, fuk e E; valores do catalogo sao nominais de referencia;
+- area metalica efetiva por estai em cm2 (Enter/0 = pi.D2/4 do solido); para cordoalhas informe a area nominal real;
+- layer proprio (padrao `C3D-ESTAIS`, ciano), criado se nao existir; atualizacao bloqueada com aviso se o layer estiver travado;
+- Property Set AEC `C3D_ESTAI` em cada estai: codigo (E01...), material, diametro, area, comprimento, massa linear, massa, densidade, fyk, fuk, E, cargas de escoamento/ruptura, inclinacao, cotas, pontos de ancoragem, descontos e handles das linhas;
+- conversao de unidades por INSUNITS (indefinido = metro); resumo com comprimento e massa totais ao final;
+- falha de Property Set nao cancela a geometria (mesmo padrao do C3D_PASSAGEM);
+- conjuntos e padroes da v1.0.0 continuam legiveis (registro V2 com leitura do V1);
+- novo codigo em `C3DSolidLinkMaterials.cs` e `C3DSolidLinkPropertySet.cs`; compilacao e teste no Civil 3D pendentes.
+
 ## 2.10.0 - C3DSOLIDLIGAR v1.0.0 / barras tubulares entre duas linhas
 
 - novo comando `C3DSOLIDLIGAR` no modulo `CorridorTools/SolidArray` (classe separada `C3DSolidLinkCommands`; `C3DSolidArrayCommands` nao foi alterado);

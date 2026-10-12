@@ -8,6 +8,7 @@ using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
+using AcColors = Autodesk.AutoCAD.Colors;
 using AcGi = Autodesk.AutoCAD.GraphicsInterface;
 using AutoCorridorFeatureLine = Autodesk.Civil.DatabaseServices.AutoCorridorFeatureLine;
 using CivilFeatureLine = Autodesk.Civil.DatabaseServices.FeatureLine;
@@ -17,17 +18,19 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 
 /// <summary>
 /// C3DSOLIDLIGAR: liga duas linhas quaisquer (Line, Arc, Polyline, Polyline2d,
-/// Polyline3d, Spline, Feature Line ou AutoCorridorFeatureLine) por barras
+/// Polyline3d, Spline, Feature Line ou AutoCorridorFeatureLine) por estais
 /// tubulares (Solid3d) entre N pontos igualmente espacados em cada linha.
 ///
 /// Regras principais:
-/// - os N pontos incluem inicio e fim de cada linha;
+/// - cada linha pode ter um percentual descontado no inicio e no fim; os N
+///   pontos (incluindo os extremos do trecho util) ficam no miolo restante;
 /// - o espacamento e medido pelo comprimento 3D de cada linha, independentemente;
-/// - o ponto i da linha A liga ao ponto i da linha B (ou N-1-i, se invertido);
+/// - o ponto i da linha 1 liga ao ponto i da linha 2 (ou N-1-i, se invertido);
 /// - antes de gerar, mostra previa temporaria das ligacoes com opcao [Inverter];
-/// - um Solid3d por barra, de secao circular com o diametro informado;
-/// - o conjunto fica persistido no DWG (Named Objects Dictionary) e e
-///   reconstruido por C3DSOLIDLIGARATUALIZAR apos alteracao das linhas.
+/// - um Solid3d por estai, em layer proprio, com Property Set C3D_ESTAI
+///   (material, comprimento, massa, cargas de escoamento/ruptura etc.);
+/// - o conjunto fica persistido no DWG e e reconstruido por
+///   C3DSOLIDLIGARATUALIZAR apos alteracao das linhas.
 /// </summary>
 public sealed class C3DSolidLinkCommands
 {
@@ -37,16 +40,35 @@ public sealed class C3DSolidLinkCommands
     private const string SettingsKey = "SETTINGS";
     private const string SetKeyPrefix = "SET_";
     private const string TagKey = "C3D_SOLID_LIGAR_TAG";
-    private const string RecordSignature = "C3DSOLIDLIGAR_V1";
+    private const string RecordSignatureV1 = "C3DSOLIDLIGAR_V1";
+    private const string RecordSignatureV2 = "C3DSOLIDLIGAR_V2";
+    private const string SettingsSignatureV2 = "C3DSOLIDLIGAR_SETTINGS_V2";
+
+    private const string DefaultLayer = "C3D-ESTAIS";
+    private const short DefaultLayerColor = 4; // ciano
 
     private const double Epsilon = 1e-9;
     private const double GeometryTolerance = 1e-4;
+    private const double MaxTrimPercent = 95.0;
     private const int MaxPoints = 5000;
 
-    private sealed class LinkSettings
+    /// <summary>Parametros escolhidos pelo usuario (padrao do desenho e de cada conjunto).</summary>
+    private sealed class LinkParameters
     {
         public int Count { get; set; } = 10;
+        public double TrimStartA { get; set; }
+        public double TrimEndA { get; set; }
+        public double TrimStartB { get; set; }
+        public double TrimEndB { get; set; }
         public double Diameter { get; set; } = 0.10;
+        public SolidLinkMaterial Material { get; set; } = SolidLinkMaterials.Default;
+
+        /// <summary>Area metalica efetiva em cm2; 0 = calcular pelo diametro (pi.D2/4).</summary>
+        public double AreaCm2Override { get; set; }
+
+        public string Layer { get; set; } = DefaultLayer;
+
+        public LinkParameters Clone() => (LinkParameters)MemberwiseClone();
     }
 
     private sealed class LinkSetData
@@ -54,10 +76,19 @@ public sealed class C3DSolidLinkCommands
         public string GroupId { get; set; } = string.Empty;
         public string HandleA { get; set; } = string.Empty;
         public string HandleB { get; set; } = string.Empty;
-        public int Count { get; set; }
-        public double Diameter { get; set; }
         public bool Reversed { get; set; }
+        public LinkParameters Parameters { get; set; } = new();
         public List<string> GeneratedHandles { get; } = new();
+    }
+
+    private sealed class GenerationResult
+    {
+        public int Created { get; set; }
+        public int Skipped { get; set; }
+        public int PropertySetFailures { get; set; }
+        public string PropertySetMessage { get; set; } = string.Empty;
+        public double TotalLengthM { get; set; }
+        public double TotalMassKg { get; set; }
     }
 
     // ------------------------------------------------------------------
@@ -78,25 +109,21 @@ public sealed class C3DSolidLinkCommands
         {
             ed.WriteMessage(
                 "\n" + C3DCommands.Corridor.SolidLigar + " v" + Versao +
-                " - barras tubulares entre duas linhas.");
+                " - estais tubulares entre duas linhas.");
 
             ObjectIdPair? picked = PickTwoLines(ed);
             if (picked is null)
                 return;
 
-            LinkSettings settings;
+            LinkParameters defaults;
             using (AcadDb.Transaction trSettings = db.TransactionManager.StartTransaction())
             {
-                settings = LoadSettings(trSettings, db);
+                defaults = LoadSettings(trSettings, db);
                 trSettings.Commit();
             }
 
-            int? count = AskCount(ed, settings.Count);
-            if (count is null)
-                return;
-
-            double? diameter = AskDiameter(ed, settings.Diameter);
-            if (diameter is null)
+            LinkParameters? parameters = AskParameters(ed, db, defaults, line2DefaultsFromLine1: true);
+            if (parameters is null)
                 return;
 
             using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
@@ -112,10 +139,12 @@ public sealed class C3DSolidLinkCommands
 
             ed.WriteMessage(
                 "\nLinha 1: " + pathA.Description + " | L=" + FormatNumber(pathA.Length) +
-                "\nLinha 2: " + pathB.Description + " | L=" + FormatNumber(pathB.Length));
+                " | desconto " + FormatTrim(parameters.TrimStartA, parameters.TrimEndA) +
+                "\nLinha 2: " + pathB.Description + " | L=" + FormatNumber(pathB.Length) +
+                " | desconto " + FormatTrim(parameters.TrimStartB, parameters.TrimEndB));
 
-            List<Point3d> pointsA = pathA.Distribute(count.Value);
-            List<Point3d> pointsB = pathB.Distribute(count.Value);
+            List<Point3d> pointsA = pathA.Distribute(parameters.Count, parameters.TrimStartA, parameters.TrimEndA);
+            List<Point3d> pointsB = pathB.Distribute(parameters.Count, parameters.TrimStartB, parameters.TrimEndB);
 
             bool initialReversed = SuggestReversed(pointsA, pointsB);
             bool? reversed = ConfirmPairing(ed, pointsA, pointsB, initialReversed);
@@ -130,34 +159,23 @@ public sealed class C3DSolidLinkCommands
                 GroupId = Guid.NewGuid().ToString("N"),
                 HandleA = picked.Value.A.Handle.ToString(),
                 HandleB = picked.Value.B.Handle.ToString(),
-                Count = count.Value,
-                Diameter = diameter.Value,
-                Reversed = reversed.Value
+                Reversed = reversed.Value,
+                Parameters = parameters
             };
 
-            int skipped = GenerateSolids(tr, db, pointsA, pointsB, data);
+            GenerationResult result = GenerateSolids(tr, db, pointsA, pointsB, data);
 
             SaveSet(tr, db, data);
-            settings.Count = count.Value;
-            settings.Diameter = diameter.Value;
-            SaveSettings(tr, db, settings);
+            SaveSettings(tr, db, parameters);
 
             tr.Commit();
 
-            ed.WriteMessage(
-                "\nConjunto criado: " + data.GeneratedHandles.Count + " barra(s), D=" +
-                FormatNumber(data.Diameter) + ". ID=" + ShortId(data.GroupId));
-
-            if (skipped > 0)
-            {
-                ed.WriteMessage(
-                    "\n[AVISO] " + skipped + " ligacao(oes) com comprimento nulo foram ignoradas" +
-                    " (pontos coincidentes nas duas linhas).");
-            }
+            ed.WriteMessage("\nConjunto criado. ID=" + ShortId(data.GroupId));
+            ReportGeneration(ed, data, result, db);
 
             ed.WriteMessage(
                 "\nApos alterar as linhas, use " + C3DCommands.Corridor.SolidLigarAtualizar +
-                ". Para mudar N, diametro ou sentido, use " + C3DCommands.Corridor.SolidLigarEditar + ".");
+                ". Para mudar parametros ou sentido, use " + C3DCommands.Corridor.SolidLigarEditar + ".");
         }
         catch (System.Exception ex)
         {
@@ -177,37 +195,39 @@ public sealed class C3DSolidLinkCommands
 
         try
         {
-            PromptEntityOptions options = new("\nSelecione uma barra do conjunto: ");
+            PromptEntityOptions options = new("\nSelecione um estai do conjunto: ");
             options.SetRejectMessage("\nSelecione um 3D Solid gerado por " + C3DCommands.Corridor.SolidLigar + ".");
             options.AddAllowedClass(typeof(AcadDb.Solid3d), true);
 
-            PromptEntityResult result = ed.GetEntity(options);
-            if (result.Status != PromptStatus.OK)
+            PromptEntityResult picked = ed.GetEntity(options);
+            if (picked.Status != PromptStatus.OK)
                 return;
 
-            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            LinkSetData? data;
+            using (AcadDb.Transaction trRead = db.TransactionManager.StartTransaction())
+            {
+                string? groupId = TryReadTag(trRead, picked.ObjectId);
+                data = groupId is null ? null : LoadSet(trRead, db, groupId);
+                trRead.Commit();
+            }
 
-            string? groupId = TryReadTag(tr, result.ObjectId);
-            LinkSetData? data = groupId is null ? null : LoadSet(tr, db, groupId);
             if (data is null)
             {
                 ed.WriteMessage("\n[ERRO] O solido selecionado nao pertence a um conjunto " + C3DCommands.Corridor.SolidLigar + ".");
                 return;
             }
 
-            int? count = AskCount(ed, data.Count);
-            if (count is null)
+            LinkParameters? parameters = AskParameters(ed, db, data.Parameters, line2DefaultsFromLine1: false);
+            if (parameters is null)
                 return;
 
-            double? diameter = AskDiameter(ed, data.Diameter);
-            if (diameter is null)
-                return;
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
 
             if (!TryOpenPaths(tr, db, data, ed, out PathSampler? pathA, out PathSampler? pathB))
                 return;
 
-            List<Point3d> pointsA = pathA!.Distribute(count.Value);
-            List<Point3d> pointsB = pathB!.Distribute(count.Value);
+            List<Point3d> pointsA = pathA!.Distribute(parameters.Count, parameters.TrimStartA, parameters.TrimEndA);
+            List<Point3d> pointsB = pathB!.Distribute(parameters.Count, parameters.TrimStartB, parameters.TrimEndB);
 
             bool? reversed = ConfirmPairing(ed, pointsA, pointsB, data.Reversed);
             if (reversed is null)
@@ -216,21 +236,18 @@ public sealed class C3DSolidLinkCommands
                 return;
             }
 
-            data.Count = count.Value;
-            data.Diameter = diameter.Value;
+            data.Parameters = parameters;
             data.Reversed = reversed.Value;
 
-            EraseGenerated(tr, db, data);
-            int skipped = GenerateSolids(tr, db, pointsA, pointsB, data);
+            if (!EraseGenerated(tr, db, data, ed))
+                return;
+
+            GenerationResult result = GenerateSolids(tr, db, pointsA, pointsB, data);
             SaveSet(tr, db, data);
             tr.Commit();
 
-            ed.WriteMessage(
-                "\nConjunto " + ShortId(data.GroupId) + " recriado: " + data.GeneratedHandles.Count +
-                " barra(s), D=" + FormatNumber(data.Diameter) + ".");
-
-            if (skipped > 0)
-                ed.WriteMessage("\n[AVISO] " + skipped + " ligacao(oes) com comprimento nulo foram ignoradas.");
+            ed.WriteMessage("\nConjunto " + ShortId(data.GroupId) + " recriado.");
+            ReportGeneration(ed, data, result, db);
         }
         catch (System.Exception ex)
         {
@@ -269,7 +286,7 @@ public sealed class C3DSolidLinkCommands
             {
                 PromptSelectionOptions selOptions = new()
                 {
-                    MessageForAdding = "\nSelecione barras geradas e/ou as linhas de origem: "
+                    MessageForAdding = "\nSelecione estais gerados e/ou as linhas de origem: "
                 };
 
                 PromptSelectionResult selResult = ed.GetSelection(selOptions);
@@ -294,12 +311,14 @@ public sealed class C3DSolidLinkCommands
 
             if (targets.Count == 0)
             {
-                ed.WriteMessage("\nA selecao nao contem barras nem linhas de conjuntos " + C3DCommands.Corridor.SolidLigar + ".");
+                ed.WriteMessage("\nA selecao nao contem estais nem linhas de conjuntos " + C3DCommands.Corridor.SolidLigar + ".");
                 return;
             }
 
             int updated = 0;
             int failed = 0;
+            int propertySetFailures = 0;
+            string lastPropertySetMessage = string.Empty;
 
             foreach (LinkSetData data in targets)
             {
@@ -309,12 +328,23 @@ public sealed class C3DSolidLinkCommands
                     continue;
                 }
 
-                List<Point3d> pointsA = pathA!.Distribute(data.Count);
-                List<Point3d> pointsB = pathB!.Distribute(data.Count);
+                LinkParameters p = data.Parameters;
+                List<Point3d> pointsA = pathA!.Distribute(p.Count, p.TrimStartA, p.TrimEndA);
+                List<Point3d> pointsB = pathB!.Distribute(p.Count, p.TrimStartB, p.TrimEndB);
 
-                EraseGenerated(tr, db, data);
-                GenerateSolids(tr, db, pointsA, pointsB, data);
+                if (!EraseGenerated(tr, db, data, ed))
+                {
+                    failed++;
+                    continue;
+                }
+
+                GenerationResult result = GenerateSolids(tr, db, pointsA, pointsB, data);
                 SaveSet(tr, db, data);
+
+                propertySetFailures += result.PropertySetFailures;
+                if (result.PropertySetFailures > 0)
+                    lastPropertySetMessage = result.PropertySetMessage;
+
                 updated++;
             }
 
@@ -323,6 +353,13 @@ public sealed class C3DSolidLinkCommands
             ed.WriteMessage(
                 "\nConjuntos atualizados: " + updated +
                 (failed > 0 ? " | nao atualizados: " + failed + " (ver mensagens acima)." : "."));
+
+            if (propertySetFailures > 0)
+            {
+                ed.WriteMessage(
+                    "\n[AVISO] Property Set " + SolidLinkPropertySet.DefinitionName + " nao aplicado em " +
+                    propertySetFailures + " estai(s): " + lastPropertySetMessage);
+            }
         }
         catch (System.Exception ex)
         {
@@ -343,26 +380,38 @@ public sealed class C3DSolidLinkCommands
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigar + " v" + Versao);
         ed.WriteMessage("\n============================================================");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigar);
-        ed.WriteMessage("\n  1) selecione a primeira linha;");
-        ed.WriteMessage("\n  2) selecione a segunda linha;");
-        ed.WriteMessage("\n  3) informe a quantidade de pontos N (inclui inicio e fim);");
-        ed.WriteMessage("\n  4) informe o diametro do tubo (unidades do desenho);");
-        ed.WriteMessage("\n  5) confira a previa temporaria; [Inverter] troca o sentido da");
-        ed.WriteMessage("\n     segunda linha, Enter aceita e gera as barras.");
+        ed.WriteMessage("\n  1) selecione a primeira e a segunda linha;");
+        ed.WriteMessage("\n  2) quantidade de pontos N (inclui os extremos do trecho util);");
+        ed.WriteMessage("\n  3) desconto % no inicio e no fim de cada linha (Enter na linha 2");
+        ed.WriteMessage("\n     repete os valores da linha 1);");
+        ed.WriteMessage("\n  4) diametro do estai (unidades do desenho);");
+        ed.WriteMessage("\n  5) material: " + SolidLinkMaterials.KeywordDisplay + ";");
+        ed.WriteMessage("\n  6) area metalica efetiva em cm2 (Enter = pi.D2/4 do solido);");
+        ed.WriteMessage("\n  7) layer dos estais (criado se nao existir);");
+        ed.WriteMessage("\n  8) previa temporaria; [Inverter] troca o sentido, Enter aceita.");
         ed.WriteMessage("\n  Linhas aceitas: Line, Arc, Polyline, Polyline 2D/3D, Spline,");
         ed.WriteMessage("\n  Feature Line e AutoCorridorFeatureLine.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigarEditar);
-        ed.WriteMessage("\n  Selecione uma barra e altere N, diametro ou sentido.");
+        ed.WriteMessage("\n  Selecione um estai e altere qualquer parametro ou o sentido.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigarAtualizar);
         ed.WriteMessage("\n  Recria os conjuntos apos alterar as linhas de origem.");
-        ed.WriteMessage("\n  Selecione barras ou linhas, ou use a opcao Todos.");
+        ed.WriteMessage("\n  Selecione estais ou linhas, ou use a opcao Todos.");
+        ed.WriteMessage("\n");
+        ed.WriteMessage("\nPROPERTY SET " + SolidLinkPropertySet.DefinitionName + " (por estai):");
+        ed.WriteMessage("\n  codigo, material, diametro, area metalica, comprimento, massa linear,");
+        ed.WriteMessage("\n  massa, densidade, fyk, fuk, E, cargas de escoamento e ruptura,");
+        ed.WriteMessage("\n  inclinacao, cotas, pontos de ancoragem e descontos aplicados.");
+        ed.WriteMessage("\n  Valores do catalogo sao nominais de referencia: confirme com a");
+        ed.WriteMessage("\n  especificacao do projeto ou use a opcao Outro.");
+        ed.WriteMessage("\n  Para cordoalhas, informe a area metalica nominal real (ex.: n x 1,40 cm2");
+        ed.WriteMessage("\n  para cordoalhas de 15,2 mm), pois o solido e um cilindro cheio.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\nREGRAS:");
         ed.WriteMessage("\n  Espacamento igual pelo comprimento 3D de cada linha.");
-        ed.WriteMessage("\n  Um Solid3d por barra; barras de comprimento nulo sao ignoradas.");
-        ed.WriteMessage("\n  Barras apagadas manualmente voltam ao atualizar o conjunto.");
+        ed.WriteMessage("\n  Unidades em m/kg dependem de INSUNITS (indefinido = metro).");
+        ed.WriteMessage("\n  Estais apagados manualmente voltam ao atualizar o conjunto.");
         ed.WriteMessage("\n============================================================");
     }
 
@@ -415,13 +464,66 @@ public sealed class C3DSolidLinkCommands
         }
     }
 
+    /// <summary>
+    /// Pergunta todos os parametros do conjunto. Retorna null se o usuario cancelar.
+    /// line2DefaultsFromLine1: na criacao, Enter nos descontos da linha 2 repete a linha 1.
+    /// </summary>
+    private static LinkParameters? AskParameters(
+        Editor ed,
+        AcadDb.Database db,
+        LinkParameters current,
+        bool line2DefaultsFromLine1)
+    {
+        LinkParameters p = current.Clone();
+
+        int? count = AskCount(ed, p.Count);
+        if (count is null)
+            return null;
+        p.Count = count.Value;
+
+        if (!AskTrims(ed, "linha 1", p.TrimStartA, p.TrimEndA, out double startA, out double endA))
+            return null;
+        p.TrimStartA = startA;
+        p.TrimEndA = endA;
+
+        double defaultStartB = line2DefaultsFromLine1 ? startA : p.TrimStartB;
+        double defaultEndB = line2DefaultsFromLine1 ? endA : p.TrimEndB;
+
+        if (!AskTrims(ed, "linha 2", defaultStartB, defaultEndB, out double startB, out double endB))
+            return null;
+        p.TrimStartB = startB;
+        p.TrimEndB = endB;
+
+        double? diameter = AskDiameter(ed, p.Diameter);
+        if (diameter is null)
+            return null;
+        p.Diameter = diameter.Value;
+
+        SolidLinkMaterial? material = AskMaterial(ed, p.Material);
+        if (material is null)
+            return null;
+        p.Material = material;
+
+        double? area = AskArea(ed, db, p);
+        if (area is null)
+            return null;
+        p.AreaCm2Override = area.Value;
+
+        string? layer = AskLayer(ed, p.Layer);
+        if (layer is null)
+            return null;
+        p.Layer = layer;
+
+        return p;
+    }
+
     private static int? AskCount(Editor ed, int current)
     {
         current = Math.Max(2, current);
 
         // Valor padrao exibido manualmente e aplicado no Enter (mesmo padrao do C3DSOLIDARRAY).
         PromptIntegerOptions options = new(
-            "\nQuantidade de pontos em cada linha (inclui inicio e fim) <" + current + ">: ")
+            "\nQuantidade de pontos em cada linha <" + current + ">: ")
         {
             AllowNone = true,
             LowerLimit = 2,
@@ -438,13 +540,75 @@ public sealed class C3DSolidLinkCommands
         return result.Status == PromptStatus.OK ? result.Value : null;
     }
 
+    private static bool AskTrims(
+        Editor ed,
+        string label,
+        double currentStart,
+        double currentEnd,
+        out double start,
+        out double end)
+    {
+        start = currentStart;
+        end = currentEnd;
+
+        while (true)
+        {
+            double? s = AskPercent(ed, "\nDesconto no INICIO da " + label + " (%)", currentStart);
+            if (s is null)
+                return false;
+
+            double? e = AskPercent(ed, "\nDesconto no FIM da " + label + " (%)", currentEnd);
+            if (e is null)
+                return false;
+
+            if (s.Value + e.Value >= 100.0 - Epsilon)
+            {
+                ed.WriteMessage("\nA soma dos descontos da " + label + " precisa ser menor que 100%.");
+                continue;
+            }
+
+            start = s.Value;
+            end = e.Value;
+            return true;
+        }
+    }
+
+    private static double? AskPercent(Editor ed, string message, double current)
+    {
+        PromptDoubleOptions options = new(message + " <" + FormatNumber(current) + ">: ")
+        {
+            AllowNone = true,
+            AllowNegative = false,
+            AllowZero = true
+        };
+
+        while (true)
+        {
+            PromptDoubleResult result = ed.GetDouble(options);
+
+            if (result.Status == PromptStatus.None)
+                return current;
+
+            if (result.Status != PromptStatus.OK)
+                return null;
+
+            if (result.Value > MaxTrimPercent)
+            {
+                ed.WriteMessage("\nInforme um valor entre 0 e " + FormatNumber(MaxTrimPercent) + "%.");
+                continue;
+            }
+
+            return result.Value;
+        }
+    }
+
     private static double? AskDiameter(Editor ed, double current)
     {
         if (current <= Epsilon)
             current = 0.10;
 
         PromptDistanceOptions options = new(
-            "\nDiametro do tubo (unidades do desenho) <" + FormatNumber(current) + ">: ")
+            "\nDiametro do estai (unidades do desenho) <" + FormatNumber(current) + ">: ")
         {
             AllowNone = true,
             AllowNegative = false,
@@ -458,6 +622,149 @@ public sealed class C3DSolidLinkCommands
             return current;
 
         return result.Status == PromptStatus.OK ? result.Value : null;
+    }
+
+    private static SolidLinkMaterial? AskMaterial(Editor ed, SolidLinkMaterial current)
+    {
+        ed.WriteMessage("\nMateriais disponiveis:");
+        foreach (SolidLinkMaterial m in SolidLinkMaterials.Catalog)
+        {
+            ed.WriteMessage(
+                "\n  " + m.Key.PadRight(6) + " " + m.Name +
+                " | fyk=" + FormatNumber(m.YieldMPa) + " fuk=" + FormatNumber(m.UltimateMPa) + " MPa");
+        }
+        ed.WriteMessage("\n  " + SolidLinkMaterials.CustomKey.PadRight(6) + " informar nome e propriedades");
+
+        string currentKey = SolidLinkMaterials.Find(current.Key) is null ? SolidLinkMaterials.CustomKey : current.Key;
+        string currentLabel = currentKey == SolidLinkMaterials.CustomKey ? current.Name : current.Key;
+
+        PromptKeywordOptions options = new(
+            "\nMaterial [" + SolidLinkMaterials.KeywordDisplay + "] <" + currentLabel + ">: ",
+            SolidLinkMaterials.KeywordList)
+        {
+            AllowNone = true
+        };
+
+        PromptResult result = ed.GetKeywords(options);
+
+        if (result.Status == PromptStatus.None)
+            return current;
+
+        if (result.Status != PromptStatus.OK)
+            return null;
+
+        SolidLinkMaterial? preset = SolidLinkMaterials.Find(result.StringResult);
+        if (preset is not null)
+            return preset;
+
+        return AskCustomMaterial(ed, current);
+    }
+
+    private static SolidLinkMaterial? AskCustomMaterial(Editor ed, SolidLinkMaterial current)
+    {
+        PromptStringOptions nameOptions = new("\nNome do material <" + current.Name + ">: ")
+        {
+            AllowSpaces = true
+        };
+
+        PromptResult nameResult = ed.GetString(nameOptions);
+        if (nameResult.Status != PromptStatus.OK)
+            return null;
+
+        string name = string.IsNullOrWhiteSpace(nameResult.StringResult)
+            ? current.Name
+            : nameResult.StringResult.Trim();
+
+        double? density = AskPositive(ed, "\nDensidade (kg/m3)", current.Density);
+        if (density is null)
+            return null;
+
+        double? fy = AskPositive(ed, "\nResistencia de escoamento fyk (MPa)", current.YieldMPa);
+        if (fy is null)
+            return null;
+
+        double? fu = AskPositive(ed, "\nResistencia de ruptura fuk (MPa)", Math.Max(current.UltimateMPa, fy.Value));
+        if (fu is null)
+            return null;
+
+        double? e = AskPositive(ed, "\nModulo de elasticidade E (GPa)", current.ElasticModulusGPa);
+        if (e is null)
+            return null;
+
+        return new SolidLinkMaterial(SolidLinkMaterials.CustomKey, name, density.Value, fy.Value, fu.Value, e.Value);
+    }
+
+    private static double? AskPositive(Editor ed, string message, double current)
+    {
+        PromptDoubleOptions options = new(message + " <" + FormatNumber(current) + ">: ")
+        {
+            AllowNone = true,
+            AllowNegative = false,
+            AllowZero = false
+        };
+
+        PromptDoubleResult result = ed.GetDouble(options);
+
+        if (result.Status == PromptStatus.None)
+            return current;
+
+        return result.Status == PromptStatus.OK ? result.Value : null;
+    }
+
+    /// <summary>Retorna a area informada em cm2, ou 0 para "calcular pelo diametro".</summary>
+    private static double? AskArea(Editor ed, AcadDb.Database db, LinkParameters p)
+    {
+        double autoAreaCm2 = CircleAreaCm2(p.Diameter, db);
+        string current = p.AreaCm2Override > Epsilon
+            ? FormatNumber(p.AreaCm2Override)
+            : "Auto=" + FormatNumber(autoAreaCm2, "0.####");
+
+        PromptDoubleOptions options = new(
+            "\nArea metalica efetiva por estai (cm2), 0 = Auto pelo diametro <" + current + ">: ")
+        {
+            AllowNone = true,
+            AllowNegative = false,
+            AllowZero = true
+        };
+
+        PromptDoubleResult result = ed.GetDouble(options);
+
+        if (result.Status == PromptStatus.None)
+            return p.AreaCm2Override;
+
+        return result.Status == PromptStatus.OK ? result.Value : null;
+    }
+
+    private static string? AskLayer(Editor ed, string current)
+    {
+        if (string.IsNullOrWhiteSpace(current))
+            current = DefaultLayer;
+
+        while (true)
+        {
+            PromptStringOptions options = new("\nLayer dos estais <" + current + ">: ")
+            {
+                AllowSpaces = true
+            };
+
+            PromptResult result = ed.GetString(options);
+            if (result.Status != PromptStatus.OK)
+                return null;
+
+            string name = string.IsNullOrWhiteSpace(result.StringResult)
+                ? current
+                : result.StringResult.Trim();
+
+            try
+            {
+                AcadDb.SymbolUtilityServices.ValidateSymbolName(name, false);
+                return name;
+            }
+            catch
+            {
+                ed.WriteMessage("\nNome de layer invalido: " + name);
+            }
+        }
     }
 
     /// <summary>
@@ -561,7 +868,7 @@ public sealed class C3DSolidLinkCommands
     }
 
     /// <summary>
-    /// Sugere o sentido que evita barras cruzadas: compara a soma das
+    /// Sugere o sentido que evita estais cruzados: compara a soma das
     /// distancias entre extremidades nas duas combinacoes possiveis.
     /// </summary>
     private static bool SuggestReversed(IReadOnlyList<Point3d> pointsA, IReadOnlyList<Point3d> pointsB)
@@ -575,24 +882,64 @@ public sealed class C3DSolidLinkCommands
         return crossed + GeometryTolerance < direct;
     }
 
+    private static void ReportGeneration(Editor ed, LinkSetData data, GenerationResult result, AcadDb.Database db)
+    {
+        LinkParameters p = data.Parameters;
+        GetMetersPerUnit(db, out string unitLabel);
+
+        ed.WriteMessage(
+            "\n  " + result.Created + " estai(s) | D=" + FormatNumber(p.Diameter) +
+            " | " + p.Material.Name + " | layer " + p.Layer);
+
+        ed.WriteMessage(
+            "\n  Comprimento total=" + FormatNumber(result.TotalLengthM, "0.00") + " m" +
+            " | massa total=" + FormatNumber(result.TotalMassKg, "0.0") + " kg" +
+            " | unidade do desenho: " + unitLabel);
+
+        if (result.Skipped > 0)
+        {
+            ed.WriteMessage(
+                "\n[AVISO] " + result.Skipped + " ligacao(oes) com comprimento nulo foram ignoradas" +
+                " (pontos coincidentes nas duas linhas).");
+        }
+
+        if (result.PropertySetFailures > 0)
+        {
+            ed.WriteMessage(
+                "\n[AVISO] Property Set " + SolidLinkPropertySet.DefinitionName + " nao aplicado em " +
+                result.PropertySetFailures + " estai(s): " + result.PropertySetMessage +
+                " A geometria foi criada normalmente.");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Geracao dos solidos
     // ------------------------------------------------------------------
 
-    private static int GenerateSolids(
+    private static GenerationResult GenerateSolids(
         AcadDb.Transaction tr,
         AcadDb.Database db,
         IReadOnlyList<Point3d> pointsA,
         IReadOnlyList<Point3d> pointsB,
         LinkSetData data)
     {
+        LinkParameters p = data.Parameters;
+        GenerationResult result = new();
+
         AcadDb.BlockTableRecord space = (AcadDb.BlockTableRecord)tr.GetObject(
             db.CurrentSpaceId,
             AcadDb.OpenMode.ForWrite);
 
-        double radius = data.Diameter / 2.0;
+        AcadDb.ObjectId layerId = EnsureLayer(tr, db, p.Layer);
+        double metersPerUnit = GetMetersPerUnit(db, out _);
+
+        double radius = p.Diameter / 2.0;
+        double areaCm2 = p.AreaCm2Override > Epsilon ? p.AreaCm2Override : CircleAreaCm2(p.Diameter, db);
+        double areaM2 = areaCm2 / 10000.0;
+        double linearMass = areaM2 * p.Material.Density;
+
         int count = Math.Min(pointsA.Count, pointsB.Count);
-        int skipped = 0;
+        int digits = Math.Max(2, count.ToString(CultureInfo.InvariantCulture).Length);
 
         data.GeneratedHandles.Clear();
 
@@ -604,18 +951,61 @@ public sealed class C3DSolidLinkCommands
             AcadDb.Solid3d? solid = CreateTube(db, a, b, radius);
             if (solid is null)
             {
-                skipped++;
+                result.Skipped++;
                 continue;
             }
 
+            solid.LayerId = layerId;
             space.AppendEntity(solid);
             tr.AddNewlyCreatedDBObject(solid, true);
             TagSolid(tr, solid, data.GroupId, i);
 
             data.GeneratedHandles.Add(solid.Handle.ToString());
+            result.Created++;
+
+            Vector3d axis = b - a;
+            double lengthM = axis.Length * metersPerUnit;
+            double horizontal = Math.Sqrt((axis.X * axis.X) + (axis.Y * axis.Y));
+            double inclination = Math.Atan2(Math.Abs(axis.Z), horizontal) * 180.0 / Math.PI;
+            double massKg = linearMass * lengthM;
+
+            result.TotalLengthM += lengthM;
+            result.TotalMassKg += massKg;
+
+            SolidLinkStayValues stay = new(
+                GroupId: data.GroupId,
+                Code: "E" + (i + 1).ToString(new string('0', digits), CultureInfo.InvariantCulture),
+                Number: i + 1,
+                Material: p.Material.Name,
+                DiameterMm: p.Diameter * metersPerUnit * 1000.0,
+                AreaCm2: areaCm2,
+                LengthM: lengthM,
+                LinearMassKgM: linearMass,
+                MassKg: massKg,
+                DensityKgM3: p.Material.Density,
+                YieldMPa: p.Material.YieldMPa,
+                UltimateMPa: p.Material.UltimateMPa,
+                ElasticModulusGPa: p.Material.ElasticModulusGPa,
+                YieldLoadKN: areaM2 * p.Material.YieldMPa * 1000.0,
+                BreakingLoadKN: areaM2 * p.Material.UltimateMPa * 1000.0,
+                InclinationDeg: inclination,
+                TopElevationM: Math.Max(a.Z, b.Z) * metersPerUnit,
+                BottomElevationM: Math.Min(a.Z, b.Z) * metersPerUnit,
+                StartPoint: FormatPoint(a),
+                EndPoint: FormatPoint(b),
+                TrimLine1: FormatTrim(p.TrimStartA, p.TrimEndA),
+                TrimLine2: FormatTrim(p.TrimStartB, p.TrimEndB),
+                Line1Handle: data.HandleA,
+                Line2Handle: data.HandleB);
+
+            if (!SolidLinkPropertySet.TryApply(tr, db, solid, stay, out string psMessage))
+            {
+                result.PropertySetFailures++;
+                result.PropertySetMessage = psMessage;
+            }
         }
 
-        return skipped;
+        return result;
     }
 
     /// <summary>
@@ -645,22 +1035,66 @@ public sealed class C3DSolidLinkCommands
         return solid;
     }
 
-    private static void EraseGenerated(AcadDb.Transaction tr, AcadDb.Database db, LinkSetData data)
+    /// <summary>
+    /// Apaga os estais atuais do conjunto. Retorna false (sem apagar nada) se
+    /// algum estai estiver em layer travado.
+    /// </summary>
+    private static bool EraseGenerated(AcadDb.Transaction tr, AcadDb.Database db, LinkSetData data, Editor ed)
     {
+        List<AcadDb.Entity> toErase = new();
+
         foreach (string handle in data.GeneratedHandles)
         {
             AcadDb.ObjectId id = ResolveHandle(db, handle);
             if (id.IsNull || id.IsErased)
                 continue;
 
-            if (tr.GetObject(id, AcadDb.OpenMode.ForWrite, false) is AcadDb.Entity entity &&
-                string.Equals(TryReadTag(tr, id), data.GroupId, StringComparison.Ordinal))
+            if (!string.Equals(TryReadTag(tr, id), data.GroupId, StringComparison.Ordinal))
+                continue;
+
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity)
+                continue;
+
+            AcadDb.LayerTableRecord layer = (AcadDb.LayerTableRecord)tr.GetObject(entity.LayerId, AcadDb.OpenMode.ForRead);
+            if (layer.IsLocked)
             {
-                entity.Erase();
+                ed.WriteMessage(
+                    "\n[AVISO] Conjunto " + ShortId(data.GroupId) + ": o layer '" + layer.Name +
+                    "' esta travado. Destrave-o para recriar os estais.");
+                return false;
             }
+
+            toErase.Add(entity);
+        }
+
+        foreach (AcadDb.Entity entity in toErase)
+        {
+            entity.UpgradeOpen();
+            entity.Erase();
         }
 
         data.GeneratedHandles.Clear();
+        return true;
+    }
+
+    private static AcadDb.ObjectId EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name)
+    {
+        AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+
+        if (table.Has(name))
+            return table[name];
+
+        table.UpgradeOpen();
+
+        AcadDb.LayerTableRecord record = new()
+        {
+            Name = name,
+            Color = AcColors.Color.FromColorIndex(AcColors.ColorMethod.ByAci, DefaultLayerColor)
+        };
+
+        AcadDb.ObjectId id = table.Add(record);
+        tr.AddNewlyCreatedDBObject(record, true);
+        return id;
     }
 
     private static bool TryOpenPaths(
@@ -681,7 +1115,7 @@ public sealed class C3DSolidLinkCommands
         {
             ed.WriteMessage(
                 "\n[AVISO] Conjunto " + ShortId(data.GroupId) +
-                ": uma das linhas de origem foi apagada. As barras existentes foram mantidas.");
+                ": uma das linhas de origem foi apagada. Os estais existentes foram mantidos.");
             return false;
         }
 
@@ -697,6 +1131,46 @@ public sealed class C3DSolidLinkCommands
         }
 
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Unidades
+    // ------------------------------------------------------------------
+
+    private static double GetMetersPerUnit(AcadDb.Database? db, out string label)
+    {
+        AcadDb.UnitsValue units = db?.Insunits ?? AcadDb.UnitsValue.Undefined;
+
+        switch (units)
+        {
+            case AcadDb.UnitsValue.Millimeters:
+                label = "mm";
+                return 0.001;
+            case AcadDb.UnitsValue.Centimeters:
+                label = "cm";
+                return 0.01;
+            case AcadDb.UnitsValue.Meters:
+                label = "m";
+                return 1.0;
+            case AcadDb.UnitsValue.Kilometers:
+                label = "km";
+                return 1000.0;
+            case AcadDb.UnitsValue.Inches:
+                label = "pol";
+                return 0.0254;
+            case AcadDb.UnitsValue.Feet:
+                label = "pe";
+                return 0.3048;
+            default:
+                label = "indefinida (assumido m)";
+                return 1.0;
+        }
+    }
+
+    private static double CircleAreaCm2(double diameterDrawingUnits, AcadDb.Database? db)
+    {
+        double dM = diameterDrawingUnits * GetMetersPerUnit(db, out _);
+        return Math.PI * dM * dM / 4.0 * 10000.0;
     }
 
     // ------------------------------------------------------------------
@@ -869,15 +1343,27 @@ public sealed class C3DSolidLinkCommands
             return points;
         }
 
-        /// <summary>N pontos igualmente espacados, incluindo inicio e fim.</summary>
-        public List<Point3d> Distribute(int count)
+        /// <summary>
+        /// N pontos igualmente espacados no trecho util, que comeca em
+        /// startPercent do comprimento e termina em (100 - endPercent).
+        /// Os extremos do trecho util sao incluidos.
+        /// </summary>
+        public List<Point3d> Distribute(int count, double startPercent, double endPercent)
         {
+            double from = Length * Math.Clamp(startPercent, 0.0, 100.0) / 100.0;
+            double to = Length * (1.0 - (Math.Clamp(endPercent, 0.0, 100.0) / 100.0));
+
+            if (to < from)
+                to = from;
+
             List<Point3d> result = new(count);
 
             for (int i = 0; i < count; i++)
             {
-                double distance = count == 1 ? 0.0 : Length * i / (count - 1);
-                result.Add(PointAt(distance, i == 0, i == count - 1));
+                double distance = count == 1 ? from : from + ((to - from) * i / (count - 1));
+                bool isStart = i == 0 && startPercent <= Epsilon;
+                bool isEnd = i == count - 1 && endPercent <= Epsilon;
+                result.Add(PointAt(distance, isStart, isEnd));
             }
 
             return result;
@@ -1004,9 +1490,56 @@ public sealed class C3DSolidLinkCommands
         return allSets.Where(set => groupIds.Contains(set.GroupId)).ToList();
     }
 
-    private static LinkSettings LoadSettings(AcadDb.Transaction tr, AcadDb.Database db)
+    /// <summary>Serializa os parametros (14 valores, em ordem fixa).</summary>
+    private static IEnumerable<AcadDb.TypedValue> WriteParameters(LinkParameters p)
     {
-        LinkSettings settings = new();
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, p.Count);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.TrimStartA);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.TrimEndA);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.TrimStartB);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.TrimEndB);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Diameter);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Material.Key);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Material.Name);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Material.Density);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Material.YieldMPa);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Material.UltimateMPa);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Material.ElasticModulusGPa);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.AreaCm2Override);
+        yield return new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Layer);
+    }
+
+    private const int ParameterValueCount = 14;
+
+    private static LinkParameters ReadParameters(AcadDb.TypedValue[] values, int offset)
+    {
+        LinkParameters p = new()
+        {
+            Count = Math.Max(2, AsInt(values[offset], 10)),
+            TrimStartA = AsDouble(values[offset + 1], 0.0),
+            TrimEndA = AsDouble(values[offset + 2], 0.0),
+            TrimStartB = AsDouble(values[offset + 3], 0.0),
+            TrimEndB = AsDouble(values[offset + 4], 0.0),
+            Diameter = AsDouble(values[offset + 5], 0.10),
+            AreaCm2Override = AsDouble(values[offset + 12], 0.0),
+            Layer = AsText(values[offset + 13], DefaultLayer)
+        };
+
+        string key = AsText(values[offset + 6], SolidLinkMaterials.Default.Key);
+        p.Material = SolidLinkMaterials.Find(key) ?? new SolidLinkMaterial(
+            SolidLinkMaterials.CustomKey,
+            AsText(values[offset + 7], "Material personalizado"),
+            AsDouble(values[offset + 8], 7850.0),
+            AsDouble(values[offset + 9], 250.0),
+            AsDouble(values[offset + 10], 400.0),
+            AsDouble(values[offset + 11], 200.0));
+
+        return p;
+    }
+
+    private static LinkParameters LoadSettings(AcadDb.Transaction tr, AcadDb.Database db)
+    {
+        LinkParameters settings = new();
         AcadDb.DBDictionary? root = TryGetRootDictionary(tr, db);
 
         if (root is null || !root.Contains(SettingsKey))
@@ -1015,7 +1548,18 @@ public sealed class C3DSolidLinkCommands
         AcadDb.Xrecord record = (AcadDb.Xrecord)tr.GetObject(root.GetAt(SettingsKey), AcadDb.OpenMode.ForRead);
         AcadDb.TypedValue[]? values = record.Data?.AsArray();
 
-        if (values is { Length: >= 2 })
+        if (values is null || values.Length == 0)
+            return settings;
+
+        if (values[0].Value is string signature &&
+            signature == SettingsSignatureV2 &&
+            values.Length >= 1 + ParameterValueCount)
+        {
+            return ReadParameters(values, 1);
+        }
+
+        // v1.0: [Count, Diameter]
+        if (values.Length >= 2)
         {
             if (values[0].Value is int count && count >= 2)
                 settings.Count = count;
@@ -1026,27 +1570,29 @@ public sealed class C3DSolidLinkCommands
         return settings;
     }
 
-    private static void SaveSettings(AcadDb.Transaction tr, AcadDb.Database db, LinkSettings settings)
+    private static void SaveSettings(AcadDb.Transaction tr, AcadDb.Database db, LinkParameters settings)
     {
-        AcadDb.ResultBuffer buffer = new(
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, settings.Count),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, settings.Diameter));
+        List<AcadDb.TypedValue> values = new()
+        {
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, SettingsSignatureV2)
+        };
+        values.AddRange(WriteParameters(settings));
 
-        WriteRecord(tr, db, SettingsKey, buffer);
+        WriteRecord(tr, db, SettingsKey, new AcadDb.ResultBuffer(values.ToArray()));
     }
 
     private static void SaveSet(AcadDb.Transaction tr, AcadDb.Database db, LinkSetData data)
     {
         List<AcadDb.TypedValue> values = new()
         {
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, RecordSignature),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, RecordSignatureV2),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, data.GroupId),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, data.HandleA),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, data.HandleB),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, data.Count),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, data.Diameter),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, data.Reversed ? 1 : 0)
         };
+
+        values.AddRange(WriteParameters(data.Parameters));
 
         foreach (string handle in data.GeneratedHandles)
             values.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, handle));
@@ -1092,23 +1638,43 @@ public sealed class C3DSolidLinkCommands
     private static LinkSetData? ParseSet(AcadDb.Xrecord record)
     {
         AcadDb.TypedValue[]? values = record.Data?.AsArray();
-        if (values is null || values.Length < 7)
+        if (values is null || values.Length < 4)
             return null;
 
-        if (!string.Equals(values[0].Value as string, RecordSignature, StringComparison.Ordinal))
-            return null;
+        string signature = values[0].Value as string ?? string.Empty;
 
         LinkSetData data = new()
         {
-            GroupId = values[1].Value as string ?? string.Empty,
-            HandleA = values[2].Value as string ?? string.Empty,
-            HandleB = values[3].Value as string ?? string.Empty,
-            Count = values[4].Value is int count ? count : 2,
-            Diameter = values[5].Value is double diameter ? diameter : 0.10,
-            Reversed = values[6].Value is int reversed && reversed != 0
+            GroupId = AsText(values[1], string.Empty),
+            HandleA = AsText(values[2], string.Empty),
+            HandleB = AsText(values[3], string.Empty)
         };
 
-        for (int i = 7; i < values.Length; i++)
+        int handlesStart;
+
+        if (signature == RecordSignatureV2 && values.Length >= 5 + ParameterValueCount)
+        {
+            data.Reversed = AsInt(values[4], 0) != 0;
+            data.Parameters = ReadParameters(values, 5);
+            handlesStart = 5 + ParameterValueCount;
+        }
+        else if (signature == RecordSignatureV1 && values.Length >= 7)
+        {
+            // v1.0: [sig, group, A, B, Count, Diameter, Reversed, handles...]
+            data.Parameters = new LinkParameters
+            {
+                Count = Math.Max(2, AsInt(values[4], 2)),
+                Diameter = AsDouble(values[5], 0.10)
+            };
+            data.Reversed = AsInt(values[6], 0) != 0;
+            handlesStart = 7;
+        }
+        else
+        {
+            return null;
+        }
+
+        for (int i = handlesStart; i < values.Length; i++)
         {
             if (values[i].Value is string handle && !string.IsNullOrWhiteSpace(handle))
                 data.GeneratedHandles.Add(handle);
@@ -1116,6 +1682,21 @@ public sealed class C3DSolidLinkCommands
 
         return string.IsNullOrWhiteSpace(data.GroupId) ? null : data;
     }
+
+    private static int AsInt(AcadDb.TypedValue value, int fallback) =>
+        value.Value switch
+        {
+            int i => i,
+            short s => s,
+            long l => (int)l,
+            _ => fallback
+        };
+
+    private static double AsDouble(AcadDb.TypedValue value, double fallback) =>
+        value.Value is double d ? d : fallback;
+
+    private static string AsText(AcadDb.TypedValue value, string fallback) =>
+        value.Value is string s && !string.IsNullOrWhiteSpace(s) ? s : fallback;
 
     private static void WriteRecord(AcadDb.Transaction tr, AcadDb.Database db, string key, AcadDb.ResultBuffer buffer)
     {
@@ -1178,8 +1759,14 @@ public sealed class C3DSolidLinkCommands
     // Formatacao
     // ------------------------------------------------------------------
 
-    private static string FormatNumber(double value) =>
-        value.ToString("0.###", CultureInfo.InvariantCulture);
+    private static string FormatNumber(double value, string format = "0.###") =>
+        value.ToString(format, CultureInfo.InvariantCulture);
+
+    private static string FormatTrim(double start, double end) =>
+        "ini " + FormatNumber(start, "0.##") + "% / fim " + FormatNumber(end, "0.##") + "%";
+
+    private static string FormatPoint(Point3d p) =>
+        FormatNumber(p.X, "0.000") + ";" + FormatNumber(p.Y, "0.000") + ";" + FormatNumber(p.Z, "0.000");
 
     private static string ShortId(string id) =>
         string.IsNullOrWhiteSpace(id) ? "?" : (id.Length <= 8 ? id : id[..8]);

@@ -131,8 +131,8 @@ public static class CommandCatalog
                 C3DVersions.SolidLink,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Corridor.SolidLigar, "Ligar linhas", "Liga N pontos igualmente espacados de duas linhas com barras tubulares Solid3d de diametro informado."),
-                    new CommandDefinition(C3DCommands.Corridor.SolidLigarEditar, "Editar ligacao", "Altera quantidade de pontos, diametro ou sentido de um conjunto e recria as barras."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigar, "Ligar linhas", "Liga N pontos de duas linhas com estais Solid3d: desconto % nas pontas, material, layer proprio e Property Set C3D_ESTAI."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigarEditar, "Editar ligacao", "Altera pontos, descontos, diametro, material, area, layer ou sentido de um conjunto e recria os estais."),
                     new CommandDefinition(C3DCommands.Corridor.SolidLigarAtualizar, "Atualizar ligacoes", "Recria conjuntos apos alteracao das linhas de origem."),
                     new CommandDefinition(C3DCommands.Corridor.SolidLigarHelp, "Ajuda ligacao", "Mostra a ajuda do C3DSOLIDLIGAR.")
                 }),
