@@ -1,3 +1,12 @@
+## 2.19.0 - C3DOCULTARPLANTA v1.4.0 / correcao de crash na orbita 3D
+
+- corrige fechamento do Civil 3D ao orbitar o modelo com a funcao ligada. O overrule roda dentro do motor grafico nativo, e tres pontos eram frageis nesse cenario:
+  - excecoes dentro de SetAttributes/WorldDraw/ViewportDraw podiam escapar para o codigo nativo; agora todo callback e protegido e, em erro, o objeto simplesmente nao e desenhado naquela vista;
+  - o filtro lia `entity.Layer`, que abre a tabela de layers do DWG durante o desenho (inseguro nas threads de graficos). Agora usa `LayerId` contra um indice de layers (`PlanLayerIndex`) montado fora da regeneracao e mantido pelos eventos de layer (criar/renomear/apagar) e de abertura/fechamento de desenhos;
+  - a trava de recursao do "desenhar normalmente" era por thread; agora e por objeto nativo e vale entre threads;
+- linhas da representacao desenhadas como segmentos (`WorldLine`);
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.18.0 - C3DOCULTARPLANTA v1.3.0 / correcao de travamento ao trocar layers
 
 - corrige travamento ao trocar o layer de varios solidos com o modo Exato ativo:

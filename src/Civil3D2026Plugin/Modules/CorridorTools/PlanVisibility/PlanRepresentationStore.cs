@@ -116,6 +116,8 @@ internal static class PlanRepresentationStore
         db.ObjectAppended += OnObjectChanged;
         db.ObjectModified += OnObjectChanged;
         db.ObjectErased += OnObjectErased;
+
+        PlanLayerIndex.Rebuild(db);
     }
 
     private static void Detach(Document doc)
@@ -132,6 +134,8 @@ internal static class PlanRepresentationStore
 
             lock (States)
                 States.Remove(db);
+
+            PlanLayerIndex.Remove(db);
         }
         catch
         {
@@ -188,6 +192,13 @@ internal static class PlanRepresentationStore
     {
         try
         {
+            // Layers criados/renomeados: mantem o indice usado no desenho.
+            if (e.DBObject is AcadDb.LayerTableRecord layer)
+            {
+                PlanLayerIndex.Update(layer, erased: false);
+                return;
+            }
+
             if (IsTrackedTarget(e.DBObject))
             {
                 MarkPending(e.DBObject.Database, e.DBObject.Handle.Value);
@@ -214,6 +225,12 @@ internal static class PlanRepresentationStore
     {
         try
         {
+            if (e.DBObject is AcadDb.LayerTableRecord layer)
+            {
+                PlanLayerIndex.Update(layer, e.Erased);
+                return;
+            }
+
             if (!IsTrackedTarget(e.DBObject))
                 return;
 
