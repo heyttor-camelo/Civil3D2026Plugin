@@ -1,3 +1,12 @@
+## 2.17.0 - C3DOCULTARPLANTA v1.2.0 / solidos dentro de blocos
+
+- insercoes de bloco (BlockReference) que contem Solid3d/Body, inclusive em blocos aninhados, passam a ser alvos;
+- cada insercao tem a propria representacao (mesmo bloco em lugares diferentes tem vizinhos diferentes); os solidos internos entram com a transformacao acumulada da insercao, e as silhuetas sao calculadas ja em WCS;
+- filtro: entram todos os solidos do bloco se o layer da insercao casar com os prefixos; senao, so os solidos internos cujo layer casa;
+- em planta o bloco desenha as linhas visiveis dos solidos e o restante do conteudo (linhas, textos, atributos) normalmente, com os solidos internos suprimidos; no modo Ocultar, idem sem as linhas;
+- mover/copiar/apagar insercoes no model space dispara a atualizacao automatica; editar a definicao do bloco (BEDIT/REFEDIT) pede `C3DPLANTAATUALIZAR`;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.16.0 - C3DOCULTARPLANTA v1.1.0 / modo Exato: linhas ocultas em 2D Wireframe
 
 - novo modo `Exato`: em planta os solidos aparecem so com as arestas visiveis de cima, com remocao de linhas ocultas entre TODOS os solidos-alvo, continuando em 2D Wireframe; como o viewport do layout usa o mesmo desenho, a prancha plota igual;

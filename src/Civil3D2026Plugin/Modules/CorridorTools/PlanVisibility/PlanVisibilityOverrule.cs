@@ -45,6 +45,9 @@ internal static class PlanVisibilitySettings
 
     public static string PrefixesText => string.Join(";", Prefixes);
 
+    /// <summary>True se o filtro inclui todos os solidos (prefixo *).</summary>
+    public static bool MatchesAll => Prefixes.Contains(AllPrefix);
+
     public static void SetPrefixes(string text)
     {
         Prefixes = text
@@ -129,6 +132,14 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
     [ThreadStatic]
     private static int _nesting;
 
+    // Enquanto um bloco desenha o proprio conteudo em planta, os solidos internos
+    // ficam suprimidos (ja estao representados pelas linhas visiveis do bloco).
+    [ThreadStatic]
+    private static int _suppressDepth;
+
+    [ThreadStatic]
+    private static bool _suppressAll;
+
     public override int SetAttributes(AcGi.Drawable drawable, AcGi.DrawableTraits traits)
     {
         int flags = base.SetAttributes(drawable, traits);
@@ -141,6 +152,9 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
 
     public override bool WorldDraw(AcGi.Drawable drawable, AcGi.WorldDraw wd)
     {
+        if (IsSuppressedNestedSolid(drawable))
+            return true; // nada a desenhar
+
         if (_nesting > 0 || !IsTarget(drawable))
             return base.WorldDraw(drawable, wd);
 
@@ -150,6 +164,9 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
 
     public override void ViewportDraw(AcGi.Drawable drawable, AcGi.ViewportDraw vd)
     {
+        if (IsSuppressedNestedSolid(drawable))
+            return;
+
         if (_nesting > 0 || !IsTarget(drawable))
         {
             base.ViewportDraw(drawable, vd);
@@ -158,6 +175,12 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
 
         if (IsPlanView(vd))
         {
+            if (drawable is AcadDb.BlockReference reference)
+            {
+                DrawBlockInPlan(reference, vd);
+                return;
+            }
+
             if (PlanVisibilitySettings.Mode == PlanDisplayMode.Ocultar)
                 return;
 
@@ -166,13 +189,48 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
             if (drawable is AcadDb.Entity entity &&
                 PlanRepresentationStore.TryGet(entity) is List<Point3d[]> lines)
             {
-                foreach (Point3d[] line in lines)
-                    vd.Geometry.Polyline(new Point3dCollection(line), Vector3d.ZAxis, IntPtr.Zero);
-
+                DrawLines(vd, lines);
                 return;
             }
         }
 
+        DrawNormally(drawable, vd);
+    }
+
+    /// <summary>
+    /// Bloco em planta: linhas visiveis dos solidos internos (modo Exato) e o
+    /// restante do conteudo do bloco normalmente, com os solidos suprimidos.
+    /// </summary>
+    private static void DrawBlockInPlan(AcadDb.BlockReference reference, AcGi.ViewportDraw vd)
+    {
+        if (PlanVisibilitySettings.Mode == PlanDisplayMode.Exato)
+        {
+            if (PlanRepresentationStore.TryGet(reference) is not List<Point3d[]> lines)
+            {
+                DrawNormally(reference, vd);
+                return;
+            }
+
+            DrawLines(vd, lines);
+        }
+
+        bool previousAll = _suppressAll;
+        _suppressAll = PlanVisibilitySettings.Matches(reference.Layer);
+        _suppressDepth++;
+
+        try
+        {
+            DrawNormally(reference, vd);
+        }
+        finally
+        {
+            _suppressDepth--;
+            _suppressAll = previousAll;
+        }
+    }
+
+    private static void DrawNormally(AcGi.Drawable drawable, AcGi.ViewportDraw vd)
+    {
         _nesting++;
         try
         {
@@ -184,13 +242,47 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
         }
     }
 
+    private static void DrawLines(AcGi.ViewportDraw vd, List<Point3d[]> lines)
+    {
+        foreach (Point3d[] line in lines)
+            vd.Geometry.Polyline(new Point3dCollection(line), Vector3d.ZAxis, IntPtr.Zero);
+    }
+
+    private static bool IsSuppressedNestedSolid(AcGi.Drawable drawable)
+    {
+        if (_suppressDepth == 0)
+            return false;
+
+        try
+        {
+            return drawable is AcadDb.Entity entity &&
+                   (entity is AcadDb.Solid3d || entity is AcadDb.Body) &&
+                   (_suppressAll || PlanVisibilitySettings.Matches(entity.Layer));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool IsTarget(AcGi.Drawable drawable)
     {
         try
         {
-            return PlanVisibilitySettings.Enabled &&
-                   drawable is AcadDb.Entity entity &&
-                   PlanVisibilitySettings.Matches(entity.Layer);
+            if (!PlanVisibilitySettings.Enabled || drawable is not AcadDb.Entity entity)
+                return false;
+
+            if (entity is AcadDb.BlockReference reference)
+            {
+                // Exato: so blocos com representacao calculada (contem solidos).
+                // Ocultar: blocos cujo layer casa; com "*", os solidos internos
+                // ja se ocultam sozinhos e nao e preciso tocar em todos os blocos.
+                return PlanVisibilitySettings.Mode == PlanDisplayMode.Exato
+                    ? PlanRepresentationStore.TryGet(reference) is not null
+                    : !PlanVisibilitySettings.MatchesAll && PlanVisibilitySettings.Matches(reference.Layer);
+            }
+
+            return PlanVisibilitySettings.Matches(entity.Layer);
         }
         catch
         {
@@ -223,7 +315,8 @@ internal static class PlanVisibilityManager
     private static readonly Type[] TargetTypes =
     {
         typeof(AcadDb.Solid3d),
-        typeof(AcadDb.Body) // links extraidos do corredor saem como Body
+        typeof(AcadDb.Body), // links extraidos do corredor saem como Body
+        typeof(AcadDb.BlockReference) // solidos dentro de blocos
     };
 
     public static bool IsActive => _overrule is not null;

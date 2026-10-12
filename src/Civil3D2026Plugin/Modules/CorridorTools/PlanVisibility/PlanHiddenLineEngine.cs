@@ -105,9 +105,10 @@ internal static class PlanHiddenLineEngine
 
     /// <summary>
     /// Extrai triangulos e linhas candidatas de uma entidade (Solid3d, Body...).
-    /// Retorna null se o Brep nao puder ser lido.
+    /// transform leva as coordenadas do Brep para o WCS (solidos dentro de
+    /// blocos); null = ja em WCS. Retorna null se o Brep nao puder ser lido.
     /// </summary>
-    public static EntityGeometry? Extract(AcadDb.Entity entity, long key)
+    public static EntityGeometry? Extract(AcadDb.Entity entity, long key, Matrix3d? transform = null)
     {
         try
         {
@@ -117,8 +118,54 @@ internal static class PlanHiddenLineEngine
 
             ExtractTriangles(brep, geometry);
             ExtractBrepEdges(brep, geometry);
-            AddSilhouettes(geometry);
 
+            if (transform is Matrix3d m)
+                ApplyTransform(geometry, m);
+
+            // Silhuetas dependem da direcao de vista: calcular ja em WCS.
+            AddSilhouettes(geometry);
+            UpdateBox(geometry);
+            return geometry.Box.IsValid ? geometry : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Junta varias geometrias (ex.: solidos de um bloco) sob uma chave.</summary>
+    public static EntityGeometry? Merge(long key, IEnumerable<EntityGeometry> parts)
+    {
+        EntityGeometry merged = new() { Key = key };
+
+        foreach (EntityGeometry part in parts)
+        {
+            merged.Triangles.AddRange(part.Triangles);
+            merged.Candidates.AddRange(part.Candidates);
+        }
+
+        UpdateBox(merged);
+        return merged.Box.IsValid ? merged : null;
+    }
+
+    private static void ApplyTransform(EntityGeometry geometry, Matrix3d m)
+    {
+        for (int i = 0; i < geometry.Triangles.Count; i++)
+        {
+            Tri3 t = geometry.Triangles[i];
+            geometry.Triangles[i] = new Tri3(t.A.TransformBy(m), t.B.TransformBy(m), t.C.TransformBy(m));
+        }
+
+        foreach (Point3d[] line in geometry.Candidates)
+        {
+            for (int i = 0; i < line.Length; i++)
+                line[i] = line[i].TransformBy(m);
+        }
+    }
+
+    private static void UpdateBox(EntityGeometry geometry)
+    {
+        {
             Extents2dBox box = default;
             foreach (Tri3 t in geometry.Triangles)
             {
@@ -134,11 +181,6 @@ internal static class PlanHiddenLineEngine
             }
 
             geometry.Box = box;
-            return box.IsValid ? geometry : null;
-        }
-        catch
-        {
-            return null;
         }
     }
 

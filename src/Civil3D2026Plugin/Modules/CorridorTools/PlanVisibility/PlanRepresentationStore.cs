@@ -152,9 +152,26 @@ internal static class PlanRepresentationStore
         if (_refreshing || PlanVisibilitySettings.Mode != PlanDisplayMode.Exato)
             return false;
 
-        return obj is AcadDb.Entity entity &&
-               (entity is AcadDb.Solid3d || entity is AcadDb.Body) &&
-               PlanVisibilitySettings.Matches(entity.Layer);
+        // So objetos do model space; edicoes dentro de definicoes de bloco
+        // pedem C3DPLANTAATUALIZAR.
+        if (obj is not AcadDb.Entity entity || !IsInModelSpace(entity))
+            return false;
+
+        // Inserções de bloco: se nao tiverem solidos, a atualizacao simplesmente as ignora.
+        return (entity is AcadDb.Solid3d || entity is AcadDb.Body || entity is AcadDb.BlockReference) &&
+               (PlanVisibilitySettings.Matches(entity.Layer) || entity is AcadDb.BlockReference && PlanVisibilitySettings.MatchesAll);
+    }
+
+    private static bool IsInModelSpace(AcadDb.Entity entity)
+    {
+        try
+        {
+            return entity.BlockName.Equals(AcadDb.BlockTableRecord.ModelSpace, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static void OnObjectChanged(object? sender, AcadDb.ObjectEventArgs e)
@@ -411,7 +428,7 @@ internal static class PlanRepresentationStore
                 if (tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity)
                     continue;
 
-                PlanHiddenLineEngine.EntityGeometry? geometry = PlanHiddenLineEngine.Extract(entity, t.Key);
+                PlanHiddenLineEngine.EntityGeometry? geometry = ExtractTarget(tr, entity, t.Key);
                 if (geometry is null)
                 {
                     failed++;
@@ -498,9 +515,110 @@ internal static class PlanRepresentationStore
         }
     }
 
+    /// <summary>Geometria de um alvo: solido/body direto ou todos os solidos de uma insercao de bloco.</summary>
+    private static PlanHiddenLineEngine.EntityGeometry? ExtractTarget(AcadDb.Transaction tr, AcadDb.Entity entity, long key)
+    {
+        if (entity is not AcadDb.BlockReference reference)
+            return PlanHiddenLineEngine.Extract(entity, key);
+
+        List<PlanHiddenLineEngine.EntityGeometry> parts = new();
+        bool referenceMatches = PlanVisibilitySettings.Matches(reference.Layer);
+
+        foreach ((AcadDb.Entity nested, Matrix3d transform) in EnumerateNestedSolids(tr, reference, reference.BlockTransform, referenceMatches, 0))
+        {
+            PlanHiddenLineEngine.EntityGeometry? part = PlanHiddenLineEngine.Extract(nested, key, transform);
+            if (part is not null)
+                parts.Add(part);
+        }
+
+        return parts.Count == 0 ? null : PlanHiddenLineEngine.Merge(key, parts);
+    }
+
+    /// <summary>
+    /// Solidos/bodies dentro de um bloco (recursivo), com a transformacao
+    /// acumulada para o WCS. Entram todos se a insercao casar com o filtro;
+    /// senao, so os que casam pelo proprio layer.
+    /// </summary>
+    private static IEnumerable<(AcadDb.Entity Entity, Matrix3d Transform)> EnumerateNestedSolids(
+        AcadDb.Transaction tr,
+        AcadDb.BlockReference reference,
+        Matrix3d transform,
+        bool includeAll,
+        int depth)
+    {
+        if (depth > 16)
+            yield break;
+
+        if (tr.GetObject(reference.BlockTableRecord, AcadDb.OpenMode.ForRead, false) is not AcadDb.BlockTableRecord definition)
+            yield break;
+
+        foreach (AcadDb.ObjectId id in definition)
+        {
+            if (id.IsErased || tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity child)
+                continue;
+
+            if (!child.Visible)
+                continue;
+
+            if (child is AcadDb.Solid3d || child is AcadDb.Body)
+            {
+                if (includeAll || PlanVisibilitySettings.Matches(child.Layer))
+                    yield return (child, transform);
+            }
+            else if (child is AcadDb.BlockReference inner)
+            {
+                bool innerAll = includeAll || PlanVisibilitySettings.Matches(inner.Layer);
+                foreach (var item in EnumerateNestedSolids(tr, inner, transform * inner.BlockTransform, innerAll, depth + 1))
+                    yield return item;
+            }
+        }
+    }
+
+    /// <summary>True se o bloco (recursivo) contem algum Solid3d/Body.</summary>
+    private static bool ContainsSolids(
+        AcadDb.Transaction tr,
+        AcadDb.ObjectId blockId,
+        Dictionary<AcadDb.ObjectId, bool> memo,
+        int depth = 0)
+    {
+        if (memo.TryGetValue(blockId, out bool known))
+            return known;
+
+        memo[blockId] = false; // protege contra referencia circular
+        bool found = false;
+
+        if (depth <= 16 && tr.GetObject(blockId, AcadDb.OpenMode.ForRead, false) is AcadDb.BlockTableRecord definition)
+        {
+            foreach (AcadDb.ObjectId id in definition)
+            {
+                if (id.IsErased)
+                    continue;
+
+                if (id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Solid3d))) ||
+                    id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Body))))
+                {
+                    found = true;
+                    break;
+                }
+
+                if (id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.BlockReference))) &&
+                    tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.BlockReference inner &&
+                    ContainsSolids(tr, inner.BlockTableRecord, memo, depth + 1))
+                {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        memo[blockId] = found;
+        return found;
+    }
+
     private static List<Target> CollectTargets(AcadDb.Transaction tr, AcadDb.Database db)
     {
         List<Target> targets = new();
+        Dictionary<AcadDb.ObjectId, bool> blocksWithSolids = new();
 
         AcadDb.BlockTable table = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord modelSpace = (AcadDb.BlockTableRecord)tr.GetObject(
@@ -512,16 +630,32 @@ internal static class PlanRepresentationStore
             if (id.IsErased)
                 continue;
 
-            if (!id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Solid3d))) &&
-                !id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Body))))
-            {
-                continue;
-            }
+            bool isSolid =
+                id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Solid3d))) ||
+                id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Body)));
+            bool isBlock =
+                id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.BlockReference)));
 
-            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity ||
-                !PlanVisibilitySettings.Matches(entity.Layer))
-            {
+            if (!isSolid && !isBlock)
                 continue;
+
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity)
+                continue;
+
+            if (isSolid && !PlanVisibilitySettings.Matches(entity.Layer))
+                continue;
+
+            if (entity is AcadDb.BlockReference reference)
+            {
+                // Bloco entra se contem solidos e (o proprio layer casa ou algum solido interno casa).
+                if (!ContainsSolids(tr, reference.BlockTableRecord, blocksWithSolids))
+                    continue;
+
+                bool matches = PlanVisibilitySettings.Matches(reference.Layer) ||
+                    EnumerateNestedSolids(tr, reference, Matrix3d.Identity, false, 0).Any();
+
+                if (!matches)
+                    continue;
             }
 
             PlanHiddenLineEngine.Extents2dBox box = default;
