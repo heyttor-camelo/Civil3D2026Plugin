@@ -150,6 +150,16 @@ C3DOCULTARPLANTA  -> [Ligar/Desligar/Prefixos]; prefixos separados por ;
 
 Combine com um estilo de corredor que mostre links/shapes/feature lines apenas na aba Plan para ter o corredor em planta e os solidos no 3D.
 
+## Quadro de ruas (C3DQUADRORUAS v1.0.0)
+
+Modulo em `Modules/Quadros`. Exporta o quadro de ruas em .xlsx (layout da planilha RTA/TCE): rua, estaqueamento inicial/final, extensao, largura da pista, area e coordenadas geograficas (DD°MM'SS.ss") de inicio e fim.
+
+```text
+C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
+```
+
+As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
+
 ## Base oficial de desenvolvimento
 
 A partir da v2.8.0, use esta estrutura como base para todas as novas alteracoes.

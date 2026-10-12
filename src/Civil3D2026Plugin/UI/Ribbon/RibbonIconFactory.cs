@@ -107,6 +107,8 @@ internal static class RibbonIconFactory
             return "Q";
         if (commandName.StartsWith("MF", StringComparison.OrdinalIgnoreCase))
             return "MF";
+        if (commandName.StartsWith("C3DQUADRO", StringComparison.OrdinalIgnoreCase))
+            return "QR";
         if (commandName.StartsWith("C3DOCULTARPLANTA", StringComparison.OrdinalIgnoreCase) ||
             commandName.StartsWith("C3DPLANTA", StringComparison.OrdinalIgnoreCase))
             return "PL";
@@ -141,6 +143,7 @@ internal static class RibbonIconFactory
             "Feature Lines" => WpfColor.FromRgb(78, 198, 187),
             "Superficies" => WpfColor.FromRgb(218, 172, 98),
             "Geometria" => WpfColor.FromRgb(162, 141, 225),
+            "Quadros" => WpfColor.FromRgb(236, 140, 120),
             _ => WpfColor.FromRgb(192, 205, 215)
         };
 }

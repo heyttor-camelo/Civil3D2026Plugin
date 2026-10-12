@@ -65,6 +65,11 @@ public static class CommandNames
         public const string PassagemHelp = "PASSAGEMHELP";
     }
 
+    public static class Quadros
+    {
+        public const string Ruas = "C3DQUADRORUAS";
+    }
+
     public static class FeatureLines
     {
         public const string ZSet = "FLZSET";

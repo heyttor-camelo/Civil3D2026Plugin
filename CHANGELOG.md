@@ -1,3 +1,16 @@
+## 2.22.0 - C3DQUADRORUAS v1.0.0 / quadro de ruas em .xlsx
+
+- novo modulo `Modules/Quadros`: comando `C3DQUADRORUAS` [Adicionar/Listar/Remover/Exportar/Config] para atender ao item "quadro de ruas" (denominacao, dimensoes e coordenadas geograficas DMS);
+- ruas guardadas no DWG (`C3D_QUADRO_RUAS_V1`), ligadas aos eixos; a exportacao rele a geometria atual;
+- eixo: polilinha, linha, arco, spline, polilinha 3D, feature line ou alinhamento (alinhamento usa as proprias estacas); sentido do estaqueamento escolhido com marcador temporario [Manter/Inverter];
+- nome: TEXT/MTEXT selecionado (relido na exportacao) ou digitado;
+- largura da pista: cotas selecionadas (somadas, relidas na exportacao, gravadas como formula `=a+b`) ou valor/expressao digitada (ex.: `3.2*2`, gravada como formula);
+- estaqueamento automatico pela extensao em planta (intervalo configuravel, padrao 20 m), estaca inicial em `E+m` ou metros;
+- coordenadas geograficas de inicio e fim em DD°MM'SS.ss": pela geolocalizacao do desenho; senao, UTM pelo fuso do sistema de coordenadas do Civil 3D; senao, fuso informado (padrao 21S). Conversao UTM->geografica propria (GRS80/SIRGAS 2000), validada contra PROJ: erro maximo 0,18 mm no fuso 21; pontos da planilha modelo reproduzidos exatamente;
+- .xlsx gerado sem dependencias externas (`StreetTableXlsx`), no layout da planilha modelo (colunas D..Q, mesclagens, bordas, formulas de extensao pelas estacas e area = largura x extensao), com linha de TOTAL e bloco de assinatura do responsavel tecnico opcionais, pagina A4 paisagem ajustada a largura;
+- hemisferio exibido por formato de texto (`"S"@`, `"W"@`); no modelo original o formato `"S"General` nao aparecia em celulas de texto;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.21.0 - C3DSOLIDARRAY v1.3.0 / C3DSOLIDLIGAR v1.4.0 / conjuntos agrupados
 
 - cada conjunto vira um GROUP nativo do AutoCAD: `C3DARRAY_xxxxxxxx` (array) e `C3DLIGAR_xxxxxxxx` (estais), com descricao (comando, material, diametro, quantidade);

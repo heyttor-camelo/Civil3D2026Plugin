@@ -163,6 +163,16 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Quadros",
+                "Quadro de ruas",
+                C3DVersions.QuadroRuas,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Quadros.Ruas, "Quadro de ruas",
+                        "Exporta o quadro de ruas (.xlsx): nome, estaqueamento, extensao, largura, area e coordenadas geograficas DMS de inicio e fim, a partir dos eixos.")
+                }),
+
+            new(
                 "Feature Lines",
                 "Feature Lines",
                 null,
