@@ -127,6 +127,18 @@ public static class CommandCatalog
 
             new(
                 "Corridor",
+                "Ligacao tubular entre linhas",
+                C3DVersions.SolidLink,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigar, "Ligar linhas", "Liga N pontos igualmente espacados de duas linhas com barras tubulares Solid3d de diametro informado."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigarEditar, "Editar ligacao", "Altera quantidade de pontos, diametro ou sentido de um conjunto e recria as barras."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigarAtualizar, "Atualizar ligacoes", "Recria conjuntos apos alteracao das linhas de origem."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidLigarHelp, "Ajuda ligacao", "Mostra a ajuda do C3DSOLIDLIGAR.")
+                }),
+
+            new(
+                "Corridor",
                 "Passagem semi-elevada",
                 C3DVersions.RaisedCrossing,
                 new[]

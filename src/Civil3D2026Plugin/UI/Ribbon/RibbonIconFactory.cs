@@ -107,6 +107,8 @@ internal static class RibbonIconFactory
             return "Q";
         if (commandName.StartsWith("MF", StringComparison.OrdinalIgnoreCase))
             return "MF";
+        if (commandName.StartsWith("C3DSOLIDLIGAR", StringComparison.OrdinalIgnoreCase))
+            return "LG";
         if (commandName.StartsWith("C3DSOLID", StringComparison.OrdinalIgnoreCase))
             return "3D";
         if (commandName.StartsWith("PASSAGEM", StringComparison.OrdinalIgnoreCase))

@@ -1,3 +1,16 @@
+## 2.10.0 - C3DSOLIDLIGAR v1.0.0 / barras tubulares entre duas linhas
+
+- novo comando `C3DSOLIDLIGAR` no modulo `CorridorTools/SolidArray` (classe separada `C3DSolidLinkCommands`; `C3DSolidArrayCommands` nao foi alterado);
+- seleciona duas linhas quaisquer: Line, Arc, Polyline, Polyline 2D/3D, Spline, Feature Line ou AutoCorridorFeatureLine; Alignments e demais objetos Civil 3D sao recusados;
+- N pontos igualmente espacados pelo comprimento 3D de cada linha, incluindo inicio e fim; ponto i de uma linha liga ao ponto i da outra;
+- previa temporaria das ligacoes (Transient Graphics, primeira ligacao em vermelho) com opcao `[Inverter/Aceitar]`; o sentido inicial sugerido evita barras cruzadas;
+- um `Solid3d` por barra, cilindro de diametro informado com eixo entre os dois pontos; ligacoes de comprimento nulo sao ignoradas e avisadas;
+- Feature Lines: usa a API de Curve somente se ela passar pelos vertices 3D (com cotas); caso contrario usa a polilinha 3D dos vertices;
+- conjunto persistido no DWG (`C3D_SOLID_LIGAR_V1`) com handles das linhas, N, diametro e sentido; ultimos N/diametro viram padrao do desenho;
+- `C3DSOLIDLIGAREDITAR` (N, diametro, sentido), `C3DSOLIDLIGARATUALIZAR` (selecao ou Todos) e `C3DSOLIDLIGARHELP`;
+- cadastrado em `CommandNames`, `CommandRegistration`, `CommandCatalog`, `PluginVersions` e Ribbon (icone `LG`);
+- compilacao e teste no Civil 3D 2026.2 pendentes.
+
 ## 2.9.6 - CORRSPLIT v1.6.0 / selecao grafica de regiao ao estilo Civil 3D
 
 - Seletor de regioes refeito: usa geometria de AppliedAssembly.Points e os limites de offset por estaca, sem a tolerancia arbitraria de 35 unidades ao eixo.
