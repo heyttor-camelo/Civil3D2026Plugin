@@ -222,9 +222,18 @@ public sealed class PlanVisibilityCommands
 
     private static void RunFullRefresh(Document doc)
     {
-        doc.Editor.WriteMessage("\nCalculando arestas visiveis em planta...");
-        PlanRepresentationStore.Refresh(doc, full: true, out string summary);
-        doc.Editor.WriteMessage("\n  " + summary);
+        doc.Editor.WriteMessage("\nCalculando arestas visiveis em planta (ESC cancela)...");
+
+        try
+        {
+            PlanRepresentationStore.Refresh(doc, full: true, out string summary);
+            doc.Editor.WriteMessage("\n  " + summary);
+        }
+        catch (OperationCanceledException)
+        {
+            doc.Editor.WriteMessage(
+                "\n  Calculo cancelado. Nada foi gravado; as representacoes anteriores continuam valendo.");
+        }
     }
 
     private static void WriteStatus(Document doc)

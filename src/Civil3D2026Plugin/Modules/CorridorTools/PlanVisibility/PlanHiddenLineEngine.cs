@@ -116,7 +116,7 @@ internal static class PlanHiddenLineEngine
 
             using AcBr.Brep brep = new(entity);
 
-            ExtractTriangles(brep, geometry);
+            ExtractTriangles(brep, geometry, MeshDistanceTolerance(entity));
             ExtractBrepEdges(brep, geometry);
 
             if (transform is Matrix3d m)
@@ -184,9 +184,41 @@ internal static class PlanHiddenLineEngine
         }
     }
 
-    private static void ExtractTriangles(AcBr.Brep brep, EntityGeometry geometry)
+    /// <summary>
+    /// Tolerancia de corda da malha proporcional ao tamanho do objeto, para
+    /// limitar a quantidade de triangulos em solidos grandes e curvos
+    /// (lofts, sweeps). 0 = manter o padrao do AutoCAD.
+    /// </summary>
+    private static double MeshDistanceTolerance(AcadDb.Entity entity)
+    {
+        try
+        {
+            AcadDb.Extents3d extents = entity.GeometricExtents;
+            double diagonal = extents.MinPoint.DistanceTo(extents.MaxPoint);
+            return diagonal > 0 ? Math.Max(diagonal * 5e-4, 1e-4) : 0.0;
+        }
+        catch
+        {
+            return 0.0;
+        }
+    }
+
+    private static void ExtractTriangles(AcBr.Brep brep, EntityGeometry geometry, double distanceTolerance)
     {
         using AcBr.Mesh2dControl control = new();
+
+        try
+        {
+            control.AngleTolerance = Math.PI / 18.0; // 10 graus
+
+            if (distanceTolerance > 0)
+                control.DistanceTolerance = distanceTolerance;
+        }
+        catch
+        {
+            // Mantem o padrao se a propriedade nao puder ser ajustada.
+        }
+
         using AcBr.Mesh2dFilter filter = new();
         filter.Insert(brep, control);
 
@@ -366,7 +398,9 @@ internal static class PlanHiddenLineEngine
     /// </summary>
     public static Dictionary<long, List<Point3d[]>> Compute(
         IReadOnlyCollection<EntityGeometry> subjects,
-        IReadOnlyCollection<EntityGeometry> occluders)
+        IReadOnlyCollection<EntityGeometry> occluders,
+        Func<bool>? shouldCancel = null,
+        Action? subjectDone = null)
     {
         Dictionary<long, List<Point3d[]>> result = new();
 
@@ -402,10 +436,14 @@ internal static class PlanHiddenLineEngine
         {
             List<Point3d[]> visible = new();
 
+            if (shouldCancel?.Invoke() == true)
+                throw new OperationCanceledException();
+
             foreach (Point3d[] chain in subject.Candidates)
                 AppendVisible(chain, grid, zTolerance, xyTolerance, visible);
 
             result[subject.Key] = visible;
+            subjectDone?.Invoke();
         }
 
         return result;
@@ -440,7 +478,21 @@ internal static class PlanHiddenLineEngine
             if (Math.Sqrt((dx * dx) + (dy * dy)) <= xyTolerance)
                 continue;
 
-            List<double> cuts = grid.CollectCuts(p, q, xyTolerance);
+            // Segmentos longos sao processados em pedacos do tamanho da grade,
+            // para que cada consulta so veja os triangulos realmente proximos.
+            int pieces = Math.Max(1, (int)Math.Ceiling(Math.Sqrt((dx * dx) + (dy * dy)) / (grid.CellSize * 4.0)));
+            List<double> cuts = new();
+
+            for (int piece = 0; piece < pieces; piece++)
+            {
+                double s0 = (double)piece / pieces;
+                double s1 = (double)(piece + 1) / pieces;
+
+                foreach (double local in grid.CollectCuts(Lerp(p, q, s0), Lerp(p, q, s1), xyTolerance))
+                    cuts.Add(s0 + ((s1 - s0) * local));
+            }
+
+            cuts.Sort();
 
             for (int k = 0; k + 1 < cuts.Count; k++)
             {
@@ -552,6 +604,8 @@ internal static class PlanHiddenLineEngine
                 }
             }
         }
+
+        public double CellSize => _cellSize;
 
         private int CellX(double x) => (int)Math.Floor((x - _originX) / _cellSize);
 

@@ -1,3 +1,16 @@
+## 2.18.0 - C3DOCULTARPLANTA v1.3.0 / correcao de travamento ao trocar layers
+
+- corrige travamento ao trocar o layer de varios solidos com o modo Exato ativo:
+  - a regiao incremental era UMA caixa envolvendo todas as alteracoes; com solidos espalhados (ex.: ao longo do corredor) virava o desenho inteiro e recalculava tudo, sem possibilidade de cancelar. Agora cada alteracao tem a propria caixa e so os vizinhos reais entram;
+  - a regeneracao da tela nao abre mais o DWG: o overrule le apenas o cache em memoria, carregado no Idle (antes, uma transacao era aberta durante o desenho a cada solido ainda nao lido);
+- atualizacao automatica com limite: acima de 300 solidos envolvidos ela e adiada com aviso (pendentes aparecem completos ate `C3DPLANTAATUALIZAR`);
+- ESC cancela qualquer calculo (manual ou automatico), com barra de progresso; nada e gravado ao cancelar;
+- Idle so atua com o editor ocioso (`IsQuiescent`) e regenera dentro do bloqueio do documento;
+- solidos cujo layer sai dos prefixos tem a representacao removida (antes ficava gravada);
+- malha com tolerancia proporcional ao tamanho do solido (limita triangulos em lofts/sweeps grandes);
+- segmentos longos processados em trechos do tamanho da grade (consultas locais); resultado identico ao anterior no teste de 3000 solidos;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.17.0 - C3DOCULTARPLANTA v1.2.0 / solidos dentro de blocos
 
 - insercoes de bloco (BlockReference) que contem Solid3d/Body, inclusive em blocos aninhados, passam a ser alvos;

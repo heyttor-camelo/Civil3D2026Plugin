@@ -14,11 +14,14 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 ///
 /// - gravada no DWG, no dicionario C3D_PLANREP_V1 do Named Objects Dictionary
 ///   (uma Xrecord por handle). Os solidos em si nao sao modificados;
-/// - mantida em cache por desenho para o desenho em tela ser rapido;
+/// - mantida em cache por desenho; o desenho em tela le SOMENTE o cache (nunca
+///   abre o DWG durante a regeneracao). O cache e carregado do DWG no Idle;
 /// - qualquer solido-alvo criado/alterado/apagado fica "pendente": enquanto
 ///   pendente, e desenhado normalmente em planta (sinal visual de que precisa
 ///   atualizar). Com a atualizacao automatica ligada, ao ficar ocioso o plugin
-///   recalcula os pendentes e os vizinhos afetados e redesenha.
+///   recalcula os pendentes e os vizinhos afetados e redesenha. Atualizacoes
+///   automaticas grandes sao adiadas (C3DPLANTAATUALIZAR); qualquer calculo
+///   pode ser cancelado com ESC.
 /// </summary>
 internal static class PlanRepresentationStore
 {
@@ -32,13 +35,20 @@ internal static class PlanRepresentationStore
         public readonly HashSet<long> Pending = new();
         public readonly Dictionary<long, PlanHiddenLineEngine.Extents2dBox> OldBoxes = new();
         public readonly HashSet<long> Erased = new();
+
+        /// <summary>True depois que as representacoes gravadas no DWG foram lidas para o cache.</summary>
+        public bool Loaded;
     }
+
+    /// <summary>Acima disso (solidos envolvidos), a atualizacao automatica e adiada.</summary>
+    private const int AutoRefreshLimit = 300;
 
     private static readonly Dictionary<AcadDb.Database, DbState> States = new();
     private static readonly HashSet<Document> AttachedDocuments = new();
 
     private static bool _initialized;
     private static bool _refreshScheduled;
+    private static bool _loadScheduled;
     private static bool _refreshing;
 
     // ------------------------------------------------------------------
@@ -178,10 +188,21 @@ internal static class PlanRepresentationStore
     {
         try
         {
-            if (!IsTrackedTarget(e.DBObject))
+            if (IsTrackedTarget(e.DBObject))
+            {
+                MarkPending(e.DBObject.Database, e.DBObject.Handle.Value);
                 return;
+            }
 
-            MarkPending(e.DBObject.Database, e.DBObject.Handle.Value);
+            // Deixou de ser alvo (ex.: layer trocado para fora dos prefixos):
+            // a representacao antiga precisa sair.
+            if (!_refreshing &&
+                PlanVisibilitySettings.Mode == PlanDisplayMode.Exato &&
+                e.DBObject is AcadDb.Entity &&
+                HasRepresentation(e.DBObject.Database, e.DBObject.Handle.Value))
+            {
+                MarkPending(e.DBObject.Database, e.DBObject.Handle.Value);
+            }
         }
         catch
         {
@@ -255,6 +276,13 @@ internal static class PlanRepresentationStore
         }
     }
 
+    private static bool HasRepresentation(AcadDb.Database db, long key)
+    {
+        DbState state = GetState(db);
+        lock (state.Sync)
+            return state.Cache.TryGetValue(key, out List<Point3d[]>? lines) && lines is not null;
+    }
+
     public static int PendingCount(AcadDb.Database db)
     {
         DbState state = GetState(db);
@@ -272,6 +300,7 @@ internal static class PlanRepresentationStore
     /// </summary>
     public static List<Point3d[]>? TryGet(AcadDb.Entity entity)
     {
+        // Chamado durante a regeneracao: le apenas memoria, nunca o DWG.
         AcadDb.Database? db = entity.Database;
         if (db is null || entity.ObjectId.IsNull)
             return null;
@@ -281,45 +310,61 @@ internal static class PlanRepresentationStore
 
         lock (state.Sync)
         {
+            if (!state.Loaded)
+            {
+                _loadScheduled = true;
+                return null;
+            }
+
             if (state.Pending.Contains(key))
                 return null;
 
-            if (state.Cache.TryGetValue(key, out List<Point3d[]>? cached))
-                return cached;
+            return state.Cache.TryGetValue(key, out List<Point3d[]>? cached) ? cached : null;
         }
-
-        List<Point3d[]>? loaded = LoadFromDrawing(db, key);
-
-        lock (state.Sync)
-        {
-            if (!state.Pending.Contains(key))
-                state.Cache[key] = loaded;
-        }
-
-        return loaded;
     }
 
-    private static List<Point3d[]>? LoadFromDrawing(AcadDb.Database db, long key)
+    /// <summary>Le todas as representacoes gravadas no DWG para o cache (fora da regeneracao).</summary>
+    private static void LoadAll(AcadDb.Database db)
     {
+        Dictionary<long, List<Point3d[]>?> loaded = new();
+
         try
         {
             using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
 
             AcadDb.DBDictionary nod = (AcadDb.DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, AcadDb.OpenMode.ForRead);
-            if (!nod.Contains(RootDictionaryName))
-                return null;
+            if (nod.Contains(RootDictionaryName))
+            {
+                AcadDb.DBDictionary root = (AcadDb.DBDictionary)tr.GetObject(nod.GetAt(RootDictionaryName), AcadDb.OpenMode.ForRead);
 
-            AcadDb.DBDictionary root = (AcadDb.DBDictionary)tr.GetObject(nod.GetAt(RootDictionaryName), AcadDb.OpenMode.ForRead);
-            string recordKey = RecordKey(key);
-            if (!root.Contains(recordKey))
-                return null;
+                foreach (AcadDb.DBDictionaryEntry entry in root)
+                {
+                    if (!entry.Key.StartsWith("H", StringComparison.Ordinal) ||
+                        !long.TryParse(entry.Key.Substring(1), System.Globalization.NumberStyles.HexNumber, null, out long key))
+                    {
+                        continue;
+                    }
 
-            AcadDb.Xrecord record = (AcadDb.Xrecord)tr.GetObject(root.GetAt(recordKey), AcadDb.OpenMode.ForRead);
-            return Parse(record.Data?.AsArray());
+                    if (tr.GetObject(entry.Value, AcadDb.OpenMode.ForRead, false) is AcadDb.Xrecord record)
+                        loaded[key] = Parse(record.Data?.AsArray());
+                }
+            }
         }
         catch
         {
-            return null;
+            // Sem representacoes legiveis: tudo e desenhado normalmente.
+        }
+
+        DbState state = GetState(db);
+        lock (state.Sync)
+        {
+            foreach ((long key, List<Point3d[]>? lines) in loaded)
+            {
+                if (!state.Pending.Contains(key))
+                    state.Cache[key] = lines;
+            }
+
+            state.Loaded = true;
         }
     }
 
@@ -366,7 +411,15 @@ internal static class PlanRepresentationStore
     /// space; senao, apenas pendentes + vizinhos afetados. Retorna quantos
     /// solidos foram recalculados; -1 se nada precisava ser feito.
     /// </summary>
-    public static int Refresh(Document doc, bool full, out string summary)
+    public static int Refresh(Document doc, bool full, out string summary) =>
+        Refresh(doc, full, automatic: false, out summary);
+
+    /// <summary>
+    /// automatic = chamado pela atualizacao automatica: se houver solidos
+    /// demais envolvidos, nada e calculado e retorna -2 (pendentes mantidos).
+    /// Lanca OperationCanceledException se o usuario apertar ESC (nada e gravado).
+    /// </summary>
+    public static int Refresh(Document doc, bool full, bool automatic, out string summary)
     {
         summary = string.Empty;
         AcadDb.Database db = doc.Database;
@@ -395,36 +448,70 @@ internal static class PlanRepresentationStore
 
             List<Target> targets = CollectTargets(tr, db);
 
-            // Regiao afetada: novas posicoes dos pendentes + onde estavam antes.
-            PlanHiddenLineEngine.Extents2dBox region = default;
+            // Regioes afetadas: caixa de CADA pendente (posicao nova) e de onde
+            // as linhas antigas estavam. Caixas separadas, para que alteracoes
+            // espalhadas nao virem uma regiao do tamanho do desenho.
+            List<PlanHiddenLineEngine.Extents2dBox> regions = new();
             if (!full)
             {
-                foreach (Target t in targets.Where(t => pending.Contains(t.Key)))
-                    region.Add(t.Box);
-                foreach (PlanHiddenLineEngine.Extents2dBox box in oldBoxes)
-                    region.Add(box);
+                regions.AddRange(targets.Where(t => pending.Contains(t.Key)).Select(t => t.Box));
+                regions.AddRange(oldBoxes);
             }
 
-            double margin = Math.Max(region.Diagonal * 1e-6, 1e-6);
+            const double margin = 1e-6;
 
             List<Target> subjects = full
                 ? targets
-                : targets.Where(t => pending.Contains(t.Key) || t.Box.Overlaps(region, margin)).ToList();
+                : targets.Where(t => pending.Contains(t.Key) || regions.Any(r => t.Box.Overlaps(r, margin))).ToList();
 
-            // Ocultadores: tudo que pode ficar por cima dos sujeitos.
-            PlanHiddenLineEngine.Extents2dBox subjectBox = default;
-            foreach (Target t in subjects)
-                subjectBox.Add(t.Box);
-
+            // Ocultadores: tudo que pode ficar por cima de algum sujeito.
             List<Target> occluders = full
                 ? targets
-                : targets.Where(t => t.Box.Overlaps(subjectBox, margin)).ToList();
+                : targets.Where(t => subjects.Any(sj => t.Box.Overlaps(sj.Box, margin))).ToList();
+
+            if (automatic && occluders.Count > AutoRefreshLimit)
+            {
+                summary =
+                    occluders.Count + " solido(s) envolvidos - atualizacao automatica adiada." +
+                    " Use " + C3DCommands.Corridor.PlantaAtualizar + " (ESC cancela).";
+                return -2;
+            }
+
+            // Pendentes que deixaram de ser alvo (layer trocado, apagados):
+            // a representacao gravada sai.
+            HashSet<long> targetKeys = new(targets.Select(t => t.Key));
+            foreach (long key in pending)
+            {
+                if (!targetKeys.Contains(key))
+                    erased.Add(key);
+            }
+
+            Func<bool> cancel = () =>
+            {
+                try
+                {
+                    return AcadDb.HostApplicationServices.Current.UserBreak();
+                }
+                catch
+                {
+                    return false;
+                }
+            };
+
+            using Autodesk.AutoCAD.Runtime.ProgressMeter meter = new();
+            meter.Start("Planta: lendo solidos (ESC cancela)");
+            meter.SetLimit(occluders.Count + subjects.Count);
 
             Dictionary<long, PlanHiddenLineEngine.EntityGeometry> geometries = new();
             int failed = 0;
 
             foreach (Target t in occluders)
             {
+                if (cancel())
+                    throw new OperationCanceledException();
+
+                meter.MeterProgress();
+
                 if (tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity entity)
                     continue;
 
@@ -445,7 +532,11 @@ internal static class PlanRepresentationStore
 
             Dictionary<long, List<Point3d[]>> computed = PlanHiddenLineEngine.Compute(
                 subjectGeometries,
-                geometries.Values.ToList());
+                geometries.Values.ToList(),
+                cancel,
+                () => meter.MeterProgress());
+
+            meter.Stop();
 
             AcadDb.DBDictionary root = GetOrCreateRoot(tr, db);
 
@@ -489,9 +580,11 @@ internal static class PlanRepresentationStore
                     state.OldBoxes.Remove(key);
                     state.Erased.Remove(key);
 
-                    if (!computed.ContainsKey(key))
+                    if (!computed.ContainsKey(key) && !erased.Contains(key))
                         state.Cache[key] = null;
                 }
+
+                state.Loaded = true;
 
                 if (full)
                 {
@@ -741,6 +834,7 @@ internal static class PlanRepresentationStore
                     state.Pending.Clear();
                     state.OldBoxes.Clear();
                     state.Erased.Clear();
+                    state.Loaded = false;
                 }
             }
         }
@@ -752,48 +846,98 @@ internal static class PlanRepresentationStore
 
     private static void OnIdle(object? sender, EventArgs e)
     {
-        if (!_refreshScheduled || _refreshing)
+        if (_refreshing || !_initialized)
             return;
 
-        if (!PlanVisibilitySettings.AutoRefresh ||
-            PlanVisibilitySettings.Mode != PlanDisplayMode.Exato ||
-            !PlanVisibilityManager.IsActive)
+        if (PlanVisibilitySettings.Mode != PlanDisplayMode.Exato || !PlanVisibilityManager.IsActive)
+            return;
+
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+
+        try
+        {
+            if (!doc.Editor.IsQuiescent || !string.IsNullOrEmpty(doc.CommandInProgress))
+                return;
+        }
+        catch
         {
             return;
         }
 
-        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null || !string.IsNullOrEmpty(doc.CommandInProgress))
+        DbState state = GetState(doc.Database);
+        bool needsLoad;
+        lock (state.Sync)
+            needsLoad = !state.Loaded;
+
+        // 1) Carregar as representacoes gravadas (leitura rapida, fora da regeneracao).
+        if (needsLoad || _loadScheduled)
+        {
+            _loadScheduled = false;
+
+            if (needsLoad)
+            {
+                try
+                {
+                    using (doc.LockDocument())
+                    {
+                        LoadAll(doc.Database);
+                        doc.Editor.Regen();
+                    }
+                }
+                catch
+                {
+                    // Tenta de novo no proximo Idle se ainda for necessario.
+                }
+
+                return;
+            }
+        }
+
+        // 2) Atualizacao automatica dos pendentes.
+        if (!_refreshScheduled || !PlanVisibilitySettings.AutoRefresh)
             return;
 
         _refreshScheduled = false;
 
         try
         {
-            int count;
-            string summary;
-
             using (doc.LockDocument())
             {
-                count = Refresh(doc, full: false, out summary);
-            }
+                int count = Refresh(doc, full: false, automatic: true, out string summary);
 
-            if (count > 0)
-            {
-                doc.Editor.Regen();
-                doc.Editor.WriteMessage("\n[C3DOCULTARPLANTA] Planta atualizada: " + summary + "\n");
+                if (count > 0)
+                {
+                    doc.Editor.Regen();
+                    doc.Editor.WriteMessage("\n[C3DOCULTARPLANTA] Planta atualizada: " + summary + "\n");
+                }
+                else if (count == -2)
+                {
+                    doc.Editor.WriteMessage("\n[C3DOCULTARPLANTA] " + summary + "\n");
+                }
             }
+        }
+        catch (OperationCanceledException)
+        {
+            WriteSafe(doc, "\n[C3DOCULTARPLANTA] Atualizacao cancelada. Os solidos alterados aparecem completos em planta ate " +
+                C3DCommands.Corridor.PlantaAtualizar + ".\n");
         }
         catch (System.Exception ex)
         {
-            try
-            {
-                doc.Editor.WriteMessage("\n[C3DOCULTARPLANTA] Falha na atualizacao automatica: " + ex.Message + "\n");
-            }
-            catch
-            {
-                // Sem editor disponivel.
-            }
+            WriteSafe(doc, "\n[C3DOCULTARPLANTA] Falha na atualizacao automatica: " + ex.Message + "\n");
+        }
+    }
+
+    private static void WriteSafe(Document doc, string message)
+    {
+        try
+        {
+            doc.Editor.WriteMessage(message);
+        }
+        catch
+        {
+            // Sem editor disponivel.
         }
     }
 }
