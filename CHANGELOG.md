@@ -1,3 +1,13 @@
+## 2.21.0 - C3DSOLIDARRAY v1.3.0 / C3DSOLIDLIGAR v1.4.0 / conjuntos agrupados
+
+- cada conjunto vira um GROUP nativo do AutoCAD: `C3DARRAY_xxxxxxxx` (array) e `C3DLIGAR_xxxxxxxx` (estais), com descricao (comando, material, diametro, quantidade);
+- grupo e nao bloco: cada solido continua sendo um objeto proprio (property sets, tooltip, atualizacao no proprio objeto, apagar individual);
+- membros sincronizados a cada criacao/edicao/atualizacao (`SaveSet`): apagados e desassociados (C3DSOLIDITEM) saem; recriados entram; grupo desfeito com UNGROUP e recriado na proxima atualizacao;
+- grupo selecionavel: com PICKSTYLE ligado um clique seleciona o conjunto; Ctrl+H alterna para selecao individual;
+- falha no agrupamento nunca cancela a operacao principal (`SolidSetGroup`);
+- conjuntos existentes ganham o grupo na proxima edicao/atualizacao;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.20.0 - C3DOCULTARPLANTA v1.5.0 / sem redesenho do proprio objeto (crash na orbita)
 
 - causa provavel do crash na orbita (nos modos Ocultar e Exato): fora da planta o overrule redesenhava o proprio solido de dentro do callback de desenho dele (`Geometry.Draw(self)`); com a vista mudando a cada quadro, o cache grafico nativo podia entrar em ciclo. Esse redesenho foi eliminado:

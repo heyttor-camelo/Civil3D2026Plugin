@@ -524,6 +524,8 @@ public sealed class C3DSolidLinkCommands
         ed.WriteMessage("\n  Espacamento igual pelo comprimento 3D de cada linha.");
         ed.WriteMessage("\n  Unidades em m/kg dependem de INSUNITS (indefinido = metro).");
         ed.WriteMessage("\n  Estais apagados manualmente so voltam com ATUALIZAR > Recriar.");
+        ed.WriteMessage("\n  Cada conjunto e um GRUPO (C3DLIGAR_xxxxxxxx): um clique seleciona todos;");
+        ed.WriteMessage("\n  Ctrl+H alterna para selecionar estais individuais.");
         ed.WriteMessage("\n============================================================");
     }
 
@@ -1862,6 +1864,15 @@ public sealed class C3DSolidLinkCommands
             values.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, handle));
 
         WriteRecord(tr, db, SetKeyPrefix + data.GroupId, new AcadDb.ResultBuffer(values.ToArray()));
+
+        // Estais do conjunto agrupados (GROUP nativo), sempre em sincronia com o conjunto.
+        SolidSetGroup.Sync(
+            tr,
+            db,
+            SolidSetGroup.NameFor("C3DLIGAR_", data.GroupId),
+            C3DCommands.Corridor.SolidLigar + " | " + data.Parameters.Material.Name +
+            " | D=" + FormatNumber(data.Parameters.Diameter) + " | " + data.GeneratedHandles.Count + " estai(s)",
+            data.GeneratedHandles);
     }
 
     private static LinkSetData? LoadSet(AcadDb.Transaction tr, AcadDb.Database db, string groupId)

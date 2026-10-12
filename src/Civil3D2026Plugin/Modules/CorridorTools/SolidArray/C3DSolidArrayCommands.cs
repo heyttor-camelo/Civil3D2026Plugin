@@ -824,6 +824,10 @@ public sealed class C3DSolidArrayCommands
         ed.WriteMessage("\n  Recriar: apaga e recria todos; apagados voltam.");
         ed.WriteMessage("\n  Se a feature line mudar a quantidade de vértices, o conjunto é recriado.");
         ed.WriteMessage("\n");
+        ed.WriteMessage("\nGRUPOS:");
+        ed.WriteMessage("\n  Cada conjunto é um GRUPO (C3DARRAY_xxxxxxxx): um clique seleciona todos;");
+        ed.WriteMessage("\n  Ctrl+H alterna para selecionar sólidos individuais. Itens desassociados saem do grupo.");
+        ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidEditar);
         ed.WriteMessage("\n  Selecione um sólido gerado e altere X/Y/Z; os sólidos existentes são");
         ed.WriteMessage("\n  reposicionados no próprio objeto (apagados continuam fora).");
@@ -1813,16 +1817,26 @@ public sealed class C3DSolidArrayCommands
                 root.GetAt(key),
                 OpenMode.ForWrite);
             existing.Data = buffer;
-            return;
+        }
+        else
+        {
+            Xrecord record = new()
+            {
+                Data = buffer
+            };
+
+            root.SetAt(key, record);
+            tr.AddNewlyCreatedDBObject(record, true);
         }
 
-        Xrecord record = new()
-        {
-            Data = buffer
-        };
-
-        root.SetAt(key, record);
-        tr.AddNewlyCreatedDBObject(record, true);
+        // Solidos associados agrupados (GROUP nativo). Itens desassociados
+        // saem da lista de gerados e, portanto, tambem saem do grupo.
+        SolidSetGroup.Sync(
+            tr,
+            db,
+            SolidSetGroup.NameFor("C3DARRAY_", data.GroupId),
+            C3DCommands.Corridor.SolidArray + " | " + data.GeneratedHandles.Count + " solido(s)",
+            data.GeneratedHandles);
     }
 
     private static ResultBuffer BuildSetBuffer(ArraySetData data)
