@@ -133,6 +133,25 @@ internal static class PlanHiddenLineEngine
         }
     }
 
+    /// <summary>
+    /// Somente as arestas do Brep (sem malha), nas coordenadas do proprio objeto.
+    /// Usado para desenhar o solido em wireframe sem redesenhar o objeto nativo.
+    /// </summary>
+    public static List<Point3d[]>? ExtractEdges(AcadDb.Entity entity)
+    {
+        try
+        {
+            EntityGeometry geometry = new();
+            using AcBr.Brep brep = new(entity);
+            ExtractBrepEdges(brep, geometry);
+            return geometry.Candidates;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Junta varias geometrias (ex.: solidos de um bloco) sob uma chave.</summary>
     public static EntityGeometry? Merge(long key, IEnumerable<EntityGeometry> parts)
     {

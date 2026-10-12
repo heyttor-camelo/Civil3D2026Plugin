@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -112,19 +111,37 @@ internal static class PlanVisibilitySettings
 }
 
 /// <summary>
-/// Indice dos layers-alvo por ObjectId, por desenho. Montado e mantido fora
-/// da regeneracao (thread principal); consultado durante o desenho sem abrir
-/// nenhum objeto do DWG (entity.Layer abriria a tabela de layers, o que nao e
-/// seguro nas threads de graficos, ex.: durante a orbita 3D).
+/// Indice por desenho, montado e mantido fora da regeneracao (thread principal)
+/// e consultado durante o desenho sem abrir nenhum objeto do DWG:
+/// - layers-alvo (por ObjectId; entity.Layer abriria a tabela de layers);
+/// - definicoes de bloco inseridas em layer-alvo (seus solidos sao alvos);
+/// - blocos de layout (model/paper space), para distinguir solidos soltos de
+///   solidos dentro de blocos.
 /// </summary>
 internal static class PlanLayerIndex
 {
+    private sealed class Snapshot
+    {
+        public HashSet<AcadDb.ObjectId> Layers { get; init; } = new();
+        public HashSet<AcadDb.ObjectId> MatchedBlocks { get; init; } = new();
+        public HashSet<AcadDb.ObjectId> Layouts { get; init; } = new();
+    }
+
     private static readonly object Sync = new();
 
     // Copy-on-write: leitores (qualquer thread) nunca veem um conjunto em alteracao.
-    private static Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> _map = new();
+    private static Dictionary<AcadDb.Database, Snapshot> _map = new();
 
-    /// <summary>Seguro em qualquer thread.</summary>
+    private static Snapshot? Get(AcadDb.ObjectId anyId)
+    {
+        AcadDb.Database? db = anyId.Database;
+        if (db is null)
+            return null;
+
+        return Volatile.Read(ref _map).TryGetValue(db, out Snapshot? snapshot) ? snapshot : null;
+    }
+
+    /// <summary>Layer casa com os prefixos. Seguro em qualquer thread.</summary>
     public static bool Contains(AcadDb.ObjectId layerId)
     {
         if (layerId.IsNull)
@@ -133,40 +150,98 @@ internal static class PlanLayerIndex
         if (PlanVisibilitySettings.MatchesAll)
             return true;
 
-        AcadDb.Database? db = layerId.Database;
-        Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> map = Volatile.Read(ref _map);
+        return Get(layerId)?.Layers.Contains(layerId) == true;
+    }
 
-        return db is not null && map.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set) && set.Contains(layerId);
+    /// <summary>A definicao de bloco dona do objeto esta inserida em layer-alvo.</summary>
+    public static bool IsMatchedBlock(AcadDb.ObjectId ownerId) =>
+        !ownerId.IsNull && Get(ownerId)?.MatchedBlocks.Contains(ownerId) == true;
+
+    /// <summary>True se o objeto esta dentro de um bloco (dono nao e model/paper space).</summary>
+    public static bool IsNested(AcadDb.ObjectId ownerId)
+    {
+        Snapshot? snapshot = ownerId.IsNull ? null : Get(ownerId);
+        return snapshot is not null && snapshot.Layouts.Count > 0 && !snapshot.Layouts.Contains(ownerId);
     }
 
     /// <summary>Remonta o indice de um desenho (thread principal, fora da regeneracao).</summary>
     public static void Rebuild(AcadDb.Database db)
     {
-        HashSet<AcadDb.ObjectId> set = new();
+        Snapshot snapshot = new();
 
         try
         {
             using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
-            AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
 
-            foreach (AcadDb.ObjectId id in table)
+            AcadDb.LayerTable layers = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+            foreach (AcadDb.ObjectId id in layers)
             {
-                if (id.IsErased)
-                    continue;
-
-                if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.LayerTableRecord layer &&
+                if (!id.IsErased &&
+                    tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.LayerTableRecord layer &&
                     PlanVisibilitySettings.Matches(layer.Name))
                 {
-                    set.Add(id);
+                    snapshot.Layers.Add(id);
                 }
+            }
+
+            AcadDb.BlockTable blocks = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+            foreach (AcadDb.ObjectId id in blocks)
+            {
+                if (!id.IsErased &&
+                    tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.BlockTableRecord btr &&
+                    btr.IsLayout)
+                {
+                    snapshot.Layouts.Add(id);
+                }
+            }
+
+            AcadDb.BlockTableRecord modelSpace = (AcadDb.BlockTableRecord)tr.GetObject(
+                blocks[AcadDb.BlockTableRecord.ModelSpace],
+                AcadDb.OpenMode.ForRead);
+
+            foreach (AcadDb.ObjectId id in modelSpace)
+            {
+                if (id.IsErased ||
+                    !id.ObjectClass.IsDerivedFrom(RXObject.GetClass(typeof(AcadDb.BlockReference))) ||
+                    tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.BlockReference reference ||
+                    !PlanVisibilitySettings.Matches(reference.Layer))
+                {
+                    continue;
+                }
+
+                AddBlockRecursive(tr, reference.BlockTableRecord, snapshot.MatchedBlocks, 0);
             }
         }
         catch
         {
-            // Indice vazio: nada e tratado neste desenho ate a proxima remontagem.
+            // Indice parcial: o que nao foi lido simplesmente nao e tratado.
         }
 
-        Replace(db, set);
+        lock (Sync)
+            Publish(db, snapshot);
+    }
+
+    private static void AddBlockRecursive(
+        AcadDb.Transaction tr,
+        AcadDb.ObjectId blockId,
+        HashSet<AcadDb.ObjectId> result,
+        int depth)
+    {
+        if (depth > 16 || !result.Add(blockId))
+            return;
+
+        if (tr.GetObject(blockId, AcadDb.OpenMode.ForRead, false) is not AcadDb.BlockTableRecord definition)
+            return;
+
+        foreach (AcadDb.ObjectId id in definition)
+        {
+            if (!id.IsErased &&
+                id.ObjectClass.IsDerivedFrom(RXObject.GetClass(typeof(AcadDb.BlockReference))) &&
+                tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.BlockReference inner)
+            {
+                AddBlockRecursive(tr, inner.BlockTableRecord, result, depth + 1);
+            }
+        }
     }
 
     /// <summary>Atualiza um layer criado/renomeado/apagado (eventos do banco, thread principal).</summary>
@@ -181,20 +256,31 @@ internal static class PlanLayerIndex
 
         lock (Sync)
         {
-            HashSet<AcadDb.ObjectId> current = _map.TryGetValue(db, out HashSet<AcadDb.ObjectId>? existing)
-                ? existing
-                : new HashSet<AcadDb.ObjectId>();
-
-            if (current.Contains(id) == matches)
+            Snapshot current = _map.TryGetValue(db, out Snapshot? existing) ? existing : new Snapshot();
+            if (current.Layers.Contains(id) == matches)
                 return;
 
-            HashSet<AcadDb.ObjectId> copy = new(current);
+            HashSet<AcadDb.ObjectId> copy = new(current.Layers);
             if (matches)
                 copy.Add(id);
             else
                 copy.Remove(id);
 
-            ReplaceLocked(db, copy);
+            Publish(db, new Snapshot { Layers = copy, MatchedBlocks = current.MatchedBlocks, Layouts = current.Layouts });
+        }
+    }
+
+    /// <summary>Uma insercao em layer-alvo foi criada/alterada: seus solidos passam a ser alvos.</summary>
+    public static void AddMatchedBlock(AcadDb.Database db, AcadDb.ObjectId blockId)
+    {
+        lock (Sync)
+        {
+            Snapshot current = _map.TryGetValue(db, out Snapshot? existing) ? existing : new Snapshot();
+            if (current.MatchedBlocks.Contains(blockId))
+                return;
+
+            HashSet<AcadDb.ObjectId> copy = new(current.MatchedBlocks) { blockId };
+            Publish(db, new Snapshot { Layers = current.Layers, MatchedBlocks = copy, Layouts = current.Layouts });
         }
     }
 
@@ -205,23 +291,17 @@ internal static class PlanLayerIndex
             if (!_map.ContainsKey(db))
                 return;
 
-            Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> copy = new(_map);
+            Dictionary<AcadDb.Database, Snapshot> copy = new(_map);
             copy.Remove(db);
             Volatile.Write(ref _map, copy);
         }
     }
 
-    private static void Replace(AcadDb.Database db, HashSet<AcadDb.ObjectId> set)
+    private static void Publish(AcadDb.Database db, Snapshot snapshot)
     {
-        lock (Sync)
-            ReplaceLocked(db, set);
-    }
-
-    private static void ReplaceLocked(AcadDb.Database db, HashSet<AcadDb.ObjectId> set)
-    {
-        Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> copy = new(_map)
+        Dictionary<AcadDb.Database, Snapshot> copy = new(_map)
         {
-            [db] = set
+            [db] = snapshot
         };
 
         Volatile.Write(ref _map, copy);
@@ -229,34 +309,26 @@ internal static class PlanLayerIndex
 }
 
 /// <summary>
-/// DrawableOverrule para Solid3d, Body e insercoes de bloco: nos layers
-/// configurados, em viewports que olham de cima (planta) o objeto nao e
-/// desenhado (modo Ocultar) ou e desenhado so com as arestas visiveis
-/// pre-calculadas (modo Exato, mesmo em 2D Wireframe e na plotagem); em vistas
-/// 3D e desenhado normalmente. Funciona por viewport. Nao altera o DWG.
+/// DrawableOverrule para Solid3d, Body e insercoes de bloco.
+///
+/// - Estilos visuais 3D (qualquer regeneracao que nao seja 2D Wireframe):
+///   o plugin NAO interfere; o AutoCAD desenha o solido nativamente.
+/// - 2D Wireframe, vista de planta: oculto (Ocultar) ou so as arestas visiveis
+///   pre-calculadas (Exato).
+/// - 2D Wireframe, vista nao-planta (ex.: orbita em 2D Wireframe): as arestas
+///   do solido sao desenhadas a partir de um cache (wireframe equivalente).
 ///
 /// Regras de seguranca (o overrule roda dentro do motor grafico nativo):
-/// - nenhuma excecao pode escapar: um erro vira "nao desenhar", nunca um crash;
-/// - nada do DWG e aberto durante o desenho: layers por ObjectId (PlanLayerIndex)
-///   e representacoes pelo cache em memoria (PlanRepresentationStore);
-/// - o "desenhar normalmente" redesenha o proprio objeto; a trava contra
-///   recursao e por objeto nativo e vale entre threads.
+/// - nenhum objeto e redesenhado de dentro do proprio desenho (causa de crash
+///   na orbita em versoes anteriores);
+/// - nada do DWG e aberto durante o desenho: indices e caches em memoria,
+///   preenchidos no Idle;
+/// - nenhuma excecao escapa para o codigo nativo.
 /// </summary>
 internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
 {
     /// <summary>Cosseno da tolerancia angular para considerar a vista "de cima" (~1 grau).</summary>
     private const double PlanCosTolerance = 0.99985;
-
-    // Objetos nativos que estamos redesenhando "normalmente" agora (qualquer thread).
-    private static readonly ConcurrentDictionary<IntPtr, int> SelfDrawing = new();
-
-    // Enquanto um bloco desenha o proprio conteudo em planta, os solidos internos
-    // ficam suprimidos (ja estao representados pelas linhas visiveis do bloco).
-    [ThreadStatic]
-    private static int _suppressDepth;
-
-    [ThreadStatic]
-    private static bool _suppressAll;
 
     public override int SetAttributes(AcGi.Drawable drawable, AcGi.DrawableTraits traits)
     {
@@ -266,7 +338,7 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
         {
             flags = base.SetAttributes(drawable, traits);
 
-            if (!IsSelfDrawing(drawable) && IsTarget(drawable))
+            if (IsTarget(drawable))
                 flags |= (int)AcGi.DrawableAttributes.ViewDependentViewportDraw;
         }
         catch
@@ -281,13 +353,18 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
     {
         try
         {
-            if (IsSuppressedNestedSolid(drawable))
-                return true; // nada a desenhar
-
-            if (IsSelfDrawing(drawable) || !IsTarget(drawable))
+            if (!IsTarget(drawable) || wd.RegenType != AcGi.RegenType.StandardDisplay)
                 return base.WorldDraw(drawable, wd);
 
-            // false: o AutoCAD chama ViewportDraw, onde a vista e conhecida.
+            if (drawable is AcadDb.BlockReference)
+            {
+                // Conteudo do bloco normalmente; false pede o ViewportDraw, onde
+                // entram as linhas de planta e as partes dependentes da vista.
+                base.WorldDraw(drawable, wd);
+                return false;
+            }
+
+            // Solido em 2D Wireframe: o ViewportDraw decide conforme a vista.
             return false;
         }
         catch
@@ -300,94 +377,55 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
     {
         try
         {
-            if (IsSuppressedNestedSolid(drawable))
-                return;
-
-            if (IsSelfDrawing(drawable) || !IsTarget(drawable))
+            if (!IsTarget(drawable) || vd.RegenType != AcGi.RegenType.StandardDisplay)
             {
                 base.ViewportDraw(drawable, vd);
                 return;
             }
 
-            if (IsPlanView(vd))
-            {
-                if (drawable is AcadDb.BlockReference reference)
-                {
-                    DrawBlockInPlan(reference, vd);
-                    return;
-                }
+            bool plan = IsPlanView(vd);
 
+            if (drawable is AcadDb.BlockReference reference)
+            {
+                // Partes dependentes da vista do conteudo (inclui os solidos internos,
+                // que se tratam sozinhos neste mesmo overrule).
+                base.ViewportDraw(drawable, vd);
+
+                if (plan && PlanRepresentationStore.TryGet(reference) is List<Point3d[]> blockLines)
+                    DrawLines(vd, blockLines);
+
+                return;
+            }
+
+            if (drawable is not AcadDb.Entity entity)
+                return;
+
+            if (plan)
+            {
                 if (PlanVisibilitySettings.Mode == PlanDisplayMode.Ocultar)
                     return;
 
-                // Exato: linhas visiveis pre-calculadas. Sem representacao (ou
-                // pendente de atualizacao), desenha o solido normalmente.
-                if (drawable is AcadDb.Entity entity &&
-                    PlanRepresentationStore.TryGet(entity) is List<Point3d[]> lines)
+                // Exato: solido dentro de bloco e representado pela insercao.
+                if (PlanLayerIndex.IsNested(entity.OwnerId))
+                    return;
+
+                if (PlanRepresentationStore.TryGet(entity) is List<Point3d[]> lines)
                 {
                     DrawLines(vd, lines);
                     return;
                 }
+
+                // Sem representacao (pendente): aparece completo, em arestas.
             }
 
-            DrawNormally(drawable, vd);
+            if (PlanRepresentationStore.TryGetWire(entity) is List<Point3d[]> wire)
+                DrawLines(vd, wire);
         }
         catch
         {
             // Em erro, nao desenha este objeto nesta vista (nunca derruba o AutoCAD).
         }
     }
-
-    /// <summary>
-    /// Bloco em planta: linhas visiveis dos solidos internos (modo Exato) e o
-    /// restante do conteudo do bloco normalmente, com os solidos suprimidos.
-    /// </summary>
-    private static void DrawBlockInPlan(AcadDb.BlockReference reference, AcGi.ViewportDraw vd)
-    {
-        if (PlanVisibilitySettings.Mode == PlanDisplayMode.Exato)
-        {
-            if (PlanRepresentationStore.TryGet(reference) is not List<Point3d[]> lines)
-            {
-                DrawNormally(reference, vd);
-                return;
-            }
-
-            DrawLines(vd, lines);
-        }
-
-        bool previousAll = _suppressAll;
-        _suppressAll = PlanLayerIndex.Contains(reference.LayerId);
-        _suppressDepth++;
-
-        try
-        {
-            DrawNormally(reference, vd);
-        }
-        finally
-        {
-            _suppressDepth--;
-            _suppressAll = previousAll;
-        }
-    }
-
-    private static void DrawNormally(AcGi.Drawable drawable, AcGi.ViewportDraw vd)
-    {
-        IntPtr key = drawable.UnmanagedObject;
-        SelfDrawing.AddOrUpdate(key, 1, (_, count) => count + 1);
-
-        try
-        {
-            vd.Geometry.Draw(drawable);
-        }
-        finally
-        {
-            if (SelfDrawing.AddOrUpdate(key, 0, (_, count) => count - 1) <= 0)
-                SelfDrawing.TryRemove(key, out _);
-        }
-    }
-
-    private static bool IsSelfDrawing(AcGi.Drawable drawable) =>
-        SelfDrawing.TryGetValue(drawable.UnmanagedObject, out int count) && count > 0;
 
     private static void DrawLines(AcGi.ViewportDraw vd, List<Point3d[]> lines)
     {
@@ -400,16 +438,6 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
         }
     }
 
-    private static bool IsSuppressedNestedSolid(AcGi.Drawable drawable)
-    {
-        if (_suppressDepth == 0)
-            return false;
-
-        return drawable is AcadDb.Entity entity &&
-               (entity is AcadDb.Solid3d || entity is AcadDb.Body) &&
-               (_suppressAll || PlanLayerIndex.Contains(entity.LayerId));
-    }
-
     private static bool IsTarget(AcGi.Drawable drawable)
     {
         if (!PlanVisibilitySettings.Enabled || drawable is not AcadDb.Entity entity)
@@ -417,15 +445,13 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
 
         if (entity is AcadDb.BlockReference reference)
         {
-            // Exato: so blocos com representacao calculada (contem solidos).
-            // Ocultar: blocos cujo layer casa; com "*", os solidos internos
-            // ja se ocultam sozinhos e nao e preciso tocar em todos os blocos.
-            return PlanVisibilitySettings.Mode == PlanDisplayMode.Exato
-                ? PlanRepresentationStore.TryGet(reference) is not null
-                : !PlanVisibilitySettings.MatchesAll && PlanLayerIndex.Contains(reference.LayerId);
+            // So insercoes com linhas de planta calculadas (modo Exato).
+            return PlanVisibilitySettings.Mode == PlanDisplayMode.Exato &&
+                   PlanRepresentationStore.TryGet(reference) is not null;
         }
 
-        return PlanLayerIndex.Contains(entity.LayerId);
+        return (entity is AcadDb.Solid3d || entity is AcadDb.Body) &&
+               (PlanLayerIndex.Contains(entity.LayerId) || PlanLayerIndex.IsMatchedBlock(entity.OwnerId));
     }
 
     private static bool IsPlanView(AcGi.ViewportDraw vd)

@@ -1,3 +1,14 @@
+## 2.20.0 - C3DOCULTARPLANTA v1.5.0 / sem redesenho do proprio objeto (crash na orbita)
+
+- causa provavel do crash na orbita (nos modos Ocultar e Exato): fora da planta o overrule redesenhava o proprio solido de dentro do callback de desenho dele (`Geometry.Draw(self)`); com a vista mudando a cada quadro, o cache grafico nativo podia entrar em ciclo. Esse redesenho foi eliminado:
+  - estilos visuais 3D (qualquer regeneracao diferente de 2D Wireframe): o plugin nao interfere, o solido e desenhado nativamente e a orbita fica tao leve quanto sem o plugin;
+  - 2D Wireframe em planta: oculto (Ocultar) ou arestas visiveis (Exato), como antes;
+  - 2D Wireframe fora da planta: arestas do solido desenhadas a partir de um cache em memoria (montado no Idle a partir do Brep);
+  - insercoes de bloco: conteudo desenhado pelo proprio AutoCAD; o plugin so acrescenta as linhas de planta; os solidos internos se tratam sozinhos (alvo pelo proprio layer ou pela insercao em layer-alvo, via `PlanLayerIndex`);
+- a atualizacao automatica e a montagem de caches nunca rodam durante interacao: exige editor ocioso, `CMDACTIVE = 0` e nenhum botao do mouse pressionado (o log mostrava uma atualizacao com Regen no meio da orbita);
+- durante o arraste (MOVE/COPY) em 2D Wireframe os solidos-alvo nao aparecem na pre-visualizacao;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.19.0 - C3DOCULTARPLANTA v1.4.0 / correcao de crash na orbita 3D
 
 - corrige fechamento do Civil 3D ao orbitar o modelo com a funcao ligada. O overrule roda dentro do motor grafico nativo, e tres pontos eram frageis nesse cenario:

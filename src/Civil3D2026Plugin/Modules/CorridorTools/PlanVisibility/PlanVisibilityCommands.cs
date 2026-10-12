@@ -249,6 +249,14 @@ public sealed class PlanVisibilityCommands
             " | auto: " + (PlanVisibilitySettings.AutoRefresh ? "sim" : "nao") +
             " | prefixos: " + prefixes);
 
+        if (PlanVisibilityManager.IsActive)
+        {
+            ed.WriteMessage(
+                "\n  Vale para viewports em 2D Wireframe: planta = " +
+                (PlanVisibilitySettings.Mode == PlanDisplayMode.Exato ? "so arestas visiveis" : "oculto") +
+                "; outras vistas = arestas do solido. Estilos visuais 3D mostram o solido nativo.");
+        }
+
         if (PlanVisibilityManager.IsActive && PlanVisibilitySettings.Mode == PlanDisplayMode.Exato)
         {
             int pending = PlanRepresentationStore.PendingCount(doc.Database);

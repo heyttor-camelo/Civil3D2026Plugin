@@ -38,7 +38,16 @@ internal static class PlanRepresentationStore
 
         /// <summary>True depois que as representacoes gravadas no DWG foram lidas para o cache.</summary>
         public bool Loaded;
+
+        /// <summary>Arestas de cada solido (coordenadas do proprio objeto), para o 2D Wireframe fora da planta.</summary>
+        public readonly Dictionary<long, List<Point3d[]>?> Wire = new();
+
+        /// <summary>Solidos cujas arestas o desenho pediu e ainda nao estao no cache.</summary>
+        public readonly HashSet<long> WireRequests = new();
     }
+
+    /// <summary>Maximo de solidos com arestas montadas por Idle (mantem a interface responsiva).</summary>
+    private const int WireBatch = 400;
 
     /// <summary>Acima disso (solidos envolvidos), a atualizacao automatica e adiada.</summary>
     private const int AutoRefreshLimit = 300;
@@ -49,6 +58,7 @@ internal static class PlanRepresentationStore
     private static bool _initialized;
     private static bool _refreshScheduled;
     private static bool _loadScheduled;
+    private static bool _wireScheduled;
     private static bool _refreshing;
 
     // ------------------------------------------------------------------
@@ -199,6 +209,17 @@ internal static class PlanRepresentationStore
                 return;
             }
 
+            // Arestas em cache ficam invalidas quando o solido muda (inclusive dentro de blocos).
+            if (e.DBObject is AcadDb.Solid3d || e.DBObject is AcadDb.Body)
+                InvalidateWire(e.DBObject.Database, e.DBObject.Handle.Value);
+
+            // Insercao em layer-alvo: os solidos do bloco passam a ser alvos.
+            if (e.DBObject is AcadDb.BlockReference insert &&
+                PlanVisibilitySettings.Matches(insert.Layer))
+            {
+                PlanLayerIndex.AddMatchedBlock(insert.Database, insert.BlockTableRecord);
+            }
+
             if (IsTrackedTarget(e.DBObject))
             {
                 MarkPending(e.DBObject.Database, e.DBObject.Handle.Value);
@@ -230,6 +251,9 @@ internal static class PlanRepresentationStore
                 PlanLayerIndex.Update(layer, e.Erased);
                 return;
             }
+
+            if (e.DBObject is AcadDb.Solid3d || e.DBObject is AcadDb.Body)
+                InvalidateWire(e.DBObject.Database, e.DBObject.Handle.Value);
 
             if (!IsTrackedTarget(e.DBObject))
                 return;
@@ -338,6 +362,93 @@ internal static class PlanRepresentationStore
 
             return state.Cache.TryGetValue(key, out List<Point3d[]>? cached) ? cached : null;
         }
+    }
+
+    /// <summary>
+    /// Arestas do solido (coordenadas do proprio objeto) para o 2D Wireframe fora
+    /// da planta. Chamado durante a regeneracao: le apenas memoria; se ainda nao
+    /// houver, agenda a montagem no Idle e retorna null.
+    /// </summary>
+    public static List<Point3d[]>? TryGetWire(AcadDb.Entity entity)
+    {
+        AcadDb.Database? db = entity.Database;
+        if (db is null || entity.ObjectId.IsNull)
+            return null;
+
+        long key = entity.Handle.Value;
+        DbState state = GetState(db);
+
+        lock (state.Sync)
+        {
+            if (state.Wire.TryGetValue(key, out List<Point3d[]>? wire))
+                return wire;
+
+            state.WireRequests.Add(key);
+        }
+
+        _wireScheduled = true;
+        return null;
+    }
+
+    private static void InvalidateWire(AcadDb.Database db, long key)
+    {
+        DbState state = GetState(db);
+        lock (state.Sync)
+            state.Wire.Remove(key);
+    }
+
+    /// <summary>Monta as arestas pedidas pelo desenho (thread principal, no Idle).</summary>
+    private static int BuildRequestedWires(AcadDb.Database db)
+    {
+        DbState state = GetState(db);
+        List<long> keys;
+
+        lock (state.Sync)
+        {
+            if (state.WireRequests.Count == 0)
+                return 0;
+
+            keys = state.WireRequests.Take(WireBatch).ToList();
+            foreach (long key in keys)
+                state.WireRequests.Remove(key);
+
+            if (state.WireRequests.Count > 0)
+                _wireScheduled = true;
+        }
+
+        Dictionary<long, List<Point3d[]>?> built = new();
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
+        {
+            foreach (long key in keys)
+            {
+                List<Point3d[]>? edges = null;
+
+                try
+                {
+                    AcadDb.ObjectId id = db.GetObjectId(false, new AcadDb.Handle(key), 0);
+                    if (!id.IsNull && !id.IsErased &&
+                        tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Entity entity)
+                    {
+                        edges = PlanHiddenLineEngine.ExtractEdges(entity);
+                    }
+                }
+                catch
+                {
+                    // Sem arestas legiveis: o solido nao aparece em 2D Wireframe fora da planta.
+                }
+
+                built[key] = edges ?? new List<Point3d[]>();
+            }
+        }
+
+        lock (state.Sync)
+        {
+            foreach ((long key, List<Point3d[]>? edges) in built)
+                state.Wire[key] = edges;
+        }
+
+        return built.Count;
     }
 
     /// <summary>Le todas as representacoes gravadas no DWG para o cache (fora da regeneracao).</summary>
@@ -851,6 +962,8 @@ internal static class PlanRepresentationStore
                     state.Pending.Clear();
                     state.OldBoxes.Clear();
                     state.Erased.Clear();
+                    state.Wire.Clear();
+                    state.WireRequests.Clear();
                     state.Loaded = false;
                 }
             }
@@ -866,17 +979,23 @@ internal static class PlanRepresentationStore
         if (_refreshing || !_initialized)
             return;
 
-        if (PlanVisibilitySettings.Mode != PlanDisplayMode.Exato || !PlanVisibilityManager.IsActive)
+        if (!PlanVisibilityManager.IsActive)
             return;
 
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
             return;
 
+        // Nunca durante interacao: comando/orbita/zoom em andamento ou botao do mouse pressionado.
         try
         {
-            if (!doc.Editor.IsQuiescent || !string.IsNullOrEmpty(doc.CommandInProgress))
+            if (!doc.Editor.IsQuiescent ||
+                !string.IsNullOrEmpty(doc.CommandInProgress) ||
+                Convert.ToInt32(AcApp.GetSystemVariable("CMDACTIVE")) != 0 ||
+                System.Windows.Forms.Control.MouseButtons != System.Windows.Forms.MouseButtons.None)
+            {
                 return;
+            }
         }
         catch
         {
@@ -889,7 +1008,7 @@ internal static class PlanRepresentationStore
             needsLoad = !state.Loaded;
 
         // 1) Carregar as representacoes gravadas (leitura rapida, fora da regeneracao).
-        if (needsLoad || _loadScheduled)
+        if (PlanVisibilitySettings.Mode == PlanDisplayMode.Exato && (needsLoad || _loadScheduled))
         {
             _loadScheduled = false;
 
@@ -912,9 +1031,37 @@ internal static class PlanRepresentationStore
             }
         }
 
-        // 2) Atualizacao automatica dos pendentes.
-        if (!_refreshScheduled || !PlanVisibilitySettings.AutoRefresh)
+        // 2) Arestas pedidas pelo desenho (2D Wireframe fora da planta).
+        if (_wireScheduled)
+        {
+            _wireScheduled = false;
+
+            try
+            {
+                int built;
+                using (doc.LockDocument())
+                {
+                    built = BuildRequestedWires(doc.Database);
+                    if (built > 0)
+                        doc.Editor.Regen();
+                }
+
+                if (built > 0)
+                    return;
+            }
+            catch
+            {
+                // Tenta de novo quando o desenho pedir.
+            }
+        }
+
+        // 3) Atualizacao automatica dos pendentes.
+        if (!_refreshScheduled ||
+            !PlanVisibilitySettings.AutoRefresh ||
+            PlanVisibilitySettings.Mode != PlanDisplayMode.Exato)
+        {
             return;
+        }
 
         _refreshScheduled = false;
 
