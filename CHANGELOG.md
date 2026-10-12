@@ -1,3 +1,14 @@
+## 2.16.0 - C3DOCULTARPLANTA v1.1.0 / modo Exato: linhas ocultas em 2D Wireframe
+
+- novo modo `Exato`: em planta os solidos aparecem so com as arestas visiveis de cima, com remocao de linhas ocultas entre TODOS os solidos-alvo, continuando em 2D Wireframe; como o viewport do layout usa o mesmo desenho, a prancha plota igual;
+- motor proprio (`PlanHiddenLineEngine`): Brep -> malha (Mesh2d) -> grade XY de triangulos; candidatas = arestas do Brep + silhuetas da malha (cilindros/curvas); cada segmento e cortado nos cruzamentos com arestas de triangulos e nos atravessamentos de plano, com teste do ponto medio (exato nas transicoes);
+- representacao gravada no DWG (`C3D_PLANREP_V1` no NOD, uma Xrecord por handle), sem modificar os solidos; cache em memoria por desenho;
+- solidos criados/alterados/apagados ficam pendentes (aparecem completos em planta ate atualizar); com `Auto` ligado, ao ficar ocioso o plugin recalcula os pendentes e os vizinhos da regiao afetada e redesenha;
+- prefixo `*` = todos os solidos e bodies;
+- `C3DOCULTARPLANTA` ganhou [Modo/Auto/Atualizar]; novo `C3DPLANTAATUALIZAR` (recalculo completo);
+- modo Pintor (mascara por cota) avaliado e descartado: a mascara nao tem como acompanhar a cor de fundo da tela e do papel;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.15.0 - C3DOCULTARPLANTA v1.0.0 / solidos so no 3D
 
 - novo modulo `CorridorTools/PlanVisibility`: `DrawableOverrule` para `Solid3d` e `Body` (links extraidos do corredor saem como Body);

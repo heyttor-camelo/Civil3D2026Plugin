@@ -55,6 +55,7 @@ public static class CommandNames
         public const string SolidLigarTooltip = "C3DSOLIDLIGARTOOLTIP";
 
         public const string OcultarPlanta = "C3DOCULTARPLANTA";
+        public const string PlantaAtualizar = "C3DPLANTAATUALIZAR";
 
         public const string Passagem = "PASSAGEM";
         public const string PassagemCfg = "PASSAGEMCFG";

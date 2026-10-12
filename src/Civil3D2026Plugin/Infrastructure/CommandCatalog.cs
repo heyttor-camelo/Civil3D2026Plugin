@@ -140,11 +140,12 @@ public static class CommandCatalog
 
             new(
                 "Corridor",
-                "Solidos so no 3D",
+                "Solidos em planta / 3D",
                 C3DVersions.PlanVisibility,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Corridor.OcultarPlanta, "Ocultar em planta", "Solidos e bodies dos layers configurados (prefixos) ficam ocultos nas vistas de planta e visiveis nas vistas 3D, por viewport.")
+                    new CommandDefinition(C3DCommands.Corridor.OcultarPlanta, "Solidos em planta", "Em planta, solidos dos layers configurados ficam ocultos ou so com arestas visiveis (linhas ocultas removidas, mesmo em 2D Wireframe e na plotagem); normais no 3D."),
+                    new CommandDefinition(C3DCommands.Corridor.PlantaAtualizar, "Atualizar planta", "Recalcula as arestas visiveis em planta de todos os solidos (modo Exato).")
                 }),
 
             new(

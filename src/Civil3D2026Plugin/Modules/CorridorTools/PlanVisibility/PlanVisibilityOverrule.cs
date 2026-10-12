@@ -13,6 +13,16 @@ using WinRegistryValueKind = Microsoft.Win32.RegistryValueKind;
 
 namespace Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 
+/// <summary>Como os solidos-alvo aparecem nas vistas de planta.</summary>
+internal enum PlanDisplayMode
+{
+    /// <summary>Nao sao desenhados em planta.</summary>
+    Ocultar,
+
+    /// <summary>Desenhados so com as arestas visiveis de cima (linhas ocultas removidas).</summary>
+    Exato
+}
+
 /// <summary>
 /// Configuracao do "solidos so no 3D", gravada no registro do usuario
 /// (HKCU\Software\Civil3D2026Plugin\PlanVisibility) para valer em todos os DWGs.
@@ -22,6 +32,14 @@ internal static class PlanVisibilitySettings
     private const string RegistryPath = @"Software\Civil3D2026Plugin\PlanVisibility";
 
     public static bool Enabled { get; set; }
+
+    public static PlanDisplayMode Mode { get; set; } = PlanDisplayMode.Ocultar;
+
+    /// <summary>No modo Exato, recalcula sozinho os solidos alterados ao ficar ocioso.</summary>
+    public static bool AutoRefresh { get; set; } = true;
+
+    /// <summary>Prefixo especial: todos os solidos e bodies.</summary>
+    public const string AllPrefix = "*";
 
     public static IReadOnlyList<string> Prefixes { get; private set; } = Array.Empty<string>();
 
@@ -46,6 +64,10 @@ internal static class PlanVisibilitySettings
 
             Enabled = Convert.ToInt32(key.GetValue("Enabled", 0)) != 0;
             SetPrefixes(Convert.ToString(key.GetValue("Prefixes", string.Empty)) ?? string.Empty);
+            AutoRefresh = Convert.ToInt32(key.GetValue("AutoRefresh", 1)) != 0;
+            Mode = Enum.TryParse(Convert.ToString(key.GetValue("Mode", "Ocultar")), true, out PlanDisplayMode mode)
+                ? mode
+                : PlanDisplayMode.Ocultar;
         }
         catch
         {
@@ -60,6 +82,8 @@ internal static class PlanVisibilitySettings
             using WinRegistryKey key = WinRegistry.CurrentUser.CreateSubKey(RegistryPath);
             key.SetValue("Enabled", Enabled ? 1 : 0, WinRegistryValueKind.DWord);
             key.SetValue("Prefixes", PrefixesText, WinRegistryValueKind.String);
+            key.SetValue("Mode", Mode.ToString(), WinRegistryValueKind.String);
+            key.SetValue("AutoRefresh", AutoRefresh ? 1 : 0, WinRegistryValueKind.DWord);
         }
         catch
         {
@@ -74,7 +98,7 @@ internal static class PlanVisibilitySettings
 
         foreach (string prefix in Prefixes)
         {
-            if (layer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            if (prefix == AllPrefix || layer.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
                 return true;
         }
 
@@ -83,9 +107,10 @@ internal static class PlanVisibilitySettings
 }
 
 /// <summary>
-/// DrawableOverrule para Solid3d e Body: nos layers configurados, o objeto nao
-/// e desenhado em viewports que olham de cima (planta) e e desenhado
-/// normalmente em qualquer vista 3D. Funciona por viewport, inclusive em
+/// DrawableOverrule para Solid3d e Body: nos layers configurados, em viewports
+/// que olham de cima (planta) o objeto nao e desenhado (modo Ocultar) ou e
+/// desenhado so com as arestas visiveis pre-calculadas (modo Exato, mesmo em
+/// 2D Wireframe e na plotagem); em vistas 3D e desenhado normalmente. Funciona por viewport, inclusive em
 /// viewports lado a lado no model space. Nao altera o DWG.
 ///
 /// Mecanica:
@@ -132,7 +157,21 @@ internal sealed class PlanVisibilityOverrule : AcGi.DrawableOverrule
         }
 
         if (IsPlanView(vd))
-            return;
+        {
+            if (PlanVisibilitySettings.Mode == PlanDisplayMode.Ocultar)
+                return;
+
+            // Exato: linhas visiveis pre-calculadas. Sem representacao (ou
+            // pendente de atualizacao), desenha o solido normalmente.
+            if (drawable is AcadDb.Entity entity &&
+                PlanRepresentationStore.TryGet(entity) is List<Point3d[]> lines)
+            {
+                foreach (Point3d[] line in lines)
+                    vd.Geometry.Polyline(new Point3dCollection(line), Vector3d.ZAxis, IntPtr.Zero);
+
+                return;
+            }
+        }
 
         _nesting++;
         try
@@ -192,11 +231,13 @@ internal static class PlanVisibilityManager
     public static void Initialize()
     {
         PlanVisibilitySettings.Load();
+        PlanRepresentationStore.Initialize();
         Apply();
     }
 
     public static void Terminate()
     {
+        PlanRepresentationStore.Terminate();
         Unregister();
     }
 

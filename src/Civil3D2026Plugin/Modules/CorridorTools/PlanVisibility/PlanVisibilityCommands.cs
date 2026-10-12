@@ -8,9 +8,12 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 
 /// <summary>
-/// C3DOCULTARPLANTA: solidos/bodies dos layers configurados ficam ocultos nas
-/// vistas de planta e visiveis nas vistas 3D (ex.: solidos extraidos do
-/// corredor). Configuracao por usuario, valida para todos os desenhos.
+/// C3DOCULTARPLANTA: como os solidos/bodies dos layers configurados aparecem
+/// nas vistas de planta, mantendo-os normais nas vistas 3D:
+/// - Ocultar: nao aparecem em planta;
+/// - Exato: aparecem so com as arestas visiveis de cima (linhas ocultas
+///   removidas entre todos os solidos), inclusive em 2D Wireframe e na plotagem.
+/// C3DPLANTAATUALIZAR: recalcula a representacao Exato do desenho inteiro.
 /// </summary>
 public sealed class PlanVisibilityCommands
 {
@@ -29,25 +32,25 @@ public sealed class PlanVisibilityCommands
         {
             ed.WriteMessage(
                 "\n" + C3DCommands.Corridor.OcultarPlanta + " v" + Versao +
-                " - solidos dos layers configurados aparecem so nas vistas 3D.");
-            WriteStatus(ed);
+                " - solidos em planta: ocultos ou so com arestas visiveis; normais no 3D.");
+            WriteStatus(doc);
 
-            // Primeiro uso: sem prefixos, pede antes de qualquer outra opcao.
+            // Primeiro uso: sem prefixos, configura tudo em sequencia.
             if (PlanVisibilitySettings.Prefixes.Count == 0)
             {
-                if (!AskPrefixes(ed))
+                if (!AskPrefixes(ed) || !AskMode(ed))
                     return;
 
-                PlanVisibilitySettings.Enabled = true;
-                Commit(ed);
+                PlanVisibilitySettings.Enabled = PlanVisibilitySettings.Prefixes.Count > 0;
+                Commit(doc, fullRefresh: PlanVisibilitySettings.Mode == PlanDisplayMode.Exato);
                 return;
             }
 
             string toggle = PlanVisibilitySettings.Enabled ? "Desligar" : "Ligar";
 
             PromptKeywordOptions options = new(
-                "\nOpcao [Ligar/Desligar/Prefixos] <" + toggle + ">: ",
-                "Ligar Desligar Prefixos")
+                "\nOpcao [Ligar/Desligar/Prefixos/Modo/Auto/Atualizar] <" + toggle + ">: ",
+                "Ligar Desligar Prefixos Modo Auto Atualizar")
             {
                 AllowNone = true
             };
@@ -57,24 +60,75 @@ public sealed class PlanVisibilityCommands
                 return;
 
             string choice = result.Status == PromptStatus.OK ? result.StringResult : toggle;
+            bool fullRefresh = false;
 
-            if (string.Equals(choice, "Prefixos", StringComparison.OrdinalIgnoreCase))
+            switch (choice)
             {
-                if (!AskPrefixes(ed))
-                    return;
+                case "Prefixos":
+                    if (!AskPrefixes(ed))
+                        return;
+                    PlanVisibilitySettings.Enabled = PlanVisibilitySettings.Prefixes.Count > 0;
+                    fullRefresh = PlanVisibilitySettings.Mode == PlanDisplayMode.Exato;
+                    break;
 
-                PlanVisibilitySettings.Enabled = PlanVisibilitySettings.Prefixes.Count > 0;
-            }
-            else
-            {
-                PlanVisibilitySettings.Enabled = string.Equals(choice, "Ligar", StringComparison.OrdinalIgnoreCase);
+                case "Modo":
+                    if (!AskMode(ed))
+                        return;
+                    fullRefresh = PlanVisibilitySettings.Mode == PlanDisplayMode.Exato;
+                    break;
+
+                case "Auto":
+                    if (!AskAuto(ed))
+                        return;
+                    break;
+
+                case "Atualizar":
+                    fullRefresh = true;
+                    break;
+
+                case "Ligar":
+                    PlanVisibilitySettings.Enabled = true;
+                    fullRefresh = PlanVisibilitySettings.Mode == PlanDisplayMode.Exato;
+                    break;
+
+                default:
+                    PlanVisibilitySettings.Enabled = false;
+                    break;
             }
 
-            Commit(ed);
+            Commit(doc, fullRefresh);
         }
         catch (System.Exception ex)
         {
             ed.WriteMessage("\n[ERRO " + C3DCommands.Corridor.OcultarPlanta + "] " + ex.Message);
+        }
+    }
+
+    [CommandMethod(C3DCommands.Corridor.PlantaAtualizar, CommandFlags.Modal)]
+    public void PlantaAtualizar()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+
+        Editor ed = doc.Editor;
+
+        try
+        {
+            if (!PlanVisibilityManager.IsActive || PlanVisibilitySettings.Mode != PlanDisplayMode.Exato)
+            {
+                ed.WriteMessage(
+                    "\nO modo Exato nao esta ativo. Use " + C3DCommands.Corridor.OcultarPlanta +
+                    " > Modo > Exato.");
+                return;
+            }
+
+            RunFullRefresh(doc);
+            ed.Regen();
+        }
+        catch (System.Exception ex)
+        {
+            ed.WriteMessage("\n[ERRO " + C3DCommands.Corridor.PlantaAtualizar + "] " + ex.Message);
         }
     }
 
@@ -83,7 +137,7 @@ public sealed class PlanVisibilityCommands
         string current = PlanVisibilitySettings.PrefixesText;
 
         PromptStringOptions options = new(
-            "\nPrefixos de layer separados por ; (ex.: CORR-SOL;C-PAV)" +
+            "\nPrefixos de layer separados por ; (ex.: CORR-SOL;C-PAV), * = todos os solidos" +
             (string.IsNullOrEmpty(current) ? ": " : " <" + current + ">: "))
         {
             AllowSpaces = true
@@ -97,39 +151,104 @@ public sealed class PlanVisibilityCommands
         PlanVisibilitySettings.SetPrefixes(text);
 
         if (PlanVisibilitySettings.Prefixes.Count == 0)
+            ed.WriteMessage("\nNenhum prefixo informado. A funcao fica desligada.");
+
+        return true;
+    }
+
+    private static bool AskMode(Editor ed)
+    {
+        string current = PlanVisibilitySettings.Mode.ToString();
+
+        ed.WriteMessage("\n  Ocultar: solidos nao aparecem em planta.");
+        ed.WriteMessage("\n  Exato: aparecem so com as arestas visiveis de cima, inclusive em 2D Wireframe e na plotagem.");
+
+        PromptKeywordOptions options = new(
+            "\nModo em planta [Ocultar/Exato] <" + current + ">: ",
+            "Ocultar Exato")
         {
-            ed.WriteMessage("\nNenhum prefixo informado. A ocultacao em planta fica desligada.");
+            AllowNone = true
+        };
+
+        PromptResult result = ed.GetKeywords(options);
+        if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.Error)
+            return false;
+
+        if (result.Status == PromptStatus.OK)
+        {
+            PlanVisibilitySettings.Mode = string.Equals(result.StringResult, "Exato", StringComparison.OrdinalIgnoreCase)
+                ? PlanDisplayMode.Exato
+                : PlanDisplayMode.Ocultar;
         }
 
         return true;
     }
 
-    private static void Commit(Editor ed)
+    private static bool AskAuto(Editor ed)
     {
-        PlanVisibilitySettings.Save();
-        PlanVisibilityManager.Apply();
+        string current = PlanVisibilitySettings.AutoRefresh ? "Sim" : "Nao";
 
-        // Redesenha todos os viewports para aplicar imediatamente.
-        ed.Regen();
+        PromptKeywordOptions options = new(
+            "\nAtualizar automaticamente apos alteracoes (modo Exato)? [Sim/Nao] <" + current + ">: ",
+            "Sim Nao")
+        {
+            AllowNone = true
+        };
 
-        WriteStatus(ed);
+        PromptResult result = ed.GetKeywords(options);
+        if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.Error)
+            return false;
+
+        if (result.Status == PromptStatus.OK)
+            PlanVisibilitySettings.AutoRefresh = string.Equals(result.StringResult, "Sim", StringComparison.OrdinalIgnoreCase);
+
+        return true;
     }
 
-    private static void WriteStatus(Editor ed)
+    private static void Commit(Document doc, bool fullRefresh)
     {
+        PlanVisibilitySettings.Save();
+        PlanRepresentationStore.ClearAllCaches();
+        PlanVisibilityManager.Apply();
+
+        if (fullRefresh && PlanVisibilityManager.IsActive && PlanVisibilitySettings.Mode == PlanDisplayMode.Exato)
+            RunFullRefresh(doc);
+
+        // Redesenha todos os viewports para aplicar imediatamente.
+        doc.Editor.Regen();
+
+        WriteStatus(doc);
+    }
+
+    private static void RunFullRefresh(Document doc)
+    {
+        doc.Editor.WriteMessage("\nCalculando arestas visiveis em planta...");
+        PlanRepresentationStore.Refresh(doc, full: true, out string summary);
+        doc.Editor.WriteMessage("\n  " + summary);
+    }
+
+    private static void WriteStatus(Document doc)
+    {
+        Editor ed = doc.Editor;
         string prefixes = PlanVisibilitySettings.Prefixes.Count == 0
             ? "(nenhum)"
             : PlanVisibilitySettings.PrefixesText;
 
         ed.WriteMessage(
             "\n  Estado: " + (PlanVisibilityManager.IsActive ? "LIGADO" : "DESLIGADO") +
+            " | modo: " + PlanVisibilitySettings.Mode +
+            " | auto: " + (PlanVisibilitySettings.AutoRefresh ? "sim" : "nao") +
             " | prefixos: " + prefixes);
 
-        if (PlanVisibilityManager.IsActive)
+        if (PlanVisibilityManager.IsActive && PlanVisibilitySettings.Mode == PlanDisplayMode.Exato)
         {
-            ed.WriteMessage(
-                "\n  Solidos e bodies nesses layers nao sao desenhados em vistas de planta" +
-                " (camera olhando para baixo) e aparecem normalmente nas vistas 3D.");
+            int pending = PlanRepresentationStore.PendingCount(doc.Database);
+            if (pending > 0)
+            {
+                ed.WriteMessage(
+                    "\n  " + pending + " solido(s) aguardando atualizacao (aparecem completos em planta ate la)." +
+                    " Use " + C3DCommands.Corridor.PlantaAtualizar + " ou ligue Auto.");
+            }
         }
     }
 }
