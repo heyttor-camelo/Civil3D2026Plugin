@@ -26,7 +26,9 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 /// - rotação SOMENTE em XY, em torno do eixo Z global; nunca inclina o sólido;
 /// - X = deslocamento longitudinal, Y = transversal (+ esquerda), Z = vertical global;
 /// - os dados do conjunto ficam persistidos no Named Objects Dictionary;
-/// - C3DSOLIDATUALIZAR reconstrói o conjunto após alteração/rebuild da feature line.
+/// - C3DSOLIDATUALIZAR atualiza o conjunto após alteração/rebuild da feature line:
+///   modo Existentes reposiciona os sólidos no próprio objeto (apagados continuam
+///   fora); modo Recriar apaga e recria todos.
 /// - C3DSOLIDITEM permite offset individual, desassociação temporária e reassociação.
 /// </summary>
 public sealed class C3DSolidArrayCommands
@@ -41,6 +43,11 @@ public sealed class C3DSolidArrayCommands
     private const string TemplateNamePrefix = "C3D_SOLID_TEMPLATE_";
     private const string DetachedMarker = "#DETACHED#";
     private const string OverridesMarker = "#OVERRIDES#";
+
+    // Quantidade de vertices da feature line na ultima geracao/atualizacao.
+    // Gravado num unico texto ("#POINTCOUNT#123") para que DLLs antigas o leiam
+    // como um "handle" invalido e o ignorem sem risco.
+    private const string PointCountMarker = "#POINTCOUNT#";
     private const string SolidStateManaged = "MANAGED";
     private const string SolidStateDetached = "DETACHED";
 
@@ -72,6 +79,9 @@ public sealed class C3DSolidArrayCommands
         public string GroupId { get; set; } = string.Empty;
         public string FeatureLineHandle { get; set; } = string.Empty;
         public string TemplateBlockHandle { get; set; } = string.Empty;
+
+        /// <summary>Vertices da feature line na ultima geracao; -1 = desconhecido (conjuntos antigos).</summary>
+        public int PointCount { get; set; } = -1;
         public double OffsetX { get; set; }
         public double OffsetY { get; set; }
         public double OffsetZ { get; set; }
@@ -323,6 +333,22 @@ public sealed class C3DSolidArrayCommands
             if (per.Status != PromptStatus.OK)
                 return;
 
+            PromptKeywordOptions modeOptions = new(
+                "\nModo [Existentes/Recriar] <Existentes>: ",
+                "Existentes Recriar")
+            {
+                AllowNone = true
+            };
+
+            PromptResult modeResult = ed.GetKeywords(modeOptions);
+            if (modeResult.Status == PromptStatus.Cancel || modeResult.Status == PromptStatus.Error)
+                return;
+
+            // Existentes: reposiciona no proprio objeto; apagados continuam apagados.
+            // Recriar: apaga e recria o conjunto inteiro (comportamento anterior).
+            bool recreate = modeResult.Status == PromptStatus.OK &&
+                            string.Equals(modeResult.StringResult, "Recriar", StringComparison.OrdinalIgnoreCase);
+
             using Transaction tr = db.TransactionManager.StartTransaction();
 
             DBObject selected = tr.GetObject(
@@ -343,20 +369,49 @@ public sealed class C3DSolidArrayCommands
                 return;
             }
 
-            int totalCreated = 0;
+            int totalSolids = 0;
+            int totalRemoved = 0;
             int updated = 0;
             int failed = 0;
 
             foreach (ArraySetData data in sets)
             {
-                if (TryRegenerateSet(
-                    tr,
-                    db,
-                    data,
-                    out int created,
-                    out string error))
+                bool ok;
+                string error;
+                int solids;
+
+                if (recreate)
                 {
-                    totalCreated += created;
+                    ok = TryRegenerateSet(tr, db, data, out solids, out error);
+                }
+                else
+                {
+                    ok = TryUpdateExistingSet(
+                        tr,
+                        db,
+                        data,
+                        out solids,
+                        out int removed,
+                        out bool recreatedAll,
+                        out error);
+
+                    if (ok)
+                    {
+                        totalRemoved += removed;
+
+                        if (recreatedAll)
+                        {
+                            ed.WriteMessage(
+                                "\n[AVISO] Conjunto " + ShortId(data.GroupId) +
+                                ": a feature line mudou a quantidade de vértices; o conjunto foi recriado" +
+                                " (sólidos apagados manualmente voltaram).");
+                        }
+                    }
+                }
+
+                if (ok)
+                {
+                    totalSolids += solids;
                     updated++;
                 }
                 else
@@ -371,9 +426,16 @@ public sealed class C3DSolidArrayCommands
             tr.Commit();
 
             ed.WriteMessage(
-                "\nAtualização concluída: " + updated +
-                " conjunto(s), " + totalCreated + " sólido(s) recriado(s)." +
+                "\nAtualização concluída (" + (recreate ? "Recriar" : "Existentes") + "): " + updated +
+                " conjunto(s), " + totalSolids + " sólido(s)." +
                 (failed > 0 ? " Falhas=" + failed + "." : string.Empty));
+
+            if (totalRemoved > 0)
+            {
+                ed.WriteMessage(
+                    "\n  " + totalRemoved + " sólido(s) apagado(s) manualmente continuam fora." +
+                    " Use o modo Recriar para restaurá-los.");
+            }
         }
         catch (System.Exception ex)
         {
@@ -450,11 +512,14 @@ public sealed class C3DSolidArrayCommands
             data.OffsetY = y.Value;
             data.OffsetZ = z.Value;
 
-            if (!TryRegenerateSet(
+            // Atualiza somente os solidos existentes, no proprio objeto.
+            if (!TryUpdateExistingSet(
                 tr,
                 db,
                 data,
-                out int created,
+                out int solids,
+                out int removed,
+                out bool recreatedAll,
                 out string error))
             {
                 ed.WriteMessage("\n[ERRO] " + error);
@@ -464,8 +529,19 @@ public sealed class C3DSolidArrayCommands
             tr.Commit();
 
             ed.WriteMessage(
-                "\nConjunto atualizado: " + created + " sólido(s) | " +
+                "\nConjunto atualizado: " + solids + " sólido(s) | " +
                 FormatOffsets(data.OffsetX, data.OffsetY, data.OffsetZ));
+
+            if (recreatedAll)
+            {
+                ed.WriteMessage(
+                    "\n[AVISO] A feature line mudou a quantidade de vértices; o conjunto foi recriado.");
+            }
+            else if (removed > 0)
+            {
+                ed.WriteMessage(
+                    "\n  " + removed + " sólido(s) apagado(s) manualmente continuam fora.");
+            }
         }
         catch (System.Exception ex)
         {
@@ -742,10 +818,15 @@ public sealed class C3DSolidArrayCommands
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidAtualizar);
         ed.WriteMessage("\n  Após rebuild/alteração do Corridor, selecione qualquer sólido");
-        ed.WriteMessage("\n  gerado ou a própria AutoCorridorFeatureLine para reconstruir.");
+        ed.WriteMessage("\n  gerado ou a própria AutoCorridorFeatureLine para atualizar.");
+        ed.WriteMessage("\n  Existentes (padrão): reposiciona cada sólido no próprio objeto");
+        ed.WriteMessage("\n    (mesmo handle, layer, cor, Property Sets); apagados continuam fora.");
+        ed.WriteMessage("\n  Recriar: apaga e recria todos; apagados voltam.");
+        ed.WriteMessage("\n  Se a feature line mudar a quantidade de vértices, o conjunto é recriado.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidEditar);
-        ed.WriteMessage("\n  Selecione um sólido gerado, altere X/Y/Z e o conjunto é recriado.");
+        ed.WriteMessage("\n  Selecione um sólido gerado e altere X/Y/Z; os sólidos existentes são");
+        ed.WriteMessage("\n  reposicionados no próprio objeto (apagados continuam fora).");
         ed.WriteMessage("\n");
         ed.WriteMessage("\n" + C3DCommands.Corridor.SolidItem);
         ed.WriteMessage("\n  Atua somente sobre UM sólido do conjunto.");
@@ -980,6 +1061,7 @@ public sealed class C3DSolidArrayCommands
             OpenMode.ForWrite);
 
         data.GeneratedHandles.Clear();
+        data.PointCount = points.Count;
 
         int created = 0;
 
@@ -1169,54 +1251,32 @@ public sealed class C3DSolidArrayCommands
             blockTable[BlockTableRecord.ModelSpace],
             OpenMode.ForWrite);
 
-        try
+        Point3d target = ComputeTarget(points, index, tangent, data);
+        double angle = Math.Atan2(tangent.Y, tangent.X);
+        Solid3d solid = BuildFromTemplate(templateSolid, target, angle);
+
+        Entity? oldEntity = null;
+        if (!oldSolidId.IsNull && !oldSolidId.IsErased)
         {
-            Entity? oldEntity = tr.GetObject(
+            oldEntity = tr.GetObject(
                 oldSolidId,
                 OpenMode.ForWrite,
                 false) as Entity;
-
-            if (oldEntity is not null && !oldEntity.IsErased)
-                oldEntity.Erase();
-        }
-        catch
-        {
-            // Se o objeto antigo já não existir, ainda é possível recriar o slot.
         }
 
         data.GeneratedHandles.RemoveAll(
             h => string.Equals(h, oldHandle, StringComparison.OrdinalIgnoreCase));
 
-        ItemOffsetData itemOffset = data.ItemOffsets.TryGetValue(index, out ItemOffsetData? specific)
-            ? specific
-            : new ItemOffsetData();
-
-        double offsetX = data.OffsetX + itemOffset.OffsetX;
-        double offsetY = data.OffsetY + itemOffset.OffsetY;
-        double offsetZ = data.OffsetZ + itemOffset.OffsetZ;
-
-        Vector3d left = new(-tangent.Y, tangent.X, 0.0);
-
-        Point3d target = points[index] +
-            (tangent * offsetX) +
-            (left * offsetY) +
-            (Vector3d.ZAxis * offsetZ);
-
-        double angle = Math.Atan2(tangent.Y, tangent.X);
-
-        Solid3d solid = (Solid3d)templateSolid.Clone();
-
-        solid.TransformBy(
-            Matrix3d.Rotation(
-                angle,
-                Vector3d.ZAxis,
-                Point3d.Origin));
-
-        solid.TransformBy(
-            Matrix3d.Displacement(target - Point3d.Origin));
-
-        modelSpace.AppendEntity(solid);
-        tr.AddNewlyCreatedDBObject(solid, true);
+        if (oldEntity is not null && !oldEntity.IsErased)
+        {
+            // Mantem o mesmo objeto (handle, Property Sets, xdata, layer, cor).
+            ReplaceKeepingIdentity(tr, modelSpace, oldEntity, solid);
+        }
+        else
+        {
+            modelSpace.AppendEntity(solid);
+            tr.AddNewlyCreatedDBObject(solid, true);
+        }
 
         TagSolid(
             tr,
@@ -1228,6 +1288,226 @@ public sealed class C3DSolidArrayCommands
         data.GeneratedHandles.Add(solid.ObjectId.Handle.ToString());
         SaveSet(tr, db, data);
         return true;
+    }
+
+    /// <summary>
+    /// Atualiza no proprio objeto somente os solidos que ainda existem.
+    /// Solidos apagados manualmente continuam apagados. Se a quantidade de
+    /// vertices da feature line mudou, a numeracao dos itens deixa de valer e
+    /// o conjunto e recriado (recreatedAll = true).
+    /// Nada e alterado (retorno false) se faltar dado ou houver layer travado.
+    /// </summary>
+    private static bool TryUpdateExistingSet(
+        Transaction tr,
+        Database db,
+        ArraySetData data,
+        out int updated,
+        out int removedByUser,
+        out bool recreatedAll,
+        out string error)
+    {
+        updated = 0;
+        removedByUser = 0;
+        recreatedAll = false;
+        error = string.Empty;
+
+        ObjectId featureLineId = ResolveHandle(db, data.FeatureLineHandle);
+        if (featureLineId.IsNull || featureLineId.IsErased)
+        {
+            error = "AutoCorridorFeatureLine original não encontrada.";
+            return false;
+        }
+
+        ObjectId templateBlockId = ResolveHandle(db, data.TemplateBlockHandle);
+        if (templateBlockId.IsNull)
+        {
+            error = "modelo interno do sólido não encontrado.";
+            return false;
+        }
+
+        if (tr.GetObject(featureLineId, OpenMode.ForRead, false) is not AutoCorridorFeatureLine featureLine)
+        {
+            error = "objeto vinculado deixou de ser AutoCorridorFeatureLine.";
+            return false;
+        }
+
+        List<Point3d> points = GetCleanPoints(featureLine);
+
+        if (data.PointCount >= 0 && data.PointCount != points.Count)
+        {
+            // Vertices inseridos/removidos: o indice de cada item nao corresponde
+            // mais ao mesmo ponto. Recria o conjunto inteiro.
+            if (!TryRegenerateSet(tr, db, data, out updated, out error))
+                return false;
+
+            recreatedAll = true;
+            return true;
+        }
+
+        Solid3d? templateSolid = TryGetTemplateSolid(tr, templateBlockId);
+        if (templateSolid is null)
+        {
+            error = "o modelo interno do sólido não foi encontrado.";
+            return false;
+        }
+
+        EnsureLegacyItemTags(tr, db, data);
+
+        // 1a passada: somente leitura, para validar tudo antes de alterar.
+        List<(ObjectId Id, int Index)> alive = new();
+        List<string> keepUntouched = new();
+
+        foreach (string handle in data.GeneratedHandles)
+        {
+            ObjectId id = ResolveHandle(db, handle);
+            if (id.IsNull || id.IsErased)
+            {
+                removedByUser++;
+                continue;
+            }
+
+            if (tr.GetObject(id, OpenMode.ForRead, false) is not Entity entity)
+            {
+                removedByUser++;
+                continue;
+            }
+
+            SolidTagData? tag = TryReadSolidTag(tr, entity);
+            if (tag is null ||
+                !string.Equals(tag.GroupId, data.GroupId, StringComparison.Ordinal) ||
+                string.Equals(tag.State, SolidStateDetached, StringComparison.OrdinalIgnoreCase))
+            {
+                keepUntouched.Add(handle);
+                continue;
+            }
+
+            LayerTableRecord layer = (LayerTableRecord)tr.GetObject(entity.LayerId, OpenMode.ForRead);
+            if (layer.IsLocked)
+            {
+                error = "o layer '" + layer.Name + "' está travado. Destrave-o para atualizar o conjunto.";
+                return false;
+            }
+
+            if (tag.Index < 0 ||
+                tag.Index >= points.Count ||
+                data.DetachedIndices.Contains(tag.Index) ||
+                !TryGetTangentXY(points, tag.Index, out _))
+            {
+                keepUntouched.Add(handle);
+                continue;
+            }
+
+            alive.Add((id, tag.Index));
+        }
+
+        BlockTable blockTable = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        BlockTableRecord modelSpace = (BlockTableRecord)tr.GetObject(
+            blockTable[BlockTableRecord.ModelSpace],
+            OpenMode.ForWrite);
+
+        // 2a passada: reposiciona cada solido existente mantendo o mesmo objeto.
+        data.GeneratedHandles.Clear();
+        data.GeneratedHandles.AddRange(keepUntouched);
+
+        foreach ((ObjectId id, int index) in alive.OrderBy(item => item.Index))
+        {
+            TryGetTangentXY(points, index, out Vector3d tangent);
+
+            Point3d target = ComputeTarget(points, index, tangent, data);
+            double angle = Math.Atan2(tangent.Y, tangent.X);
+            Solid3d solid = BuildFromTemplate(templateSolid, target, angle);
+
+            Entity oldEntity = (Entity)tr.GetObject(id, OpenMode.ForWrite, false);
+            ReplaceKeepingIdentity(tr, modelSpace, oldEntity, solid);
+
+            data.GeneratedHandles.Add(solid.ObjectId.Handle.ToString());
+            updated++;
+        }
+
+        data.PointCount = points.Count;
+        SaveSet(tr, db, data);
+        return true;
+    }
+
+    private static Solid3d? TryGetTemplateSolid(Transaction tr, ObjectId templateBlockId)
+    {
+        BlockTableRecord templateBtr = (BlockTableRecord)tr.GetObject(
+            templateBlockId,
+            OpenMode.ForRead);
+
+        foreach (ObjectId id in templateBtr)
+        {
+            if (tr.GetObject(id, OpenMode.ForRead, false) is Solid3d solid)
+                return solid;
+        }
+
+        return null;
+    }
+
+    /// <summary>Ponto de insercao do item: vertice + offsets do conjunto e individuais.</summary>
+    private static Point3d ComputeTarget(
+        IReadOnlyList<Point3d> points,
+        int index,
+        Vector3d tangent,
+        ArraySetData data)
+    {
+        ItemOffsetData itemOffset = data.ItemOffsets.TryGetValue(index, out ItemOffsetData? specific)
+            ? specific
+            : new ItemOffsetData();
+
+        double offsetX = data.OffsetX + itemOffset.OffsetX;
+        double offsetY = data.OffsetY + itemOffset.OffsetY;
+        double offsetZ = data.OffsetZ + itemOffset.OffsetZ;
+
+        Vector3d left = new(-tangent.Y, tangent.X, 0.0);
+
+        return points[index] +
+            (tangent * offsetX) +
+            (left * offsetY) +
+            (Vector3d.ZAxis * offsetZ);
+    }
+
+    /// <summary>Copia do modelo normalizado, girada em XY e levada ao ponto.</summary>
+    private static Solid3d BuildFromTemplate(Solid3d templateSolid, Point3d target, double angle)
+    {
+        Solid3d solid = (Solid3d)templateSolid.Clone();
+
+        solid.TransformBy(
+            Matrix3d.Rotation(
+                angle,
+                Vector3d.ZAxis,
+                Point3d.Origin));
+
+        solid.TransformBy(
+            Matrix3d.Displacement(target - Point3d.Origin));
+
+        return solid;
+    }
+
+    /// <summary>
+    /// Troca a geometria de um solido existente sem trocar o objeto: o solido
+    /// novo recebe as propriedades visuais do antigo (layer, cor, material...),
+    /// entra no desenho e assume, via SwapIdWith, o ObjectId/handle, o xdata e
+    /// o dicionario de extensao (tag do array e Property Sets) do antigo.
+    /// Em seguida a geometria antiga e apagada. Ao final, 'replacement' e o
+    /// objeto com o handle original.
+    /// </summary>
+    private static void ReplaceKeepingIdentity(
+        Transaction tr,
+        BlockTableRecord space,
+        Entity oldEntity,
+        Solid3d replacement)
+    {
+        replacement.SetPropertiesFrom(oldEntity);
+
+        space.AppendEntity(replacement);
+        tr.AddNewlyCreatedDBObject(replacement, true);
+
+        if (!oldEntity.IsWriteEnabled)
+            oldEntity.UpgradeOpen();
+
+        replacement.SwapIdWith(oldEntity.ObjectId, true, true);
+        oldEntity.Erase();
     }
 
     private static void EraseGeneratedSolids(
@@ -1372,7 +1652,7 @@ public sealed class C3DSolidArrayCommands
         for (int i = 0; i < data.GeneratedHandles.Count; i++)
         {
             ObjectId id = ResolveHandle(db, data.GeneratedHandles[i]);
-            if (id.IsNull)
+            if (id.IsNull || id.IsErased)
                 continue;
 
             Entity? entity = tr.GetObject(
@@ -1563,6 +1843,13 @@ public sealed class C3DSolidArrayCommands
             values.Add(new TypedValue((int)DxfCode.Text, handle));
         }
 
+        if (data.PointCount >= 0)
+        {
+            values.Add(new TypedValue(
+                (int)DxfCode.Text,
+                PointCountMarker + data.PointCount.ToString(CultureInfo.InvariantCulture)));
+        }
+
         values.Add(new TypedValue((int)DxfCode.Text, DetachedMarker));
         values.Add(new TypedValue(
             (int)DxfCode.Text,
@@ -1676,6 +1963,21 @@ public sealed class C3DSolidArrayCommands
             string text = Convert.ToString(
                 values[pos].Value,
                 CultureInfo.InvariantCulture) ?? string.Empty;
+
+            if (text.StartsWith(PointCountMarker, StringComparison.Ordinal))
+            {
+                if (int.TryParse(
+                    text.Substring(PointCountMarker.Length),
+                    NumberStyles.Integer,
+                    CultureInfo.InvariantCulture,
+                    out int pointCount))
+                {
+                    data.PointCount = pointCount;
+                }
+
+                pos++;
+                continue;
+            }
 
             if (string.Equals(text, DetachedMarker, StringComparison.Ordinal))
             {

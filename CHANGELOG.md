@@ -1,3 +1,15 @@
+## 2.14.0 - C3DSOLIDARRAY v1.2.0 / atualizar somente solidos existentes
+
+- `C3DSOLIDATUALIZAR` pergunta `[Existentes/Recriar] <Existentes>`;
+- Existentes: cada solido restante e reposicionado no proprio objeto. O solido novo e gerado do modelo e assume, via `SwapIdWith`, o handle, o xdata e o dicionario de extensao (tag do array e Property Sets) do antigo; layer, cor, material etc. sao copiados com `SetPropertiesFrom`. Solidos apagados manualmente continuam fora;
+- Recriar: comportamento anterior (apaga e recria; apagados voltam);
+- se a feature line mudar a quantidade de vertices (rebuild do Corridor), a numeracao dos itens deixa de corresponder e o conjunto e recriado com aviso. A contagem passa a ser gravada no conjunto (`#POINTCOUNT#`); conjuntos antigos sem contagem sao atualizados por indice na primeira vez;
+- `C3DSOLIDEDITAR` (offsets gerais) atualiza somente os existentes;
+- `C3DSOLIDITEM` (Editar/Resetar/Reassociar) mantem o mesmo objeto em vez de apagar e criar;
+- validacao antes de alterar: layer travado cancela a atualizacao do conjunto sem mudancas;
+- corrige leitura de conjuntos v1.0 com solido apagado em `EnsureLegacyItemTags`;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.13.0 - C3DSOLIDLIGAR v1.3.0 / tooltip dos estais
 
 - ao passar o cursor sobre um estai, o tooltip do AutoCAD mostra os principais campos do Property Set `C3D_ESTAI`: codigo, material, diametro, area metalica, comprimento, massa, inclinacao e cargas de escoamento/ruptura;

@@ -119,7 +119,7 @@ public static class CommandCatalog
                 {
                     new CommandDefinition(C3DCommands.Corridor.SolidArray, "Array de solidos", "Distribui Solid3d nos vertices de AutoCorridorFeatureLine."),
                     new CommandDefinition(C3DCommands.Corridor.SolidCfg, "Configurar offsets", "Define offsets XYZ padrao do array."),
-                    new CommandDefinition(C3DCommands.Corridor.SolidAtualizar, "Atualizar array", "Reconstrui um conjunto apos alteracao do Corridor."),
+                    new CommandDefinition(C3DCommands.Corridor.SolidAtualizar, "Atualizar array", "Atualiza os solidos existentes no proprio objeto (apagados continuam fora) ou recria o conjunto."),
                     new CommandDefinition(C3DCommands.Corridor.SolidEditar, "Editar conjunto", "Edita offsets do conjunto."),
                     new CommandDefinition(C3DCommands.Corridor.SolidItem, "Editar item", "Edita, desassocia ou reassocia um unico solido."),
                     new CommandDefinition(C3DCommands.Corridor.SolidHelp, "Ajuda array", "Mostra a ajuda do C3DSOLIDARRAY.")
