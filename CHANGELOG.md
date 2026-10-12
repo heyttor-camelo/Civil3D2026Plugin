@@ -1,3 +1,11 @@
+## 2.13.0 - C3DSOLIDLIGAR v1.3.0 / tooltip dos estais
+
+- ao passar o cursor sobre um estai, o tooltip do AutoCAD mostra os principais campos do Property Set `C3D_ESTAI`: codigo, material, diametro, area metalica, comprimento, massa, inclinacao e cargas de escoamento/ruptura;
+- implementado em `C3DSolidLinkTooltip.cs` via `Editor.PointMonitor`, registrado em todos os documentos abertos/novos a partir do `PluginApplication` (sem novo `IExtensionApplication`);
+- leitura por `OpenCloseTransaction`, cache do ultimo estai sob o cursor limpo ao fim de cada comando; falhas sao silenciosas;
+- novo comando `C3DSOLIDLIGARTOOLTIP` [Ligar/Desligar] (ligado por padrao a cada sessao);
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.12.0 - C3DSOLIDLIGAR v1.2.0 / atualizar somente estais existentes
 
 - `C3DSOLIDLIGARATUALIZAR` pergunta `[Existentes/Recriar] <Existentes>`;

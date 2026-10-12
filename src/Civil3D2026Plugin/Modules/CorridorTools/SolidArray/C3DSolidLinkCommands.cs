@@ -438,6 +438,37 @@ public sealed class C3DSolidLinkCommands
         }
     }
 
+    [CommandMethod(C3DCommands.Corridor.SolidLigarTooltip, CommandFlags.Modal)]
+    public void Tooltip()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+
+        Editor ed = doc.Editor;
+        string current = SolidLinkTooltip.Enabled ? "Ligado" : "Desligado";
+        string toggle = SolidLinkTooltip.Enabled ? "Desligar" : "Ligar";
+
+        PromptKeywordOptions options = new(
+            "\nTooltip dos estais esta " + current + ". [Ligar/Desligar] <" + toggle + ">: ",
+            "Ligar Desligar")
+        {
+            AllowNone = true
+        };
+
+        PromptResult result = ed.GetKeywords(options);
+        if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.Error)
+            return;
+
+        string choice = result.Status == PromptStatus.OK ? result.StringResult : toggle;
+        SolidLinkTooltip.Enabled = string.Equals(choice, "Ligar", StringComparison.OrdinalIgnoreCase);
+        SolidLinkTooltip.ClearCache();
+
+        ed.WriteMessage(
+            "\nTooltip dos estais " + (SolidLinkTooltip.Enabled ? "LIGADO" : "DESLIGADO") +
+            " nesta sessao.");
+    }
+
     [CommandMethod(C3DCommands.Corridor.SolidLigarHelp, CommandFlags.Modal)]
     public void Help()
     {
@@ -474,6 +505,11 @@ public sealed class C3DSolidLinkCommands
         ed.WriteMessage("\n  Existentes (padrao): refaz a geometria no proprio objeto (mesmo handle,");
         ed.WriteMessage("\n    cor e edicoes manuais); estais apagados continuam apagados.");
         ed.WriteMessage("\n  Recriar: apaga e recria todos; estais apagados voltam.");
+        ed.WriteMessage("\n");
+        ed.WriteMessage("\n" + C3DCommands.Corridor.SolidLigarTooltip);
+        ed.WriteMessage("\n  Liga/desliga o tooltip: ao passar o cursor sobre um estai mostra");
+        ed.WriteMessage("\n  codigo, material, diametro, area, comprimento, massa, inclinacao e");
+        ed.WriteMessage("\n  cargas de escoamento/ruptura. Ligado por padrao a cada sessao.");
         ed.WriteMessage("\n");
         ed.WriteMessage("\nPROPERTY SET " + SolidLinkPropertySet.DefinitionName + " (por estai):");
         ed.WriteMessage("\n  codigo, material, diametro, area metalica, comprimento, massa linear,");

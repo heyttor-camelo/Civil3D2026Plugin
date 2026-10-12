@@ -52,6 +52,7 @@ public static class CommandNames
         public const string SolidLigarEditar = "C3DSOLIDLIGAREDITAR";
         public const string SolidLigarAtualizar = "C3DSOLIDLIGARATUALIZAR";
         public const string SolidLigarHelp = "C3DSOLIDLIGARHELP";
+        public const string SolidLigarTooltip = "C3DSOLIDLIGARTOOLTIP";
 
         public const string Passagem = "PASSAGEM";
         public const string PassagemCfg = "PASSAGEMCFG";

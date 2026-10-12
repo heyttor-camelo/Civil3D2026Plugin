@@ -4,6 +4,7 @@ using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
+using Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 using Civil3D2026Plugin.UI.Ribbon;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -24,6 +25,9 @@ public sealed class PluginApplication : IExtensionApplication
         // O gerenciador tenta imediatamente e, se necessario, repete no Idle.
         RibbonUiManager.Initialize();
 
+        // Tooltip dos estais (C3DSOLIDLIGAR) via Editor.PointMonitor.
+        SolidLinkTooltip.Initialize();
+
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
             WriteBanner(doc.Editor, includeDescriptions: false);
@@ -31,6 +35,7 @@ public sealed class PluginApplication : IExtensionApplication
 
     public void Terminate()
     {
+        SolidLinkTooltip.Terminate();
         RibbonUiManager.Terminate();
     }
 
