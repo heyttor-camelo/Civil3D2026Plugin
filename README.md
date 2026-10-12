@@ -140,6 +140,16 @@ C3DSOLIDLIGARHELP       -> ajuda do comando
 - material de catalogo (CP190, A416, CA50, ST85, INOX) ou personalizado, e area metalica efetiva;
 - Property Set `C3D_ESTAI` com codigo, material, comprimento, massa, cargas de escoamento/ruptura, inclinacao e cotas.
 
+## Solidos so no 3D (C3DOCULTARPLANTA v1.0.0)
+
+Modulo em `Modules/CorridorTools/PlanVisibility`. Solidos e bodies cujo layer comeca com um dos prefixos configurados (ex.: solidos extraidos do corredor) nao sao desenhados em vistas de planta e aparecem normalmente nas vistas 3D, viewport por viewport.
+
+```text
+C3DOCULTARPLANTA  -> [Ligar/Desligar/Prefixos]; prefixos separados por ;
+```
+
+Combine com um estilo de corredor que mostre links/shapes/feature lines apenas na aba Plan para ter o corredor em planta e os solidos no 3D.
+
 ## Base oficial de desenvolvimento
 
 A partir da v2.8.0, use esta estrutura como base para todas as novas alteracoes.

@@ -54,6 +54,8 @@ public static class CommandNames
         public const string SolidLigarHelp = "C3DSOLIDLIGARHELP";
         public const string SolidLigarTooltip = "C3DSOLIDLIGARTOOLTIP";
 
+        public const string OcultarPlanta = "C3DOCULTARPLANTA";
+
         public const string Passagem = "PASSAGEM";
         public const string PassagemCfg = "PASSAGEMCFG";
         public const string PassagemEditar = "PASSAGEMEDITAR";

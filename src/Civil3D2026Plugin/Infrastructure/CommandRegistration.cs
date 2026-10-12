@@ -10,6 +10,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit.CorridorSplitCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.SolidArray.C3DSolidArrayCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.SolidArray.C3DSolidLinkCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility.PlanVisibilityCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.RaisedCrossing.RaisedCrossingCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineElevationCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineVertexCommands))]

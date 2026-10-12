@@ -4,6 +4,7 @@ using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
+using Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 using Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 using Civil3D2026Plugin.UI.Ribbon;
 
@@ -28,6 +29,9 @@ public sealed class PluginApplication : IExtensionApplication
         // Tooltip dos estais (C3DSOLIDLIGAR) via Editor.PointMonitor.
         SolidLinkTooltip.Initialize();
 
+        // Solidos so no 3D (C3DOCULTARPLANTA): reativa a configuracao salva do usuario.
+        PlanVisibilityManager.Initialize();
+
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
             WriteBanner(doc.Editor, includeDescriptions: false);
@@ -35,6 +39,7 @@ public sealed class PluginApplication : IExtensionApplication
 
     public void Terminate()
     {
+        PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();
         RibbonUiManager.Terminate();
     }

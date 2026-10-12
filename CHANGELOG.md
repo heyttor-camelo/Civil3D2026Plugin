@@ -1,3 +1,13 @@
+## 2.15.0 - C3DOCULTARPLANTA v1.0.0 / solidos so no 3D
+
+- novo modulo `CorridorTools/PlanVisibility`: `DrawableOverrule` para `Solid3d` e `Body` (links extraidos do corredor saem como Body);
+- objetos cujo layer comeca com um dos prefixos configurados nao sao desenhados em viewports com camera olhando para baixo (planta, tolerancia ~1 grau) e sao desenhados normalmente em qualquer vista 3D;
+- decisao por viewport: planta e 3D lado a lado no model space funcionam ao mesmo tempo; vale tambem para viewports de layout e plotagem;
+- nao altera o DWG: sem o plugin (ou em Navisworks/IFC) os solidos aparecem normalmente;
+- comando `C3DOCULTARPLANTA` [Ligar/Desligar/Prefixos]; varios prefixos separados por `;`; configuracao salva no registro do usuario (HKCU) e reativada ao carregar o plugin;
+- os objetos filtrados deixam de usar o cache grafico do AutoCAD (desenho dependente da vista): em modelos muito grandes a orbita 3D pode ficar mais lenta;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.14.0 - C3DSOLIDARRAY v1.2.0 / atualizar somente solidos existentes
 
 - `C3DSOLIDATUALIZAR` pergunta `[Existentes/Recriar] <Existentes>`;

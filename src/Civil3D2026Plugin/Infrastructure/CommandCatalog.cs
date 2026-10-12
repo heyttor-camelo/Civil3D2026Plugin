@@ -140,6 +140,15 @@ public static class CommandCatalog
 
             new(
                 "Corridor",
+                "Solidos so no 3D",
+                C3DVersions.PlanVisibility,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Corridor.OcultarPlanta, "Ocultar em planta", "Solidos e bodies dos layers configurados (prefixos) ficam ocultos nas vistas de planta e visiveis nas vistas 3D, por viewport.")
+                }),
+
+            new(
+                "Corridor",
                 "Passagem semi-elevada",
                 C3DVersions.RaisedCrossing,
                 new[]
