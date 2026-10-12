@@ -3,9 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
-using Microsoft.Win32;
 
 using AcGi = Autodesk.AutoCAD.GraphicsInterface;
+
+// Autodesk.AutoCAD.Runtime tambem define Registry/RegistryKey: use aliases explicitos (CS0104).
+using WinRegistry = Microsoft.Win32.Registry;
+using WinRegistryKey = Microsoft.Win32.RegistryKey;
+using WinRegistryValueKind = Microsoft.Win32.RegistryValueKind;
 
 namespace Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 
@@ -36,7 +40,7 @@ internal static class PlanVisibilitySettings
     {
         try
         {
-            using RegistryKey? key = Registry.CurrentUser.OpenSubKey(RegistryPath);
+            using WinRegistryKey? key = WinRegistry.CurrentUser.OpenSubKey(RegistryPath);
             if (key is null)
                 return;
 
@@ -53,9 +57,9 @@ internal static class PlanVisibilitySettings
     {
         try
         {
-            using RegistryKey key = Registry.CurrentUser.CreateSubKey(RegistryPath);
-            key.SetValue("Enabled", Enabled ? 1 : 0, RegistryValueKind.DWord);
-            key.SetValue("Prefixes", PrefixesText, RegistryValueKind.String);
+            using WinRegistryKey key = WinRegistry.CurrentUser.CreateSubKey(RegistryPath);
+            key.SetValue("Enabled", Enabled ? 1 : 0, WinRegistryValueKind.DWord);
+            key.SetValue("Prefixes", PrefixesText, WinRegistryValueKind.String);
         }
         catch
         {
