@@ -385,7 +385,7 @@ public sealed class StreetTableCommands
             MessageForAdding = "\nSelecione a(s) COTA(S) da largura da pista (somadas) ou Enter para digitar: "
         };
 
-        PromptSelectionResult result = ed.GetSelection(options, new AcadDb.SelectionFilter(filter));
+        PromptSelectionResult result = ed.GetSelection(options, new SelectionFilter(filter));
 
         if (result.Status == PromptStatus.Cancel)
             return false;
