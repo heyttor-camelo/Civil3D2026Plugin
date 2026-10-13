@@ -327,7 +327,7 @@ internal static class ViarioSync
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve curve)
                 continue;
 
-            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius))
+            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events))
             {
                 state.Axes.Remove(id);
                 continue;
@@ -341,7 +341,7 @@ internal static class ViarioSync
                 continue;
 
             RoadSection section = sections.TryGetValue(sectionId, out RoadSection? sec) ? sec : fallback;
-            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius));
+            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius, events));
         }
 
         return axes;
@@ -355,7 +355,8 @@ internal static class ViarioSync
         {
             SnapTolerance = settings.SnapTolerance,
             MedianSetback = settings.MedianSetback,
-            CornerRadius = ViarioStore.LoadCornerRadii(db)
+            CornerRadius = ViarioStore.LoadCornerRadii(db),
+            SlipLanes = ViarioStore.LoadSlipLanes(db)
         };
     }
 

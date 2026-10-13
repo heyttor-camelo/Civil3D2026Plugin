@@ -75,6 +75,13 @@ public static class CommandNames
         public const string Rede = "C3DVIARIO";
         public const string Eixo = "C3DVIARIOEIXO";
         public const string Raio = "C3DVIARIORAIO";
+        public const string Modelos = "C3DVIARIOMODELOS";
+        public const string Alargar = "C3DVIARIOALARGAR";
+        public const string Gota = "C3DVIARIOGOTA";
+        public const string Conversao = "C3DVIARIOCONVERSAO";
+        public const string Abertura = "C3DVIARIOABERTURA";
+        public const string Livre = "C3DVIARIOLIVRE";
+        public const string ElemRemover = "C3DVIARIOELEMREMOVER";
     }
 
     public static class FeatureLines

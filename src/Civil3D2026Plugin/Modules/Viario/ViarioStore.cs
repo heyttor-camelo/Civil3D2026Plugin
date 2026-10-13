@@ -31,6 +31,8 @@ internal static class ViarioStore
     private const string SettingsKey = "CONFIG";
     private const string RadiiKey = "RAIOS";
     private const string ReleasedKey = "SOLTAS";
+    private const string SlipKey = "LIVRES";
+    private const string SlipSignature = "VLIVRE1";
     private const string SectionSignature = "VSEC1";
     private const string LegacyProfileSignature = "VPERF1";
     private const string SettingsSignature = "VCFG1";
@@ -44,7 +46,8 @@ internal static class ViarioStore
         [EdgeLevel.FaceMF] = ("VIARIO-MF-FACE", 4, "face do meio-fio"),
         [EdgeLevel.CostasMF] = ("VIARIO-MF-COSTAS", 3, "costas do meio-fio"),
         [EdgeLevel.Alinhamento] = ("VIARIO-ALINHAMENTO", 8, "alinhamento"),
-        [EdgeLevel.Canteiro] = ("VIARIO-CANTEIRO", 30, "canteiro central")
+        [EdgeLevel.Canteiro] = ("VIARIO-CANTEIRO", 30, "canteiro central"),
+        [EdgeLevel.Ilha] = ("VIARIO-ILHA", 6, "ilha canalizadora")
     };
 
     internal sealed class Settings
@@ -95,10 +98,14 @@ internal static class ViarioStore
     public static bool IsAxis(AcadDb.DBObject obj, out string sectionId) =>
         ReadTag(obj, out sectionId) == TagAxis;
 
-    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius)
+    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius) =>
+        ReadAxis(obj, out sectionId, out radius, out _);
+
+    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius, out List<AxisEvent> events)
     {
         sectionId = string.Empty;
         radius = null;
+        events = new List<AxisEvent>();
         List<string>? values = ReadValues(obj);
         if (values is null || values[0] != TagAxis)
             return false;
@@ -108,6 +115,12 @@ internal static class ViarioStore
             double.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double r) && r >= 0)
         {
             radius = r;
+        }
+
+        for (int i = 3; i < values.Count; i++)
+        {
+            if (AxisEvent.Parse(values[i]) is AxisEvent ev)
+                events.Add(ev);
         }
 
         return true;
@@ -128,9 +141,27 @@ internal static class ViarioStore
         entity.XData = new AcadDb.ResultBuffer(list.ToArray());
     }
 
-    public static void SetAxis(AcadDb.Entity entity, string sectionId, double? radius) =>
-        SetTag(entity, TagAxis, sectionId,
-            radius is double r ? r.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty);
+    public static void SetAxis(AcadDb.Entity entity, string sectionId, double? radius, IEnumerable<AxisEvent>? events = null)
+    {
+        List<string> values = new()
+        {
+            TagAxis,
+            sectionId,
+            radius is double r ? r.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty
+        };
+
+        if (events is not null)
+            values.AddRange(events.Select(e => e.Serialize()));
+
+        SetTag(entity, values.ToArray());
+    }
+
+    /// <summary>Muda a secao ou o raio do eixo mantendo os elementos dele.</summary>
+    public static void UpdateAxis(AcadDb.Entity entity, string? sectionId = null, double? radius = null, bool clearRadius = false)
+    {
+        ReadAxis(entity, out string currentSection, out double? currentRadius, out List<AxisEvent> events);
+        SetAxis(entity, sectionId ?? currentSection, clearRadius ? null : radius ?? currentRadius, events);
+    }
 
     public static void ClearTag(AcadDb.Entity entity)
     {
@@ -351,6 +382,38 @@ internal static class ViarioStore
         }
 
         WriteRecord(tr, db, RadiiKey, new AcadDb.ResultBuffer(list.ToArray()));
+    }
+
+    // ------------------------------------------------------------------
+    // Faixas livres por esquina
+    // ------------------------------------------------------------------
+
+    public static Dictionary<string, SlipLane> LoadSlipLanes(AcadDb.Database db)
+    {
+        Dictionary<string, SlipLane> result = new(StringComparer.Ordinal);
+        AcadDb.TypedValue[]? v = ReadRecord(db, SlipKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != SlipSignature)
+            return result;
+
+        for (int i = 1; i + 1 < v.Length; i += 2)
+        {
+            if (v[i].Value is string key && v[i + 1].Value is string text && SlipLane.Parse(text) is SlipLane slip)
+                result[key] = slip;
+        }
+
+        return result;
+    }
+
+    public static void SaveSlipLanes(AcadDb.Transaction tr, AcadDb.Database db, Dictionary<string, SlipLane> slips)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, SlipSignature) };
+        foreach ((string key, SlipLane slip) in slips)
+        {
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, key));
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, slip.Serialize()));
+        }
+
+        WriteRecord(tr, db, SlipKey, new AcadDb.ResultBuffer(list.ToArray()));
     }
 
     // ------------------------------------------------------------------

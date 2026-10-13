@@ -160,26 +160,31 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.2.0)
+## Rede viaria (C3DVIARIO v0.3.0)
 
-Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas e rotatoria.
+Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
-C3DVIARIOEIXO  -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
-C3DVIARIORAIO  -> raio de uma esquina (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
-C3DVIARIO      -> [Eixo/Adicionar/Secao/Atribuir/Raio/Rotatoria/Soltar/Remover/Atualizar/Config]
+C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
+C3DVIARIOEIXO        -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
+C3DVIARIORAIO        -> raio de uma esquina (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
+C3DVIARIOALARGAR     -> faixa adicional (conversao a direita/esquerda) com armazenamento arrastavel e taper
+C3DVIARIOGOTA        -> ilha em gota na aproximacao (Tipo II)
+C3DVIARIOCONVERSAO   -> conversao a esquerda tirada do canteiro (Tipo IV)
+C3DVIARIOABERTURA    -> abertura de canteiro para retorno
+C3DVIARIOLIVRE       -> faixa livre a direita com ilha triangular (Tipo III)
+C3DVIARIOELEMREMOVER -> remove um desses elementos
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/Config]
 ```
 
-- secao: pista (largura total de rolamento), canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas);
-- layers por elemento: `VIARIO-EIXO`, `VIARIO-PISTA`, `VIARIO-MF-FACE`, `VIARIO-MF-COSTAS`, `VIARIO-ALINHAMENTO`, `VIARIO-CANTEIRO`;
-- eixos: polilinhas (retas e arcos, abertas ou fechadas), linhas, arcos e circulos com XData `C3DVIARIO`; copia de eixo ja entra na rede;
-- raio: especifico da esquina > especifico do eixo > da secao;
-- rotatoria: circulo-eixo com a secao do anel; ramos encostados formam as entradas;
-- canteiro central: ilhas entre os nos, com nariz semicircular recuado da pista transversal;
-- Soltar: linhas geradas viram polilinhas comuns e nao sao recriadas;
+- secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas);
+- layers por elemento: `VIARIO-EIXO`, `VIARIO-PISTA`, `VIARIO-MF-FACE`, `VIARIO-MF-COSTAS`, `VIARIO-ALINHAMENTO`, `VIARIO-CANTEIRO`, `VIARIO-ILHA`;
+- elementos gravados no eixo (XData) e ancorados no no mais proximo: acompanham o eixo quando ele e editado;
+- modelos: cruzamento, T, Y, T/cruz com gotas, T/cruz com faixas livres, cruz com conversao a esquerda (canteiro ou alargamento), T com faixas de conversao, rotatorias de 3, 4 e 5 ramos com gotas;
+- raio: faixa livre > especifico da esquina > especifico do eixo > da secao;
 - associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram).
 
-O motor geometrico (`ViarioGeometry`, `ViarioEngine`) e C# puro, testavel fora do Civil 3D.
+O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`) e C# puro, testavel fora do Civil 3D.
 
 ## Base oficial de desenvolvimento
 

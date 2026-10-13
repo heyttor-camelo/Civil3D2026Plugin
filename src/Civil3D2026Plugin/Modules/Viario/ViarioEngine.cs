@@ -72,7 +72,8 @@ internal sealed class RoadSection
         EdgeLevel.FaceMF => true,
         EdgeLevel.CostasMF => MeioFio > 1e-3,
         EdgeLevel.Alinhamento => Calcada > 1e-3,
-        _ => Canteiro > 1e-3
+        EdgeLevel.Canteiro => Canteiro > 1e-3,
+        _ => true
     };
 
     public double TotalWidth => 2.0 * EdgeOffset(EdgeLevel.Alinhamento);
@@ -90,18 +91,27 @@ internal enum EdgeLevel
     FaceMF = 1,
     CostasMF = 2,
     Alinhamento = 3,
-    Canteiro = 4
+    Canteiro = 4,
+    Ilha = 5
 }
 
 internal sealed class AxisInput
 {
-    public AxisInput(string key, GPath path, RoadSection section, double? radius = null)
+    public AxisInput(string key, GPath path, RoadSection section, double? radius = null, IReadOnlyList<AxisEvent>? events = null)
     {
         Key = key;
         Path = path;
         Section = section;
         Radius = radius;
+        Events = events ?? Array.Empty<AxisEvent>();
     }
+
+    /// <summary>Elementos ligados ao eixo (alargamentos, gotas, baias, aberturas).</summary>
+    public IReadOnlyList<AxisEvent> Events { get; }
+
+    public AxisInput With(double? radius) => new(Key, Path, Section, radius, Events);
+
+    public AxisInput With(IReadOnlyList<AxisEvent> events) => new(Key, Path, Section, Radius, events);
 
     public string Key { get; }
     public GPath Path { get; }
@@ -164,6 +174,18 @@ internal sealed class EngineSettings
 
     /// <summary>Raios especificos por esquina (chave de CornerInfo).</summary>
     public Dictionary<string, double> CornerRadius { get; set; } = new();
+
+    /// <summary>Esquinas com faixa livre a direita (chave de CornerInfo).</summary>
+    public Dictionary<string, SlipLane> SlipLanes { get; set; } = new();
+
+    public EngineSettings Clone() => new()
+    {
+        SnapTolerance = SnapTolerance,
+        StraightToleranceDeg = StraightToleranceDeg,
+        MedianSetback = MedianSetback,
+        CornerRadius = new Dictionary<string, double>(CornerRadius),
+        SlipLanes = new Dictionary<string, SlipLane>(SlipLanes)
+    };
 }
 
 internal sealed class ViarioResult
@@ -213,6 +235,53 @@ internal static class ViarioEngine
         public bool ExtStart;
         public bool ExtEnd;
         public List<(double A, double B)> Removals = new();
+
+        /// <summary>Distancia com sinal da linha ao eixo, na estaca s do eixo original.</summary>
+        public Func<double, double> OffsetAt = _ => 0.0;
+    }
+
+    /// <summary>Variacao de largura ao longo do eixo (patamar + taper).</summary>
+    private sealed class Ramp
+    {
+        public double A;
+        public int Dir;
+        public double Full;
+        public double Taper;
+        public double Width;
+        public bool Smooth;
+        public bool Behind;
+
+        public double ValueAt(double s)
+        {
+            double u = (s - A) * Dir;
+            if (u < 0)
+                return Behind ? Width : 0.0;
+            if (u <= Full)
+                return Width;
+            if (Taper <= 1e-9)
+                return 0.0;
+            double t = (u - Full) / Taper;
+            if (t >= 1.0)
+                return 0.0;
+            return Width * (Smooth ? 0.5 * (1.0 + Math.Cos(Math.PI * t)) : 1.0 - t);
+        }
+
+        public IEnumerable<double> Breaks()
+        {
+            yield return A;
+            yield return A + (Dir * Full);
+            yield return A + (Dir * (Full + Taper));
+        }
+    }
+
+    private sealed class GotaPlace
+    {
+        public int Axis;
+        public double A;
+        public int Dir;
+        public double U0;
+        public double Length;
+        public double Width;
     }
 
     private sealed class Ctx
@@ -222,8 +291,14 @@ internal static class ViarioEngine
         public GPath[] Ext = null!;
         public Dictionary<(int, int, EdgeLevel), Curve> Curves = new();
         public Dictionary<(int, long), GPath> OffsetCache = new();
-        public List<Seg>[] Pieces = Enumerable.Range(0, 5).Select(_ => new List<Seg>()).ToArray();
+        public List<Seg>[] Pieces = Enumerable.Range(0, 6).Select(_ => new List<Seg>()).ToArray();
         public ViarioResult Result = null!;
+        public Dictionary<(int Axis, int Side), List<Ramp>> Widen = new();
+        public Dictionary<(int Axis, int Side), List<Ramp>> Narrow = new();
+        public Dictionary<int, List<(double A, double B)>> Openings = new();
+        public List<GotaPlace> Gotas = new();
+        public Dictionary<(int, int, EdgeLevel, long), GPath> CurveOffsetCache = new();
+        public double[] ExtStartLen = Array.Empty<double>();
     }
 
     public static ViarioResult Compute(IReadOnlyList<AxisInput> axes, EngineSettings settings)
@@ -237,6 +312,7 @@ internal static class ViarioEngine
 
         List<Node> nodes = FindNodes(ctx);
         BuildLegs(ctx, nodes);
+        ResolveEvents(ctx, nodes);
         BuildCurves(ctx, nodes);
 
         foreach (Node node in nodes)
@@ -263,6 +339,7 @@ internal static class ViarioEngine
         }
 
         BuildMedians(ctx, nodes);
+        BuildGotas(ctx);
         return result;
     }
 
@@ -488,9 +565,13 @@ internal static class ViarioEngine
         double maxR = ctx.Axes.Max(a => Math.Max(a.Section.Raio, a.Radius ?? 0.0));
         if (ctx.Settings.CornerRadius.Count > 0)
             maxR = Math.Max(maxR, ctx.Settings.CornerRadius.Values.Max());
-        double ext = (3.0 * maxEdge) + (2.0 * maxR) + 20.0;
+        if (ctx.Settings.SlipLanes.Count > 0)
+            maxR = Math.Max(maxR, ctx.Settings.SlipLanes.Values.Max(sl => sl.Radius + sl.Width));
+        double maxWiden = ctx.Widen.Values.SelectMany(l => l).Select(w => w.Width).DefaultIfEmpty(0.0).Max();
+        double ext = (3.0 * (maxEdge + maxWiden)) + (2.0 * maxR) + 20.0;
 
         ctx.Ext = new GPath[n];
+        ctx.ExtStartLen = new double[n];
 
         for (int i = 0; i < n; i++)
         {
@@ -499,6 +580,7 @@ internal static class ViarioEngine
             double e0 = !closed && startAtNode[i] ? ext : 0.0;
             double e1 = !closed && endAtNode[i] ? ext : 0.0;
             ctx.Ext[i] = axis.Extended(e0, e1);
+            ctx.ExtStartLen[i] = e0;
 
             RoadSection section = ctx.Axes[i].Section;
             foreach (EdgeLevel level in EdgeLevels)
@@ -506,11 +588,18 @@ internal static class ViarioEngine
                 double d = section.EdgeOffset(level);
                 foreach (int side in new[] { 1, -1 })
                 {
-                    GPath p = OffsetOf(ctx, i, side * d);
+                    ctx.Widen.TryGetValue((i, side), out List<Ramp>? ramps);
+                    Func<double, double> widen = Profile(ramps);
+                    int sd = side;
+                    Func<double, double> offsetAt = s => sd * (d + widen(s));
+
+                    GPath p = ramps is null || ramps.Count == 0
+                        ? OffsetOf(ctx, i, side * d)
+                        : VariableOffset(ctx.Ext[i], side * d, sExt => side * widen(sExt - e0), ramps.SelectMany(rp => rp.Breaks()).Select(b => b + e0));
                     if (p.IsEmpty)
                         continue;
 
-                    ctx.Curves[(i, side, level)] = new Curve
+                    Curve curve = new()
                     {
                         Axis = i,
                         Side = side,
@@ -520,9 +609,12 @@ internal static class ViarioEngine
                         P = p,
                         ExtStart = e0 > 0,
                         ExtEnd = e1 > 0,
-                        OrigStart = e0 > 0 ? SOnCurve(ctx, p, i, 0.0, side * d) : 0.0,
-                        OrigEnd = e1 > 0 ? SOnCurve(ctx, p, i, axis.Length, side * d) : p.Length
+                        OffsetAt = offsetAt
                     };
+
+                    curve.OrigStart = e0 > 0 ? SOnCurve(ctx, curve, 0.0) : 0.0;
+                    curve.OrigEnd = e1 > 0 ? SOnCurve(ctx, curve, axis.Length) : p.Length;
+                    ctx.Curves[(i, side, level)] = curve;
                 }
             }
         }
@@ -538,6 +630,95 @@ internal static class ViarioEngine
         }
 
         return path;
+    }
+
+    /// <summary>Posicao na linha correspondente a estaca s do eixo original.</summary>
+    private static double SOnCurve(Ctx ctx, Curve curve, double s)
+    {
+        GPath path = ctx.Axes[curve.Axis].Path;
+        s = Math.Clamp(s, 0, path.Length);
+        V2 p = path.PointAt(s) + (path.TangentAt(s).Left * curve.OffsetAt(s));
+        return curve.P.Project(p).S;
+    }
+
+    /// <summary>Largura extra (maior das rampas) na estaca s.</summary>
+    private static Func<double, double> Profile(List<Ramp>? ramps)
+    {
+        if (ramps is null || ramps.Count == 0)
+            return _ => 0.0;
+        return s => ramps.Max(r => r.ValueAt(s));
+    }
+
+    /// <summary>
+    /// Paralela com distancia variavel: trechos de distancia constante usam o
+    /// offset exato; trechos em taper sao amostrados (e simplificados).
+    /// </summary>
+    private static GPath VariableOffset(GPath ext, double baseSigned, Func<double, double> delta, IEnumerable<double> breaks)
+    {
+        double length = ext.Length;
+        List<double> cuts = breaks.Where(b => b > 1e-6 && b < length - 1e-6)
+            .Append(0.0).Append(length).Distinct().OrderBy(b => b).ToList();
+
+        List<Seg> segs = new();
+        for (int k = 0; k + 1 < cuts.Count; k++)
+        {
+            double b0 = cuts[k], b1 = cuts[k + 1];
+            if (b1 - b0 < 1e-6)
+                continue;
+
+            double w0 = delta(b0 + 1e-7), wm = delta((b0 + b1) / 2.0), w1 = delta(b1 - 1e-7);
+            List<Seg> piece;
+
+            if (Math.Abs(w0 - wm) < 1e-9 && Math.Abs(w1 - wm) < 1e-9)
+            {
+                piece = ext.Sub(b0, b1).Offset(baseSigned + wm).Segs.ToList();
+            }
+            else
+            {
+                int n = Math.Clamp((int)Math.Ceiling((b1 - b0) / 0.5), 4, 400);
+                List<V2> pts = new();
+                for (int j = 0; j <= n; j++)
+                {
+                    double sj = b0 + ((b1 - b0) * j / n);
+                    double se = j == 0 ? sj + 1e-7 : j == n ? sj - 1e-7 : sj;
+                    pts.Add(ext.PointAt(sj) + (ext.TangentAt(sj).Left * (baseSigned + delta(se))));
+                }
+
+                pts = Simplify(pts);
+                piece = new List<Seg>();
+                for (int j = 1; j < pts.Count; j++)
+                    piece.Add(Seg.Line(pts[j - 1], pts[j]));
+            }
+
+            if (piece.Count == 0)
+                continue;
+            if (segs.Count > 0 && V2.Dist(segs[^1].B, piece[0].A) > 1e-7)
+                segs.Add(Seg.Line(segs[^1].B, piece[0].A));
+            segs.AddRange(piece);
+        }
+
+        return new GPath(segs);
+    }
+
+    /// <summary>Remove pontos colineares.</summary>
+    private static List<V2> Simplify(List<V2> pts)
+    {
+        if (pts.Count < 3)
+            return pts;
+
+        List<V2> result = new() { pts[0] };
+        for (int i = 1; i < pts.Count - 1; i++)
+        {
+            V2 a = result[^1], b = pts[i], c = pts[i + 1];
+            V2 ac = c - a;
+            double len = ac.Length;
+            double dev = len < 1e-12 ? 0 : Math.Abs(V2.Cross(ac, b - a)) / len;
+            if (dev > 1e-5)
+                result.Add(b);
+        }
+
+        result.Add(pts[^1]);
+        return result;
     }
 
     private static double SOnCurve(Ctx ctx, GPath curve, int axis, double s, double signedDistance)
@@ -585,17 +766,18 @@ internal static class ViarioEngine
                 continue;
 
             string key = CornerKey(ctx.Axes[li.Axis].Key, li.Dir, ctx.Axes[lj.Axis].Key, lj.Dir);
-            double faceRadius = ResolveRadius(ctx, li, lj, key);
+            SlipLane? slip = ctx.Settings.SlipLanes.TryGetValue(key, out SlipLane? sl) ? sl : null;
+            double faceRadius = slip?.Radius ?? ResolveRadius(ctx, li, lj, key);
             bool concave = theta < Math.PI - straightTol;
 
             foreach (EdgeLevel level in EdgeLevels)
-                ProcessCorner(ctx, node, li, lj, sideI, sideJ, theta, concave, level, faceRadius, key);
+                ProcessCorner(ctx, node, li, lj, sideI, sideJ, theta, concave, level, faceRadius, key, concave ? slip : null);
         }
     }
 
     private static void ProcessCorner(
         Ctx ctx, Node node, Leg li, Leg lj, int sideI, int sideJ, double theta, bool concave,
-        EdgeLevel level, double faceRadius, string key)
+        EdgeLevel level, double faceRadius, string key, SlipLane? slip)
     {
         double straightTol = ctx.Settings.StraightToleranceDeg * Math.PI / 180.0;
 
@@ -665,8 +847,11 @@ internal static class ViarioEngine
 
         if (radius > 1e-6)
         {
-            (bool ok, double r, double s1, double s2, Seg? a) =
+            (bool ok, double r, double s1, double s2, Seg? a, V2 center) =
                 Fillet(ctx, li, lj, sideI, sideJ, d1, d2, c1, c2, x.Value.P, x.Value.S1, x.Value.S2, radius);
+
+            if (ok && a is not null && level == EdgeLevel.FaceMF && slip is not null)
+                BuildSlipIsland(ctx, c1, c2, x.Value.P, center, r, slip);
 
             if (ok && a is not null)
             {
@@ -720,7 +905,20 @@ internal static class ViarioEngine
         return delta;
     }
 
-    private static (bool Ok, double Radius, double S1, double S2, Seg? Arc) Fillet(
+    /// <summary>Paralela de uma linha da secao, para o lado da quadra (cache).</summary>
+    private static GPath CurveOffset(Ctx ctx, Curve curve, double distance)
+    {
+        var key = (curve.Axis, curve.Side, curve.Level, (long)Math.Round(distance * 1e6));
+        if (!ctx.CurveOffsetCache.TryGetValue(key, out GPath? path))
+        {
+            path = curve.P.Offset(curve.Side * distance);
+            ctx.CurveOffsetCache[key] = path;
+        }
+
+        return path;
+    }
+
+    private static (bool Ok, double Radius, double S1, double S2, Seg? Arc, V2 Center) Fillet(
         Ctx ctx, Leg li, Leg lj, int sideI, int sideJ, double d1, double d2,
         Curve c1, Curve c2, V2 corner, double sx1, double sx2, double radius)
     {
@@ -728,8 +926,10 @@ internal static class ViarioEngine
 
         for (int attempt = 0; attempt < 8; attempt++, r *= 0.6)
         {
-            GPath o1 = OffsetOf(ctx, li.Axis, sideI * (d1 + r));
-            GPath o2 = OffsetOf(ctx, lj.Axis, sideJ * (d2 + r));
+            // Centro: encontro das paralelas (a distancia r) das proprias linhas,
+            // que ja incluem alargamentos e tapers.
+            GPath o1 = CurveOffset(ctx, c1, r);
+            GPath o2 = CurveOffset(ctx, c2, r);
 
             V2? center = null;
             double best = double.MaxValue;
@@ -765,10 +965,10 @@ internal static class ViarioEngine
             if (sweep > Math.PI)
                 sweep -= GMath.TwoPi;
 
-            return (true, r, s1, s2, new Seg(p1, p2, Math.Tan(sweep / 4.0)));
+            return (true, r, s1, s2, new Seg(p1, p2, Math.Tan(sweep / 4.0)), o);
         }
 
-        return (false, 0.0, sx1, sx2, null);
+        return (false, 0.0, sx1, sx2, null, default);
     }
 
     private static bool FitsInLeg(Ctx ctx, Leg leg, V2 tangentPoint)
@@ -788,8 +988,7 @@ internal static class ViarioEngine
 
         if (leg.Through)
         {
-            double sNode = SOnCurve(ctx, curve.P, leg.Axis, leg.S,
-                curve.Side * ctx.Axes[leg.Axis].Section.EdgeOffset(curve.Level));
+            double sNode = SOnCurve(ctx, curve, leg.S);
 
             if (curve.Closed)
             {
@@ -997,7 +1196,9 @@ internal static class ViarioEngine
                 }
             }
 
-            // Trechos livres entre os bloqueios.
+            if (ctx.Openings.TryGetValue(i, out List<(double A, double B)>? openings))
+                blocked.AddRange(openings);
+
             List<(double A, double B)> free = new();
             double cursor = 0.0;
             foreach ((double a, double b) in blocked.OrderBy(b => b.A))
@@ -1010,33 +1211,261 @@ internal static class ViarioEngine
             if (cursor < length)
                 free.Add((cursor, length));
 
-            GPath left = OffsetOf(ctx, i, half);
-            GPath right = OffsetOf(ctx, i, -half);
+            Curve left = MedianCurve(ctx, i, 1, half);
+            Curve right = MedianCurve(ctx, i, -1, half);
 
             foreach ((double a, double b) in free)
             {
-                if (b - a < (2.0 * half) + 0.5)
+                double ha = Math.Max(Math.Abs(left.OffsetAt(a)), Math.Abs(right.OffsetAt(a)));
+                double hb = Math.Max(Math.Abs(left.OffsetAt(b)), Math.Abs(right.OffsetAt(b)));
+                if (b - a < ha + hb + 0.5)
                     continue;
 
-                double s0 = a + half;
-                double s1 = b - half;
-                double l0 = SOnCurve(ctx, left, i, s0, half);
-                double l1 = SOnCurve(ctx, left, i, s1, half);
-                double r0 = SOnCurve(ctx, right, i, s0, -half);
-                double r1 = SOnCurve(ctx, right, i, s1, -half);
+                double s0 = a + ((Math.Abs(left.OffsetAt(a)) + Math.Abs(right.OffsetAt(a))) / 2.0);
+                double s1 = b - ((Math.Abs(left.OffsetAt(b)) + Math.Abs(right.OffsetAt(b))) / 2.0);
+                double l0 = SOnCurve(ctx, left, s0), l1 = SOnCurve(ctx, left, s1);
+                double r0 = SOnCurve(ctx, right, s0), r1 = SOnCurve(ctx, right, s1);
 
-                GPath leftPart = left.Sub(Math.Min(l0, l1), Math.Max(l0, l1));
-                GPath rightPart = right.Sub(Math.Min(r0, r1), Math.Max(r0, r1));
+                GPath leftPart = left.P.Sub(Math.Min(l0, l1), Math.Max(l0, l1));
+                GPath rightPart = right.P.Sub(Math.Min(r0, r1), Math.Max(r0, r1));
                 if (leftPart.IsEmpty || rightPart.IsEmpty)
                     continue;
 
+                V2 tipEnd = axis.Path.PointAt(Math.Min(b, length));
+                V2 tipStart = axis.Path.PointAt(Math.Max(a, 0));
+
                 List<Seg> ring = new(leftPart.Segs);
-                ring.Add(new Seg(leftPart.End, rightPart.End, -1.0));   // nariz final
+                ring.Add(SemiCircle(leftPart.End, rightPart.End, tipEnd));
                 ring.AddRange(rightPart.Reverse().Segs);
-                ring.Add(new Seg(rightPart.Start, leftPart.Start, -1.0)); // nariz inicial
+                ring.Add(SemiCircle(rightPart.Start, leftPart.Start, tipStart));
                 ctx.Result.Lines.Add(new OutputLine(EdgeLevel.Canteiro, ring, closed: true));
             }
         }
+    }
+
+    /// <summary>Linha do canteiro de um lado, estreitada pelas baias.</summary>
+    private static Curve MedianCurve(Ctx ctx, int axis, int side, double half)
+    {
+        double e0 = ctx.ExtStartLen[axis];
+        ctx.Narrow.TryGetValue((axis, side), out List<Ramp>? ramps);
+        Func<double, double> narrow = Profile(ramps);
+        Func<double, double> width = s => Math.Max(half - narrow(s), Math.Min(half, 0.3));
+
+        GPath p = ramps is null || ramps.Count == 0
+            ? OffsetOf(ctx, axis, side * half)
+            : VariableOffset(ctx.Ext[axis], side * half, sExt => side * (width(sExt - e0) - half),
+                ramps.SelectMany(rp => rp.Breaks()).Select(b => b + e0));
+
+        return new Curve
+        {
+            Axis = axis,
+            Side = side,
+            Level = EdgeLevel.Canteiro,
+            Visible = true,
+            P = p,
+            OffsetAt = s => side * width(s)
+        };
+    }
+
+    /// <summary>Semicirculo de a ate b passando do lado de "towards".</summary>
+    private static Seg SemiCircle(V2 a, V2 b, V2 towards)
+    {
+        Seg plus = new(a, b, 1.0);
+        Seg minus = new(a, b, -1.0);
+        return V2.Dist(plus.PointAt(0.5), towards) <= V2.Dist(minus.PointAt(0.5), towards) ? plus : minus;
+    }
+
+    // ------------------------------------------------------------------
+    // Elementos ligados aos eixos
+    // ------------------------------------------------------------------
+
+    private static void ResolveEvents(Ctx ctx, List<Node> nodes)
+    {
+        double snap = Math.Max(ctx.Settings.SnapTolerance, 1e-4);
+
+        for (int i = 0; i < ctx.Axes.Count; i++)
+        {
+            AxisInput axis = ctx.Axes[i];
+            if (axis.Events.Count == 0)
+                continue;
+
+            double length = axis.Path.Length;
+            List<(Node Node, double S)> stations = nodes
+                .SelectMany(n => n.Items.Where(it => it.Axis == i).Select(it => (n, it.S)))
+                .ToList();
+
+            foreach (AxisEvent ev in axis.Events)
+            {
+                if (ev.Kind == AxisEventKind.Abertura)
+                {
+                    if (!ctx.Openings.TryGetValue(i, out List<(double, double)>? list))
+                        ctx.Openings[i] = list = new List<(double, double)>();
+                    list.Add((ev.S - (ev.Length / 2.0), ev.S + (ev.Length / 2.0)));
+                    continue;
+                }
+
+                // Ancora no no mais proximo da estaca gravada.
+                (Node Node, double S)? anchor = stations
+                    .Where(st => Math.Abs(st.S - ev.S) <= 60.0)
+                    .OrderBy(st => Math.Abs(st.S - ev.S))
+                    .Select(st => ((Node, double)?)st)
+                    .FirstOrDefault();
+
+                double a = anchor?.S ?? ev.S;
+                bool through = axis.Path.Closed || (a > snap && a < length - snap);
+                double crossHalf = anchor is null
+                    ? 0.0
+                    : anchor.Value.Node.Legs.Where(l => l.Axis != i)
+                        .Select(l => ctx.Axes[l.Axis].Section.EdgeOffset(EdgeLevel.Pista))
+                        .DefaultIfEmpty(0.0).Max();
+
+                switch (ev.Kind)
+                {
+                    case AxisEventKind.Alargamento:
+                        foreach (int side in ev.Side == 0 ? new[] { 1, -1 } : new[] { ev.Side * ev.Dir })
+                        {
+                            AddRamp(ctx.Widen, i, side, new Ramp
+                            {
+                                A = a, Dir = ev.Dir, Full = crossHalf + ev.Length, Taper = ev.Taper,
+                                Width = ev.Width, Smooth = ev.Smooth, Behind = !through
+                            });
+                        }
+
+                        break;
+
+                    case AxisEventKind.Gota:
+                        double u0 = crossHalf + ev.Gap;
+                        foreach (int side in new[] { 1, -1 })
+                        {
+                            AddRamp(ctx.Widen, i, side, new Ramp
+                            {
+                                A = a, Dir = ev.Dir, Full = u0 + ev.Length, Taper = ev.Taper,
+                                Width = ev.Width / 2.0, Smooth = ev.Smooth, Behind = !through
+                            });
+                        }
+
+                        ctx.Gotas.Add(new GotaPlace { Axis = i, A = a, Dir = ev.Dir, U0 = u0, Length = ev.Length, Width = ev.Width });
+                        break;
+
+                    case AxisEventKind.Baia:
+                        int medianSide = (ev.Side == 0 ? -1 : ev.Side) * ev.Dir;
+                        AddRamp(ctx.Narrow, i, medianSide, new Ramp
+                        {
+                            A = a, Dir = ev.Dir, Full = crossHalf + ev.Length, Taper = ev.Taper,
+                            Width = ev.Width, Smooth = ev.Smooth, Behind = !through
+                        });
+                        break;
+                }
+            }
+        }
+    }
+
+    private static void AddRamp(Dictionary<(int, int), List<Ramp>> map, int axis, int side, Ramp ramp)
+    {
+        if (!map.TryGetValue((axis, side), out List<Ramp>? list))
+            map[(axis, side)] = list = new List<Ramp>();
+        list.Add(ramp);
+    }
+
+    /// <summary>Ilhas em gota: ponta arredondada junto ao no, afinando ate a cauda.</summary>
+    private static void BuildGotas(Ctx ctx)
+    {
+        foreach (GotaPlace g in ctx.Gotas)
+        {
+            GPath path = ctx.Axes[g.Axis].Path;
+            double r = g.Width / 2.0;
+            double uNose = g.U0 + r;
+            double uTip = g.U0 + g.Length;
+            if (uTip <= uNose + 0.5 || r <= 0.05)
+                continue;
+
+            double S(double u) => Math.Clamp(g.A + (g.Dir * u), 0.0, path.Length);
+            V2 At(double u, double h)
+            {
+                double s = S(u);
+                return path.PointAt(s) + (path.TangentAt(s).Left * h);
+            }
+
+            const int n = 12;
+            List<V2> left = new();
+            List<V2> right = new();
+            for (int k = 0; k <= n; k++)
+            {
+                double u = uNose + ((uTip - uNose) * k / n);
+                double h = r * (1.0 - ((double)k / n));
+                left.Add(At(u, h));
+                right.Add(At(u, -h));
+            }
+
+            List<Seg> ring = new();
+            for (int k = 1; k <= n; k++)
+                ring.Add(Seg.Line(left[k - 1], left[k]));
+            for (int k = n; k >= 1; k--)
+                ring.Add(Seg.Line(right[k], right[k - 1]));
+            ring.RemoveAll(sg => sg.Length < 1e-9);
+            ring.Add(SemiCircle(right[0], left[0], At(g.U0, 0.0)));
+
+            ctx.Result.Lines.Add(new OutputLine(EdgeLevel.Ilha, ring, closed: true));
+        }
+    }
+
+    /// <summary>
+    /// Ilha triangular da faixa livre: entre os bordos das duas vias (recuados)
+    /// e a borda interna da faixa (concentrica ao meio-fio externo).
+    /// </summary>
+    private static void BuildSlipIsland(Ctx ctx, Curve c1, Curve c2, V2 corner, V2 center, double radius, SlipLane slip)
+    {
+        // A ilha fica no canto "cortado" da quadra: bordos recuados para o lado da quadra.
+        GPath e1 = CurveOffset(ctx, c1, slip.Setback);
+        GPath e2 = CurveOffset(ctx, c2, slip.Setback);
+
+        (double S1, double S2, V2 P)? x = e1.Intersections(e2)
+            .OrderBy(h => V2.Dist(h.P, corner))
+            .Select(h => ((double, double, V2)?)h)
+            .FirstOrDefault();
+        if (x is null)
+            return;
+
+        double inner = radius + slip.Width;
+        GPath circle = new(new[]
+        {
+            Seg.FromArc(center, inner, 0.0, Math.PI),
+            Seg.FromArc(center, inner, Math.PI, Math.PI)
+        });
+
+        (double S, V2 P)? Hit(GPath edge) => edge.Intersections(circle)
+            .OrderBy(h => V2.Dist(h.P, x.Value.P))
+            .Select(h => ((double, V2)?)(h.S1, h.P))
+            .FirstOrDefault();
+
+        (double S, V2 P)? p1 = Hit(e1);
+        (double S, V2 P)? p2 = Hit(e2);
+        if (p1 is null || p2 is null || V2.Dist(center, x.Value.P) <= inner + 0.3)
+        {
+            ctx.Result.Warnings.Add($"Faixa livre perto de {corner}: nao sobra espaco para a ilha (aumente o raio ou diminua a largura).");
+            return;
+        }
+
+        GPath side1 = e1.Sub(Math.Min(x.Value.S1, p1.Value.S), Math.Max(x.Value.S1, p1.Value.S));
+        GPath side2 = e2.Sub(Math.Min(x.Value.S2, p2.Value.S), Math.Max(x.Value.S2, p2.Value.S));
+        if (side1.IsEmpty || side2.IsEmpty)
+            return;
+
+        if (V2.Dist(side1.Start, x.Value.P) > V2.Dist(side1.End, x.Value.P))
+            side1 = side1.Reverse();
+        if (V2.Dist(side2.End, x.Value.P) > V2.Dist(side2.Start, x.Value.P))
+            side2 = side2.Reverse();
+
+        double a0 = (side1.End - center).Angle;
+        double a1 = (side2.Start - center).Angle;
+        double sweep = GMath.Norm(a1 - a0);
+        if (sweep > Math.PI)
+            sweep -= GMath.TwoPi;
+
+        List<Seg> ring = new(side1.Segs);
+        ring.Add(new Seg(side1.End, side2.Start, Math.Tan(sweep / 4.0)));
+        ring.AddRange(side2.Segs);
+        ctx.Result.Lines.Add(new OutputLine(EdgeLevel.Ilha, ring, closed: true));
     }
 
     public static string Format(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);

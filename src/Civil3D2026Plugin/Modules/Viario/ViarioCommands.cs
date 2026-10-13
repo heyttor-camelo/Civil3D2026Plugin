@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/Adicionar/Secao/Atribuir/Raio/Rotatoria/Soltar/Remover/Atualizar/Config] <Eixo>: ",
-                "Eixo Adicionar Secao Atribuir Raio Rotatoria Soltar Remover Atualizar Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar Config")
             {
                 AllowNone = true
             };
@@ -44,14 +44,16 @@ public sealed class ViarioCommands
 
             switch (result.Status == PromptStatus.OK ? result.StringResult : "Eixo")
             {
-                case "Adicionar": AddAxes(doc); break;
+                case "MOdelos": ViarioTemplateCommands.InsertTemplate(doc); break;
+                case "ADicionar": AddAxes(doc); break;
                 case "Secao": ManageSections(doc); break;
-                case "Atribuir": AssignSection(doc); break;
+                case "ATribuir": AssignSection(doc); break;
                 case "Raio": EditRadius(doc); break;
-                case "Rotatoria": CreateRoundabout(doc); break;
-                case "Soltar": Release(doc); break;
-                case "Remover": RemoveAxes(doc); break;
-                case "Atualizar": ViarioSync.Regenerate(doc, quiet: false); break;
+                case "ROtatoria": CreateRoundabout(doc); break;
+                case "ELementos": ViarioElementCommands.Menu(doc); break;
+                case "SOltar": Release(doc); break;
+                case "REmover": RemoveAxes(doc); break;
+                case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
                 case "Config": Configure(doc); break;
                 default: DrawAxes(doc); break;
             }
@@ -63,6 +65,27 @@ public sealed class ViarioCommands
 
     [CommandMethod(C3DCommands.Viario.Raio, CommandFlags.Modal)]
     public void Raio() => Run(C3DCommands.Viario.Raio, EditRadius);
+
+    [CommandMethod(C3DCommands.Viario.Modelos, CommandFlags.Modal)]
+    public void Modelos() => Run(C3DCommands.Viario.Modelos, ViarioTemplateCommands.InsertTemplate);
+
+    [CommandMethod(C3DCommands.Viario.Alargar, CommandFlags.Modal)]
+    public void Alargar() => Run(C3DCommands.Viario.Alargar, ViarioElementCommands.Alargar);
+
+    [CommandMethod(C3DCommands.Viario.Gota, CommandFlags.Modal)]
+    public void Gota() => Run(C3DCommands.Viario.Gota, ViarioElementCommands.Gota);
+
+    [CommandMethod(C3DCommands.Viario.Conversao, CommandFlags.Modal)]
+    public void Conversao() => Run(C3DCommands.Viario.Conversao, ViarioElementCommands.Conversao);
+
+    [CommandMethod(C3DCommands.Viario.Abertura, CommandFlags.Modal)]
+    public void Abertura() => Run(C3DCommands.Viario.Abertura, ViarioElementCommands.Abertura);
+
+    [CommandMethod(C3DCommands.Viario.Livre, CommandFlags.Modal)]
+    public void Livre() => Run(C3DCommands.Viario.Livre, ViarioElementCommands.Livre);
+
+    [CommandMethod(C3DCommands.Viario.ElemRemover, CommandFlags.Modal)]
+    public void ElemRemover() => Run(C3DCommands.Viario.ElemRemover, ViarioElementCommands.Remove);
 
     private static void Run(string command, Action<Document> action)
     {
@@ -438,17 +461,13 @@ public sealed class ViarioCommands
         V2 basePoint = target.Path.Project(new V2(wcs.X, wcs.Y)).Point;
 
         // Raio do eixo vale para todas as esquinas dele: sem os especificos dessas esquinas.
-        EngineSettings withoutCorners = new()
-        {
-            SnapTolerance = engine.SnapTolerance,
-            MedianSetback = engine.MedianSetback,
-            CornerRadius = engine.CornerRadius
-                .Where(kv => !CornerHasAxis(kv.Key, handle))
-                .ToDictionary(kv => kv.Key, kv => kv.Value)
-        };
+        EngineSettings withoutCorners = engine.Clone();
+        withoutCorners.CornerRadius = engine.CornerRadius
+            .Where(kv => !CornerHasAxis(kv.Key, handle))
+            .ToDictionary(kv => kv.Key, kv => kv.Value);
 
         double? value = DragRadius(ed, axes, engine, keys, basePoint, current,
-            r => (axes.Select(a => a.Key == handle ? new AxisInput(a.Key, a.Path, a.Section, r) : a).ToList(), withoutCorners),
+            r => (axes.Select(a => a.Key == handle ? a.With((double?)r) : a).ToList(), withoutCorners),
             out bool toDefault);
 
         if (value is null && !toDefault)
@@ -457,7 +476,7 @@ public sealed class ViarioCommands
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
             AcadDb.Entity entity = (AcadDb.Entity)tr.GetObject(pick.ObjectId, AcadDb.OpenMode.ForWrite);
-            ViarioStore.SetAxis(entity, sectionId, toDefault ? null : value);
+            ViarioStore.UpdateAxis(entity, radius: toDefault ? null : value, clearRadius: toDefault);
             ViarioStore.SaveCornerRadii(tr, db, withoutCorners.CornerRadius);
             tr.Commit();
         }
@@ -491,21 +510,15 @@ public sealed class ViarioCommands
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
-    private static bool CornerHasAxis(string cornerKey, string axisKey) =>
+    internal static bool CornerHasAxis(string cornerKey, string axisKey) =>
         cornerKey.Split('|').Any(part => part.Length > 1 && part[..^1] == axisKey);
 
     private static EngineSettings With(EngineSettings engine, IEnumerable<string> keys, double radius)
     {
-        Dictionary<string, double> radii = new(engine.CornerRadius);
+        EngineSettings result = engine.Clone();
         foreach (string key in keys)
-            radii[key] = radius;
-
-        return new EngineSettings
-        {
-            SnapTolerance = engine.SnapTolerance,
-            MedianSetback = engine.MedianSetback,
-            CornerRadius = radii
-        };
+            result.CornerRadius[key] = radius;
+        return result;
     }
 
     /// <summary>Jig de raio: distancia do mouse ao ponto base = raio. Null = cancelado.</summary>
@@ -514,7 +527,7 @@ public sealed class ViarioCommands
         Func<double, (List<AxisInput>, EngineSettings)> apply, out bool toDefault)
     {
         toDefault = false;
-        RadiusJig jig = new(keys, basePoint, current, apply);
+        ValueJig jig = new("Raio", keys, basePoint, current, apply);
         PromptResult result = ed.Drag(jig);
 
         if (jig.ToDefault)
@@ -646,10 +659,10 @@ public sealed class ViarioCommands
             foreach (AcadDb.ObjectId id in ids)
             {
                 AcadDb.Curve curve = (AcadDb.Curve)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                if (!ViarioStore.ReadAxis(curve, out _, out double? radius))
+                if (!ViarioStore.IsAxis(curve, out _))
                     continue;
 
-                ViarioStore.SetAxis(curve, section.Id, radius);
+                ViarioStore.UpdateAxis(curve, sectionId: section.Id);
                 count++;
             }
 
@@ -782,8 +795,8 @@ public sealed class ViarioCommands
         ListSections(doc);
 
         PromptKeywordOptions options = new(
-            "\nSecoes [Corrente/Nova/Editar/Excluir] <Corrente>: ",
-            "Corrente Nova Editar Excluir")
+            "\nSecoes [Corrente/Nova/Editar/eXcluir] <Corrente>: ",
+            "Corrente Nova Editar eXcluir")
         {
             AllowNone = true
         };
@@ -796,7 +809,7 @@ public sealed class ViarioCommands
         {
             case "Nova": NewSection(doc); break;
             case "Editar": EditSection(doc); break;
-            case "Excluir": DeleteSection(doc); break;
+            case "eXcluir": DeleteSection(doc); break;
             default: ChooseCurrentSection(doc); break;
         }
     }
@@ -1027,6 +1040,7 @@ internal static class ViarioPreview
             {
                 EdgeLevel.FaceMF => 4,
                 EdgeLevel.Canteiro => 30,
+                EdgeLevel.Ilha => 6,
                 _ => 9
             };
             draw.Geometry.Draw(pl);
@@ -1226,19 +1240,21 @@ internal sealed class AxisJig : DrawJig
 }
 
 /// <summary>
-/// Jig de raio: a distancia do mouse ao ponto base e o raio; a rede e
-/// recalculada a cada movimento e o que muda aparece na hora.
+/// Jig de valor (raio, comprimento...): a distancia do mouse ao ponto base e o
+/// valor; a rede e recalculada a cada movimento e o que muda aparece na hora.
 /// </summary>
-internal sealed class RadiusJig : DrawJig
+internal sealed class ValueJig : DrawJig
 {
+    private readonly string _label;
     private readonly HashSet<string> _existingKeys;
     private readonly V2 _base;
     private readonly Func<double, (List<AxisInput> Axes, EngineSettings Settings)> _apply;
     private readonly double _initial;
 
-    public RadiusJig(HashSet<string> existingKeys, V2 basePoint, double current,
+    public ValueJig(string label, HashSet<string> existingKeys, V2 basePoint, double current,
         Func<double, (List<AxisInput>, EngineSettings)> apply)
     {
+        _label = label;
         _existingKeys = existingKeys;
         _base = basePoint;
         _apply = apply;
@@ -1252,7 +1268,7 @@ internal sealed class RadiusJig : DrawJig
     protected override SamplerStatus Sampler(JigPrompts prompts)
     {
         JigPromptDistanceOptions options = new(
-            "\nRaio <" + _initial.ToString("0.##", CultureInfo.InvariantCulture) + "> (arraste ou digite) ou [Padrao]: ")
+            "\n" + _label + " <" + _initial.ToString("0.##", CultureInfo.InvariantCulture) + "> (arraste ou digite) ou [Padrao]: ")
         {
             BasePoint = new Point3d(_base.X, _base.Y, 0),
             UseBasePoint = true,

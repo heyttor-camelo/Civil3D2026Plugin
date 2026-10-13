@@ -1,3 +1,14 @@
+## 2.25.0 - C3DVIARIO v0.3.0 / modelos de intersecao, alargamentos, gotas, faixas livres, canteiro
+
+- corrige o menu do C3DVIARIO: "Rotatoria" abria o editor de raio porque as opcoes tinham o mesmo atalho ("R"); atalhos unicos em todos os menus (Raio/ROtatoria/REmover, ADicionar/ATribuir/ATUalizar, Editar/eXcluir...);
+- **C3DVIARIOMODELOS**: janela (estilo Vehicle Tracking) com 12 modelos parametrizados, secoes principal/secundaria/anel e pre-visualizacao desenhada pelo motor; insercao com ponto e rotacao e preview ao vivo da rede;
+- largura variavel no motor: linhas com distancia variavel ao eixo (patamar + taper reto ou suave); as esquinas concordam com a borda real (alargada);
+- elementos gravados no eixo e ancorados no no mais proximo: **alargamento** (C3DVIARIOALARGAR), **gota** (C3DVIARIOGOTA), **conversao no canteiro** (C3DVIARIOCONVERSAO), **abertura de canteiro** (C3DVIARIOABERTURA); comprimento arrastavel com preview;
+- **faixa livre a direita** (C3DVIARIOLIVRE): meio-fio externo com raio grande e ilha triangular concentrica, raio arrastavel;
+- C3DVIARIOELEMREMOVER remove qualquer elemento clicando perto; C3DVIARIO > ELementos reune os comandos;
+- novo layer `VIARIO-ILHA` (cor 6);
+- compilacao e teste no Civil 3D pendentes (janela WPF checada so contra stubs).
+
 ## 2.24.0 - C3DVIARIO v0.2.0 / secao completa, canteiro, rotatoria, raios ao vivo
 
 - "perfil" vira **secao**: pista, canteiro central, sarjeta, meio-fio e calcada, alem do raio de esquina (medido na face do meio-fio, demais linhas concentricas). Perfis da v0.1 sao lidos como secoes sem sarjeta/meio-fio;
