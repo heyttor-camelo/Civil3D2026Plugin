@@ -29,6 +29,19 @@ public sealed class ViarioDiagCommands
         "Autodesk.Civil.DatabaseServices.AlignmentEntityCollection",
         "Autodesk.Civil.DatabaseServices.FeatureLine",
         "Autodesk.Civil.DatabaseServices.Site",
+        "Autodesk.Civil.DatabaseServices.Profile+OffsetProfileParameters",
+        "Autodesk.Civil.DatabaseServices.Profile+OffsetProfileParametersStation",
+        "Autodesk.Civil.DatabaseServices.ProfilePVI",
+        "Autodesk.Civil.DatabaseServices.ConnectedAlignmentParams",
+        "Autodesk.Civil.DatabaseServices.ConnectedAlignmentInfo",
+        "Autodesk.Civil.DatabaseServices.AlignmentRegion",
+        "Autodesk.Civil.DatabaseServices.AlignmentRegionCollection",
+        "Autodesk.Civil.DatabaseServices.AlignmentTransition",
+        "Autodesk.Civil.DatabaseServices.AlignmentTransitionCollection",
+        "Autodesk.Civil.DatabaseServices.TransitionDescription",
+        "Autodesk.Civil.DatabaseServices.OffsetAlignmentWideningCriteria",
+        "Autodesk.Civil.DatabaseServices.IntersectionRoad",
+        "Autodesk.Civil.DatabaseServices.IntersectionRegion",
     };
 
     private static readonly string[] Keywords =
@@ -89,7 +102,8 @@ public sealed class ViarioDiagCommands
         // Tipos principais em detalhe.
         foreach (string name in MainTypes)
         {
-            Type? t = all.FirstOrDefault(x => x.FullName == name);
+            Type? t = all.FirstOrDefault(x => x.FullName == name)
+                ?? all.FirstOrDefault(x => x.FullName is not null && x.FullName.EndsWith("." + name.Split('.').Last()));
             sb.AppendLine();
             sb.AppendLine($"--- {name} ---");
             if (t is null)
@@ -104,7 +118,7 @@ public sealed class ViarioDiagCommands
         // Enums relevantes completos.
         sb.AppendLine();
         sb.AppendLine("--- Enums relevantes ---");
-        foreach (Type e in all.Where(t => t.IsEnum && (t.Name.Contains("Profile") || t.Name.Contains("Alignment") || t.Name.Contains("Intersection") || t.Name.Contains("Offset"))).OrderBy(t => t.FullName))
+        foreach (Type e in all.Where(t => t.IsEnum && (t.Name.Contains("Profile") || t.Name.Contains("Alignment") || t.Name.Contains("Intersection") || t.Name.Contains("Offset") || t.Name.Contains("CurbReturn") || t.Name.Contains("Connect") || t.Name.Contains("Transition") || t.Name.Contains("Region") || t.Name.Contains("Slope"))).OrderBy(t => t.FullName))
             sb.AppendLine($"{e.FullName}: {string.Join(", ", Enum.GetNames(e))}");
 
         // Qualquer tipo com nome-chave.
