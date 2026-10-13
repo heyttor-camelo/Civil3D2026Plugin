@@ -173,6 +173,18 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Viario",
+                "Rede viaria",
+                C3DVersions.Viario,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Viario.Eixo, "Lancar eixo",
+                        "Lanca eixos de via com preview: bordos, calcadas e esquinas aparecem enquanto desenha."),
+                    new CommandDefinition(C3DCommands.Viario.Rede, "Rede viaria",
+                        "Perfis de via, adicionar/atribuir/remover eixos e atualizar. Bordos e intersecoes se refazem sozinhos ao editar os eixos.")
+                }),
+
+            new(
                 "Feature Lines",
                 "Feature Lines",
                 null,

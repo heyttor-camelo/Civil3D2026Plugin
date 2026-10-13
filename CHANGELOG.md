@@ -1,3 +1,14 @@
+## 2.23.0 - C3DVIARIO v0.1.0 / rede viaria (etapa 1)
+
+- novo modulo `Modules/Viario`: comandos `C3DVIARIOEIXO` (lancar eixo) e `C3DVIARIO` [Eixo/Adicionar/Perfil/Atribuir/Remover/Atualizar/Config];
+- perfis de via (pista, calcada de cada lado, raio de esquina) guardados no DWG (`C3D_VIARIO_V1`); perfil padrao "Local" 7 / 2,5 / 6 m;
+- eixos identificados por XData `C3DVIARIO` (EIXO + perfil): polilinha com retas e arcos, linha ou arco; copia de eixo ja entra na rede;
+- motor 2D proprio (sem AutoCAD): paralelas com juntas, intersecoes reta/arco, deteccao de nos (cruzamento e ponta encostada, tolerancia configuravel), ramos ordenados por angulo, esquinas concavas concordadas com o raio do perfil (alinhamento concentrico), setores maiores que 180 graus em canto vivo, continuacao reta entre eixos, sobra de eixo que passou do outro ignorada, raio reduzido automaticamente quando nao cabe (com aviso), encadeamento em polilinhas (quadras fechadas);
+- preview ao lancar o eixo (jig): bordos, alinhamentos e esquinas que vao mudar aparecem a cada movimento do mouse; pontas capturadas no eixo vizinho (distancia configuravel);
+- edicao associativa: eventos do DWG marcam a rede como pendente; atualizacao ao fim do comando (ou no Idle para a paleta de propriedades), so cria/apaga as linhas cuja geometria mudou; UNDO/REDO nao disparam atualizacao;
+- testado fora do Civil 3D (cruz, T, Y, L, 5 ramos, eixos curvos e em arco, malha, nos proximos, angulos agudos, sobra de eixo); malha 15 x 15 (225 nos) recalculada em ~25 ms;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.22.0 - C3DQUADRORUAS v1.0.0 / quadro de ruas em .xlsx
 
 - novo modulo `Modules/Quadros`: comando `C3DQUADRORUAS` [Adicionar/Listar/Remover/Exportar/Config] para atender ao item "quadro de ruas" (denominacao, dimensoes e coordenadas geograficas DMS);

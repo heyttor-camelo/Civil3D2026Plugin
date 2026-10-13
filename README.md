@@ -160,6 +160,23 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
+## Rede viaria (C3DVIARIO v0.1.0)
+
+Modulo em `Modules/Viario`. Bordos (meio-fio) e alinhamentos (fim da calcada) gerados a partir dos eixos, com intersecoes automaticas e esquinas concordadas.
+
+```text
+C3DVIARIOEIXO  -> lanca eixos com preview (bordos e esquinas aparecem enquanto desenha)
+C3DVIARIO      -> [Eixo/Adicionar/Perfil/Atribuir/Remover/Atualizar/Config]
+```
+
+- perfil de via: pista (largura total), calcada (cada lado) e raio de esquina; guardados no DWG;
+- eixos: polilinhas (retas e arcos), linhas e arcos com XData `C3DVIARIO` (copiar um eixo copia o perfil);
+- nos: cruzamentos e pontas encostadas em outro eixo (T, Y, cruz, qualquer numero de ramos e angulo, eixos curvos);
+- associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram);
+- layers `VIARIO-EIXO`, `VIARIO-BORDO`, `VIARIO-ALINHAMENTO`.
+
+O motor geometrico (`ViarioGeometry`, `ViarioEngine`) e C# puro, testavel fora do Civil 3D.
+
 ## Base oficial de desenvolvimento
 
 A partir da v2.8.0, use esta estrutura como base para todas as novas alteracoes.

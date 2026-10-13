@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 using Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
+using Civil3D2026Plugin.Modules.Viario;
 using Civil3D2026Plugin.UI.Ribbon;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -32,6 +33,9 @@ public sealed class PluginApplication : IExtensionApplication
         // Solidos so no 3D (C3DOCULTARPLANTA): reativa a configuracao salva do usuario.
         PlanVisibilityManager.Initialize();
 
+        // Rede viaria (C3DVIARIO): bordos e intersecoes associativos aos eixos.
+        ViarioSync.Initialize();
+
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
             WriteBanner(doc.Editor, includeDescriptions: false);
@@ -39,6 +43,7 @@ public sealed class PluginApplication : IExtensionApplication
 
     public void Terminate()
     {
+        ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();
         RibbonUiManager.Terminate();

@@ -70,6 +70,12 @@ public static class CommandNames
         public const string Ruas = "C3DQUADRORUAS";
     }
 
+    public static class Viario
+    {
+        public const string Rede = "C3DVIARIO";
+        public const string Eixo = "C3DVIARIOEIXO";
+    }
+
     public static class FeatureLines
     {
         public const string ZSet = "FLZSET";

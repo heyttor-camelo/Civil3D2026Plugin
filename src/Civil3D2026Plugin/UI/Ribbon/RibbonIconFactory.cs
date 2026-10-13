@@ -144,6 +144,7 @@ internal static class RibbonIconFactory
             "Superficies" => WpfColor.FromRgb(218, 172, 98),
             "Geometria" => WpfColor.FromRgb(162, 141, 225),
             "Quadros" => WpfColor.FromRgb(236, 140, 120),
+            "Viario" => WpfColor.FromRgb(244, 196, 64),
             _ => WpfColor.FromRgb(192, 205, 215)
         };
 }
