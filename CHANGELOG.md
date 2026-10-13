@@ -1,3 +1,17 @@
+## 2.26.0 - C3DVIARIO v0.4.0 / objetos do Civil (etapa 1: alinhamentos)
+
+- **C3DVIARIOCIVIL** (e C3DVIARIO > CIvil): gera alinhamentos do Civil a partir da rede, no site `VIARIO`:
+  - eixo: alinhamento com retas e arcos fixos (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`);
+  - bordos: alinhamentos offset dinamicos na face do meio-fio, um por trecho entre esquinas (`<eixo> - LD1/LE1...`, layer `VIARIO-C3D-BORDO`); anel de rotatoria quebrado na estaca zero quando preciso;
+  - curb returns: tenta alinhamento conectado do Civil (pais = bordos ou eixos com offset) e confere a geometria; se nao conferir, cria alinhamento tipo CurbReturn com o arco fixo (layer `VIARIO-C3D-CR`). O console informa quantos ficaram de cada tipo e por que;
+  - [Remover] apaga tudo o que foi gerado no Civil (a rede em polilinhas continua);
+- atualizacao automatica: depois de gerados, os alinhamentos acompanham a rede a cada edicao. Eixo alterado tem as entidades refeitas no proprio alinhamento (mesmo objeto, perfis continuam ligados); trechos de bordo e curb returns sao mantidos quando nao mudaram e refeitos quando mudaram;
+- objetos identificados por XData `C3DVIARIO`/`CIVIL`; nomes podem ser trocados no Civil;
+- planejador puro (`ViarioCivilPlan`) testado fora do Civil (cruz, T, L, Y, curvas, canteiro, rotatoria, quadra fechada, malha, angulo agudo);
+- C3DVIARIODIAG passa a listar tambem entidades de alinhamento (linhas/arcos) para a proxima etapa;
+- limitacoes desta etapa: alargamentos/baias ainda nao viram regioes de alargamento no offset (o bordo segue a largura nominal); bordos do canteiro central ainda nao sao gerados; trecho de bordo editado a mao e refeito quando o eixo muda;
+- compilacao e teste no Civil 3D pendentes (checado contra stubs com as assinaturas do C3DVIARIODIAG).
+
 ## 2.25.0 - C3DVIARIO v0.3.0 / modelos de intersecao, alargamentos, gotas, faixas livres, canteiro
 
 - corrige o menu do C3DVIARIO: "Rotatoria" abria o editor de raio porque as opcoes tinham o mesmo atalho ("R"); atalhos unicos em todos os menus (Raio/ROtatoria/REmover, ADicionar/ATribuir/ATUalizar, Editar/eXcluir...);

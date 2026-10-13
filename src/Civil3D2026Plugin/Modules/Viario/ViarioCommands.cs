@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar CIvil Config")
             {
                 AllowNone = true
             };
@@ -54,6 +54,7 @@ public sealed class ViarioCommands
                 case "SOltar": Release(doc); break;
                 case "REmover": RemoveAxes(doc); break;
                 case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
+                case "CIvil": CivilMenu(doc); break;
                 case "Config": Configure(doc); break;
                 default: DrawAxes(doc); break;
             }
@@ -86,6 +87,48 @@ public sealed class ViarioCommands
 
     [CommandMethod(C3DCommands.Viario.ElemRemover, CommandFlags.Modal)]
     public void ElemRemover() => Run(C3DCommands.Viario.ElemRemover, ViarioElementCommands.Remove);
+
+    [CommandMethod(C3DCommands.Viario.Civil, CommandFlags.Modal)]
+    public void Civil() => Run(C3DCommands.Viario.Civil, CivilMenu);
+
+    /// <summary>Gera/atualiza ou remove os alinhamentos do Civil (eixos, LD/LE, curb returns).</summary>
+    private static void CivilMenu(Document doc)
+    {
+        Editor ed = doc.Editor;
+        bool active = ViarioCivil.IsActive(doc.Database);
+        ed.WriteMessage(active
+            ? "\n  Objetos do Civil ativos: acompanham a rede automaticamente."
+            : "\n  Ainda nao ha objetos do Civil gerados para esta rede.");
+
+        PromptKeywordOptions options = new("\nObjetos do Civil [Gerar/Remover] <Gerar>: ", "Gerar Remover")
+        {
+            AllowNone = true
+        };
+        PromptResult r = ed.GetKeywords(options);
+        if (r.Status == PromptStatus.Cancel || r.Status == PromptStatus.Error)
+            return;
+
+        if (r.Status == PromptStatus.OK && r.StringResult == "Remover")
+        {
+            PromptKeywordOptions confirm = new("\nApagar eixos, bordos e curb returns gerados no Civil (perfis juntos)? [Sim/Nao] <Nao>: ", "Sim Nao")
+            {
+                AllowNone = true
+            };
+            PromptResult c = ed.GetKeywords(confirm);
+            if (c.Status != PromptStatus.OK || c.StringResult != "Sim")
+                return;
+
+            int n = ViarioCivil.RemoveAll(doc);
+            ed.WriteMessage($"\n  {n} alinhamento(s) removido(s). A rede em polilinhas continua.");
+            return;
+        }
+
+        ViarioCivil.Report report = ViarioCivil.Sync(doc, create: true);
+        ed.WriteMessage("\n  " + report);
+        foreach (string m in report.Messages.Distinct().Take(12))
+            ed.WriteMessage("\n  [CIVIL] " + m);
+        ed.WriteMessage($"\n  Site \"{ViarioCivil.SiteName}\", layers {ViarioCivil.LayerAxis}, {ViarioCivil.LayerEdge}, {ViarioCivil.LayerCurb}.");
+    }
 
     private static void Run(string command, Action<Document> action)
     {

@@ -160,7 +160,7 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.3.0)
+## Rede viaria (C3DVIARIO v0.4.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -174,7 +174,9 @@ C3DVIARIOCONVERSAO   -> conversao a esquerda tirada do canteiro (Tipo IV)
 C3DVIARIOABERTURA    -> abertura de canteiro para retorno
 C3DVIARIOLIVRE       -> faixa livre a direita com ilha triangular (Tipo III)
 C3DVIARIOELEMREMOVER -> remove um desses elementos
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/Config]
+C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns
+C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas);
@@ -183,6 +185,8 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 - modelos: cruzamento, T, Y, T/cruz com gotas, T/cruz com faixas livres, cruz com conversao a esquerda (canteiro ou alargamento), T com faixas de conversao, rotatorias de 3, 4 e 5 ramos com gotas;
 - raio: faixa livre > especifico da esquina > especifico do eixo > da secao;
 - associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram).
+
+Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria no site `VIARIO` um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por trecho de bordo na face do meio-fio (`<eixo> - LD1`, `- LE1`..., layer `VIARIO-C3D-BORDO`) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`) e C# puro, testavel fora do Civil 3D.
 

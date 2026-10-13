@@ -120,6 +120,7 @@ internal static class ViarioSync
             db.ObjectErased -= OnObjectErased;
             doc.CommandEnded -= OnCommandEnded;
             States.Remove(db);
+            ViarioCivil.Forget(db);
         }
         catch
         {
@@ -437,11 +438,12 @@ internal static class ViarioSync
             Dictionary<string, RoadSection> sections = SectionMap(db);
             HashSet<string> released = ViarioStore.LoadReleased(db);
             ViarioResult result;
+            List<AxisInput> axes;
             int created = 0, erased = 0;
 
             using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
             {
-                List<AxisInput> axes = CollectAxes(db, tr, sections);
+                axes = CollectAxes(db, tr, sections);
                 result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
 
                 // Linhas desejadas por chave (multiconjunto).
@@ -513,6 +515,26 @@ internal static class ViarioSync
             }
 
             state.Pending = false;
+
+            // Objetos do Civil acompanham a rede quando ja foram gerados.
+            ViarioCivil.Report? civil = null;
+            if (ViarioCivil.IsActive(db))
+            {
+                try
+                {
+                    civil = ViarioCivil.Sync(doc, axes, result, create: false);
+                }
+                catch (System.Exception ex)
+                {
+                    doc.Editor.WriteMessage("\n  [AVISO] Objetos do Civil nao atualizados: " + ex.Message);
+                }
+            }
+
+            if (civil is not null)
+            {
+                foreach (string m in civil.Messages.Distinct().Take(6))
+                    doc.Editor.WriteMessage("\n  [CIVIL] " + m);
+            }
 
             if (!quiet)
             {
