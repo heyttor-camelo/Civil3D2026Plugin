@@ -143,7 +143,7 @@ internal static class ViarioSync
     // ------------------------------------------------------------------
 
     private static bool IsCandidate(AcadDb.DBObject obj) =>
-        obj is AcadDb.Polyline || obj is AcadDb.Line || obj is AcadDb.Arc;
+        obj is AcadDb.Polyline || obj is AcadDb.Line || obj is AcadDb.Arc || obj is AcadDb.Circle;
 
     private static void OnObjectAppended(object? sender, AcadDb.ObjectEventArgs e)
     {
@@ -310,14 +310,14 @@ internal static class ViarioSync
     // Regeneracao
     // ------------------------------------------------------------------
 
-    /// <summary>Entradas do motor a partir dos eixos do desenho (opcionalmente sem um eixo).</summary>
-    public static List<AxisInput> CollectAxes(AcadDb.Database db, AcadDb.Transaction tr, Dictionary<string, RoadProfile> profiles)
+    /// <summary>Entradas do motor a partir dos eixos do desenho.</summary>
+    public static List<AxisInput> CollectAxes(AcadDb.Database db, AcadDb.Transaction tr, Dictionary<string, RoadSection> sections)
     {
         DbState state = State(db);
         EnsureScanned(db, tr, state);
 
         List<AxisInput> axes = new();
-        RoadProfile fallback = profiles.Values.FirstOrDefault() ?? ViarioStore.DefaultProfile();
+        RoadSection fallback = sections.Values.FirstOrDefault() ?? ViarioStore.DefaultSection();
 
         foreach (AcadDb.ObjectId id in state.Axes.ToList())
         {
@@ -327,7 +327,7 @@ internal static class ViarioSync
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve curve)
                 continue;
 
-            if (!ViarioStore.IsAxis(curve, out string profileId))
+            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius))
             {
                 state.Axes.Remove(id);
                 continue;
@@ -340,11 +340,32 @@ internal static class ViarioSync
             if (path is null)
                 continue;
 
-            RoadProfile profile = profiles.TryGetValue(profileId, out RoadProfile? p) ? p : fallback;
-            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, profile));
+            RoadSection section = sections.TryGetValue(sectionId, out RoadSection? sec) ? sec : fallback;
+            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius));
         }
 
         return axes;
+    }
+
+    /// <summary>Configuracao do motor a partir do DWG.</summary>
+    public static EngineSettings EngineSettingsFor(AcadDb.Database db)
+    {
+        ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
+        return new EngineSettings
+        {
+            SnapTolerance = settings.SnapTolerance,
+            MedianSetback = settings.MedianSetback,
+            CornerRadius = ViarioStore.LoadCornerRadii(db)
+        };
+    }
+
+    /// <summary>Calcula a rede atual sem alterar o desenho.</summary>
+    public static (List<AxisInput> Axes, ViarioResult Result, HashSet<string> ExistingKeys) ComputeCurrent(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        List<AxisInput> axes = CollectAxes(db, tr, SectionMap(db));
+        ViarioResult result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
+        return (axes, result, ExistingKeys(db, tr));
     }
 
     /// <summary>Chaves geometricas das linhas geradas que existem hoje no desenho.</summary>
@@ -362,17 +383,12 @@ internal static class ViarioSync
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Polyline pl &&
                 ViarioStore.ReadTag(pl, out string levelText) == ViarioStore.TagGenerated)
             {
-                keys.Add(ViarioStore.GeometryKey(pl, ParseLevel(levelText)));
+                keys.Add(ViarioStore.GeometryKey(pl, ViarioStore.ParseLevel(levelText)));
             }
         }
 
         return keys;
     }
-
-    private static EdgeLevel ParseLevel(string text) =>
-        string.Equals(text, nameof(EdgeLevel.Alinhamento), StringComparison.OrdinalIgnoreCase)
-            ? EdgeLevel.Alinhamento
-            : EdgeLevel.Bordo;
 
     private static void EnsureScanned(AcadDb.Database db, AcadDb.Transaction tr, DbState state)
     {
@@ -385,7 +401,7 @@ internal static class ViarioSync
         foreach (AcadDb.ObjectId id in ms)
         {
             string dxf = id.ObjectClass.DxfName;
-            if (dxf != "LWPOLYLINE" && dxf != "LINE" && dxf != "ARC")
+            if (dxf != "LWPOLYLINE" && dxf != "LINE" && dxf != "ARC" && dxf != "CIRCLE")
                 continue;
 
             AcadDb.DBObject obj = tr.GetObject(id, AcadDb.OpenMode.ForRead, false);
@@ -399,8 +415,8 @@ internal static class ViarioSync
         state.Scanned = true;
     }
 
-    public static Dictionary<string, RoadProfile> ProfileMap(AcadDb.Database db) =>
-        ViarioStore.LoadProfiles(db).GroupBy(p => p.Id).ToDictionary(g => g.Key, g => g.First());
+    public static Dictionary<string, RoadSection> SectionMap(AcadDb.Database db) =>
+        ViarioStore.LoadSections(db).GroupBy(p => p.Id).ToDictionary(g => g.Key, g => g.First());
 
     /// <summary>
     /// Refaz a rede inteira e aplica so as diferencas. O documento precisa estar
@@ -417,21 +433,23 @@ internal static class ViarioSync
 
         try
         {
-            ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-            Dictionary<string, RoadProfile> profiles = ProfileMap(db);
+            Dictionary<string, RoadSection> sections = SectionMap(db);
+            HashSet<string> released = ViarioStore.LoadReleased(db);
             ViarioResult result;
             int created = 0, erased = 0;
 
             using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
             {
-                List<AxisInput> axes = CollectAxes(db, tr, profiles);
-                result = ViarioEngine.Compute(axes, new EngineSettings { SnapTolerance = settings.SnapTolerance });
+                List<AxisInput> axes = CollectAxes(db, tr, sections);
+                result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
 
                 // Linhas desejadas por chave (multiconjunto).
                 Dictionary<string, List<OutputLine>> wanted = new();
                 foreach (OutputLine line in result.Lines)
                 {
                     string key = ViarioStore.GeometryKey(line);
+                    if (released.Contains(key))
+                        continue;
                     if (!wanted.TryGetValue(key, out List<OutputLine>? list))
                         wanted[key] = list = new List<OutputLine>();
                     list.Add(line);
@@ -453,8 +471,10 @@ internal static class ViarioSync
                         continue;
                     }
 
-                    string key = ViarioStore.GeometryKey(pl, ParseLevel(levelText));
-                    if (wanted.TryGetValue(key, out List<OutputLine>? list) && list.Count > 0)
+                    EdgeLevel level = ViarioStore.ParseLevel(levelText);
+                    string key = ViarioStore.GeometryKey(pl, level);
+                    bool rightLayer = string.Equals(pl.Layer, ViarioStore.LayerFor(level), StringComparison.OrdinalIgnoreCase);
+                    if (rightLayer && wanted.TryGetValue(key, out List<OutputLine>? list) && list.Count > 0)
                     {
                         list.RemoveAt(list.Count - 1);
                         continue;

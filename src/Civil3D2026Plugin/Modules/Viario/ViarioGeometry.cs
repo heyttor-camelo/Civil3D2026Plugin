@@ -353,6 +353,29 @@ internal sealed class GPath
     public V2 Start => Segs[0].A;
     public V2 End => Segs[^1].B;
 
+    /// <summary>Caminho fechado (inicio coincide com o fim).</summary>
+    public bool Closed => Segs.Count > 1 && V2.Dist(Start, End) < 1e-6;
+
+    /// <summary>Trecho de s0 a s1 no sentido do caminho; em caminho fechado, s0 &gt; s1 da a volta.</summary>
+    public GPath SubWrap(double s0, double s1)
+    {
+        if (!Closed || s0 <= s1)
+            return Sub(Math.Min(s0, s1), Math.Max(s0, s1));
+
+        List<Seg> segs = new(Sub(s0, Length).Segs);
+        segs.AddRange(Sub(0, s1).Segs);
+        return new GPath(segs);
+    }
+
+    /// <summary>Normaliza s para [0, L) em caminho fechado.</summary>
+    public double Wrap(double s)
+    {
+        if (!Closed || Length <= 0)
+            return s;
+        s %= Length;
+        return s < 0 ? s + Length : s;
+    }
+
     public (int Index, double T) Locate(double s)
     {
         if (s <= 0)
@@ -483,6 +506,9 @@ internal sealed class GPath
     /// <summary>Caminho com prolongamentos retos no inicio e/ou no fim.</summary>
     public GPath Extended(double startLength, double endLength)
     {
+        if (Closed)
+            return this;
+
         List<Seg> list = new();
         if (startLength > 0)
         {
@@ -528,46 +554,54 @@ internal sealed class GPath
 
         for (int i = 1; i < offs.Count; i++)
         {
-            Seg prev = result[^1];
-            Seg next = offs[i];
+            (Seg? a, Seg? link, Seg b) = Join(result[^1], offs[i], originalVertex[i], limit);
+            result[^1] = a!;
+            if (link is not null)
+                result.Add(link);
+            result.Add(b);
+        }
 
-            if (V2.Dist(prev.B, next.A) < 1e-7)
-            {
-                result.Add(next);
-                continue;
-            }
-
-            V2 vertex = originalVertex[i];
-            V2 guess = (prev.B + next.A) * 0.5;
-            V2? best = null;
-            double bestDist = double.MaxValue;
-
-            foreach (V2 p in Seg.CarrierIntersections(prev, next))
-            {
-                double dist = V2.Dist(p, guess);
-                if (dist < bestDist && V2.Dist(p, vertex) <= limit)
-                {
-                    bestDist = dist;
-                    best = p;
-                }
-            }
-
-            if (best is V2 x)
-            {
-                double tp = prev.ParamOf(x);
-                double tn = next.ParamOf(x);
-                if (tp > 1e-9 && tn < 1.0 - 1e-9)
-                {
-                    result[^1] = prev.Sub(0, tp);
-                    result.Add(next.Sub(tn, 1));
-                    continue;
-                }
-            }
-
-            result.Add(Seg.Line(prev.B, next.A));
-            result.Add(next);
+        // Fechamento: junta o ultimo com o primeiro.
+        if (Closed && result.Count > 1)
+        {
+            (Seg? a, Seg? link, Seg b) = Join(result[^1], result[0], Segs[0].A, limit);
+            result[^1] = a!;
+            result[0] = b;
+            if (link is not null)
+                result.Add(link);
         }
 
         return new GPath(result);
+    }
+
+    /// <summary>Junta dois segmentos paralelos consecutivos (apara/prolonga ou liga com reta).</summary>
+    private static (Seg A, Seg? Link, Seg B) Join(Seg prev, Seg next, V2 vertex, double limit)
+    {
+        if (V2.Dist(prev.B, next.A) < 1e-7)
+            return (prev, null, next);
+
+        V2 guess = (prev.B + next.A) * 0.5;
+        V2? best = null;
+        double bestDist = double.MaxValue;
+
+        foreach (V2 p in Seg.CarrierIntersections(prev, next))
+        {
+            double dist = V2.Dist(p, guess);
+            if (dist < bestDist && V2.Dist(p, vertex) <= limit)
+            {
+                bestDist = dist;
+                best = p;
+            }
+        }
+
+        if (best is V2 x)
+        {
+            double tp = prev.ParamOf(x);
+            double tn = next.ParamOf(x);
+            if (tp > 1e-9 && tn < 1.0 - 1e-9)
+                return (prev.Sub(0, tp), null, next.Sub(tn, 1));
+        }
+
+        return (prev, Seg.Line(prev.B, next.A), next);
     }
 }

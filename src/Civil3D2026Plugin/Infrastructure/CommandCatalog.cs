@@ -179,9 +179,11 @@ public static class CommandCatalog
                 new[]
                 {
                     new CommandDefinition(C3DCommands.Viario.Eixo, "Lancar eixo",
-                        "Lanca eixos de via com preview: bordos, calcadas e esquinas aparecem enquanto desenha."),
+                        "Lanca eixos (retas e arcos) com preview: bordos, meio-fio, calcada, canteiro e esquinas aparecem enquanto desenha."),
+                    new CommandDefinition(C3DCommands.Viario.Raio, "Raio de esquina",
+                        "Muda o raio de uma esquina, de uma ilha inteira ou de todas as esquinas de um eixo, arrastando o mouse com preview."),
                     new CommandDefinition(C3DCommands.Viario.Rede, "Rede viaria",
-                        "Perfis de via, adicionar/atribuir/remover eixos e atualizar. Bordos e intersecoes se refazem sozinhos ao editar os eixos.")
+                        "Secoes (pista, canteiro, sarjeta, meio-fio, calcada, raio), rotatoria, adicionar/atribuir/remover eixos, soltar linhas e atualizar.")
                 }),
 
             new(

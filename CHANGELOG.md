@@ -1,3 +1,15 @@
+## 2.24.0 - C3DVIARIO v0.2.0 / secao completa, canteiro, rotatoria, raios ao vivo
+
+- "perfil" vira **secao**: pista, canteiro central, sarjeta, meio-fio e calcada, alem do raio de esquina (medido na face do meio-fio, demais linhas concentricas). Perfis da v0.1 sao lidos como secoes sem sarjeta/meio-fio;
+- uma linha por elemento, cada uma no seu layer e cor: `VIARIO-PISTA` (7), `VIARIO-MF-FACE` (4), `VIARIO-MF-COSTAS` (3), `VIARIO-ALINHAMENTO` (8), `VIARIO-CANTEIRO` (30); componente com largura 0 nao gera linha;
+- canteiro central: ilhas entre os nos, cortadas antes da pista transversal (recuo configuravel, padrao 1 m) com nariz semicircular;
+- eixos fechados (circulo e polilinha fechada) no motor; opcao **Rotatoria** cria o anel pelo centro e raio da ilha central; os ramos encostados formam as entradas sozinhos;
+- **C3DVIARIORAIO**: raio de uma esquina (clique perto), de todas as esquinas de uma ilha (clique dentro) ou de um eixo, arrastando o mouse (distancia = raio) ou digitando, com a rede recalculada ao vivo; [Padrao] volta ao raio da secao; Limpar apaga os especificos. Prioridade: esquina > eixo > secao;
+- C3DVIARIOEIXO: opcao [Arco/Linha] para trechos em arco tangente;
+- **Soltar**: linhas geradas viram polilinhas comuns e o plugin nao as recria (Soltar > Restaurar desfaz);
+- linhas geradas fora do layer do seu elemento sao refeitas no layer certo;
+- compilacao e teste no Civil 3D pendentes.
+
 ## 2.23.0 - C3DVIARIO v0.1.0 / rede viaria (etapa 1)
 
 - novo modulo `Modules/Viario`: comandos `C3DVIARIOEIXO` (lancar eixo) e `C3DVIARIO` [Eixo/Adicionar/Perfil/Atribuir/Remover/Atualizar/Config];

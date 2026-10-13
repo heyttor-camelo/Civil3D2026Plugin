@@ -13,12 +13,13 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3D2026Plugin.Modules.Viario;
 
 /// <summary>
-/// C3DVIARIO: rede viaria urbana em planta (etapa 1).
-/// - eixos com perfil de via (pista, calcada, raio de esquina);
-/// - bordos (meio-fio) e alinhamentos gerados automaticamente;
-/// - intersecoes detectadas sozinhas, com esquinas concordadas;
-/// - preview ao lancar o eixo; edicao associativa (mexeu no eixo, refaz).
-/// C3DVIARIOEIXO: atalho para lancar eixos direto.
+/// C3DVIARIO: rede viaria urbana em planta.
+/// - eixos com secao (pista, canteiro, sarjeta, meio-fio, calcada, raio);
+/// - linhas por elemento da secao, cada uma no seu layer;
+/// - intersecoes automaticas com esquinas concordadas; rotatoria;
+/// - preview ao lancar eixo (retas e arcos) e ao mudar raios;
+/// - edicao associativa (mexeu no eixo, refaz).
+/// C3DVIARIOEIXO: lancar eixos. C3DVIARIORAIO: raio de esquina/ilha/eixo.
 /// </summary>
 public sealed class ViarioCommands
 {
@@ -27,21 +28,12 @@ public sealed class ViarioCommands
     [CommandMethod(C3DCommands.Viario.Rede, CommandFlags.Modal)]
     public void Rede()
     {
-        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null)
-            return;
-
-        Editor ed = doc.Editor;
-        ViarioSync.Initialize();
-
-        try
+        Run(C3DCommands.Viario.Rede, doc =>
         {
-            ViarioSync.Suspended = true;
-            WriteHeader(doc);
-
+            Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/Adicionar/Perfil/Atribuir/Remover/Atualizar/Config] <Eixo>: ",
-                "Eixo Adicionar Perfil Atribuir Remover Atualizar Config")
+                "\nOpcao [Eixo/Adicionar/Secao/Atribuir/Raio/Rotatoria/Soltar/Remover/Atualizar/Config] <Eixo>: ",
+                "Eixo Adicionar Secao Atribuir Raio Rotatoria Soltar Remover Atualizar Config")
             {
                 AllowNone = true
             };
@@ -50,45 +42,29 @@ public sealed class ViarioCommands
             if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.Error)
                 return;
 
-            string choice = result.Status == PromptStatus.OK ? result.StringResult : "Eixo";
-
-            switch (choice)
+            switch (result.Status == PromptStatus.OK ? result.StringResult : "Eixo")
             {
-                case "Adicionar":
-                    AddAxes(doc);
-                    break;
-                case "Perfil":
-                    ManageProfiles(doc);
-                    break;
-                case "Atribuir":
-                    AssignProfile(doc);
-                    break;
-                case "Remover":
-                    RemoveAxes(doc);
-                    break;
-                case "Atualizar":
-                    ViarioSync.Regenerate(doc, quiet: false);
-                    break;
-                case "Config":
-                    Configure(doc);
-                    break;
-                default:
-                    DrawAxes(doc);
-                    break;
+                case "Adicionar": AddAxes(doc); break;
+                case "Secao": ManageSections(doc); break;
+                case "Atribuir": AssignSection(doc); break;
+                case "Raio": EditRadius(doc); break;
+                case "Rotatoria": CreateRoundabout(doc); break;
+                case "Soltar": Release(doc); break;
+                case "Remover": RemoveAxes(doc); break;
+                case "Atualizar": ViarioSync.Regenerate(doc, quiet: false); break;
+                case "Config": Configure(doc); break;
+                default: DrawAxes(doc); break;
             }
-        }
-        catch (System.Exception ex)
-        {
-            ed.WriteMessage("\n[ERRO " + C3DCommands.Viario.Rede + "] " + ex.Message);
-        }
-        finally
-        {
-            ViarioSync.Suspended = false;
-        }
+        });
     }
 
     [CommandMethod(C3DCommands.Viario.Eixo, CommandFlags.Modal)]
-    public void Eixo()
+    public void Eixo() => Run(C3DCommands.Viario.Eixo, DrawAxes);
+
+    [CommandMethod(C3DCommands.Viario.Raio, CommandFlags.Modal)]
+    public void Raio() => Run(C3DCommands.Viario.Raio, EditRadius);
+
+    private static void Run(string command, Action<Document> action)
     {
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
@@ -100,11 +76,11 @@ public sealed class ViarioCommands
         {
             ViarioSync.Suspended = true;
             WriteHeader(doc);
-            DrawAxes(doc);
+            action(doc);
         }
         catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage("\n[ERRO " + C3DCommands.Viario.Eixo + "] " + ex.Message);
+            doc.Editor.WriteMessage("\n[ERRO " + command + "] " + ex.Message);
         }
         finally
         {
@@ -115,14 +91,14 @@ public sealed class ViarioCommands
     private static void WriteHeader(Document doc)
     {
         ViarioStore.Settings settings = ViarioStore.LoadSettings(doc.Database);
-        RoadProfile current = CurrentProfile(doc.Database, settings);
+        RoadSection current = CurrentSection(doc.Database, settings);
         doc.Editor.WriteMessage(
             "\n" + C3DCommands.Viario.Rede + " v" + Versao + " - rede viaria (bordos e intersecoes automaticos)." +
-            "\n  Perfil corrente: " + Describe(current));
+            "\n  Secao corrente: " + Describe(current));
     }
 
     // ------------------------------------------------------------------
-    // Eixo (com preview)
+    // Eixo (retas e arcos, com preview)
     // ------------------------------------------------------------------
 
     private static void DrawAxes(Document doc)
@@ -133,20 +109,20 @@ public sealed class ViarioCommands
         while (true)
         {
             ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-            RoadProfile profile = CurrentProfile(db, settings);
+            RoadSection section = CurrentSection(db, settings);
 
             PromptPointOptions first = new(
-                "\nPrimeiro ponto do eixo [" + profile.Name + "] ou [Perfil] <sair>: ")
+                "\nPrimeiro ponto do eixo [" + section.Name + "] ou [Secao] <sair>: ")
             {
                 AllowNone = true
             };
-            first.Keywords.Add("Perfil");
+            first.Keywords.Add("Secao");
             first.AppendKeywordsToMessage = false;
 
             PromptPointResult start = ed.GetPoint(first);
             if (start.Status == PromptStatus.Keyword)
             {
-                ChooseCurrentProfile(doc);
+                ChooseCurrentSection(doc);
                 continue;
             }
 
@@ -155,35 +131,49 @@ public sealed class ViarioCommands
 
             Point3d p0 = start.Value.TransformBy(ed.CurrentUserCoordinateSystem);
             List<V2> points = new() { new V2(p0.X, p0.Y) };
+            List<double> bulges = new();
+            bool arcMode = false;
 
-            // Contexto do preview: rede atual sem o novo eixo.
-            List<AxisInput> existing;
-            HashSet<string> existingKeys;
-            using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
-            {
-                existing = ViarioSync.CollectAxes(db, tr, ViarioSync.ProfileMap(db));
-                existingKeys = ViarioSync.ExistingKeys(db, tr);
-            }
+            (List<AxisInput> existing, _, HashSet<string> existingKeys) = ViarioSync.ComputeCurrent(db);
+            EngineSettings engine = ViarioSync.EngineSettingsFor(db);
 
             bool finished = false;
             while (!finished)
             {
-                AxisJig jig = new(points, profile, existing, existingKeys, settings);
+                AxisJig jig = new(points, bulges, arcMode, section, existing, existingKeys, engine, settings.Capture);
                 PromptResult drag = ed.Drag(jig);
 
                 if (jig.Finished || drag.Status == PromptStatus.None)
                 {
                     finished = true;
                 }
-                else if (drag.Status == PromptStatus.Keyword || jig.Keyword is not null)
+                else if (jig.Keyword is string keyword)
                 {
-                    if (points.Count > 1)
-                        points.RemoveAt(points.Count - 1);
+                    switch (keyword)
+                    {
+                        case "Arco":
+                            arcMode = true;
+                            break;
+                        case "Linha":
+                            arcMode = false;
+                            break;
+                        default:
+                            if (points.Count > 1)
+                            {
+                                points.RemoveAt(points.Count - 1);
+                                bulges.RemoveAt(bulges.Count - 1);
+                            }
+
+                            break;
+                    }
                 }
                 else if (drag.Status == PromptStatus.OK)
                 {
                     if (V2.Dist(points[^1], jig.Current) > 1e-6)
+                    {
                         points.Add(jig.Current);
+                        bulges.Add(jig.CurrentBulge);
+                    }
                 }
                 else
                 {
@@ -195,7 +185,7 @@ public sealed class ViarioCommands
                 continue;
 
             List<V2> final = AxisJig.Capture(points, existing, settings.Capture);
-            CreateAxis(doc, final, profile);
+            CreateAxis(doc, final, bulges, section);
             ViarioResult? result = ViarioSync.Regenerate(doc, quiet: true);
             if (result is not null)
             {
@@ -205,7 +195,7 @@ public sealed class ViarioCommands
         }
     }
 
-    private static void CreateAxis(Document doc, List<V2> points, RoadProfile profile)
+    private static void CreateAxis(Document doc, List<V2> points, List<double> bulges, RoadSection section)
     {
         AcadDb.Database db = doc.Database;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
@@ -218,25 +208,380 @@ public sealed class ViarioCommands
 
         AcadDb.Polyline pl = new();
         for (int i = 0; i < points.Count; i++)
-            pl.AddVertexAt(i, new Point2d(points[i].X, points[i].Y), 0, 0, 0);
+            pl.AddVertexAt(i, new Point2d(points[i].X, points[i].Y), i < bulges.Count ? bulges[i] : 0.0, 0, 0);
 
         pl.SetDatabaseDefaults(db);
         pl.Layer = ViarioStore.LayerAxis;
         ms.AppendEntity(pl);
         tr.AddNewlyCreatedDBObject(pl, true);
-        ViarioStore.SetTag(pl, ViarioStore.TagAxis, profile.Id);
+        ViarioStore.SetAxis(pl, section.Id, null);
         tr.Commit();
     }
 
     // ------------------------------------------------------------------
-    // Adicionar / Atribuir / Remover
+    // Rotatoria
+    // ------------------------------------------------------------------
+
+    private static void CreateRoundabout(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptPointResult centerResult = ed.GetPoint(new PromptPointOptions("\nCentro da rotatoria: "));
+        if (centerResult.Status != PromptStatus.OK)
+            return;
+
+        Point3d center = centerResult.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+
+        RoadSection? section = PickSection(doc, "Secao do anel (pista de giro)");
+        if (section is null)
+            return;
+
+        PromptDistanceOptions radiusOptions = new("\nRaio da ilha central, na face do meio-fio <15>: ")
+        {
+            AllowNone = true,
+            AllowNegative = false,
+            AllowZero = false,
+            BasePoint = centerResult.Value,
+            UseBasePoint = true
+        };
+
+        PromptDoubleResult radiusResult = ed.GetDistance(radiusOptions);
+        if (radiusResult.Status != PromptStatus.OK && radiusResult.Status != PromptStatus.None)
+            return;
+
+        double island = radiusResult.Status == PromptStatus.OK ? radiusResult.Value : 15.0;
+        double axisRadius = island + section.EdgeOffset(EdgeLevel.FaceMF);
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            ViarioStore.EnsureRegApp(tr, db);
+            ViarioStore.EnsureLayers(tr, db);
+
+            AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+            AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
+
+            AcadDb.Circle ring = new(new Point3d(center.X, center.Y, 0), Vector3d.ZAxis, axisRadius);
+            ring.SetDatabaseDefaults(db);
+            ring.Layer = ViarioStore.LayerAxis;
+            ms.AppendEntity(ring);
+            tr.AddNewlyCreatedDBObject(ring, true);
+            ViarioStore.SetAxis(ring, section.Id, null);
+            tr.Commit();
+        }
+
+        ed.WriteMessage(
+            $"\n  Rotatoria criada: ilha central R={Num(island)} m, eixo do anel R={Num(axisRadius)} m, pista de giro {Num(section.Pista)} m." +
+            "\n  Lance os ramos ate o anel: as pontas sao capturadas no eixo do anel e as entradas se formam sozinhas." +
+            "\n  Raio de entrada/saida: " + C3DCommands.Viario.Raio + ".");
+        ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    // ------------------------------------------------------------------
+    // Raios (esquina, ilha, eixo) com preview
+    // ------------------------------------------------------------------
+
+    private static void EditRadius(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptPointOptions options = new("\nClique perto da esquina ou [Ilha/Eixo/Limpar]: ");
+        options.Keywords.Add("Ilha");
+        options.Keywords.Add("Eixo");
+        options.Keywords.Add("Limpar");
+        options.AppendKeywordsToMessage = false;
+
+        PromptPointResult pick = ed.GetPoint(options);
+        if (pick.Status == PromptStatus.Keyword)
+        {
+            switch (pick.StringResult)
+            {
+                case "Ilha": EditIslandRadius(doc); break;
+                case "Eixo": EditAxisRadius(doc); break;
+                default: ClearCornerRadii(doc); break;
+            }
+
+            return;
+        }
+
+        if (pick.Status != PromptStatus.OK)
+            return;
+
+        Point3d wcs = pick.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+        V2 p = new(wcs.X, wcs.Y);
+
+        (List<AxisInput> axes, ViarioResult result, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        CornerInfo? corner = result.Corners
+            .OrderBy(c => DistanceToCorner(c, p))
+            .FirstOrDefault();
+
+        if (corner is null || DistanceToCorner(corner, p) > Math.Max(30.0, corner.Radius * 3.0))
+        {
+            ed.WriteMessage("\nNenhuma esquina perto do ponto clicado.");
+            return;
+        }
+
+        EngineSettings engine = ViarioSync.EngineSettingsFor(db);
+        ed.WriteMessage($"\n  Esquina: raio atual {Num(corner.Radius)} m.");
+
+        double? value = DragRadius(ed, axes, engine, keys, corner.Corner, corner.Radius,
+            r => (axes, With(engine, new[] { corner.Key }, r)), out bool toDefault);
+
+        if (value is null && !toDefault)
+            return;
+
+        Dictionary<string, double> radii = ViarioStore.LoadCornerRadii(db);
+        if (toDefault)
+            radii.Remove(corner.Key);
+        else
+            radii[corner.Key] = value!.Value;
+
+        SaveRadiiAndRegenerate(doc, radii);
+    }
+
+    private static void EditIslandRadius(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptPointResult pick = ed.GetPoint(new PromptPointOptions("\nClique dentro da ilha: "));
+        if (pick.Status != PromptStatus.OK)
+            return;
+
+        Point3d wcs = pick.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+        V2 p = new(wcs.X, wcs.Y);
+
+        (List<AxisInput> axes, ViarioResult result, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+
+        OutputLine? island = result.Lines
+            .Where(l => l.Level == EdgeLevel.FaceMF && l.Closed && Contains(l, p))
+            .OrderBy(l => Area(l))
+            .FirstOrDefault();
+
+        if (island is null)
+        {
+            ed.WriteMessage("\nO ponto nao esta dentro de uma ilha/quadra fechada pela face do meio-fio.");
+            return;
+        }
+
+        List<CornerInfo> corners = result.Corners
+            .Where(c => c.Arc is not null && DistanceToLine(island, c.Arc.PointAt(0.5)) < 1e-3)
+            .ToList();
+
+        if (corners.Count == 0)
+        {
+            ed.WriteMessage("\nEssa ilha nao tem esquinas concordadas.");
+            return;
+        }
+
+        EngineSettings engine = ViarioSync.EngineSettingsFor(db);
+        string[] cornerKeys = corners.Select(c => c.Key).ToArray();
+        double current = corners.Average(c => c.Radius);
+        ed.WriteMessage($"\n  Ilha com {corners.Count} esquina(s), raio medio {Num(current)} m.");
+
+        double? value = DragRadius(ed, axes, engine, keys, p, current,
+            r => (axes, With(engine, cornerKeys, r)), out bool toDefault);
+
+        if (value is null && !toDefault)
+            return;
+
+        Dictionary<string, double> radii = ViarioStore.LoadCornerRadii(db);
+        foreach (string key in cornerKeys)
+        {
+            if (toDefault)
+                radii.Remove(key);
+            else
+                radii[key] = value!.Value;
+        }
+
+        SaveRadiiAndRegenerate(doc, radii);
+    }
+
+    private static void EditAxisRadius(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptEntityOptions options = new("\nSelecione o eixo: ");
+        options.SetRejectMessage("\nSelecione um eixo da rede.");
+        options.AddAllowedClass(typeof(AcadDb.Curve), false);
+        PromptEntityResult pick = ed.GetEntity(options);
+        if (pick.Status != PromptStatus.OK)
+            return;
+
+        string sectionId;
+        double? radius;
+        string handle;
+        using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
+        {
+            AcadDb.DBObject obj = tr.GetObject(pick.ObjectId, AcadDb.OpenMode.ForRead);
+            if (!ViarioStore.ReadAxis(obj, out sectionId, out radius))
+            {
+                ed.WriteMessage("\nO objeto nao e um eixo da rede.");
+                return;
+            }
+
+            handle = obj.Handle.ToString() ?? string.Empty;
+        }
+
+        (List<AxisInput> axes, _, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        AxisInput? target = axes.FirstOrDefault(a => a.Key == handle);
+        if (target is null)
+            return;
+
+        EngineSettings engine = ViarioSync.EngineSettingsFor(db);
+        double current = radius ?? target.Section.Raio;
+        ed.WriteMessage($"\n  Eixo: raio {Num(current)} m" + (radius is null ? " (da secao)." : " (especifico do eixo)."));
+
+        Point3d wcs = pick.PickedPoint.TransformBy(ed.CurrentUserCoordinateSystem);
+        V2 basePoint = target.Path.Project(new V2(wcs.X, wcs.Y)).Point;
+
+        // Raio do eixo vale para todas as esquinas dele: sem os especificos dessas esquinas.
+        EngineSettings withoutCorners = new()
+        {
+            SnapTolerance = engine.SnapTolerance,
+            MedianSetback = engine.MedianSetback,
+            CornerRadius = engine.CornerRadius
+                .Where(kv => !CornerHasAxis(kv.Key, handle))
+                .ToDictionary(kv => kv.Key, kv => kv.Value)
+        };
+
+        double? value = DragRadius(ed, axes, engine, keys, basePoint, current,
+            r => (axes.Select(a => a.Key == handle ? new AxisInput(a.Key, a.Path, a.Section, r) : a).ToList(), withoutCorners),
+            out bool toDefault);
+
+        if (value is null && !toDefault)
+            return;
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            AcadDb.Entity entity = (AcadDb.Entity)tr.GetObject(pick.ObjectId, AcadDb.OpenMode.ForWrite);
+            ViarioStore.SetAxis(entity, sectionId, toDefault ? null : value);
+            ViarioStore.SaveCornerRadii(tr, db, withoutCorners.CornerRadius);
+            tr.Commit();
+        }
+
+        ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    private static void ClearCornerRadii(Document doc)
+    {
+        PromptKeywordOptions confirm = new(
+            "\nApagar todos os raios especificos de esquina/ilha (voltam ao raio da secao ou do eixo)? [Sim/Nao] <Nao>: ",
+            "Sim Nao")
+        {
+            AllowNone = true
+        };
+
+        PromptResult answer = doc.Editor.GetKeywords(confirm);
+        if (answer.Status == PromptStatus.OK && answer.StringResult == "Sim")
+            SaveRadiiAndRegenerate(doc, new Dictionary<string, double>());
+    }
+
+    private static void SaveRadiiAndRegenerate(Document doc, Dictionary<string, double> radii)
+    {
+        AcadDb.Database db = doc.Database;
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            ViarioStore.SaveCornerRadii(tr, db, radii);
+            tr.Commit();
+        }
+
+        ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    private static bool CornerHasAxis(string cornerKey, string axisKey) =>
+        cornerKey.Split('|').Any(part => part.Length > 1 && part[..^1] == axisKey);
+
+    private static EngineSettings With(EngineSettings engine, IEnumerable<string> keys, double radius)
+    {
+        Dictionary<string, double> radii = new(engine.CornerRadius);
+        foreach (string key in keys)
+            radii[key] = radius;
+
+        return new EngineSettings
+        {
+            SnapTolerance = engine.SnapTolerance,
+            MedianSetback = engine.MedianSetback,
+            CornerRadius = radii
+        };
+    }
+
+    /// <summary>Jig de raio: distancia do mouse ao ponto base = raio. Null = cancelado.</summary>
+    private static double? DragRadius(
+        Editor ed, List<AxisInput> axes, EngineSettings engine, HashSet<string> keys, V2 basePoint, double current,
+        Func<double, (List<AxisInput>, EngineSettings)> apply, out bool toDefault)
+    {
+        toDefault = false;
+        RadiusJig jig = new(keys, basePoint, current, apply);
+        PromptResult result = ed.Drag(jig);
+
+        if (jig.ToDefault)
+        {
+            toDefault = true;
+            return null;
+        }
+
+        if (result.Status == PromptStatus.None)
+            return current;
+
+        return result.Status == PromptStatus.OK ? jig.Value : null;
+    }
+
+    private static double DistanceToCorner(CornerInfo c, V2 p) =>
+        c.Arc is not null ? Math.Min(c.Arc.Closest(p).Dist, V2.Dist(c.Corner, p)) : V2.Dist(c.Corner, p);
+
+    private static double DistanceToLine(OutputLine line, V2 p) =>
+        line.Segs.Min(s => s.Closest(p).Dist);
+
+    private static List<V2> Sample(OutputLine line)
+    {
+        List<V2> pts = new();
+        foreach (Seg s in line.Segs)
+        {
+            int n = s.IsArc ? 16 : 1;
+            for (int k = 0; k < n; k++)
+                pts.Add(s.PointAt(k / (double)n));
+        }
+
+        return pts;
+    }
+
+    private static bool Contains(OutputLine line, V2 p)
+    {
+        List<V2> pts = Sample(line);
+        bool inside = false;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+        {
+            if (((pts[i].Y > p.Y) != (pts[j].Y > p.Y)) &&
+                (p.X < ((pts[j].X - pts[i].X) * (p.Y - pts[i].Y) / (pts[j].Y - pts[i].Y)) + pts[i].X))
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    private static double Area(OutputLine line)
+    {
+        List<V2> pts = Sample(line);
+        double area = 0;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+            area += V2.Cross(pts[j], pts[i]);
+        return Math.Abs(area / 2.0);
+    }
+
+    // ------------------------------------------------------------------
+    // Adicionar / Atribuir / Remover / Soltar
     // ------------------------------------------------------------------
 
     private static AcadDb.ObjectId[]? SelectCurves(Editor ed, string message)
     {
         AcadDb.TypedValue[] filter =
         {
-            new((int)AcadDb.DxfCode.Start, "LWPOLYLINE,LINE,ARC")
+            new((int)AcadDb.DxfCode.Start, "LWPOLYLINE,LINE,ARC,CIRCLE")
         };
 
         PromptSelectionOptions options = new() { MessageForAdding = message };
@@ -249,10 +594,10 @@ public sealed class ViarioCommands
         Editor ed = doc.Editor;
         AcadDb.Database db = doc.Database;
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-        RoadProfile profile = CurrentProfile(db, settings);
+        RoadSection section = CurrentSection(db, settings);
 
         AcadDb.ObjectId[]? ids = SelectCurves(ed,
-            "\nSelecione os eixos existentes (polilinhas, linhas, arcos) para o perfil " + profile.Name + ": ");
+            "\nSelecione os eixos existentes (polilinhas, linhas, arcos, circulos) para a secao " + section.Name + ": ");
         if (ids is null)
             return;
 
@@ -269,29 +614,29 @@ public sealed class ViarioCommands
                     continue;
                 }
 
-                ViarioStore.SetTag(curve, ViarioStore.TagAxis, profile.Id);
+                ViarioStore.SetAxis(curve, section.Id, null);
                 count++;
             }
 
             tr.Commit();
         }
 
-        ed.WriteMessage($"\n  {count} eixo(s) adicionado(s) com o perfil {profile.Name}." +
+        ed.WriteMessage($"\n  {count} eixo(s) adicionado(s) com a secao {section.Name}." +
                         (skipped > 0 ? $" Ignorados: {skipped} (linha gerada ou fora do plano XY)." : ""));
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
-    private static void AssignProfile(Document doc)
+    private static void AssignSection(Document doc)
     {
         Editor ed = doc.Editor;
         AcadDb.Database db = doc.Database;
 
-        AcadDb.ObjectId[]? ids = SelectCurves(ed, "\nSelecione os eixos que vao mudar de perfil: ");
+        AcadDb.ObjectId[]? ids = SelectCurves(ed, "\nSelecione os eixos que vao mudar de secao: ");
         if (ids is null)
             return;
 
-        RoadProfile? profile = PickProfile(doc, "Perfil para os eixos selecionados");
-        if (profile is null)
+        RoadSection? section = PickSection(doc, "Secao para os eixos selecionados");
+        if (section is null)
             return;
 
         int count = 0;
@@ -301,17 +646,17 @@ public sealed class ViarioCommands
             foreach (AcadDb.ObjectId id in ids)
             {
                 AcadDb.Curve curve = (AcadDb.Curve)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                if (!ViarioStore.IsAxis(curve, out _))
+                if (!ViarioStore.ReadAxis(curve, out _, out double? radius))
                     continue;
 
-                ViarioStore.SetTag(curve, ViarioStore.TagAxis, profile.Id);
+                ViarioStore.SetAxis(curve, section.Id, radius);
                 count++;
             }
 
             tr.Commit();
         }
 
-        ed.WriteMessage($"\n  {count} eixo(s) agora com o perfil {profile.Name}.");
+        ed.WriteMessage($"\n  {count} eixo(s) agora com a secao {section.Name}.");
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
@@ -345,36 +690,100 @@ public sealed class ViarioCommands
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
-    // ------------------------------------------------------------------
-    // Perfis
-    // ------------------------------------------------------------------
-
-    private static RoadProfile CurrentProfile(AcadDb.Database db, ViarioStore.Settings settings)
+    private static void Release(Document doc)
     {
-        List<RoadProfile> profiles = ViarioStore.LoadProfiles(db);
-        return profiles.FirstOrDefault(p => p.Id == settings.CurrentProfileId) ?? profiles[0];
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptKeywordOptions options = new(
+            "\nSoltar [Selecionar/Restaurar] <Selecionar>: ",
+            "Selecionar Restaurar")
+        {
+            AllowNone = true
+        };
+
+        PromptResult choice = ed.GetKeywords(options);
+        if (choice.Status == PromptStatus.Cancel || choice.Status == PromptStatus.Error)
+            return;
+
+        if (choice.Status == PromptStatus.OK && choice.StringResult == "Restaurar")
+        {
+            using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                ViarioStore.SaveReleased(tr, db, Array.Empty<string>());
+                tr.Commit();
+            }
+
+            ed.WriteMessage("\n  O plugin volta a gerar todas as linhas. As linhas soltas continuam no desenho (apague as que nao quiser).");
+            ViarioSync.Regenerate(doc, quiet: false);
+            return;
+        }
+
+        AcadDb.TypedValue[] filter = { new((int)AcadDb.DxfCode.Start, "LWPOLYLINE") };
+        PromptSelectionResult selection = ed.GetSelection(
+            new PromptSelectionOptions { MessageForAdding = "\nSelecione as linhas geradas a soltar (viram polilinhas comuns): " },
+            new SelectionFilter(filter));
+        if (selection.Status != PromptStatus.OK)
+            return;
+
+        HashSet<string> released = ViarioStore.LoadReleased(db);
+        int count = 0;
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            foreach (AcadDb.ObjectId id in selection.Value.GetObjectIds())
+            {
+                AcadDb.Polyline pl = (AcadDb.Polyline)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
+                if (ViarioStore.ReadTag(pl, out string levelText) != ViarioStore.TagGenerated)
+                    continue;
+
+                released.Add(ViarioStore.GeometryKey(pl, ViarioStore.ParseLevel(levelText)));
+                ViarioStore.ClearTag(pl);
+                count++;
+            }
+
+            ViarioStore.SaveReleased(tr, db, released);
+            tr.Commit();
+        }
+
+        ed.WriteMessage(
+            $"\n  {count} linha(s) solta(s): pode editar a vontade, o plugin nao recria nem apaga." +
+            "\n  Se a rede mudar naquele trecho, a linha nova aparece por cima. Soltar > Restaurar desfaz.");
     }
 
-    private static string Describe(RoadProfile p) =>
-        $"{p.Id} {p.Name}: pista {Num(p.Pista)} m | calcada {Num(p.Calcada)} m | raio de esquina {Num(p.Raio)} m";
+    // ------------------------------------------------------------------
+    // Secoes
+    // ------------------------------------------------------------------
+
+    private static RoadSection CurrentSection(AcadDb.Database db, ViarioStore.Settings settings)
+    {
+        List<RoadSection> sections = ViarioStore.LoadSections(db);
+        return sections.FirstOrDefault(p => p.Id == settings.CurrentSectionId) ?? sections[0];
+    }
+
+    private static string Describe(RoadSection s) =>
+        $"{s.Id} {s.Name}: pista {Num(s.Pista)}" +
+        (s.Canteiro > 0 ? $" | canteiro {Num(s.Canteiro)}" : "") +
+        $" | sarjeta {Num(s.Sarjeta)} | meio-fio {Num(s.MeioFio)} | calcada {Num(s.Calcada)} | raio {Num(s.Raio)}" +
+        $" (total {Num(s.TotalWidth)} m)";
 
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
-    private static void ListProfiles(Document doc)
+    private static void ListSections(Document doc)
     {
         ViarioStore.Settings settings = ViarioStore.LoadSettings(doc.Database);
-        foreach (RoadProfile p in ViarioStore.LoadProfiles(doc.Database))
-            doc.Editor.WriteMessage("\n  " + Describe(p) + (p.Id == settings.CurrentProfileId ? "  (corrente)" : ""));
+        foreach (RoadSection s in ViarioStore.LoadSections(doc.Database))
+            doc.Editor.WriteMessage("\n  " + Describe(s) + (s.Id == settings.CurrentSectionId ? "  (corrente)" : ""));
     }
 
-    private static void ManageProfiles(Document doc)
+    private static void ManageSections(Document doc)
     {
         Editor ed = doc.Editor;
-        ListProfiles(doc);
+        ListSections(doc);
 
         PromptKeywordOptions options = new(
-            "\nPerfis [Corrente/Novo/Editar/Excluir] <Corrente>: ",
-            "Corrente Novo Editar Excluir")
+            "\nSecoes [Corrente/Nova/Editar/Excluir] <Corrente>: ",
+            "Corrente Nova Editar Excluir")
         {
             AllowNone = true
         };
@@ -385,28 +794,20 @@ public sealed class ViarioCommands
 
         switch (result.Status == PromptStatus.OK ? result.StringResult : "Corrente")
         {
-            case "Novo":
-                NewProfile(doc);
-                break;
-            case "Editar":
-                EditProfile(doc);
-                break;
-            case "Excluir":
-                DeleteProfile(doc);
-                break;
-            default:
-                ChooseCurrentProfile(doc);
-                break;
+            case "Nova": NewSection(doc); break;
+            case "Editar": EditSection(doc); break;
+            case "Excluir": DeleteSection(doc); break;
+            default: ChooseCurrentSection(doc); break;
         }
     }
 
-    private static RoadProfile? PickProfile(Document doc, string label)
+    private static RoadSection? PickSection(Document doc, string label)
     {
-        List<RoadProfile> profiles = ViarioStore.LoadProfiles(doc.Database);
+        List<RoadSection> sections = ViarioStore.LoadSections(doc.Database);
         ViarioStore.Settings settings = ViarioStore.LoadSettings(doc.Database);
-        RoadProfile current = profiles.FirstOrDefault(p => p.Id == settings.CurrentProfileId) ?? profiles[0];
+        RoadSection current = sections.FirstOrDefault(p => p.Id == settings.CurrentSectionId) ?? sections[0];
 
-        ListProfiles(doc);
+        ListSections(doc);
         PromptStringOptions options = new("\n" + label + " (codigo ou nome) <" + current.Id + ">: ")
         {
             AllowSpaces = true
@@ -420,62 +821,68 @@ public sealed class ViarioCommands
         if (text.Length == 0)
             return current;
 
-        RoadProfile? found = profiles.FirstOrDefault(p => p.Id.Equals(text, StringComparison.OrdinalIgnoreCase)) ??
-                             profiles.FirstOrDefault(p => p.Name.Equals(text, StringComparison.OrdinalIgnoreCase));
+        RoadSection? found = sections.FirstOrDefault(p => p.Id.Equals(text, StringComparison.OrdinalIgnoreCase)) ??
+                             sections.FirstOrDefault(p => p.Name.Equals(text, StringComparison.OrdinalIgnoreCase));
         if (found is null)
-            doc.Editor.WriteMessage("\nPerfil nao encontrado.");
+            doc.Editor.WriteMessage("\nSecao nao encontrada.");
         return found;
     }
 
-    private static void ChooseCurrentProfile(Document doc)
+    private static void ChooseCurrentSection(Document doc)
     {
-        RoadProfile? profile = PickProfile(doc, "Perfil corrente");
-        if (profile is null)
+        RoadSection? section = PickSection(doc, "Secao corrente");
+        if (section is null)
             return;
 
         AcadDb.Database db = doc.Database;
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-        settings.CurrentProfileId = profile.Id;
+        settings.CurrentSectionId = section.Id;
 
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            EnsureProfilesSaved(tr, db);
+            EnsureSectionsSaved(tr, db);
             ViarioStore.SaveSettings(tr, db, settings);
             tr.Commit();
         }
 
-        doc.Editor.WriteMessage("\n  Perfil corrente: " + Describe(profile));
+        doc.Editor.WriteMessage("\n  Secao corrente: " + Describe(section));
     }
 
-    /// <summary>Grava o perfil padrao no DWG na primeira vez.</summary>
-    private static void EnsureProfilesSaved(AcadDb.Transaction tr, AcadDb.Database db)
+    /// <summary>Grava no DWG as secoes padrao/antigas na primeira alteracao.</summary>
+    private static void EnsureSectionsSaved(AcadDb.Transaction tr, AcadDb.Database db)
     {
-        foreach (RoadProfile p in ViarioStore.LoadProfiles(db))
-            ViarioStore.SaveProfile(tr, db, p);
+        foreach (RoadSection s in ViarioStore.LoadSections(db))
+            ViarioStore.SaveSection(tr, db, s);
     }
 
-    private static bool AskProfileValues(Editor ed, RoadProfile p)
+    private static bool AskSectionValues(Editor ed, RoadSection s)
     {
-        PromptStringOptions name = new("\nNome do perfil <" + p.Name + ">: ") { AllowSpaces = true };
+        PromptStringOptions name = new("\nNome da secao <" + s.Name + ">: ") { AllowSpaces = true };
         PromptResult nameResult = ed.GetString(name);
         if (nameResult.Status != PromptStatus.OK)
             return false;
         if (nameResult.StringResult.Trim().Length > 0)
-            p.Name = nameResult.StringResult.Trim();
+            s.Name = nameResult.StringResult.Trim();
 
-        double? pista = AskDouble(ed, "Largura total da pista (m)", p.Pista, allowZero: false);
-        if (pista is null)
-            return false;
-        double? calcada = AskDouble(ed, "Largura da calcada de cada lado (m, 0 = sem calcada)", p.Calcada, allowZero: true);
-        if (calcada is null)
-            return false;
-        double? raio = AskDouble(ed, "Raio de esquina no meio-fio (m, 0 = canto vivo)", p.Raio, allowZero: true);
-        if (raio is null)
-            return false;
+        double? pista = AskDouble(ed, "Largura total de rolamento, os dois sentidos (m)", s.Pista, allowZero: false);
+        if (pista is null) return false;
+        double? canteiro = AskDouble(ed, "Canteiro central (m, 0 = sem canteiro)", s.Canteiro, allowZero: true);
+        if (canteiro is null) return false;
+        double? sarjeta = AskDouble(ed, "Sarjeta de cada lado (m, 0 = sem sarjeta)", s.Sarjeta, allowZero: true);
+        if (sarjeta is null) return false;
+        double? meioFio = AskDouble(ed, "Meio-fio de cada lado, face as costas (m, 0 = sem)", s.MeioFio, allowZero: true);
+        if (meioFio is null) return false;
+        double? calcada = AskDouble(ed, "Calcada de cada lado (m, 0 = sem calcada)", s.Calcada, allowZero: true);
+        if (calcada is null) return false;
+        double? raio = AskDouble(ed, "Raio de esquina na face do meio-fio (m, 0 = canto vivo)", s.Raio, allowZero: true);
+        if (raio is null) return false;
 
-        p.Pista = pista.Value;
-        p.Calcada = calcada.Value;
-        p.Raio = raio.Value;
+        s.Pista = pista.Value;
+        s.Canteiro = canteiro.Value;
+        s.Sarjeta = sarjeta.Value;
+        s.MeioFio = meioFio.Value;
+        s.Calcada = calcada.Value;
+        s.Raio = raio.Value;
         return true;
     }
 
@@ -494,74 +901,74 @@ public sealed class ViarioCommands
         return result.Status == PromptStatus.OK ? result.Value : null;
     }
 
-    private static void NewProfile(Document doc)
+    private static void NewSection(Document doc)
     {
         AcadDb.Database db = doc.Database;
-        List<RoadProfile> profiles = ViarioStore.LoadProfiles(db);
+        List<RoadSection> sections = ViarioStore.LoadSections(db);
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-        RoadProfile basis = profiles.FirstOrDefault(p => p.Id == settings.CurrentProfileId) ?? profiles[0];
+        RoadSection basis = sections.FirstOrDefault(p => p.Id == settings.CurrentSectionId) ?? sections[0];
 
-        RoadProfile profile = basis.Clone();
-        profile.Id = ViarioStore.NextProfileId(profiles);
-        profile.Name = "Perfil " + profile.Id;
+        RoadSection section = basis.Clone();
+        section.Id = ViarioStore.NextSectionId(sections);
+        section.Name = "Secao " + section.Id;
 
-        if (!AskProfileValues(doc.Editor, profile))
+        if (!AskSectionValues(doc.Editor, section))
             return;
 
-        settings.CurrentProfileId = profile.Id;
+        settings.CurrentSectionId = section.Id;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            EnsureProfilesSaved(tr, db);
-            ViarioStore.SaveProfile(tr, db, profile);
+            EnsureSectionsSaved(tr, db);
+            ViarioStore.SaveSection(tr, db, section);
             ViarioStore.SaveSettings(tr, db, settings);
             tr.Commit();
         }
 
-        doc.Editor.WriteMessage("\n  Perfil criado e definido como corrente: " + Describe(profile));
+        doc.Editor.WriteMessage("\n  Secao criada e definida como corrente: " + Describe(section));
     }
 
-    private static void EditProfile(Document doc)
+    private static void EditSection(Document doc)
     {
-        RoadProfile? profile = PickProfile(doc, "Perfil a editar");
-        if (profile is null || !AskProfileValues(doc.Editor, profile))
+        RoadSection? section = PickSection(doc, "Secao a editar");
+        if (section is null || !AskSectionValues(doc.Editor, section))
             return;
 
         AcadDb.Database db = doc.Database;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            EnsureProfilesSaved(tr, db);
-            ViarioStore.SaveProfile(tr, db, profile);
+            EnsureSectionsSaved(tr, db);
+            ViarioStore.SaveSection(tr, db, section);
             tr.Commit();
         }
 
-        doc.Editor.WriteMessage("\n  Perfil atualizado: " + Describe(profile));
+        doc.Editor.WriteMessage("\n  Secao atualizada: " + Describe(section));
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
-    private static void DeleteProfile(Document doc)
+    private static void DeleteSection(Document doc)
     {
         AcadDb.Database db = doc.Database;
-        List<RoadProfile> profiles = ViarioStore.LoadProfiles(db);
-        if (profiles.Count <= 1)
+        List<RoadSection> sections = ViarioStore.LoadSections(db);
+        if (sections.Count <= 1)
         {
-            doc.Editor.WriteMessage("\nE preciso manter pelo menos um perfil.");
+            doc.Editor.WriteMessage("\nE preciso manter pelo menos uma secao.");
             return;
         }
 
-        RoadProfile? profile = PickProfile(doc, "Perfil a excluir");
-        if (profile is null)
+        RoadSection? section = PickSection(doc, "Secao a excluir");
+        if (section is null)
             return;
 
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-        RoadProfile replacement = profiles.First(p => p.Id != profile.Id);
+        RoadSection replacement = sections.First(p => p.Id != section.Id);
 
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            EnsureProfilesSaved(tr, db);
-            ViarioStore.DeleteProfile(tr, db, profile.Id);
-            if (settings.CurrentProfileId == profile.Id)
+            EnsureSectionsSaved(tr, db);
+            ViarioStore.DeleteSection(tr, db, section.Id);
+            if (settings.CurrentSectionId == section.Id)
             {
-                settings.CurrentProfileId = replacement.Id;
+                settings.CurrentSectionId = replacement.Id;
                 ViarioStore.SaveSettings(tr, db, settings);
             }
 
@@ -569,7 +976,7 @@ public sealed class ViarioCommands
         }
 
         doc.Editor.WriteMessage(
-            "\n  Perfil excluido. Eixos que usavam " + profile.Name + " passam a usar " + replacement.Name + ".");
+            "\n  Secao excluida. Eixos que usavam " + section.Name + " passam a usar " + replacement.Name + ".");
         ViarioSync.Regenerate(doc, quiet: false);
     }
 
@@ -583,19 +990,16 @@ public sealed class ViarioCommands
         AcadDb.Database db = doc.Database;
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
 
-        ed.WriteMessage(
-            "\n  Tolerancia de encontro entre eixos: " + Num(settings.SnapTolerance) +
-            "\n  Captura das pontas ao lancar eixos: " + Num(settings.Capture));
-
         double? snap = AskDouble(ed, "Tolerancia de encontro entre eixos (ponta encostada em outro eixo)", settings.SnapTolerance, allowZero: false);
-        if (snap is null)
-            return;
+        if (snap is null) return;
         double? capture = AskDouble(ed, "Captura das pontas ao lancar eixos (0 = desligada)", settings.Capture, allowZero: true);
-        if (capture is null)
-            return;
+        if (capture is null) return;
+        double? setback = AskDouble(ed, "Recuo do nariz do canteiro em relacao a pista transversal", settings.MedianSetback, allowZero: true);
+        if (setback is null) return;
 
         settings.SnapTolerance = snap.Value;
         settings.Capture = capture.Value;
+        settings.MedianSetback = setback.Value;
 
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -608,37 +1012,71 @@ public sealed class ViarioCommands
     }
 }
 
+/// <summary>Desenho comum dos jigs: linhas da rede que mudam em relacao ao desenho atual.</summary>
+internal static class ViarioPreview
+{
+    public static void DrawChanges(WorldDraw draw, ViarioResult result, HashSet<string> existingKeys)
+    {
+        foreach (OutputLine line in result.Lines)
+        {
+            if (existingKeys.Contains(ViarioStore.GeometryKey(line)))
+                continue;
+
+            using AcadDb.Polyline pl = ViarioStore.ToPolyline(line.Segs, line.Closed);
+            pl.ColorIndex = line.Level switch
+            {
+                EdgeLevel.FaceMF => 4,
+                EdgeLevel.Canteiro => 30,
+                _ => 9
+            };
+            draw.Geometry.Draw(pl);
+        }
+    }
+}
+
 /// <summary>
 /// Jig do eixo: a cada movimento do mouse recalcula a rede com o eixo em
-/// andamento e desenha os bordos/esquinas que vao mudar.
+/// andamento (reta ou arco tangente) e desenha o que vai mudar.
 /// </summary>
 internal sealed class AxisJig : DrawJig
 {
     private readonly List<V2> _points;
-    private readonly RoadProfile _profile;
+    private readonly List<double> _bulges;
+    private readonly bool _arcMode;
+    private readonly RoadSection _section;
     private readonly List<AxisInput> _existing;
     private readonly HashSet<string> _existingKeys;
-    private readonly ViarioStore.Settings _settings;
+    private readonly EngineSettings _engine;
+    private readonly double _capture;
 
-    public AxisJig(List<V2> points, RoadProfile profile, List<AxisInput> existing, HashSet<string> existingKeys, ViarioStore.Settings settings)
+    public AxisJig(List<V2> points, List<double> bulges, bool arcMode, RoadSection section,
+        List<AxisInput> existing, HashSet<string> existingKeys, EngineSettings engine, double capture)
     {
         _points = points;
-        _profile = profile;
+        _bulges = bulges;
+        _arcMode = arcMode;
+        _section = section;
         _existing = existing;
         _existingKeys = existingKeys;
-        _settings = settings;
+        _engine = engine;
+        _capture = capture;
         Current = points[^1];
     }
 
     public V2 Current { get; private set; }
+    public double CurrentBulge { get; private set; }
     public bool Finished { get; private set; }
     public string? Keyword { get; private set; }
+
+    private bool CanArc => _bulges.Count > 0;
 
     protected override SamplerStatus Sampler(JigPrompts prompts)
     {
         V2 last = _points[^1];
+        string mode = _arcMode && CanArc ? "arco tangente" : "reta";
         JigPromptPointOptions options = new(
-            "\nProximo ponto" + (_points.Count > 1 ? " ou [Desfazer]" : "") + " <terminar>: ")
+            "\nProximo ponto (" + mode + ") ou [" + (_arcMode ? "Linha" : "Arco") +
+            (_points.Count > 1 ? "/Desfazer" : "") + "] <terminar>: ")
         {
             UserInputControls = UserInputControls.Accept3dCoordinates |
                                 UserInputControls.NullResponseAccepted |
@@ -648,6 +1086,7 @@ internal sealed class AxisJig : DrawJig
             Cursor = CursorType.RubberBand
         };
 
+        options.Keywords.Add(_arcMode ? "Linha" : "Arco");
         if (_points.Count > 1)
             options.Keywords.Add("Desfazer");
 
@@ -672,7 +1111,20 @@ internal sealed class AxisJig : DrawJig
             return SamplerStatus.NoChange;
 
         Current = p;
+        CurrentBulge = _arcMode && CanArc ? TangentBulge(EndTangent(), last, p) : 0.0;
         return SamplerStatus.OK;
+    }
+
+    private V2 EndTangent() =>
+        new Seg(_points[^2], _points[^1], _bulges[^1]).TangentAt(1.0);
+
+    /// <summary>Bulge do arco tangente a t que sai de a e chega em b.</summary>
+    public static double TangentBulge(V2 tangent, V2 a, V2 b)
+    {
+        V2 chord = b - a;
+        double alpha = Math.Atan2(V2.Cross(tangent, chord), V2.Dot(tangent, chord));
+        alpha = Math.Clamp(alpha, -Math.PI + 0.02, Math.PI - 0.02);
+        return Math.Tan(alpha / 2.0);
     }
 
     protected override bool WorldDraw(WorldDraw draw)
@@ -680,41 +1132,33 @@ internal sealed class AxisJig : DrawJig
         try
         {
             List<V2> pts = new(_points);
+            List<double> bulges = new(_bulges);
             if (V2.Dist(pts[^1], Current) > 1e-6)
+            {
                 pts.Add(Current);
+                bulges.Add(CurrentBulge);
+            }
 
             if (pts.Count < 2)
                 return true;
 
-            pts = Capture(pts, _existing, _settings.Capture);
-            GPath path = PathOf(pts);
+            pts = Capture(pts, _existing, _capture);
+            GPath path = PathOf(pts, bulges);
             if (path.IsEmpty)
                 return true;
 
-            // Eixo em andamento.
             using (AcadDb.Polyline axis = ViarioStore.ToPolyline(path.Segs, closed: false))
             {
                 axis.ColorIndex = 1;
                 draw.Geometry.Draw(axis);
             }
 
-            // Rede recalculada: desenha o que muda.
             List<AxisInput> axes = new(PreviewSubset(path));
-            axes.Add(new AxisInput("__NOVO__", path, _profile));
-            ViarioResult result = ViarioEngine.Compute(axes, new EngineSettings { SnapTolerance = _settings.SnapTolerance });
+            axes.Add(new AxisInput("__NOVO__", path, _section));
+            ViarioResult result = ViarioEngine.Compute(axes, _engine);
+            ViarioPreview.DrawChanges(draw, result, _existingKeys);
 
-            foreach (OutputLine line in result.Lines)
-            {
-                if (_existingKeys.Contains(ViarioStore.GeometryKey(line)))
-                    continue;
-
-                using AcadDb.Polyline pl = ViarioStore.ToPolyline(line.Segs, line.Closed);
-                pl.ColorIndex = line.Level == EdgeLevel.Bordo ? 4 : 9;
-                draw.Geometry.Draw(pl);
-            }
-
-            // Intersecoes do eixo novo.
-            double size = Math.Max(_profile.Pista * 0.25, 0.5);
+            double size = Math.Max(_section.Pista * 0.25, 0.5);
             foreach (NodeInfo node in result.Nodes.Where(n => n.AxisKeys.Contains("__NOVO__")))
             {
                 using AcadDb.Circle marker = new(new Point3d(node.Point.X, node.Point.Y, 0), Vector3d.ZAxis, size);
@@ -730,7 +1174,6 @@ internal sealed class AxisJig : DrawJig
         return true;
     }
 
-    /// <summary>Com redes grandes, so os eixos perto do eixo em andamento entram no preview.</summary>
     private IEnumerable<AxisInput> PreviewSubset(GPath path)
     {
         if (_existing.Count <= 150)
@@ -740,11 +1183,11 @@ internal sealed class AxisJig : DrawJig
         return _existing.Where(a => a.Path.Bounds().Intersects(box));
     }
 
-    public static GPath PathOf(List<V2> pts)
+    public static GPath PathOf(List<V2> pts, List<double> bulges)
     {
         List<Seg> segs = new();
         for (int i = 1; i < pts.Count; i++)
-            segs.Add(Seg.Line(pts[i - 1], pts[i]));
+            segs.Add(new Seg(pts[i - 1], pts[i], i - 1 < bulges.Count ? bulges[i - 1] : 0.0));
         return new GPath(segs);
     }
 
@@ -779,5 +1222,82 @@ internal sealed class AxisJig : DrawJig
         }
 
         return result;
+    }
+}
+
+/// <summary>
+/// Jig de raio: a distancia do mouse ao ponto base e o raio; a rede e
+/// recalculada a cada movimento e o que muda aparece na hora.
+/// </summary>
+internal sealed class RadiusJig : DrawJig
+{
+    private readonly HashSet<string> _existingKeys;
+    private readonly V2 _base;
+    private readonly Func<double, (List<AxisInput> Axes, EngineSettings Settings)> _apply;
+    private readonly double _initial;
+
+    public RadiusJig(HashSet<string> existingKeys, V2 basePoint, double current,
+        Func<double, (List<AxisInput>, EngineSettings)> apply)
+    {
+        _existingKeys = existingKeys;
+        _base = basePoint;
+        _apply = apply;
+        _initial = current;
+        Value = current;
+    }
+
+    public double Value { get; private set; }
+    public bool ToDefault { get; private set; }
+
+    protected override SamplerStatus Sampler(JigPrompts prompts)
+    {
+        JigPromptDistanceOptions options = new(
+            "\nRaio <" + _initial.ToString("0.##", CultureInfo.InvariantCulture) + "> (arraste ou digite) ou [Padrao]: ")
+        {
+            BasePoint = new Point3d(_base.X, _base.Y, 0),
+            UseBasePoint = true,
+            UserInputControls = UserInputControls.Accept3dCoordinates |
+                                UserInputControls.NullResponseAccepted |
+                                UserInputControls.NoNegativeResponseAccepted,
+            Cursor = CursorType.RubberBand
+        };
+        options.Keywords.Add("Padrao");
+
+        PromptDoubleResult result = prompts.AcquireDistance(options);
+
+        switch (result.Status)
+        {
+            case PromptStatus.Keyword:
+                ToDefault = true;
+                return SamplerStatus.Cancel;
+            case PromptStatus.None:
+                return SamplerStatus.Cancel;
+            case PromptStatus.OK:
+                break;
+            default:
+                return SamplerStatus.Cancel;
+        }
+
+        if (Math.Abs(result.Value - Value) < 1e-6)
+            return SamplerStatus.NoChange;
+
+        Value = result.Value;
+        return SamplerStatus.OK;
+    }
+
+    protected override bool WorldDraw(WorldDraw draw)
+    {
+        try
+        {
+            (List<AxisInput> axes, EngineSettings settings) = _apply(Value);
+            ViarioResult result = ViarioEngine.Compute(axes, settings);
+            ViarioPreview.DrawChanges(draw, result, _existingKeys);
+        }
+        catch
+        {
+            // Preview nunca derruba o comando.
+        }
+
+        return true;
     }
 }

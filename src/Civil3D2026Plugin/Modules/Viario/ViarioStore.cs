@@ -10,11 +10,12 @@ namespace Civil3D2026Plugin.Modules.Viario;
 /// <summary>
 /// Persistencia do modulo Viario no DWG.
 ///
-/// - Eixos: XData "C3DVIARIO" = (EIXO, id do perfil). Copiar um eixo copia o
-///   XData, entao a copia ja entra na rede.
-/// - Linhas geradas: XData "C3DVIARIO" = (GERADO, nivel). Sao refeitas a cada
-///   atualizacao; edicoes manuais nelas sao substituidas.
-/// - Perfis e configuracao: dicionario C3D_VIARIO_V1 no NOD.
+/// - Eixos: XData "C3DVIARIO" = (EIXO, id da secao, raio do eixo ou vazio).
+///   Copiar um eixo copia o XData: a copia ja entra na rede.
+/// - Linhas geradas: XData "C3DVIARIO" = (GERADO, elemento). Refeitas a cada
+///   atualizacao; edicoes manuais nelas sao substituidas (use Soltar).
+/// - Secoes, raios por esquina, linhas soltas e configuracao: dicionario
+///   C3D_VIARIO_V1 no NOD (entram no UNDO).
 /// </summary>
 internal static class ViarioStore
 {
@@ -23,74 +24,113 @@ internal static class ViarioStore
     public const string TagGenerated = "GERADO";
 
     public const string LayerAxis = "VIARIO-EIXO";
-    public const string LayerBordo = "VIARIO-BORDO";
-    public const string LayerAlinhamento = "VIARIO-ALINHAMENTO";
 
     private const string RootName = "C3D_VIARIO_V1";
-    private const string ProfilePrefix = "PERFIL_";
+    private const string SectionPrefix = "SECAO_";
+    private const string LegacyProfilePrefix = "PERFIL_";
     private const string SettingsKey = "CONFIG";
-    private const string ProfileSignature = "VPERF1";
+    private const string RadiiKey = "RAIOS";
+    private const string ReleasedKey = "SOLTAS";
+    private const string SectionSignature = "VSEC1";
+    private const string LegacyProfileSignature = "VPERF1";
     private const string SettingsSignature = "VCFG1";
+    private const string RadiiSignature = "VRAIO1";
+    private const string ReleasedSignature = "VSOLTA1";
+
+    /// <summary>Layer e cor de cada elemento gerado.</summary>
+    private static readonly Dictionary<EdgeLevel, (string Layer, short Color, string Label)> Elements = new()
+    {
+        [EdgeLevel.Pista] = ("VIARIO-PISTA", 7, "bordo da pista"),
+        [EdgeLevel.FaceMF] = ("VIARIO-MF-FACE", 4, "face do meio-fio"),
+        [EdgeLevel.CostasMF] = ("VIARIO-MF-COSTAS", 3, "costas do meio-fio"),
+        [EdgeLevel.Alinhamento] = ("VIARIO-ALINHAMENTO", 8, "alinhamento"),
+        [EdgeLevel.Canteiro] = ("VIARIO-CANTEIRO", 30, "canteiro central")
+    };
 
     internal sealed class Settings
     {
-        public string CurrentProfileId { get; set; } = "P1";
+        public string CurrentSectionId { get; set; } = "P1";
 
-        /// <summary>Tolerancia para ponta de eixo encostar em outro eixo (m, unidades do desenho).</summary>
+        /// <summary>Tolerancia para ponta de eixo encostar em outro eixo.</summary>
         public double SnapTolerance { get; set; } = 0.05;
 
-        /// <summary>Distancia de captura das pontas ao lancar eixos (o ponto e puxado para o eixo vizinho).</summary>
+        /// <summary>Captura das pontas ao lancar eixos (puxa para o eixo vizinho).</summary>
         public double Capture { get; set; } = 1.0;
+
+        /// <summary>Recuo do nariz do canteiro em relacao a pista transversal.</summary>
+        public double MedianSetback { get; set; } = 1.0;
     }
 
     // ------------------------------------------------------------------
     // XData
     // ------------------------------------------------------------------
 
-    public static string? ReadTag(AcadDb.DBObject obj, out string value)
+    /// <summary>Valores texto do XData do modulo (tag primeiro), ou null.</summary>
+    public static List<string>? ReadValues(AcadDb.DBObject obj)
     {
-        value = string.Empty;
         AcadDb.ResultBuffer? rb = obj.GetXDataForApplication(RegApp);
         if (rb is null)
             return null;
 
         using (rb)
         {
-            AcadDb.TypedValue[] values = rb.AsArray();
-            string? tag = null;
-            foreach (AcadDb.TypedValue tv in values)
+            List<string> values = new();
+            foreach (AcadDb.TypedValue tv in rb.AsArray())
             {
-                if (tv.TypeCode != (short)AcadDb.DxfCode.ExtendedDataAsciiString)
-                    continue;
-
-                if (tag is null)
-                {
-                    tag = tv.Value as string;
-                }
-                else
-                {
-                    value = tv.Value as string ?? string.Empty;
-                    break;
-                }
+                if (tv.TypeCode == (short)AcadDb.DxfCode.ExtendedDataAsciiString)
+                    values.Add(tv.Value as string ?? string.Empty);
             }
 
-            return tag;
+            return values.Count == 0 ? null : values;
         }
     }
 
-    public static bool IsAxis(AcadDb.DBObject obj, out string profileId) =>
-        ReadTag(obj, out profileId) == TagAxis;
+    public static string? ReadTag(AcadDb.DBObject obj, out string value)
+    {
+        List<string>? values = ReadValues(obj);
+        value = values is not null && values.Count > 1 ? values[1] : string.Empty;
+        return values?[0];
+    }
+
+    public static bool IsAxis(AcadDb.DBObject obj, out string sectionId) =>
+        ReadTag(obj, out sectionId) == TagAxis;
+
+    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius)
+    {
+        sectionId = string.Empty;
+        radius = null;
+        List<string>? values = ReadValues(obj);
+        if (values is null || values[0] != TagAxis)
+            return false;
+
+        sectionId = values.Count > 1 ? values[1] : string.Empty;
+        if (values.Count > 2 &&
+            double.TryParse(values[2], NumberStyles.Float, CultureInfo.InvariantCulture, out double r) && r >= 0)
+        {
+            radius = r;
+        }
+
+        return true;
+    }
 
     public static bool IsGenerated(AcadDb.DBObject obj) =>
         ReadTag(obj, out _) == TagGenerated;
 
-    public static void SetTag(AcadDb.Entity entity, string tag, string value)
+    public static void SetTag(AcadDb.Entity entity, params string[] values)
     {
-        entity.XData = new AcadDb.ResultBuffer(
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegApp),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, tag),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, value));
+        List<AcadDb.TypedValue> list = new()
+        {
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegApp)
+        };
+        foreach (string v in values)
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, v));
+
+        entity.XData = new AcadDb.ResultBuffer(list.ToArray());
     }
+
+    public static void SetAxis(AcadDb.Entity entity, string sectionId, double? radius) =>
+        SetTag(entity, TagAxis, sectionId,
+            radius is double r ? r.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty);
 
     public static void ClearTag(AcadDb.Entity entity)
     {
@@ -117,8 +157,8 @@ internal static class ViarioStore
     public static void EnsureLayers(AcadDb.Transaction tr, AcadDb.Database db)
     {
         EnsureLayer(tr, db, LayerAxis, 1);
-        EnsureLayer(tr, db, LayerBordo, 2);
-        EnsureLayer(tr, db, LayerAlinhamento, 8);
+        foreach ((string layer, short color, _) in Elements.Values)
+            EnsureLayer(tr, db, layer, color);
     }
 
     private static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color)
@@ -137,19 +177,20 @@ internal static class ViarioStore
         tr.AddNewlyCreatedDBObject(layer, true);
     }
 
-    public static string LayerFor(EdgeLevel level) =>
-        level == EdgeLevel.Bordo ? LayerBordo : LayerAlinhamento;
+    public static string LayerFor(EdgeLevel level) => Elements[level].Layer;
+
+    public static string LabelFor(EdgeLevel level) => Elements[level].Label;
 
     // ------------------------------------------------------------------
-    // Perfis e configuracao (NOD)
+    // Secoes
     // ------------------------------------------------------------------
 
-    public static RoadProfile DefaultProfile() =>
-        new() { Id = "P1", Name = "Local", Pista = 7.0, Calcada = 2.5, Raio = 6.0 };
+    public static RoadSection DefaultSection() =>
+        new() { Id = "P1", Name = "Local", Pista = 7.0, Sarjeta = 0.30, MeioFio = 0.15, Calcada = 2.5, Raio = 6.0 };
 
-    public static List<RoadProfile> LoadProfiles(AcadDb.Database db)
+    public static List<RoadSection> LoadSections(AcadDb.Database db)
     {
-        List<RoadProfile> result = new();
+        Dictionary<string, RoadSection> result = new(StringComparer.Ordinal);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         AcadDb.DBDictionary? root = TryRoot(tr, db);
@@ -157,87 +198,89 @@ internal static class ViarioStore
         {
             foreach (AcadDb.DBDictionaryEntry entry in root)
             {
-                if (!entry.Key.StartsWith(ProfilePrefix, StringComparison.Ordinal))
+                bool section = entry.Key.StartsWith(SectionPrefix, StringComparison.Ordinal);
+                bool legacy = entry.Key.StartsWith(LegacyProfilePrefix, StringComparison.Ordinal);
+                if (!section && !legacy)
                     continue;
 
                 if (tr.GetObject(entry.Value, AcadDb.OpenMode.ForRead) is not AcadDb.Xrecord xr)
                     continue;
 
                 AcadDb.TypedValue[]? v = xr.Data?.AsArray();
-                if (v is null || v.Length < 6 || v[0].Value as string != ProfileSignature)
+                if (v is null || v.Length < 3)
                     continue;
 
-                result.Add(new RoadProfile
+                if (section && v[0].Value as string == SectionSignature && v.Length >= 9)
                 {
-                    Id = v[1].Value as string ?? "P?",
-                    Name = v[2].Value as string ?? "",
-                    Pista = v[3].Value is double pista ? pista : 7.0,
-                    Calcada = v[4].Value is double calcada ? calcada : 2.5,
-                    Raio = v[5].Value is double raio ? raio : 6.0
-                });
+                    RoadSection s = new()
+                    {
+                        Id = v[1].Value as string ?? "P?",
+                        Name = v[2].Value as string ?? "",
+                        Pista = Real(v[3], 7.0),
+                        Canteiro = Real(v[4], 0.0),
+                        Sarjeta = Real(v[5], 0.0),
+                        MeioFio = Real(v[6], 0.0),
+                        Calcada = Real(v[7], 0.0),
+                        Raio = Real(v[8], 6.0)
+                    };
+                    result[s.Id] = s;
+                }
+                else if (legacy && v[0].Value as string == LegacyProfileSignature && v.Length >= 6)
+                {
+                    // Perfil da v0.1: pista, calcada e raio (bordo = face do meio-fio).
+                    string id = v[1].Value as string ?? "P?";
+                    if (!result.ContainsKey(id))
+                    {
+                        result[id] = new RoadSection
+                        {
+                            Id = id,
+                            Name = v[2].Value as string ?? "",
+                            Pista = Real(v[3], 7.0),
+                            Sarjeta = 0.0,
+                            MeioFio = 0.0,
+                            Calcada = Real(v[4], 2.5),
+                            Raio = Real(v[5], 6.0)
+                        };
+                    }
+                }
             }
         }
 
         if (result.Count == 0)
-            result.Add(DefaultProfile());
+            result["P1"] = DefaultSection();
 
-        return result.OrderBy(p => p.Id, StringComparer.Ordinal).ToList();
+        return result.Values.OrderBy(p => p.Id, StringComparer.Ordinal).ToList();
     }
 
-    public static void SaveProfile(AcadDb.Transaction tr, AcadDb.Database db, RoadProfile p)
+    private static double Real(AcadDb.TypedValue tv, double fallback) =>
+        tv.Value is double d && !double.IsNaN(d) && d >= 0 ? d : fallback;
+
+    public static void SaveSection(AcadDb.Transaction tr, AcadDb.Database db, RoadSection s)
     {
-        WriteRecord(tr, db, ProfilePrefix + p.Id, new AcadDb.ResultBuffer(
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, ProfileSignature),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Id),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Name),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Pista),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Calcada),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Raio)));
+        WriteRecord(tr, db, SectionPrefix + s.Id, new AcadDb.ResultBuffer(
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, SectionSignature),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.Id),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.Name),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Pista),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Canteiro),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Sarjeta),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MeioFio),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Calcada),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Raio)));
+
+        EraseRecord(tr, db, LegacyProfilePrefix + s.Id);
     }
 
-    public static void DeleteProfile(AcadDb.Transaction tr, AcadDb.Database db, string id)
+    public static void DeleteSection(AcadDb.Transaction tr, AcadDb.Database db, string id)
     {
-        AcadDb.DBDictionary? root = TryRoot(tr, db);
-        string key = ProfilePrefix + id;
-        if (root is not null && root.Contains(key))
-            tr.GetObject(root.GetAt(key), AcadDb.OpenMode.ForWrite).Erase();
+        EraseRecord(tr, db, SectionPrefix + id);
+        EraseRecord(tr, db, LegacyProfilePrefix + id);
     }
 
-    public static Settings LoadSettings(AcadDb.Database db)
-    {
-        Settings settings = new();
-
-        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
-        AcadDb.DBDictionary? root = TryRoot(tr, db);
-        if (root is null || !root.Contains(SettingsKey))
-            return settings;
-
-        if (tr.GetObject(root.GetAt(SettingsKey), AcadDb.OpenMode.ForRead) is not AcadDb.Xrecord xr)
-            return settings;
-
-        AcadDb.TypedValue[]? v = xr.Data?.AsArray();
-        if (v is null || v.Length < 4 || v[0].Value as string != SettingsSignature)
-            return settings;
-
-        settings.CurrentProfileId = v[1].Value as string ?? "P1";
-        settings.SnapTolerance = v[2].Value is double snap && snap > 0 ? snap : 0.05;
-        settings.Capture = v[3].Value is double capture && capture >= 0 ? capture : 1.0;
-        return settings;
-    }
-
-    public static void SaveSettings(AcadDb.Transaction tr, AcadDb.Database db, Settings s)
-    {
-        WriteRecord(tr, db, SettingsKey, new AcadDb.ResultBuffer(
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, SettingsSignature),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.CurrentProfileId),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.SnapTolerance),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Capture)));
-    }
-
-    public static string NextProfileId(IEnumerable<RoadProfile> profiles)
+    public static string NextSectionId(IEnumerable<RoadSection> sections)
     {
         int max = 0;
-        foreach (RoadProfile p in profiles)
+        foreach (RoadSection p in sections)
         {
             if (p.Id.Length > 1 && p.Id[0] == 'P' &&
                 int.TryParse(p.Id[1..], NumberStyles.Integer, CultureInfo.InvariantCulture, out int n))
@@ -249,12 +292,125 @@ internal static class ViarioStore
         return "P" + (max + 1).ToString(CultureInfo.InvariantCulture);
     }
 
+    // ------------------------------------------------------------------
+    // Configuracao
+    // ------------------------------------------------------------------
+
+    public static Settings LoadSettings(AcadDb.Database db)
+    {
+        Settings settings = new();
+        AcadDb.TypedValue[]? v = ReadRecord(db, SettingsKey);
+        if (v is null || v.Length < 4 || v[0].Value as string != SettingsSignature)
+            return settings;
+
+        settings.CurrentSectionId = v[1].Value as string ?? "P1";
+        settings.SnapTolerance = v[2].Value is double snap && snap > 0 ? snap : 0.05;
+        settings.Capture = v[3].Value is double capture && capture >= 0 ? capture : 1.0;
+        if (v.Length >= 5 && v[4].Value is double setback && setback >= 0)
+            settings.MedianSetback = setback;
+        return settings;
+    }
+
+    public static void SaveSettings(AcadDb.Transaction tr, AcadDb.Database db, Settings s)
+    {
+        WriteRecord(tr, db, SettingsKey, new AcadDb.ResultBuffer(
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, SettingsSignature),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.CurrentSectionId),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.SnapTolerance),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Capture),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MedianSetback)));
+    }
+
+    // ------------------------------------------------------------------
+    // Raios por esquina
+    // ------------------------------------------------------------------
+
+    public static Dictionary<string, double> LoadCornerRadii(AcadDb.Database db)
+    {
+        Dictionary<string, double> result = new(StringComparer.Ordinal);
+        AcadDb.TypedValue[]? v = ReadRecord(db, RadiiKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != RadiiSignature)
+            return result;
+
+        for (int i = 1; i + 1 < v.Length; i += 2)
+        {
+            if (v[i].Value is string key && v[i + 1].Value is double r)
+                result[key] = r;
+        }
+
+        return result;
+    }
+
+    public static void SaveCornerRadii(AcadDb.Transaction tr, AcadDb.Database db, Dictionary<string, double> radii)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, RadiiSignature) };
+        foreach ((string key, double r) in radii)
+        {
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, key));
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, r));
+        }
+
+        WriteRecord(tr, db, RadiiKey, new AcadDb.ResultBuffer(list.ToArray()));
+    }
+
+    // ------------------------------------------------------------------
+    // Linhas soltas (o plugin nao recria)
+    // ------------------------------------------------------------------
+
+    public static HashSet<string> LoadReleased(AcadDb.Database db)
+    {
+        HashSet<string> result = new(StringComparer.Ordinal);
+        AcadDb.TypedValue[]? v = ReadRecord(db, ReleasedKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != ReleasedSignature)
+            return result;
+
+        for (int i = 1; i < v.Length; i++)
+        {
+            if (v[i].Value is string key)
+                result.Add(key);
+        }
+
+        return result;
+    }
+
+    public static void SaveReleased(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<string> keys)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, ReleasedSignature) };
+        foreach (string key in keys)
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, key));
+
+        WriteRecord(tr, db, ReleasedKey, new AcadDb.ResultBuffer(list.ToArray()));
+    }
+
+    // ------------------------------------------------------------------
+    // NOD
+    // ------------------------------------------------------------------
+
     private static AcadDb.DBDictionary? TryRoot(AcadDb.Transaction tr, AcadDb.Database db)
     {
         AcadDb.DBDictionary nod = (AcadDb.DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, AcadDb.OpenMode.ForRead);
         return nod.Contains(RootName)
             ? (AcadDb.DBDictionary)tr.GetObject(nod.GetAt(RootName), AcadDb.OpenMode.ForRead)
             : null;
+    }
+
+    private static AcadDb.TypedValue[]? ReadRecord(AcadDb.Database db, string key)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.DBDictionary? root = TryRoot(tr, db);
+        if (root is null || !root.Contains(key))
+            return null;
+
+        return tr.GetObject(root.GetAt(key), AcadDb.OpenMode.ForRead) is AcadDb.Xrecord xr
+            ? xr.Data?.AsArray()
+            : null;
+    }
+
+    private static void EraseRecord(AcadDb.Transaction tr, AcadDb.Database db, string key)
+    {
+        AcadDb.DBDictionary? root = TryRoot(tr, db);
+        if (root is not null && root.Contains(key))
+            tr.GetObject(root.GetAt(key), AcadDb.OpenMode.ForWrite).Erase();
     }
 
     private static void WriteRecord(AcadDb.Transaction tr, AcadDb.Database db, string key, AcadDb.ResultBuffer data)
@@ -289,7 +445,6 @@ internal static class ViarioStore
     // Conversao AutoCAD <-> GPath
     // ------------------------------------------------------------------
 
-    /// <summary>Eixo do AutoCAD como caminho 2D (planta). Null se o tipo nao for suportado.</summary>
     public static GPath? ToPath(AcadDb.Curve curve)
     {
         switch (curve)
@@ -337,12 +492,24 @@ internal static class ViarioStore
                 });
             }
 
+            case AcadDb.Circle circle:
+            {
+                if (circle.Normal.Z < 0.999 || circle.Radius < 1e-6)
+                    return null;
+
+                V2 c = new(circle.Center.X, circle.Center.Y);
+                return new GPath(new[]
+                {
+                    Seg.FromArc(c, circle.Radius, 0.0, Math.PI),
+                    Seg.FromArc(c, circle.Radius, Math.PI, Math.PI)
+                });
+            }
+
             default:
                 return null;
         }
     }
 
-    /// <summary>Polilinha (nao residente) com os segmentos dados.</summary>
     public static AcadDb.Polyline ToPolyline(IReadOnlyList<Seg> segs, bool closed)
     {
         AcadDb.Polyline pl = new();
@@ -364,13 +531,9 @@ internal static class ViarioStore
     }
 
     // ------------------------------------------------------------------
-    // Chave geometrica (para atualizar so o que mudou)
+    // Chave geometrica (atualiza so o que mudou)
     // ------------------------------------------------------------------
 
-    /// <summary>
-    /// Chave independente do sentido e do vertice inicial: conjunto dos vertices
-    /// e dos bulges (arredondados), nivel e se e fechada.
-    /// </summary>
     public static string GeometryKey(EdgeLevel level, IEnumerable<(double X, double Y, double Bulge)> vertices, bool closed)
     {
         List<string> points = new();
@@ -411,6 +574,6 @@ internal static class ViarioStore
         return GeometryKey(level, vertices, pl.Closed);
     }
 
-    public static EdgeLevel LevelOfLayer(string layer) =>
-        string.Equals(layer, LayerAlinhamento, StringComparison.OrdinalIgnoreCase) ? EdgeLevel.Alinhamento : EdgeLevel.Bordo;
+    public static EdgeLevel ParseLevel(string text) =>
+        Enum.TryParse(text, ignoreCase: true, out EdgeLevel level) ? level : EdgeLevel.FaceMF;
 }

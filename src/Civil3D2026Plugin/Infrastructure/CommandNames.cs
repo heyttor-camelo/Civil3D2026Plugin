@@ -74,6 +74,7 @@ public static class CommandNames
     {
         public const string Rede = "C3DVIARIO";
         public const string Eixo = "C3DVIARIOEIXO";
+        public const string Raio = "C3DVIARIORAIO";
     }
 
     public static class FeatureLines
