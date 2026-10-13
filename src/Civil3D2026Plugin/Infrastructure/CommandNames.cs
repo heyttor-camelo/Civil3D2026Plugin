@@ -82,6 +82,7 @@ public static class CommandNames
         public const string Abertura = "C3DVIARIOABERTURA";
         public const string Livre = "C3DVIARIOLIVRE";
         public const string ElemRemover = "C3DVIARIOELEMREMOVER";
+        public const string Diag = "C3DVIARIODIAG";
     }
 
     public static class FeatureLines

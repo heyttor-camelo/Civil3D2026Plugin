@@ -14,6 +14,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Quadros.StreetTableCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.RaisedCrossing.RaisedCrossingCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Viario.ViarioCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Viario.ViarioDiagCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineElevationCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineVertexCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineRenameCommands))]
