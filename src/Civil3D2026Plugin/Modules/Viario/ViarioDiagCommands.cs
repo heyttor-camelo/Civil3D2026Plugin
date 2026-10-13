@@ -42,11 +42,15 @@ public sealed class ViarioDiagCommands
         "Autodesk.Civil.DatabaseServices.OffsetAlignmentWideningCriteria",
         "Autodesk.Civil.DatabaseServices.IntersectionRoad",
         "Autodesk.Civil.DatabaseServices.IntersectionRegion",
+        "Autodesk.Civil.DatabaseServices.IntersectionRoadCollection",
+        "Autodesk.Civil.DatabaseServices.IntersectionRegionCollection",
+        "Autodesk.Civil.Settings.SettingsCmdCreateIntersection+SettingsCmdCurbReturnParameters",
+        "Autodesk.Civil.Settings.SettingsCmdCreateIntersection+SettingsCmdCurbReturnProfileRules",
     };
 
     private static readonly string[] Keywords =
     {
-        "Offset", "CurbReturn", "Intersection", "Superimpos", "Widening", "ProfileType", "AlignmentType", "Linked", "Link"
+        "Offset", "CurbReturn", "Intersection", "Superimpos", "Widening", "ProfileType", "AlignmentType", "Linked", "Link", "Connect", "CrossSlope"
     };
 
     [CommandMethod(C3DCommands.Viario.Diag, CommandFlags.Modal)]
