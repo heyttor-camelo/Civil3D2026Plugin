@@ -79,6 +79,7 @@ public static class LispModule
         try
         {
             ExtrairArquivos();
+            GarantirPastaConfiavel();
             // O carregamento acontece no Idle: durante o NETLOAD ha um comando em
             // andamento e o desenho nao aceita a string ainda.
             AcApp.Idle += OnIdle;
@@ -95,6 +96,36 @@ public static class LispModule
             return;
         AcApp.Idle -= OnIdle;
         _iniciado = false;
+    }
+
+    /// <summary>
+    /// Inclui a pasta das LISPs em TRUSTEDPATHS. Sem isso o SECURELOAD mostra o aviso
+    /// "Unsigned Executable File" para cada arquivo carregado de fora das pastas confiaveis.
+    /// So acrescenta esta pasta (sem subpastas); o resto da variavel fica como esta.
+    /// </summary>
+    internal static void GarantirPastaConfiavel()
+    {
+        try
+        {
+            string atual = Convert.ToString(AcApp.GetSystemVariable("TRUSTEDPATHS")) ?? "";
+            string pasta = Path.GetFullPath(Pasta).TrimEnd('\\', '/');
+
+            bool presente = atual
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Select(p => p.Trim('"').TrimEnd('\\', '/'))
+                .Any(p => p.Equals(pasta, StringComparison.OrdinalIgnoreCase));
+            if (presente)
+                return;
+
+            string novo = atual.Trim().TrimEnd(';');
+            novo = novo.Length == 0 ? pasta : $"{novo};{pasta}";
+            AcApp.SetSystemVariable("TRUSTEDPATHS", novo);
+        }
+        catch (System.Exception ex)
+        {
+            Escrever($"\n[LispTools] Nao foi possivel incluir {Pasta} em TRUSTEDPATHS ({ex.Message})." +
+                     "\n            Inclua manualmente em OPCOES > Arquivos > Locais confiaveis para evitar o aviso de seguranca.");
+        }
     }
 
     private static void OnIdle(object? sender, EventArgs e)

@@ -56,6 +56,7 @@ public sealed class LispCommands
             return;
 
         LispModule.ExtrairArquivos();
+        LispModule.GarantirPastaConfiavel();
         LispModule.CarregarEm(doc, forcar: true);
         doc.Editor.WriteMessage($"\n[LispTools] {LispModule.Catalogo.Count} rotinas registradas a partir de {LispModule.Pasta}.");
     }

@@ -1,3 +1,7 @@
+## 2.29.1 - LispTools v1.0.1 / sem aviso de seguranca
+
+- a pasta das LISPs (`%LOCALAPPDATA%\Civil3D2026Plugin\Lisp`) passa a ser incluida em TRUSTEDPATHS ao carregar o plugin; antes o SECURELOAD mostrava "Unsigned Executable File" para o MALHA.VLX ao abrir o desenho e para cada LISP no primeiro uso. So essa pasta e acrescentada; o resto da variavel fica como estava.
+
 ## 2.29.0 - LispTools v1.0.0 / LISPs distribuidas dentro da DLL
 
 - **novo modulo LispTools** (`Modules/LispTools`): 24 LISPs passam a ir dentro da DLL e ficam disponiveis em todo desenho, sem APPLOAD nem Startup Suite;
