@@ -13,7 +13,7 @@ namespace Civil3D2026Plugin.Modules.Viario;
 /// - Eixos: XData "C3DVIARIO" = (EIXO, id da secao, raio do eixo ou vazio).
 ///   Copiar um eixo copia o XData: a copia ja entra na rede.
 /// - Linhas geradas: XData "C3DVIARIO" = (GERADO, elemento). Refeitas a cada
-///   atualizacao; edicoes manuais nelas sao substituidas (use Soltar).
+///   atualizacao; edicoes manuais nelas sao substituidas (use Desvincular).
 /// - Secoes, raios por esquina, linhas soltas e configuracao: dicionario
 ///   C3D_VIARIO_V1 no NOD (entram no UNDO).
 /// </summary>

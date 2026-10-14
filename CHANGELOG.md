@@ -1,3 +1,11 @@
+## 2.28.1 - C3DVIARIO v0.6.1 / explorador no molde do Project Explorer, tema escuro, consulta DNIT
+
+- C3DVIARIOPAINEL no molde do Project Explorer do Civil: barra de categorias com contagem (secoes, eixos, elementos, intersecoes, esquinas, ilhas, sinalizacao, Civil, recomendacoes, consulta, config), barra de comandos com Localizar, vista grafica escura com grade, coordenadas, zoom pela roda e arrastar, lista de objetos em colunas e abas (Propriedades, Recomendacoes e itens relacionados);
+- **tema escuro** (Preferencias...), fonte Arial;
+- **consulta**: a fonte de cada recomendacao abre a tabela resumida do manual (raio de esquina, faixa de conversao, armazenamento, taper, ilhas, canteiro, aberturas/retornos, giro livre, angulo, rotatorias, larguras de faixa e passeio, sinalizacao MBST); categoria Consulta lista todas;
+- zoom das recomendacoes corrigido (converte para as coordenadas da vista) e aviso sem local faz zoom no eixo/secao;
+- **Soltar** passa a se chamar **Desvincular** (e Restaurar -> **Revincular**): `C3DVIARIO > DEsvincular`.
+
 ## 2.28.0 - C3DVIARIO v0.6.0 / explorador, recomendacoes DNIT, sinalizacao vazada
 
 - **C3DVIARIOPAINEL** refeito no estilo do Project Explorer: barra de ferramentas com os icones (dica com ilustracao e passos), arvore (Secoes, Eixos > elementos, Intersecoes > esquinas, Ilhas, Sinalizacao, Civil, Config), grafico do item em fundo branco com grade (corte transversal cotado para secoes, planta com destaque para eixos, esquinas, ilhas e elementos), propriedades editaveis e acoes do item;

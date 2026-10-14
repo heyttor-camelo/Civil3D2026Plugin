@@ -12,5 +12,5 @@
 
 `teste_comandos.scr` (desenho novo): avenida com canteiro cruzada por uma via local e um T;
 testa Secao (Nova/Corrente/Editar/eXcluir), conversao no canteiro, abertura, remover
-elemento, raio de esquina + Limpar, ATribuir, SOltar/Restaurar, REmover/ADicionar eixo,
+elemento, raio de esquina + Limpar, ATribuir, DEsvincular/Revincular, REmover/ADicionar eixo,
 Config, ATUalizar e UNDO. A linha "Desenho:" do relatorio confere as linhas geradas.

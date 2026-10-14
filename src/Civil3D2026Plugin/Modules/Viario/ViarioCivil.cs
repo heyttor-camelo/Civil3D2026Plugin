@@ -314,7 +314,7 @@ internal static class ViarioCivil
         lines.Add("Elementos: " + string.Join(", ", axes.SelectMany(a => a.Events).GroupBy(e => e.Kind)
                       .Select(g => $"{g.Key} {g.Count()}")) +
                   $"; faixas livres: {ViarioStore.LoadSlipLanes(db).Count}; raios de esquina: {ViarioStore.LoadCornerRadii(db).Count}" +
-                  $"; eixos com raio proprio: {axes.Count(a => a.Radius is not null)}; soltas: {ViarioStore.LoadReleased(db).Count}.");
+                  $"; eixos com raio proprio: {axes.Count(a => a.Radius is not null)}; desvinculadas: {ViarioStore.LoadReleased(db).Count}.");
         lines.Add("Secoes: " + string.Join(" | ", ViarioStore.LoadSections(db).Select(s =>
                       $"{s.Id} {s.Name} pista {s.Pista:0.##} cant {s.Canteiro:0.##} raio {s.Raio:0.##} ({axes.Count(a => a.Section.Id == s.Id)} eixo(s))")) +
                   $"; corrente {ViarioStore.LoadSettings(db).CurrentSectionId}.");

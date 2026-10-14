@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar CIvil SInalizacao PAinel Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar CIvil SInalizacao PAinel Config")
             {
                 AllowNone = true
             };
@@ -51,7 +51,7 @@ public sealed class ViarioCommands
                 case "Raio": EditRadius(doc); break;
                 case "ROtatoria": CreateRoundabout(doc); break;
                 case "ELementos": ViarioElementCommands.Menu(doc); break;
-                case "SOltar": Release(doc); break;
+                case "DEsvincular": Release(doc); break;
                 case "REmover": RemoveAxes(doc); break;
                 case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
                 case "CIvil": CivilMenu(doc); break;
@@ -809,7 +809,7 @@ public sealed class ViarioCommands
     }
 
     // ------------------------------------------------------------------
-    // Adicionar / Atribuir / Remover / Soltar
+    // Adicionar / Atribuir / Remover / Desvincular
     // ------------------------------------------------------------------
 
     private static AcadDb.ObjectId[]? SelectCurves(Editor ed, string message)
@@ -931,8 +931,8 @@ public sealed class ViarioCommands
         AcadDb.Database db = doc.Database;
 
         PromptKeywordOptions options = new(
-            "\nSoltar [Selecionar/Restaurar] <Selecionar>: ",
-            "Selecionar Restaurar")
+            "\nDesvincular [Selecionar/Revincular] <Selecionar>: ",
+            "Selecionar Revincular")
         {
             AllowNone = true
         };
@@ -941,7 +941,7 @@ public sealed class ViarioCommands
         if (choice.Status == PromptStatus.Cancel || choice.Status == PromptStatus.Error)
             return;
 
-        if (choice.Status == PromptStatus.OK && choice.StringResult == "Restaurar")
+        if (choice.Status == PromptStatus.OK && choice.StringResult == "Revincular")
         {
             using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
             {
@@ -949,14 +949,14 @@ public sealed class ViarioCommands
                 tr.Commit();
             }
 
-            ed.WriteMessage("\n  O plugin volta a gerar todas as linhas. As linhas soltas continuam no desenho (apague as que nao quiser).");
+            ed.WriteMessage("\n  Linhas revinculadas: o plugin volta a gerar todas. As polilinhas desvinculadas continuam no desenho (apague as que nao quiser).");
             ViarioSync.Regenerate(doc, quiet: false);
             return;
         }
 
         AcadDb.TypedValue[] filter = { new((int)AcadDb.DxfCode.Start, "LWPOLYLINE") };
         PromptSelectionResult selection = ed.GetSelection(
-            new PromptSelectionOptions { MessageForAdding = "\nSelecione as linhas geradas a soltar (viram polilinhas comuns): " },
+            new PromptSelectionOptions { MessageForAdding = "\nSelecione as linhas geradas a desvincular (viram polilinhas comuns): " },
             new SelectionFilter(filter));
         if (selection.Status != PromptStatus.OK)
             return;
@@ -982,8 +982,8 @@ public sealed class ViarioCommands
         }
 
         ed.WriteMessage(
-            $"\n  {count} linha(s) solta(s): pode editar a vontade, o plugin nao recria nem apaga." +
-            "\n  Se a rede mudar naquele trecho, a linha nova aparece por cima. Soltar > Restaurar desfaz.");
+            $"\n  {count} linha(s) desvinculada(s): pode editar a vontade, o plugin nao recria nem apaga." +
+            "\n  Se a rede mudar naquele trecho, a linha nova aparece por cima. Desvincular > Revincular desfaz.");
     }
 
     // ------------------------------------------------------------------

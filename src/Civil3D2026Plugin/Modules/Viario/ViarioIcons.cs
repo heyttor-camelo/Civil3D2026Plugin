@@ -132,7 +132,7 @@ internal static class ViarioIcons
             new Part("M6,8 H22 a4,4 0 0,1 4,4 V20 a4,4 0 0,1 -4,4 H10 a4,4 0 0,1 -4,-4 Z", Curb, 1.6, WM.Color.FromArgb(70, 110, 210, 110)),
             new Part("M14,10 L26,22 M26,10 L14,22", Red, 2.4)
         },
-        ["SOLTAR"] = new[]
+        ["DESVINCULAR"] = new[]
         {
             new Part("M3,24 L11,14", Edge, 1.8),
             new Part("M18,12 L29,6", Edge, 1.8),
@@ -167,6 +167,18 @@ internal static class ViarioIcons
             new Part("M16,10 a6,6 0 1,0 0.1,0", White, 1.8),
             new Part("M16,3 V8 M16,24 V29 M3,16 H8 M24,16 H29 M7,7 L10.5,10.5 M21.5,21.5 L25,25 M25,7 L21.5,10.5 M10.5,21.5 L7,25", White, 2.2),
             new Part("M16,14 a2,2 0 1,0 0.1,0", Yellow, 1.6)
+        },
+        ["AVISOS"] = new[]
+        {
+            new Part("M16,4 L29,27 H3 Z", Yellow, 1.8),
+            new Part("M16,12 V19", Yellow, 2.4),
+            new Part("M16,23 V23.5", Yellow, 2.6)
+        },
+        ["CONSULTA"] = new[]
+        {
+            new Part("M5,6 H14 a2,2 0 0,1 2,2 V27 a2,2 0 0,0 -2,-2 H5 Z", White, 1.4),
+            new Part("M27,6 H18 a2,2 0 0,0 -2,2 V27 a2,2 0 0,1 2,-2 H27 Z", White, 1.4),
+            new Part("M8,11 H13 M8,15 H13 M19,11 H24 M19,15 H24 M19,19 H22", Edge, 1.0)
         },
         ["DIAG"] = new[]
         {
