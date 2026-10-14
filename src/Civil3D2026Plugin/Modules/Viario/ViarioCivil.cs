@@ -34,11 +34,11 @@ internal static class ViarioCivil
     internal sealed class Report
     {
         public int AxesCreated, AxesUpdated, EdgesCreated, EdgesKept, CurbsCreated, CurbsKept, Erased;
-        public int CurbsConnected, CurbsSimple, CurbsFailed;
+        public int CurbsConnected, CurbsSimple, CurbsFailed, EdgesFixed;
         public List<string> Messages { get; } = new();
 
         public override string ToString() =>
-            $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}) | " +
+            $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, fixos {EdgesFixed}) | " +
             $"curb returns +{CurbsCreated} (mantidos {CurbsKept}; conectados {CurbsConnected}, simples {CurbsSimple}, falhas {CurbsFailed}) | removidos {Erased}";
     }
 
@@ -138,7 +138,7 @@ internal static class ViarioCivil
 
             Tagged? match = edgeTags
                 .Where(t => !t.Used && t.Key == e.AxisKey && t.Side == e.Side &&
-                            Math.Abs(t.S0 - e.S0) < Tol && Math.Abs(t.S1 - e.S1) < Tol && Math.Abs(t.Offset - e.Offset) < Tol)
+                            Math.Abs(t.S0 - e.S0) < Tol && Math.Abs(t.S1 - e.S1) < Tol && Math.Abs(t.Offset - e.Offset) < Tol && t.Geom == e.WidenKey)
                 .FirstOrDefault();
             if (match is null)
                 continue;
@@ -194,6 +194,7 @@ internal static class ViarioCivil
                         CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(t.Id, AcadDb.OpenMode.ForWrite);
                         BuildEntities(al, axis.Path);
                         TagAxis(al, axis);
+                        CheckPath(al, axis.Path, report);
                         report.AxesUpdated++;
                     }
 
@@ -206,6 +207,7 @@ internal static class ViarioCivil
                 CivilDb.Alignment created = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
                 BuildEntities(created, axis.Path);
                 TagAxis(created, axis);
+                CheckPath(created, axis.Path, report);
                 axisIds[axis.Key] = id;
                 report.AxesCreated++;
             }
@@ -243,12 +245,12 @@ internal static class ViarioCivil
                     continue;
 
                 string name = Unique(names, $"{parent.Name} - {e.Code}");
-                AcadDb.ObjectId id = CivilDb.Alignment.CreateOffsetAlignment(name, parentId, e.Offset, styleId, st0, st1);
-                CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                al.Layer = LayerEdge;
-                SetTag(al, KindEdge, e.AxisKey, e.Side.ToString(CultureInfo.InvariantCulture), F(e.S0), F(e.S1), F(e.Offset), string.Empty, string.Empty);
-                edgeIds[e] = id;
-                report.EdgesCreated++;
+                AcadDb.ObjectId id = CreateEdge(tr, cdoc, e, axis, parentId, st0, st1, name, siteId, layers[LayerEdge], styleId, labelId, report);
+                if (!id.IsNull)
+                {
+                    edgeIds[e] = id;
+                    report.EdgesCreated++;
+                }
             }
             catch (System.Exception ex)
             {
@@ -301,6 +303,195 @@ internal static class ViarioCivil
 
         Active[db] = false;
         return report.Erased;
+    }
+
+    // ------------------------------------------------------------------
+    // Bordo (offset dinamico, com alargamentos; senao geometria fixa)
+    // ------------------------------------------------------------------
+
+    private static AcadDb.ObjectId CreateEdge(AcadDb.Transaction tr, CivilDocument cdoc, CivilEdgePlan e, AxisInput axis,
+        AcadDb.ObjectId parentId, double st0, double st1, string name, AcadDb.ObjectId siteId, AcadDb.ObjectId layerId,
+        AcadDb.ObjectId styleId, AcadDb.ObjectId labelId, Report report)
+    {
+        string side = e.Side.ToString(CultureInfo.InvariantCulture);
+        List<string> errors = new();
+
+        if (!e.ForceFixed)
+        {
+            // Forma do valor do alargamento: largura total ou so o acrescimo, com ou sem sinal.
+            int variants = e.Widenings.Count == 0 ? 1 : 4;
+            for (int v = 0; v < variants; v++)
+            {
+                AcadDb.ObjectId id = AcadDb.ObjectId.Null;
+                try
+                {
+                    id = CivilDb.Alignment.CreateOffsetAlignment(name, parentId, e.Offset, styleId, st0, st1);
+                    CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
+                    foreach (CivilWidenRegion w in e.Widenings)
+                        ApplyWidening(al, axis, e, w, v);
+
+                    if (VerifyEdge(al, axis, e, out string why))
+                    {
+                        al.Layer = LayerEdge;
+                        SetTag(al, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, e.Widenings.Count == 0 ? "OFFSET" : "OFFSET-ALARG" + v);
+                        return id;
+                    }
+
+                    errors.Add($"variante {v}: {why}");
+                    al.Erase();
+                }
+                catch (System.Exception ex)
+                {
+                    errors.Add($"variante {v}: {ex.Message}");
+                    TryErase(tr, id);
+                }
+            }
+        }
+
+        // Geometria fixa (o plugin mantem): segue exatamente o bordo da rede.
+        AcadDb.ObjectId fixedId = CivilDb.Alignment.Create(cdoc, name, siteId, layerId, styleId, labelId);
+        CivilDb.Alignment fixedAl = (CivilDb.Alignment)tr.GetObject(fixedId, AcadDb.OpenMode.ForWrite);
+        BuildEntities(fixedAl, FixedEdgePath(axis.Path, e));
+        fixedAl.Layer = LayerEdge;
+        SetTag(fixedAl, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, "FIXO");
+        report.EdgesFixed++;
+        report.Messages.Add(e.ForceFixed
+            ? $"{name}: taper cortado pela esquina; bordo criado com geometria fixa."
+            : $"{name}: alargamento nao conferiu como offset ({string.Join(" | ", errors.Take(2))}); geometria fixa.");
+        return fixedId;
+    }
+
+    private static void ApplyWidening(CivilDb.Alignment al, AxisInput axis, CivilEdgePlan e, CivilWidenRegion w, int variant)
+    {
+        double sa = StationOf(al, OffsetPoint(axis.Path, w.Start, e.Offset), al.StartingStation);
+        double sb = StationOf(al, OffsetPoint(axis.Path, w.End, e.Offset), al.EndingStation);
+        if (w.Start <= e.S0 + Tol)
+            sa = al.StartingStation;
+        if (w.End >= e.S1 - Tol)
+            sb = al.EndingStation;
+
+        double total = Math.Abs(e.Offset) + w.Width;
+        double value = variant switch
+        {
+            0 => total,
+            1 => e.Side * total,
+            2 => w.Width,
+            _ => e.Side * w.Width
+        };
+
+        CivilDb.OffsetAlignmentInfo info = al.OffsetAlignmentInfo;
+        info.AddWidening(Math.Min(sa, sb), Math.Max(sa, sb), value);
+
+        // Comprimento e forma das transicoes da regiao criada.
+        double mid = (Math.Min(sa, sb) + Math.Max(sa, sb)) / 2.0;
+        foreach (CivilDb.AlignmentRegion region in info.Regions)
+        {
+            if (mid < region.StartStation - 1e-6 || mid > region.EndStation + 1e-6)
+                continue;
+
+            SetTransition(region.EntryTransition, w.TaperIn, w.Smooth);
+            SetTransition(region.ExitTransition, w.TaperOut, w.Smooth);
+            break;
+        }
+    }
+
+    private static void SetTransition(CivilDb.AlignmentTransition? transition, double length, bool smooth)
+    {
+        if (transition is null || length <= 1e-3)
+            return;
+
+        try
+        {
+            transition.TransitionType = smooth ? Autodesk.Civil.TransitionType.CurveReverseCurve : Autodesk.Civil.TransitionType.Linear;
+        }
+        catch
+        {
+            // Mantem o tipo padrao.
+        }
+
+        try
+        {
+            object? d = transition.TransitionDescription;
+            if (d is null)
+                return;
+
+            foreach (System.Reflection.PropertyInfo p in d.GetType().GetProperties())
+            {
+                if (p.CanWrite && p.PropertyType == typeof(double) && p.Name.Contains("Length", StringComparison.OrdinalIgnoreCase))
+                    p.SetValue(d, length);
+            }
+        }
+        catch
+        {
+            // Comprimento padrao do Civil.
+        }
+    }
+
+    /// <summary>Confere o bordo fora das transicoes (patamares e trechos normais).</summary>
+    private static bool VerifyEdge(CivilDb.Alignment al, AxisInput axis, CivilEdgePlan e, out string why)
+    {
+        why = string.Empty;
+        int n = Math.Clamp((int)(e.Length / 4.0), 4, 60);
+        for (int i = 0; i <= n; i++)
+        {
+            double s = e.S0 + (e.Length * i / n);
+            if (s - e.S0 < 0.05 || e.S1 - s < 0.05)
+                continue;
+            if (e.Widenings.Any(w => (s > w.Start - w.TaperIn - 0.05 && s < w.Start + 0.05 && w.TaperIn > 0) ||
+                                     (s > w.End - 0.05 && s < w.End + w.TaperOut + 0.05 && w.TaperOut > 0)))
+                continue;
+
+            V2 p = OffsetPoint(axis.Path, s, e.OffsetAt(s));
+            if (!OnAlignment(al, p))
+            {
+                why = $"fora do bordo na estaca {s:0.##} do eixo";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>Bordo exato: paralela quando a largura e constante, amostrado nos tapers.</summary>
+    private static GPath FixedEdgePath(GPath axis, CivilEdgePlan e)
+    {
+        if (e.Widenings.Count == 0 && !e.ForceFixed)
+            return axis.SubWrap(e.S0, e.S1).Offset(-e.Offset);
+
+        List<V2> pts = new();
+        double step = 0.5;
+        int n = Math.Max(2, (int)Math.Ceiling(e.Length / step));
+        for (int i = 0; i <= n; i++)
+        {
+            double s = e.S0 + (e.Length * i / n);
+            pts.Add(OffsetPoint(axis, s, e.OffsetAt(s)));
+        }
+
+        // Junta pontos alinhados para nao gerar centenas de retas.
+        List<V2> simple = new() { pts[0] };
+        for (int i = 1; i < pts.Count - 1; i++)
+        {
+            V2 a = simple[^1];
+            V2 b = pts[i + 1];
+            V2 ab = b - a;
+            double len = ab.Length;
+            double dev = len < 1e-9 ? 0.0 : Math.Abs(V2.Cross(ab, pts[i] - a)) / len;
+            if (dev > 0.003)
+                simple.Add(pts[i]);
+        }
+
+        simple.Add(pts[^1]);
+        List<Seg> segs = new();
+        for (int i = 1; i < simple.Count; i++)
+            segs.Add(Seg.Line(simple[i - 1], simple[i]));
+        return new GPath(segs);
+    }
+
+    /// <summary>Ponto a distancia com sinal (positivo = direita, como no Civil).</summary>
+    private static V2 OffsetPoint(GPath path, double s, double offset)
+    {
+        V2 t = path.TangentAt(s);
+        return path.PointAt(s) + (new V2(t.Y, -t.X) * offset);
     }
 
     // ------------------------------------------------------------------
@@ -468,18 +659,96 @@ internal static class ViarioCivil
                 continue;
             }
 
-            V2 t = s.TangentAt(0.0);
+            AddArc(al, s);
+        }
+    }
+
+    /// <summary>
+    /// Arco fixo do inicio ao fim. As sobrecargas do Civil interpretam ponto/direcao de formas
+    /// diferentes; cada tentativa e conferida (centro e comprimento) e desfeita se nao bater.
+    /// </summary>
+    private static void AddArc(CivilDb.Alignment al, Seg s)
+    {
+        V2 t0 = s.TangentAt(0.0);
+        V2 t1 = s.TangentAt(1.0);
+        bool cw = s.Sweep < 0;
+        List<Func<object>> attempts = new()
+        {
+            () => al.Entities.AddFixedCurve(P3(s.A), P3(s.B), V3(t1)),
+            () => al.Entities.AddFixedCurve(P3(s.A), V3(t0), P3(s.B)),
+            () => al.Entities.AddFixedCurve(P3(s.A), P3(s.B), s.Radius, cw)
+        };
+
+        foreach (Func<object> attempt in attempts)
+        {
+            object? entity = null;
             try
             {
-                al.Entities.AddFixedCurve(P3(s.A), new Vector3d(t.X, t.Y, 0.0), P3(s.B));
+                entity = attempt();
+                if (ArcMatches(entity, s))
+                    return;
             }
             catch
             {
-                // Arco quase reto: vira reta.
-                al.Entities.AddFixedLine(P3(s.A), P3(s.B));
+                // Proxima forma.
+            }
+
+            if (entity is CivilDb.AlignmentEntity ae)
+            {
+                try
+                {
+                    al.Entities.Remove(ae);
+                }
+                catch
+                {
+                    // Sem remover nao da para tentar outra forma.
+                    return;
+                }
             }
         }
+
+        // Ultimo recurso: arco em duas metades (cada uma < 180 graus) pela forma explicita de raio.
+        if (Math.Abs(s.Sweep) > 1e-3 && s.Length > 0.05)
+        {
+            Seg h1 = s.Sub(0.0, 0.5);
+            Seg h2 = s.Sub(0.5, 1.0);
+            al.Entities.AddFixedCurve(P3(h1.A), P3(h1.B), h1.Radius, cw);
+            al.Entities.AddFixedCurve(P3(h2.A), P3(h2.B), h2.Radius, cw);
+        }
     }
+
+    /// <summary>Confere centro e comprimento do arco criado (por reflexao; sem dados, aceita).</summary>
+    private static bool ArcMatches(object entity, Seg s)
+    {
+        Type type = entity.GetType();
+
+        object? center = type.GetProperty("CenterPoint")?.GetValue(entity);
+        if (center is not null)
+        {
+            double? x = center.GetType().GetProperty("X")?.GetValue(center) as double?;
+            double? y = center.GetType().GetProperty("Y")?.GetValue(center) as double?;
+            if (x is double cx && y is double cy)
+            {
+                if (V2.Dist(new V2(cx, cy), s.Center) > 0.01)
+                    return false;
+            }
+        }
+
+        if (type.GetProperty("Length")?.GetValue(entity) is double length && Math.Abs(length - s.Length) > 0.01)
+            return false;
+
+        return true;
+    }
+
+    /// <summary>Confere o meio de cada trecho do caminho sobre o alinhamento.</summary>
+    private static void CheckPath(CivilDb.Alignment al, GPath path, Report report)
+    {
+        int bad = path.Segs.Count(sg => sg.Length > 1e-3 && !OnAlignment(al, sg.PointAt(0.5)));
+        if (bad > 0)
+            report.Messages.Add($"{al.Name}: {bad} trecho(s) nao conferem com o eixo desenhado.");
+    }
+
+    private static Vector3d V3(V2 v) => new(v.X, v.Y, 0.0);
 
     private static double StationOf(CivilDb.Alignment al, V2 p, double fallback)
     {

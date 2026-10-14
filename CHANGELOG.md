@@ -1,3 +1,10 @@
+## 2.26.1 - C3DVIARIO v0.4.1 / correcoes dos alinhamentos do Civil
+
+- arcos saiam espelhados (curva para o lado contrario): a sobrecarga usada pelo Civil toma a direcao no ponto final. Agora cada arco e criado pela forma "direcao no segundo ponto", conferido (centro e comprimento) e, se nao bater, desfeito e refeito por outra forma (direcao inicial, raio + sentido, ou duas metades). Vale para eixos, curb returns simples e bordos fixos; o console avisa se algum trecho do alinhamento nao confere com o eixo;
+- alargamentos/tapers: o bordo LD/LE ganha regiao de alargamento do proprio offset (AddWidening) com transicoes no comprimento do taper (linear, ou curva reversa no taper suave). O plugin confere o bordo nos patamares e trechos normais; se o Civil nao representar (forma do valor, ou taper cortado pela esquina), cria o bordo com geometria fixa igual a da rede e avisa;
+- curb returns encostados em trecho alargado usam a distancia real (com alargamento) nas tentativas de alinhamento conectado;
+- bordos sao refeitos quando o alargamento muda.
+
 ## 2.26.0 - C3DVIARIO v0.4.0 / objetos do Civil (etapa 1: alinhamentos)
 
 - **C3DVIARIOCIVIL** (e C3DVIARIO > CIvil): gera alinhamentos do Civil a partir da rede, no site `VIARIO`:

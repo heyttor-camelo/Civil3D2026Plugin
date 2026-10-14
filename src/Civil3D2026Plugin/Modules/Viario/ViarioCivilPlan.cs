@@ -24,6 +24,33 @@ internal sealed class CivilEdgePlan
     public string Code => (Side > 0 ? "LD" : "LE") + Index;
 
     public double Length => S1 - S0;
+
+    /// <summary>Alargamentos (regioes do alinhamento offset) dentro do trecho.</summary>
+    public List<CivilWidenRegion> Widenings { get; } = new();
+
+    /// <summary>Alargamento que o Civil nao representa (taper cortado): usar geometria fixa.</summary>
+    public bool ForceFixed { get; set; }
+
+    /// <summary>Largura extra na estaca s do eixo (alargamentos, gotas).</summary>
+    public Func<double, double> Extra { get; set; } = _ => 0.0;
+
+    /// <summary>Offset com sinal na estaca s, incluindo alargamentos.</summary>
+    public double OffsetAt(double s) => Offset + (Side * Extra(s));
+
+    public string WidenKey => ForceFixed ? "FIXO|" + string.Join(";", Widenings.Select(w => w.Key)) : string.Join(";", Widenings.Select(w => w.Key));
+}
+
+/// <summary>Regiao alargada de um trecho: patamar [Start, End] com transicoes.</summary>
+internal sealed class CivilWidenRegion
+{
+    public double Start { get; init; }
+    public double End { get; init; }
+    public double TaperIn { get; init; }
+    public double TaperOut { get; init; }
+    public double Width { get; init; }
+    public bool Smooth { get; init; }
+
+    public string Key => FormattableString.Invariant($"{Start:0.###},{End:0.###},{TaperIn:0.###},{TaperOut:0.###},{Width:0.###},{(Smooth ? 1 : 0)}");
 }
 
 /// <summary>Curb return de uma esquina concava.</summary>
@@ -36,12 +63,12 @@ internal sealed class CivilCurbPlan
     public string AxisIn { get; init; } = "";
     public int SideIn { get; init; }
     public double StationIn { get; init; }
-    public double OffsetIn { get; init; }
+    public double OffsetIn { get; set; }
 
     public string AxisOut { get; init; } = "";
     public int SideOut { get; init; }
     public double StationOut { get; init; }
-    public double OffsetOut { get; init; }
+    public double OffsetOut { get; set; }
 
     public CivilEdgePlan? EdgeIn { get; set; }
     public CivilEdgePlan? EdgeOut { get; set; }
@@ -148,11 +175,25 @@ internal static class ViarioCivilPlanner
             }
         }
 
+        // Alargamentos de cada trecho.
+        foreach (CivilEdgePlan e in plan.Edges)
+        {
+            List<WidenInfo> ws = result.Widenings.Where(w => w.AxisKey == e.AxisKey && w.Side == e.Side).ToList();
+            if (ws.Count == 0)
+                continue;
+
+            e.Extra = s => ws.Max(w => w.ValueAt(s));
+            foreach (WidenInfo w in ws)
+                AddWidenRegion(e, w);
+        }
+
         // Liga cada curb return aos trechos que ele encosta.
         foreach (CivilCurbPlan curb in plan.Curbs)
         {
             curb.EdgeIn = EdgeAt(plan, curb.AxisIn, curb.SideIn, curb.StationIn);
             curb.EdgeOut = EdgeAt(plan, curb.AxisOut, curb.SideOut, curb.StationOut);
+            curb.OffsetIn += curb.SideIn * Extra(result, curb.AxisIn, curb.SideIn, curb.StationIn);
+            curb.OffsetOut += curb.SideOut * Extra(result, curb.AxisOut, curb.SideOut, curb.StationOut);
         }
 
         return plan;
@@ -264,6 +305,52 @@ internal static class ViarioCivilPlanner
         }
 
         return OpenComplement(length, norm);
+    }
+
+    private static double Extra(ViarioResult result, string axis, int side, double s) =>
+        result.Widenings.Where(w => w.AxisKey == axis && w.Side == side).Select(w => w.ValueAt(s)).DefaultIfEmpty(0.0).Max();
+
+    private static void AddWidenRegion(CivilEdgePlan e, WidenInfo w)
+    {
+        const double eps = 0.01;
+        double p0, p1, lowTaper, highTaper;
+        if (w.Dir > 0)
+        {
+            p0 = w.Behind ? double.NegativeInfinity : w.A;
+            p1 = w.A + w.Full;
+            lowTaper = 0.0;
+            highTaper = w.Taper;
+        }
+        else
+        {
+            p0 = w.A - w.Full;
+            p1 = w.Behind ? double.PositiveInfinity : w.A;
+            lowTaper = w.Taper;
+            highTaper = 0.0;
+        }
+
+        double start = Math.Max(p0, e.S0);
+        double end = Math.Min(p1, e.S1);
+        if (end - start < eps)
+        {
+            // Trecho so dentro do taper: o Civil nao tem regiao para isso.
+            bool inTaper = (w.Dir > 0 && e.S0 < p1 + highTaper && e.S1 > p1) || (w.Dir < 0 && e.S1 > p0 - lowTaper && e.S0 < p0);
+            if (inTaper)
+                e.ForceFixed = true;
+            return;
+        }
+
+        double tin = start > e.S0 + eps ? Math.Min(lowTaper, start - e.S0) : 0.0;
+        double tout = end < e.S1 - eps ? Math.Min(highTaper, e.S1 - end) : 0.0;
+        if (tin < lowTaper - eps && start > e.S0 + eps)
+            e.ForceFixed = true;
+        if (tout < highTaper - eps && end < e.S1 - eps)
+            e.ForceFixed = true;
+
+        e.Widenings.Add(new CivilWidenRegion
+        {
+            Start = start, End = end, TaperIn = tin, TaperOut = tout, Width = w.Width, Smooth = w.Smooth
+        });
     }
 
     private static CivilEdgePlan? EdgeAt(CivilPlan plan, string axis, int side, double s)

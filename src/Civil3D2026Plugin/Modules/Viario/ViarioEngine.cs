@@ -188,8 +188,44 @@ internal sealed class EngineSettings
     };
 }
 
+/// <summary>Alargamento de um lado do eixo (patamar + taper), para os objetos do Civil.</summary>
+internal sealed class WidenInfo
+{
+    public string AxisKey { get; init; } = "";
+
+    /// <summary>+1 = direita, -1 = esquerda, no sentido do eixo (convencao do Civil).</summary>
+    public int Side { get; init; }
+
+    /// <summary>Estaca do no (inicio do patamar) e sentido em que o patamar avanca.</summary>
+    public double A { get; init; }
+    public int Dir { get; init; }
+    public double Full { get; init; }
+    public double Taper { get; init; }
+    public double Width { get; init; }
+    public bool Smooth { get; init; }
+
+    /// <summary>O patamar tambem vale atras do no (eixo termina no no).</summary>
+    public bool Behind { get; init; }
+
+    public double ValueAt(double s)
+    {
+        double u = (s - A) * Dir;
+        if (u < 0)
+            return Behind ? Width : 0.0;
+        if (u <= Full)
+            return Width;
+        if (Taper <= 1e-9)
+            return 0.0;
+        double t = (u - Full) / Taper;
+        if (t >= 1.0)
+            return 0.0;
+        return Width * (Smooth ? 0.5 * (1.0 + Math.Cos(Math.PI * t)) : 1.0 - t);
+    }
+}
+
 internal sealed class ViarioResult
 {
+    public List<WidenInfo> Widenings { get; } = new();
     public List<OutputLine> Lines { get; } = new();
     public List<NodeInfo> Nodes { get; } = new();
     public List<CornerInfo> Corners { get; } = new();
@@ -313,6 +349,18 @@ internal static class ViarioEngine
         List<Node> nodes = FindNodes(ctx);
         BuildLegs(ctx, nodes);
         ResolveEvents(ctx, nodes);
+        foreach (((int axis, int side), List<Ramp> ramps) in ctx.Widen)
+        {
+            foreach (Ramp r in ramps)
+            {
+                result.Widenings.Add(new WidenInfo
+                {
+                    AxisKey = valid[axis].Key, Side = -side, A = r.A, Dir = r.Dir, Full = r.Full,
+                    Taper = r.Taper, Width = r.Width, Smooth = r.Smooth, Behind = r.Behind
+                });
+            }
+        }
+
         BuildCurves(ctx, nodes);
 
         foreach (Node node in nodes)
