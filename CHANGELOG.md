@@ -1,3 +1,8 @@
+## 2.27.1 - C3DVIARIO v0.5.1 / ajustes do painel e da sinalizacao (testado no Civil)
+
+- painel: o desenho e redesenhado logo apos editar secoes/eixos (antes so atualizava ao mexer no zoom); mapa da aba Rede nao corta mais a parte de baixo; lista de secoes sem rolagem lateral;
+- sinalizacao: ramo curto entre dois nos (ou ate a ponta) nao recebe faixa de pedestres nem retencao sobrepostas; listras que cairiam dentro de uma gota nao sao pintadas.
+
 ## 2.27.0 - C3DVIARIO v0.5.0 / painel flutuante, sinalizacao previa, secoes com tipo
 
 - **C3DVIARIOPAINEL**: janela flutuante (nao modal) com abas:

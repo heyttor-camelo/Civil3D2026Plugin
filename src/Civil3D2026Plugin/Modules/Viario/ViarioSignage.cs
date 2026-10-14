@@ -97,6 +97,7 @@ internal static class ViarioSignage
     public static List<MarkLine> Build(IReadOnlyList<AxisInput> axes, ViarioResult result, SignageOptions o)
     {
         List<MarkLine> marks = new();
+        List<List<Seg>> islands = result.Lines.Where(l => l.Level == EdgeLevel.Ilha && l.Closed).Select(l => l.Segs).ToList();
         Dictionary<string, AxisInput> byKey = axes.GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
 
         foreach (AxisInput axis in axes)
@@ -205,7 +206,13 @@ internal static class ViarioSignage
                     foreach (int side in new[] { -1, 1 })
                     {
                         for (double t = c + (o.ListraLargura / 2.0) + 0.1; t <= c + half - (o.ListraLargura / 2.0) - 0.05; t += step)
+                        {
+                            // Listra que cai dentro de uma ilha (gota) nao e pintada.
+                            V2 mid = path.PointAt((s0 + s1) / 2.0) + (path.TangentAt((s0 + s1) / 2.0).Unit().Left * (side * t));
+                            if (islands.Any(ring => ViarioEngine.RingContains(ring, mid)))
+                                continue;
                             Add(marks, path, Math.Min(s0, s1), Math.Max(s0, s1), side * t, o.ListraLargura, false, "FTP");
+                        }
                     }
                 }
 
@@ -233,6 +240,13 @@ internal static class ViarioSignage
         List<Approach> list = new();
         GPath path = axis.Path;
         double face = axis.Section.EdgeOffset(EdgeLevel.FaceMF);
+
+        List<double> nodeStations = result.Nodes
+            .Where(nd => nd.AxisKeys.Contains(axis.Key))
+            .Select(nd => path.Project(nd.Point))
+            .Where(pr => pr.Dist <= 0.5)
+            .Select(pr => pr.S)
+            .ToList();
 
         foreach (NodeInfo node in result.Nodes.Where(nd => nd.AxisKeys.Contains(axis.Key)))
         {
@@ -274,6 +288,16 @@ internal static class ViarioSignage
 
                 double u0 = Math.Max(uArc, crossHalf) + o.TravessiaRecuo;
                 double uStop = (o.Travessia ? u0 + o.TravessiaLargura + o.RetencaoDistancia : uArc + 1.0) + (o.RetencaoLargura / 2.0);
+
+                // Ramo curto: ate o proximo no (metade para cada lado) ou ate a ponta do eixo.
+                double sOther = dir > 0
+                    ? nodeStations.Where(x => x > sN + 0.5).DefaultIfEmpty(double.NaN).Min()
+                    : nodeStations.Where(x => x < sN - 0.5).DefaultIfEmpty(double.NaN).Max();
+                double room = double.IsNaN(sOther)
+                    ? (dir > 0 ? path.Length - sN : sN)
+                    : Math.Abs(sOther - sN) / 2.0;
+                if (uStop + (o.RetencaoLargura / 2.0) > room)
+                    continue;
                 list.Add(new Approach
                 {
                     SNode = sN,

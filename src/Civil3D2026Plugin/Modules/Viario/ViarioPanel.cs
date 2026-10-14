@@ -369,6 +369,10 @@ internal sealed class ViarioPanel : SW.Window
 
                 if (regenerate)
                     ViarioSync.Regenerate(doc, quiet: true);
+
+                // Comando vindo de janela nao modal: forca o redesenho da tela.
+                doc.Editor.UpdateScreen();
+                AcApp.UpdateScreen();
             }
 
             Say(what);
@@ -529,6 +533,7 @@ internal sealed class ViarioPanel : SW.Window
             if (!_loading)
                 ShowSection();
         };
+        WC.ScrollViewer.SetHorizontalScrollBarVisibility(_sectionList, WC.ScrollBarVisibility.Disabled);
         left.Children.Add(_sectionList);
         grid.Children.Add(left);
 
@@ -584,8 +589,12 @@ internal sealed class ViarioPanel : SW.Window
             int uses = _axes.Count(a => a.Section.Id == s.Id);
             WC.ListBoxItem item = new()
             {
-                Content = $"{s.Name}\n  {s.Tipo}, pista {N(s.Pista)}" + (s.Canteiro > 0 ? $" + canteiro {N(s.Canteiro)}" : "") +
-                          $" | {uses} eixo(s)" + (s.Id == _settings.CurrentSectionId ? "  (corrente)" : ""),
+                Content = new WC.TextBlock
+                {
+                    Text = $"{s.Name}\n{s.Tipo}, pista {N(s.Pista)}" + (s.Canteiro > 0 ? $" + canteiro {N(s.Canteiro)}" : "") +
+                           $"\n{uses} eixo(s)" + (s.Id == _settings.CurrentSectionId ? " - corrente" : ""),
+                    TextWrapping = SW.TextWrapping.Wrap
+                },
                 Tag = s.Id,
                 FontWeight = s.Id == _settings.CurrentSectionId ? SW.FontWeights.SemiBold : SW.FontWeights.Normal
             };
@@ -1474,6 +1483,11 @@ internal sealed class ViarioPanel : SW.Window
     {
         canvas.Children.Clear();
         double w = canvas.ActualWidth, h = canvas.ActualHeight;
+        if (canvas.Parent is WC.Border host && host.ActualWidth > 4 && host.ActualHeight > 4)
+        {
+            w = host.ActualWidth - 2;
+            h = host.ActualHeight - 2;
+        }
         List<V2> all = shapes.SelectMany(s => s.Points).ToList();
         if (w < 20 || h < 20 || all.Count == 0)
         {
