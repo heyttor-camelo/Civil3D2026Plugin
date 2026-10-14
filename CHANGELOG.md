@@ -1,3 +1,14 @@
+## 2.26.4 - C3DVIARIO v0.4.4 / testado no Civil 3D (roteiro automatico)
+
+Rodado no Civil 3D 2026 com `tests/viario/teste_rede.scr` (cruzamento, T, eixo curvo, rotatoria com ramos, quadra fechada; alargamento, gota, raio, mover eixo, faixa livre, apagar, desfazer, remover e gerar de novo), conferido por `C3DVIARIOTESTE`:
+
+- **C3DVIARIOTESTE**: autoteste somente leitura; cada eixo, bordo e curb return sai OK/FALHA (trechos fora do eixo, bordo fora da rede nos patamares, desvio maximo nos tapers, arco do curb return, objetos sobrando). Relatorio em `%TEMP%\C3DVIARIOTESTE.txt` e, com a DLL na pasta NETLOAD do repositorio, em `tests/viario/out/`;
+- curb return conectado: o Civil exige sobreposicao > 0 (antes todos caiam em "simples"); agora 0,5 m e todos saem conectados aos bordos;
+- alargamento/gota: transicoes do offset gravadas por estaca inicial/final (o Civil cria com comprimento zero = degrau); regiao inicial/final sem transicao de entrada/saida tratada; taper suave = curva reversa simetrica (desvio de poucos cm do taper do motor);
+- motor: esquina perto de um no que e so continuacao reta (dois eixos alinhados) pode usar o ramo inteiro - antes o raio era reduzido sem necessidade;
+- nomes de curb return nao repetem numero quando parte deles e mantida;
+- conferencia ignora vertices de polilinha sem curva (o offset do lado de dentro e cortado ali).
+
 ## 2.26.3 - C3DVIARIO v0.4.3 / raio de esquina em eixos que se cruzam mais de uma vez
 
 - quando dois eixos se encontram em mais de um no com a mesma orientacao (ex.: via em curva que cruza outra duas vezes), as esquinas tinham a mesma chave e o editor de raio mudava as duas juntas. Agora a segunda ocorrencia em diante recebe sufixo (`#2`, `#3`, pela ordem ao longo do eixo); chaves que nao se repetem continuam iguais, entao raios ja gravados em desenhos antigos nao mudam.

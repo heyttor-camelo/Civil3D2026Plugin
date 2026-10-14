@@ -394,6 +394,8 @@ internal static class ViarioCivil
                 for (int i = 1; i < 10; i++)
                 {
                     double s = a + ((b - a) * i / 10.0);
+                    if (NearKink(axis.Path, s, Math.Abs(e.Offset) + w.Width + 0.5))
+                        continue;
                     V2 p = OffsetPoint(axis.Path, s, e.OffsetAt(s));
                     try
                     {
@@ -672,6 +674,8 @@ internal static class ViarioCivil
             double s = e.S0 + (e.Length * i / n);
             if (s - e.S0 < 0.05 || e.S1 - s < 0.05)
                 continue;
+            if (NearKink(axis.Path, s, Math.Abs(e.Offset) + 0.5))
+                continue;
             if (e.Widenings.Any(w => (s > w.Start - w.TaperIn - 0.05 && s < w.Start + 0.05 && w.TaperIn > 0) ||
                                      (s > w.End - 0.05 && s < w.End + w.TaperOut + 0.05 && w.TaperOut > 0)))
                 continue;
@@ -685,6 +689,37 @@ internal static class ViarioCivil
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Perto de um vertice com quebra de direcao (polilinha sem curva) o bordo do lado de
+    /// dentro e cortado e o de fora vira arco: a amostragem pela normal nao vale ali.
+    /// </summary>
+    private static bool NearKink(GPath path, double s, double radius)
+    {
+        double cum = 0.0;
+        for (int i = 0; i < path.Segs.Count; i++)
+        {
+            cum += path.Segs[i].Length;
+            bool last = i == path.Segs.Count - 1;
+            if (last && !path.Closed)
+                break;
+
+            Seg a = path.Segs[i];
+            Seg b = path.Segs[last ? 0 : i + 1];
+            double turn = Math.Abs(GMath.Norm(b.TangentAt(0.0).Angle - a.TangentAt(1.0).Angle + Math.PI) - Math.PI);
+            if (turn < 1.0 * Math.PI / 180.0)
+                continue;
+
+            double at = last ? path.Length : cum;
+            double d = Math.Abs(s - at);
+            if (path.Closed)
+                d = Math.Min(d, path.Length - d);
+            if (d <= radius)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Bordo exato: paralela quando a largura e constante, amostrado nos tapers.</summary>
