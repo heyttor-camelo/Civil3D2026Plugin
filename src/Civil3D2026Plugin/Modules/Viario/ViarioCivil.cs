@@ -269,6 +269,8 @@ internal static class ViarioCivil
         {
             if (keepCurb.ContainsKey(c))
             {
+                // Conta tambem os mantidos para os novos nao repetirem o numero.
+                CountPair(tr, c, axisIds, crCount);
                 report.CurbsKept++;
                 continue;
             }
@@ -529,9 +531,9 @@ internal static class ViarioCivil
             // A regiao inicial nao tem transicao de entrada (e a final nao tem de saida):
             // o Civil lanca excecao ao ler; cada lado e tratado a parte.
             if (w.TaperIn > 1e-3)
-                SetTransition(Try(() => region.EntryTransition), region.StartStation - TaperStations(al, axis, e, w.Start - w.TaperIn, w.Start), region.StartStation, w.Smooth);
+                SetTransition(Try(() => region.EntryTransition), region.StartStation - TaperStations(al, axis, e, w.Start - w.TaperIn, w.Start), region.StartStation, w.Smooth, w.Width);
             if (w.TaperOut > 1e-3)
-                SetTransition(Try(() => region.ExitTransition), region.EndStation, region.EndStation + TaperStations(al, axis, e, w.End, w.End + w.TaperOut), w.Smooth);
+                SetTransition(Try(() => region.ExitTransition), region.EndStation, region.EndStation + TaperStations(al, axis, e, w.End, w.End + w.TaperOut), w.Smooth, w.Width);
             break;
         }
     }
@@ -609,7 +611,7 @@ internal static class ViarioCivil
     /// Transicao entre estacas [start, end] do bordo. O Civil guarda a transicao como
     /// StartStation/EndStation (Length vem zerado ao criar o alargamento).
     /// </summary>
-    private static void SetTransition(CivilDb.AlignmentTransition? transition, double start, double end, bool smooth)
+    private static void SetTransition(CivilDb.AlignmentTransition? transition, double start, double end, bool smooth, double width)
     {
         if (transition is null || end - start <= 1e-3)
             return;
@@ -648,6 +650,16 @@ internal static class ViarioCivil
         Set("EndStation", end);
         Set("StartStation", start);
         Set("Length", end - start);
+
+        // Curva reversa simetrica: dois arcos iguais que vencem a largura no comprimento
+        // do taper (fica a poucos cm do taper suave em cosseno do motor).
+        if (smooth && width > 1e-3)
+        {
+            double length = end - start;
+            double radius = ((length * length) + (width * width)) / (4.0 * width);
+            Set("EntryCurveRadius", radius);
+            Set("ReverseCurveRadius", radius);
+        }
     }
 
     /// <summary>Confere o bordo fora das transicoes (patamares e trechos normais).</summary>
@@ -806,6 +818,16 @@ internal static class ViarioCivil
         report.CurbsSimple++;
         if (errors.Count > 0)
             report.Messages.Add($"Curb return {name}: conectado nao deu ({string.Join(" | ", errors.Take(3))}); criado simples.");
+    }
+
+    private static void CountPair(AcadDb.Transaction tr, CivilCurbPlan c, Dictionary<string, AcadDb.ObjectId> axisIds, Dictionary<string, int> crCount)
+    {
+        if (!axisIds.TryGetValue(c.AxisIn, out AcadDb.ObjectId a) || !axisIds.TryGetValue(c.AxisOut, out AcadDb.ObjectId b))
+            return;
+        string nameIn = ((CivilDb.Alignment)tr.GetObject(a, AcadDb.OpenMode.ForRead)).Name;
+        string nameOut = ((CivilDb.Alignment)tr.GetObject(b, AcadDb.OpenMode.ForRead)).Name;
+        string pair = nameIn == nameOut ? nameIn : $"{nameIn} x {nameOut}";
+        crCount[pair] = crCount.TryGetValue(pair, out int n) ? n + 1 : 1;
     }
 
     private static CivilDb.ConnectedAlignmentParams Params(AcadDb.ObjectId inId, double inSta, double inOff,
