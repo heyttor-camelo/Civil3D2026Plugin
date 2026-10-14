@@ -1,3 +1,9 @@
+## 2.28.2 - C3DVIARIO v0.6.2 / sinalizacao volta a gerar
+
+- **sinalizacao nao gerava** (eNoDatabase): a transparencia da layer VIARIO-SH-CONTORNO era aplicada antes de a layer entrar no desenho;
+- secao criada/editada pela linha de comando: ao mudar pista ou canteiro, o numero de faixas volta ao automatico;
+- explorador: selecao das listas legivel no tema escuro, barra de comandos sem as setas de excesso, rotulos dos eixos sem sobreposicao.
+
 ## 2.28.1 - C3DVIARIO v0.6.1 / explorador no molde do Project Explorer, tema escuro, consulta DNIT
 
 - C3DVIARIOPAINEL no molde do Project Explorer do Civil: barra de categorias com contagem (secoes, eixos, elementos, intersecoes, esquinas, ilhas, sinalizacao, Civil, recomendacoes, consulta, config), barra de comandos com Localizar, vista grafica escura com grade, coordenadas, zoom pela roda e arrastar, lista de objetos em colunas e abas (Propriedades, Recomendacoes e itens relacionados);

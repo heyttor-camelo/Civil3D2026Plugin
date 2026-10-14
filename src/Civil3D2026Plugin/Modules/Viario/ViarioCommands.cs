@@ -1112,6 +1112,9 @@ public sealed class ViarioCommands
         double? raio = AskDouble(ed, "Raio de esquina na face do meio-fio (m, 0 = canto vivo)", s.Raio, allowZero: true);
         if (raio is null) return false;
 
+        // Largura de pista mudou pela linha de comando: faixas voltam ao automatico.
+        if (Math.Abs(pista.Value - s.Pista) > 1e-6 || Math.Abs(canteiro.Value - s.Canteiro) > 1e-6)
+            s.Faixas = 0;
         s.Pista = pista.Value;
         s.Canteiro = canteiro.Value;
         s.Sarjeta = sarjeta.Value;

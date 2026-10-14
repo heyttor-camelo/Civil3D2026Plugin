@@ -175,9 +175,11 @@ internal static class ViarioSignageSync
             Name = name,
             Color = AcColors.Color.FromColorIndex(AcColors.ColorMethod.ByAci, color)
         };
-        if (transparencyPercent > 0)
-            layer.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - transparencyPercent) / 100.0));
         table.Add(layer);
         tr.AddNewlyCreatedDBObject(layer, true);
+
+        // Transparencia so depois de a layer estar no banco (antes da eNoDatabase).
+        if (transparencyPercent > 0)
+            layer.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - transparencyPercent) / 100.0));
     }
 }

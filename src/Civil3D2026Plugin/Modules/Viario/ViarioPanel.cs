@@ -384,8 +384,26 @@ internal sealed class ViarioPanel : SW.Window
         header.Setters.Add(new SW.Setter(WC.Control.HorizontalContentAlignmentProperty, SW.HorizontalAlignment.Left));
         Resources[typeof(WC.GridViewColumnHeader)] = header;
 
+        // Linha da lista com selecao nas cores do tema (o modelo padrao do Windows ignora o tema escuro).
+        SW.FrameworkElementFactory bd = new(typeof(WC.Border), "Bd");
+        bd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
+        bd.SetValue(WC.Border.PaddingProperty, new SW.Thickness(0, 1, 0, 1));
+        SW.FrameworkElementFactory presenter = new(typeof(WC.GridViewRowPresenter));
+        presenter.SetValue(WC.GridViewRowPresenter.ColumnsProperty, new SW.TemplateBindingExtension(WC.GridView.ColumnCollectionProperty));
+        presenter.SetValue(WC.ContentPresenter.ContentProperty, new SW.TemplateBindingExtension(WC.ContentControl.ContentProperty));
+        bd.AppendChild(presenter);
+        WC.ControlTemplate rowTemplate = new(typeof(WC.ListViewItem)) { VisualTree = bd };
+        SW.Trigger hover = new() { Property = SW.UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Header, "Bd"));
+        rowTemplate.Triggers.Add(hover);
+        SW.Trigger sel = new() { Property = WC.Primitives.Selector.IsSelectedProperty, Value = true };
+        sel.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
+        rowTemplate.Triggers.Add(sel);
+
         SW.Style item = new(typeof(WC.ListViewItem));
         item.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+        item.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, WM.Brushes.Transparent));
+        item.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, rowTemplate));
         Resources[typeof(WC.ListViewItem)] = item;
 
         SW.Style button = new(typeof(WC.Button));
@@ -404,13 +422,16 @@ internal sealed class ViarioPanel : SW.Window
         Resources[typeof(WC.ContextMenu)] = menu;
     }
 
-    private WC.ToolBarTray BuildCommandBar()
+    private WC.StackPanel BuildCommandBar()
     {
-        WC.ToolBarTray tray = new() { Background = T.Back };
-        int band = 0;
+        WC.StackPanel tray = new() { Orientation = WC.Orientation.Horizontal };
+        bool first = true;
         foreach (IGrouping<string, Cmd> group in Commands.GroupBy(c => c.Group))
         {
-            WC.ToolBar bar = new() { Band = 0, BandIndex = band++, Background = T.Back };
+            if (!first)
+                tray.Children.Add(new WC.Border { Width = 1, Background = T.Line, Margin = new SW.Thickness(5, 3, 5, 3) });
+            first = false;
+            WC.StackPanel bar = tray;
             foreach (Cmd cmd in group)
             {
                 WC.Button button = new()
@@ -425,10 +446,8 @@ internal sealed class ViarioPanel : SW.Window
                 WC.ToolTipService.SetShowDuration(button, 30000);
                 Cmd c = cmd;
                 button.Click += (_, _) => Send(c.Send, c.Title + ": siga a linha de comando.");
-                bar.Items.Add(button);
+                bar.Children.Add(button);
             }
-
-            tray.ToolBars.Add(bar);
         }
 
         return tray;
@@ -2346,7 +2365,8 @@ internal sealed class ViarioPanel : SW.Window
         for (int i = 0; i < _axes.Count; i++)
         {
             AxisInput a = _axes[i];
-            SW.Point p = P(a.Path.PointAt(a.Path.Length / 2.0));
+            // Rotulo deslocado ao longo do eixo para nao sobrepor os vizinhos.
+            SW.Point p = P(a.Path.PointAt(a.Path.Length * (0.25 + (0.15 * (i % 3)))));
             if (p.X < 0 || p.Y < 0 || p.X > w || p.Y > h)
                 continue;
             Label(AxisName(a, i), p.X + 4, p.Y - 14, 10);
