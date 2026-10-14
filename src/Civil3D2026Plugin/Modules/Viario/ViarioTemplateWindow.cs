@@ -154,7 +154,7 @@ internal sealed class ViarioTemplateWindow : SW.Window
         foreach (WC.ComboBox combo in new[] { _principal, _secundaria, _anel })
         {
             foreach (RoadSection s in _sections)
-                combo.Items.Add($"{s.Id} {s.Name} (pista {N(s.Pista)}" + (s.Canteiro > 0 ? $", canteiro {N(s.Canteiro)}" : "") + ")");
+                combo.Items.Add($"{s.Name} (pista {N(s.Pista)}" + (s.Canteiro > 0 ? $", canteiro {N(s.Canteiro)}" : "") + ")");
             combo.SelectedIndex = Math.Max(0, _sections.FindIndex(s => s.Id == current.Id));
             combo.SelectionChanged += (_, _) => RenderPreview();
         }

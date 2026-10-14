@@ -178,6 +178,8 @@ public static class CommandCatalog
                 C3DVersions.Viario,
                 new[]
                 {
+                    new CommandDefinition(C3DCommands.Viario.Painel, "Painel viario",
+                        "Janela flutuante com todos os comandos da rede viaria (icones e ilustracoes), secoes com corte transversal, lista de eixos com mapa, sinalizacao previa, Civil e configuracao."),
                     new CommandDefinition(C3DCommands.Viario.Eixo, "Lancar eixo",
                         "Lanca eixos (retas e arcos) com preview: bordos, meio-fio, calcada, canteiro e esquinas aparecem enquanto desenha."),
                     new CommandDefinition(C3DCommands.Viario.Raio, "Raio de esquina",
@@ -199,9 +201,11 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Viario.Rede, "Rede viaria",
                         "Secoes (pista, canteiro, sarjeta, meio-fio, calcada, raio), rotatoria, adicionar/atribuir/remover eixos, soltar linhas e atualizar."),
                     new CommandDefinition(C3DCommands.Viario.Civil, "Objetos do Civil",
-                        "Gera e mantem alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns (site VIARIO)."),
+                        "Gera e mantem alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns (sem site)."),
                     new CommandDefinition(C3DCommands.Viario.Ilha, "Eliminar ilha",
                         "Clique dentro de uma ilha (anel de meio-fio, canteiro ou gota) para elimina-la; Restaurar/Todas desfaz."),
+                    new CommandDefinition(C3DCommands.Viario.Sinal, "Sinalizacao horizontal",
+                        "Sinalizacao horizontal previa num bloco unico (divisoria, faixas, faixas de pedestres, retencao) que acompanha a rede."),
                     new CommandDefinition(C3DCommands.Viario.Teste, "Autoteste",
                         "Confere eixos, bordos e curb returns do Civil contra a rede e grava relatorio em %TEMP%."),
                     new CommandDefinition(C3DCommands.Viario.Diag, "Diagnostico API Civil",

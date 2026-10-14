@@ -532,6 +532,18 @@ internal static class ViarioSync
                 }
             }
 
+            // Sinalizacao previa acompanha a rede quando o bloco existe.
+            try
+            {
+                ViarioSignageSync.Sync(doc, axes, result, create: false);
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage("\n  [AVISO] Sinalizacao nao atualizada: " + ex.Message);
+            }
+
+            ViarioPanel.NotifyChanged(doc);
+
             if (civil is not null)
             {
                 foreach (string m in civil.Messages.Distinct().Take(6))

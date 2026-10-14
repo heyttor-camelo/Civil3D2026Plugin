@@ -39,6 +39,15 @@ internal static class RibbonIconFactory
         if (Cache.TryGetValue(key, out WpfImageSource? cached))
             return cached;
 
+        // Rede viaria: icones vetoriais proprios.
+        string viarioKey = Civil3D2026Plugin.Modules.Viario.ViarioIcons.KeyForCommand(commandName);
+        if (category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viarioKey))
+        {
+            WpfImageSource icon = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Bitmap(viarioKey, size);
+            Cache[key] = icon;
+            return icon;
+        }
+
         string glyph = GetGlyph(commandName);
         WpfColor accent = GetCategoryColor(category);
 

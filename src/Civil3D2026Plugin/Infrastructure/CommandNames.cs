@@ -86,6 +86,8 @@ public static class CommandNames
         public const string Teste = "C3DVIARIOTESTE";
         public const string Ilha = "C3DVIARIOILHA";
         public const string Diag = "C3DVIARIODIAG";
+        public const string Painel = "C3DVIARIOPAINEL";
+        public const string Sinal = "C3DVIARIOSINAL";
     }
 
     public static class FeatureLines

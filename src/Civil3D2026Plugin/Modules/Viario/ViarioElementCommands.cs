@@ -511,7 +511,7 @@ internal static class ViarioElementCommands
             ViarioSync.WriteWarnings(doc, result);
     }
 
-    private static void ModifyAxisEvents(Document doc, string axisKey, Action<List<AxisEvent>> change)
+    internal static void ModifyAxisEvents(Document doc, string axisKey, Action<List<AxisEvent>> change)
     {
         AcadDb.Database db = doc.Database;
         AcadDb.ObjectId id = db.GetObjectId(false, new AcadDb.Handle(Convert.ToInt64(axisKey, 16)), 0);

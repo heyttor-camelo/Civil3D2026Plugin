@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar CIvil Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos SOltar REmover ATUalizar CIvil SInalizacao PAinel Config")
             {
                 AllowNone = true
             };
@@ -55,11 +55,19 @@ public sealed class ViarioCommands
                 case "REmover": RemoveAxes(doc); break;
                 case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
                 case "CIvil": CivilMenu(doc); break;
+                case "SInalizacao": ViarioSignageSync.Command(doc); break;
+                case "PAinel": ViarioPanel.Command(doc); break;
                 case "Config": Configure(doc); break;
                 default: DrawAxes(doc); break;
             }
         });
     }
+
+    [CommandMethod(C3DCommands.Viario.Painel, CommandFlags.Modal)]
+    public void Painel() => Run(C3DCommands.Viario.Painel, ViarioPanel.Command);
+
+    [CommandMethod(C3DCommands.Viario.Sinal, CommandFlags.Modal)]
+    public void Sinal() => Run(C3DCommands.Viario.Sinal, ViarioSignageSync.Command);
 
     [CommandMethod(C3DCommands.Viario.Eixo, CommandFlags.Modal)]
     public void Eixo() => Run(C3DCommands.Viario.Eixo, DrawAxes);
@@ -950,7 +958,7 @@ public sealed class ViarioCommands
     }
 
     private static string Describe(RoadSection s) =>
-        $"{s.Id} {s.Name}: pista {Num(s.Pista)}" +
+        $"{s.Name} [{s.Id}, {s.Tipo}]: pista {Num(s.Pista)} ({s.FaixasPorSentido * 2} faixas)" +
         (s.Canteiro > 0 ? $" | canteiro {Num(s.Canteiro)}" : "") +
         $" | sarjeta {Num(s.Sarjeta)} | meio-fio {Num(s.MeioFio)} | calcada {Num(s.Calcada)} | raio {Num(s.Raio)}" +
         $" (total {Num(s.TotalWidth)} m)";

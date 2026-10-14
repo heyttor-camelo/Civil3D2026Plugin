@@ -1,3 +1,16 @@
+## 2.27.0 - C3DVIARIO v0.5.0 / painel flutuante, sinalizacao previa, secoes com tipo
+
+- **C3DVIARIOPAINEL**: janela flutuante (nao modal) com abas:
+  - Comandos: todos os comandos da rede com icone, ilustracao grande, descricao e passo a passo; clique roda o comando;
+  - Secoes: lista, edicao (nome, tipo de via, pista, faixas, canteiro, sarjeta, meio-fio, calcada, raio, velocidade), nova/duplicar/excluir/corrente, aplicar aos eixos selecionados e corte transversal ao vivo;
+  - Rede: mapa da rede, lista de eixos (nome do Civil, secao, comprimento, raio, elementos), zoom/selecionar, trocar secao, tirar da rede, remover elementos;
+  - Sinalizacao: opcoes com preview ao vivo, gerar/atualizar e remover o bloco;
+  - Civil: gerar/remover/autoteste; Config: tolerancias.
+- **C3DVIARIOSINAL**: sinalizacao horizontal previa (divisoria, divisao de faixas, bordo, faixa de pedestres, retencao) num bloco unico que acompanha a rede;
+- secoes com **tipo de via, faixas e velocidade**; listas mostram o nome (o codigo P1... fica interno); desenho novo traz Local, Coletora e Arterial com canteiro;
+- icones vetoriais proprios para os comandos da rede viaria (painel e Ribbon - use C3DRIBBONRESET para atualizar a aba);
+- autoteste confere tambem o bloco de sinalizacao.
+
 ## 2.26.7 - C3DVIARIO v0.4.7 / conversao no canteiro do lado certo, alinhamentos sem site
 
 - **C3DVIARIOCONVERSAO**: a baia de conversao a esquerda cortava o canteiro do lado da pista oposta; agora corta junto da pista de quem chega (os modelos com conversao no canteiro tambem). Desenhos com conversao ja lancada mudam de lado ao regenerar;

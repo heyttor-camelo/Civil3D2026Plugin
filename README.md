@@ -160,11 +160,13 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.4.5)
+## Rede viaria (C3DVIARIO v0.5.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
+C3DVIARIOPAINEL      -> painel flutuante: comandos com icones e ilustracoes, secoes (corte transversal), eixos (mapa), sinalizacao, Civil, config
+C3DVIARIOSINAL       -> [Gerar/Remover/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
 C3DVIARIORAIO        -> raio de uma esquina ou de um vertice do eixo (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
@@ -178,7 +180,7 @@ C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/Config]
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas);
@@ -188,9 +190,13 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 - raio: faixa livre > especifico da esquina > especifico do eixo > da secao;
 - associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram).
 
-Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria no site `VIARIO` um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
+Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria (sem site, para nao formar lotes) um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
 
-O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`) e C# puro, testavel fora do Civil 3D.
+Secoes tem nome, tipo de via (Local, Coletora, Arterial, Transito rapido), faixas e velocidade; desenho novo comeca com Local, Coletora e Arterial com canteiro. O codigo P1, P2... e so interno.
+
+Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divisoria amarela LFO (seccionada, continua ou dupla, continua antes da retencao), divisao de faixas LMS, linha de bordo LBO opcional, faixa de pedestres zebrada FTP-1 em cada aproximacao com esquina e linha de retencao LRE a 1,60 m. Cadencia pela velocidade da secao (< 60 km/h: 2/4 m; 60-80: 3/6 m; >= 80: 4/12 m e 0,15 m). Tudo num bloco na origem, layers VIARIO-SH-BRANCA e VIARIO-SH-AMARELA; o bloco acompanha a rede.
+
+O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
 ## Base oficial de desenvolvimento
 

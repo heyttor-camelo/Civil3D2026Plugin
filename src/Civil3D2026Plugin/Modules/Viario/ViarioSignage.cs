@@ -1,0 +1,336 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Civil3D2026Plugin.Modules.Viario;
+
+/// <summary>
+/// Opcoes da sinalizacao horizontal previa (valores do Manual Brasileiro de
+/// Sinalizacao de Transito, Vol. IV - conferir no projeto executivo).
+/// </summary>
+internal sealed class SignageOptions
+{
+    /// <summary>Linha divisoria de fluxos opostos (amarela) em vias sem canteiro.</summary>
+    public bool Central { get; set; } = true;
+
+    /// <summary>Seccionada (LFO-2), Continua (LFO-1) ou Dupla (LFO-3).</summary>
+    public string CentralTipo { get; set; } = "Seccionada";
+
+    /// <summary>Trecho da divisoria que vira continuo antes da linha de retencao (m).</summary>
+    public double ContinuaAntes { get; set; } = 15.0;
+
+    /// <summary>Linhas de divisao de fluxos de mesmo sentido (LMS-2, branca seccionada).</summary>
+    public bool Faixas { get; set; } = true;
+
+    /// <summary>Linha de bordo (LBO, branca continua).</summary>
+    public bool Bordo { get; set; }
+
+    /// <summary>Faixa de travessia de pedestres zebrada (FTP-1) em cada aproximacao.</summary>
+    public bool Travessia { get; set; } = true;
+
+    /// <summary>Linha de retencao (LRE) na aproximacao de cada no.</summary>
+    public bool Retencao { get; set; } = true;
+
+    /// <summary>Cadencia/largura pelas velocidades das secoes (senao usa Traco/Espaco/Largura).</summary>
+    public bool CadenciaAuto { get; set; } = true;
+
+    public double Largura { get; set; } = 0.10;
+    public double Traco { get; set; } = 2.0;
+    public double Espaco { get; set; } = 4.0;
+
+    /// <summary>Extensao das listras da faixa de pedestres (no sentido da via).</summary>
+    public double TravessiaLargura { get; set; } = 4.0;
+    public double ListraLargura { get; set; } = 0.40;
+    public double ListraEspaco { get; set; } = 0.40;
+
+    /// <summary>Afastamento da faixa de pedestres em relacao ao fim da curva da esquina.</summary>
+    public double TravessiaRecuo { get; set; } = 1.0;
+
+    public double RetencaoLargura { get; set; } = 0.40;
+
+    /// <summary>Distancia da linha de retencao ate a faixa de pedestres (min. 1,60 m).</summary>
+    public double RetencaoDistancia { get; set; } = 1.60;
+
+    public SignageOptions Clone() => (SignageOptions)MemberwiseClone();
+
+    /// <summary>Largura, traco e espaco da linha seccionada para a velocidade (km/h).</summary>
+    public (double Width, double Dash, double Gap) Cadence(double speed)
+    {
+        if (!CadenciaAuto)
+            return (Largura, Traco, Espaco);
+        if (speed >= 80.0)
+            return (0.15, 4.0, 12.0);
+        if (speed >= 60.0)
+            return (0.10, 3.0, 6.0);
+        return (0.10, 2.0, 4.0);
+    }
+}
+
+internal sealed class MarkLine
+{
+    public MarkLine(List<Seg> segs, double width, bool yellow, string kind)
+    {
+        Segs = segs;
+        Width = width;
+        Yellow = yellow;
+        Kind = kind;
+    }
+
+    public List<Seg> Segs { get; }
+    public double Width { get; }
+    public bool Yellow { get; }
+    public string Kind { get; }
+}
+
+/// <summary>Sinalizacao horizontal previa a partir da rede calculada (geometria pura).</summary>
+internal static class ViarioSignage
+{
+    private sealed class Approach
+    {
+        public double SNode;
+        public int Dir;
+        public double U0;      // inicio da faixa de pedestres (a partir do no)
+        public double UStop;   // eixo da linha de retencao
+        public double UCut;    // ate onde as linhas longitudinais param
+    }
+
+    public static List<MarkLine> Build(IReadOnlyList<AxisInput> axes, ViarioResult result, SignageOptions o)
+    {
+        List<MarkLine> marks = new();
+        Dictionary<string, AxisInput> byKey = axes.GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
+
+        foreach (AxisInput axis in axes)
+        {
+            GPath path = axis.Path;
+            if (path.IsEmpty || path.Closed || path.Length < 1.0)
+                continue;
+
+            RoadSection sec = axis.Section;
+            double c = sec.Canteiro / 2.0;
+            double half = sec.Pista / 2.0;
+            int n = sec.FaixasPorSentido;
+            double lane = half / n;
+            (double lineW, double dash, double gap) = o.Cadence(sec.Velocidade);
+
+            List<Approach> approaches = Approaches(axis, byKey, result, o);
+            List<(double A, double B)> cuts = approaches
+                .Select(ap => ap.Dir < 0 ? (ap.SNode - ap.UCut, ap.SNode) : (ap.SNode, ap.SNode + ap.UCut))
+                .ToList();
+
+            // Gota: a divisoria central nao passa por cima da ilha.
+            List<(double A, double B)> centralCuts = new(cuts);
+            foreach (AxisEvent ev in axis.Events.Where(e => e.Kind == AxisEventKind.Gota))
+            {
+                double far = ev.Gap + ev.Length + 30.0;
+                centralCuts.Add(ev.Dir < 0 ? (ev.S - far, ev.S) : (ev.S, ev.S + far));
+            }
+
+            List<(double A, double B)> free = Free(path.Length, cuts);
+            List<(double A, double B)> freeCentral = Free(path.Length, centralCuts);
+
+            // Longitudinais.
+            if (c <= 1e-3 && o.Central)
+            {
+                List<(double A, double B)> solid = new();
+                List<(double A, double B)> dashed = new();
+                foreach ((double a, double b) in freeCentral)
+                {
+                    if (o.CentralTipo != "Seccionada")
+                    {
+                        solid.Add((a, b));
+                        continue;
+                    }
+
+                    // Continua nos ultimos metros antes de cada retencao.
+                    double a2 = a, b2 = b;
+                    if (o.ContinuaAntes > 0)
+                    {
+                        if (approaches.Any(ap => ap.Dir > 0 && Math.Abs((ap.SNode + ap.UCut) - a) < 0.01))
+                        {
+                            a2 = Math.Min(b, a + o.ContinuaAntes);
+                            solid.Add((a, a2));
+                        }
+
+                        if (approaches.Any(ap => ap.Dir < 0 && Math.Abs((ap.SNode - ap.UCut) - b) < 0.01))
+                        {
+                            b2 = Math.Max(a2, b - o.ContinuaAntes);
+                            solid.Add((b2, b));
+                        }
+                    }
+
+                    if (b2 - a2 > 0.1)
+                        dashed.Add((a2, b2));
+                }
+
+                double[] offsets = o.CentralTipo == "Dupla" ? new[] { -lineW, lineW } : new[] { 0.0 };
+                foreach (double off in offsets)
+                {
+                    foreach ((double a, double b) in solid)
+                        Add(marks, path, a, b, off, lineW, true, "LFO");
+                    foreach ((double a, double b) in dashed)
+                        Dashes(marks, path, a, b, off, lineW, dash, gap, true, "LFO");
+                }
+            }
+
+            foreach ((double a, double b) in free)
+            {
+                if (o.Faixas)
+                {
+                    for (int k = 1; k < n; k++)
+                    {
+                        foreach (int side in new[] { -1, 1 })
+                            Dashes(marks, path, a, b, side * (c + (k * lane)), lineW, dash, gap, false, "LMS");
+                    }
+                }
+
+                if (o.Bordo)
+                {
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        Add(marks, path, a, b, side * (c + half - 0.15), lineW, false, "LBO");
+                        if (c > 1e-3)
+                            Add(marks, path, a, b, side * (c + 0.15), lineW, false, "LBO");
+                    }
+                }
+            }
+
+            // Transversais em cada aproximacao.
+            foreach (Approach ap in approaches)
+            {
+                if (o.Travessia)
+                {
+                    double s0 = Clamp(path, ap.SNode + (ap.Dir * ap.U0));
+                    double s1 = Clamp(path, ap.SNode + (ap.Dir * (ap.U0 + o.TravessiaLargura)));
+                    double step = o.ListraLargura + o.ListraEspaco;
+                    foreach (int side in new[] { -1, 1 })
+                    {
+                        for (double t = c + (o.ListraLargura / 2.0) + 0.1; t <= c + half - (o.ListraLargura / 2.0) - 0.05; t += step)
+                            Add(marks, path, Math.Min(s0, s1), Math.Max(s0, s1), side * t, o.ListraLargura, false, "FTP");
+                    }
+                }
+
+                if (o.Retencao)
+                {
+                    double s = Clamp(path, ap.SNode + (ap.Dir * ap.UStop));
+                    V2 p = path.PointAt(s);
+                    V2 normal = path.TangentAt(s).Unit().Left;
+                    // Quem chega anda contra Dir; a pista dele fica do lado motor = Dir.
+                    double t0 = c > 1e-3 ? c : 0.0;
+                    double t1 = c + half;
+                    marks.Add(new MarkLine(
+                        new List<Seg> { Seg.Line(p + (normal * (ap.Dir * t0)), p + (normal * (ap.Dir * t1))) },
+                        o.RetencaoLargura, false, "LRE"));
+                }
+            }
+        }
+
+        return marks;
+    }
+
+    /// <summary>Aproximacoes deste eixo nos nos com esquina (cruzamento, T, rotatoria).</summary>
+    private static List<Approach> Approaches(AxisInput axis, Dictionary<string, AxisInput> byKey, ViarioResult result, SignageOptions o)
+    {
+        List<Approach> list = new();
+        GPath path = axis.Path;
+        double face = axis.Section.EdgeOffset(EdgeLevel.FaceMF);
+
+        foreach (NodeInfo node in result.Nodes.Where(nd => nd.AxisKeys.Contains(axis.Key)))
+        {
+            (double sN, _, double dist) = path.Project(node.Point);
+            if (dist > 0.5)
+                continue;
+
+            double crossHalf = node.AxisKeys
+                .Where(k => k != axis.Key && byKey.ContainsKey(k))
+                .Select(k => byKey[k].Section.EdgeOffset(EdgeLevel.FaceMF))
+                .DefaultIfEmpty(0.0)
+                .Max();
+
+            List<CornerInfo> corners = result.Corners
+                .Where(cr => V2.Dist(cr.Node, node.Point) < 0.5 && (cr.AxisA == axis.Key || cr.AxisB == axis.Key) && cr.Arc is not null)
+                .ToList();
+
+            foreach (int dir in new[] { -1, 1 })
+            {
+                bool exists = dir < 0 ? sN > 1.0 : sN < path.Length - 1.0;
+                if (!exists)
+                    continue;
+
+                double uArc = -1.0;
+                foreach (CornerInfo cr in corners)
+                {
+                    foreach (V2 q in new[] { cr.Arc!.A, cr.Arc.B })
+                    {
+                        (double s, _, double d) = path.Project(q);
+                        double u = (s - sN) * dir;
+                        if (u > 0 && Math.Abs(d - face) < 1.5)
+                            uArc = Math.Max(uArc, u);
+                    }
+                }
+
+                // Sem esquina neste ramo: continuacao reta, nao ha travessia.
+                if (uArc < 0)
+                    continue;
+
+                double u0 = Math.Max(uArc, crossHalf) + o.TravessiaRecuo;
+                double uStop = (o.Travessia ? u0 + o.TravessiaLargura + o.RetencaoDistancia : uArc + 1.0) + (o.RetencaoLargura / 2.0);
+                list.Add(new Approach
+                {
+                    SNode = sN,
+                    Dir = dir,
+                    U0 = u0,
+                    UStop = uStop,
+                    UCut = uStop + (o.RetencaoLargura / 2.0)
+                });
+            }
+        }
+
+        return list;
+    }
+
+    private static List<(double A, double B)> Free(double length, List<(double A, double B)> cuts)
+    {
+        List<(double A, double B)> merged = cuts
+            .Select(cut => (Math.Max(0.0, Math.Min(cut.A, cut.B)), Math.Min(length, Math.Max(cut.A, cut.B))))
+            .Where(cut => cut.Item2 > cut.Item1)
+            .OrderBy(cut => cut.Item1)
+            .ToList();
+
+        List<(double A, double B)> free = new();
+        double pos = 0.0;
+        foreach ((double a, double b) in merged)
+        {
+            if (a > pos + 0.1)
+                free.Add((pos, a));
+            pos = Math.Max(pos, b);
+        }
+
+        if (length > pos + 0.1)
+            free.Add((pos, length));
+        return free;
+    }
+
+    private static double Clamp(GPath path, double s) => Math.Clamp(s, 0.0, path.Length);
+
+    private static void Add(List<MarkLine> marks, GPath path, double a, double b, double offset, double width, bool yellow, string kind)
+    {
+        if (b - a < 0.05)
+            return;
+
+        GPath piece = path.Sub(a, b);
+        if (Math.Abs(offset) > 1e-9)
+            piece = piece.Offset(offset);
+        if (!piece.IsEmpty)
+            marks.Add(new MarkLine(piece.Segs.ToList(), width, yellow, kind));
+    }
+
+    private static void Dashes(List<MarkLine> marks, GPath path, double a, double b, double offset,
+        double width, double dash, double gap, bool yellow, string kind)
+    {
+        if (dash <= 0)
+            return;
+
+        for (double x = a + (gap / 2.0); x < b; x += dash + gap)
+            Add(marks, path, x, Math.Min(b, x + dash), offset, width, yellow, kind);
+    }
+}

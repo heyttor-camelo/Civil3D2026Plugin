@@ -325,6 +325,7 @@ internal static class ViarioCivil
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         CheckDrawnLines(tr, db, result, lines, ref ok, ref fail);
+        CheckSignage(tr, db, axes, result, lines, ref ok, ref fail);
         List<Tagged> existing = Scan(tr, db);
         if (existing.Count == 0)
         {
@@ -1075,6 +1076,46 @@ internal static class ViarioCivil
     // ------------------------------------------------------------------
     // Banco
     // ------------------------------------------------------------------
+
+    /// <summary>Nome do alinhamento do Civil de cada eixo (chave = handle do eixo).</summary>
+    public static Dictionary<string, string> AxisNames(AcadDb.Database db)
+    {
+        Dictionary<string, string> names = new(StringComparer.Ordinal);
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        foreach (Tagged t in Scan(tr, db).Where(t => t.Kind == KindAxis))
+        {
+            if (tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al)
+                names[t.Key] = al.Name;
+        }
+
+        return names;
+    }
+
+    /// <summary>Bloco de sinalizacao (se existir) x marcas que a rede pede agora.</summary>
+    private static void CheckSignage(AcadDb.Transaction tr, AcadDb.Database db, List<AxisInput> axes, ViarioResult result,
+        List<string> lines, ref int ok, ref int fail)
+    {
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        if (!bt.Has(ViarioSignageSync.BlockName))
+        {
+            lines.Add("Sinalizacao: sem bloco.");
+            return;
+        }
+
+        List<MarkLine> marks = ViarioSignage.Build(axes, result, ViarioStore.LoadSignage(db));
+        AcadDb.BlockTableRecord block = (AcadDb.BlockTableRecord)tr.GetObject(bt[ViarioSignageSync.BlockName], AcadDb.OpenMode.ForRead);
+        int count = 0;
+        foreach (AcadDb.ObjectId id in block)
+        {
+            if (!id.IsErased)
+                count++;
+        }
+
+        int refs = block.GetBlockReferenceIds(true, false).Count;
+        bool good = count == marks.Count && refs == 1;
+        lines.Add($"{(good ? "OK   " : "FALHA")} Sinalizacao: {count} marca(s) no bloco, esperado {marks.Count} ({ViarioSignageSync.Summary(marks)}); {refs} insercao(oes).");
+        if (good) ok++; else fail++;
+    }
 
     /// <summary>Linhas geradas no desenho x linhas que a rede pede agora (menos as soltas).</summary>
     private static void CheckDrawnLines(AcadDb.Transaction tr, AcadDb.Database db, ViarioResult result,

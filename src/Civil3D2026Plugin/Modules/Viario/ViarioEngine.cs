@@ -78,10 +78,24 @@ internal sealed class RoadSection
 
     public double TotalWidth => 2.0 * EdgeOffset(EdgeLevel.Alinhamento);
 
+    /// <summary>Classificacao viaria (CTB): Local, Coletora, Arterial, Transito rapido.</summary>
+    public string Tipo { get; set; } = "Local";
+
+    /// <summary>Faixas de rolamento somando os dois sentidos (0 = automatico pela largura).</summary>
+    public int Faixas { get; set; }
+
+    /// <summary>Velocidade regulamentada (km/h), usada na sinalizacao horizontal.</summary>
+    public double Velocidade { get; set; } = 40.0;
+
+    /// <summary>Faixas por sentido (minimo 1).</summary>
+    public int FaixasPorSentido => Faixas > 0
+        ? Math.Max(1, Faixas / 2)
+        : Math.Max(1, (int)Math.Round((Pista / 2.0) / 3.5));
+
     public RoadSection Clone() => new()
     {
         Id = Id, Name = Name, Pista = Pista, Canteiro = Canteiro, Sarjeta = Sarjeta,
-        MeioFio = MeioFio, Calcada = Calcada, Raio = Raio
+        MeioFio = MeioFio, Calcada = Calcada, Raio = Raio, Tipo = Tipo, Faixas = Faixas, Velocidade = Velocidade
     };
 }
 

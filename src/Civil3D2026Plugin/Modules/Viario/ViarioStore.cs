@@ -221,7 +221,21 @@ internal static class ViarioStore
     // ------------------------------------------------------------------
 
     public static RoadSection DefaultSection() =>
-        new() { Id = "P1", Name = "Local", Pista = 7.0, Sarjeta = 0.30, MeioFio = 0.15, Calcada = 2.5, Raio = 6.0 };
+        new() { Id = "P1", Name = "Local", Tipo = "Local", Pista = 7.0, Faixas = 2, Velocidade = 30, Sarjeta = 0.30, MeioFio = 0.15, Calcada = 2.5, Raio = 6.0 };
+
+    /// <summary>Tipos de via (CTB art. 60/61) oferecidos nas listas.</summary>
+    public static readonly string[] Tipos = { "Local", "Coletora", "Arterial", "Transito rapido" };
+
+    /// <summary>Secoes iniciais de um desenho novo (o codigo P1 continua o padrao dos eixos).</summary>
+    public static List<RoadSection> Presets() => new()
+    {
+        DefaultSection(),
+        new() { Id = "P2", Name = "Coletora", Tipo = "Coletora", Pista = 9.0, Faixas = 2, Velocidade = 40, Sarjeta = 0.30, MeioFio = 0.15, Calcada = 3.0, Raio = 8.0 },
+        new() { Id = "P3", Name = "Arterial com canteiro", Tipo = "Arterial", Pista = 14.0, Canteiro = 4.0, Faixas = 4, Velocidade = 60, Sarjeta = 0.30, MeioFio = 0.15, Calcada = 3.5, Raio = 10.0 }
+    };
+
+    private static string GuessTipo(RoadSection s) =>
+        s.Canteiro > 1e-3 || s.Pista >= 12.0 ? "Arterial" : s.Pista >= 9.0 ? "Coletora" : "Local";
 
     public static List<RoadSection> LoadSections(AcadDb.Database db)
     {
@@ -258,6 +272,17 @@ internal static class ViarioStore
                         Calcada = Real(v[7], 0.0),
                         Raio = Real(v[8], 6.0)
                     };
+                    if (v.Length >= 12)
+                    {
+                        s.Tipo = v[9].Value as string ?? "Local";
+                        s.Faixas = v[10].Value is int faixas ? faixas : v[10].Value is short f16 ? f16 : 0;
+                        s.Velocidade = Real(v[11], 40.0);
+                    }
+                    else
+                    {
+                        s.Tipo = GuessTipo(s);
+                    }
+
                     result[s.Id] = s;
                 }
                 else if (legacy && v[0].Value as string == LegacyProfileSignature && v.Length >= 6)
@@ -282,7 +307,10 @@ internal static class ViarioStore
         }
 
         if (result.Count == 0)
-            result["P1"] = DefaultSection();
+        {
+            foreach (RoadSection preset in Presets())
+                result[preset.Id] = preset;
+        }
 
         return result.Values.OrderBy(p => p.Id, StringComparer.Ordinal).ToList();
     }
@@ -301,7 +329,10 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Sarjeta),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MeioFio),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Calcada),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Raio)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Raio),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.Tipo),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.Faixas),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Velocidade)));
 
         EraseRecord(tr, db, LegacyProfilePrefix + s.Id);
     }
@@ -354,6 +385,66 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.SnapTolerance),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Capture),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MedianSetback)));
+    }
+
+    // ------------------------------------------------------------------
+    // Sinalizacao horizontal (opcoes como texto chave=valor)
+    // ------------------------------------------------------------------
+
+    private const string SignageKey = "SINAL";
+    private const string SignageSignature = "VSINAL1";
+
+    public static SignageOptions LoadSignage(AcadDb.Database db)
+    {
+        SignageOptions o = new();
+        AcadDb.TypedValue[]? v = ReadRecord(db, SignageKey);
+        if (v is null || v.Length < 2 || v[0].Value as string != SignageSignature)
+            return o;
+
+        foreach (AcadDb.TypedValue tv in v.Skip(1))
+        {
+            if (tv.Value is not string pair)
+                continue;
+            int eq = pair.IndexOf('=');
+            if (eq <= 0)
+                continue;
+
+            System.Reflection.PropertyInfo? prop = typeof(SignageOptions).GetProperty(pair[..eq]);
+            string text = pair[(eq + 1)..];
+            if (prop is null || !prop.CanWrite)
+                continue;
+
+            if (prop.PropertyType == typeof(bool))
+                prop.SetValue(o, text == "1");
+            else if (prop.PropertyType == typeof(double) &&
+                     double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out double d))
+                prop.SetValue(o, d);
+            else if (prop.PropertyType == typeof(string))
+                prop.SetValue(o, text);
+        }
+
+        return o;
+    }
+
+    public static void SaveSignage(AcadDb.Transaction tr, AcadDb.Database db, SignageOptions o)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, SignageSignature) };
+        foreach (System.Reflection.PropertyInfo prop in typeof(SignageOptions).GetProperties())
+        {
+            if (!prop.CanWrite)
+                continue;
+            object? value = prop.GetValue(o);
+            string text = value switch
+            {
+                bool b => b ? "1" : "0",
+                double d => d.ToString("R", CultureInfo.InvariantCulture),
+                string str => str,
+                _ => ""
+            };
+            list.Add(new((int)AcadDb.DxfCode.Text, prop.Name + "=" + text));
+        }
+
+        WriteRecord(tr, db, SignageKey, new AcadDb.ResultBuffer(list.ToArray()));
     }
 
     // ------------------------------------------------------------------
