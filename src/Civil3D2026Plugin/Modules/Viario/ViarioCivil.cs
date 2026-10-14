@@ -39,6 +39,7 @@ internal static class ViarioCivil
         public int AxesCreated, AxesUpdated, EdgesCreated, EdgesKept, CurbsCreated, CurbsKept, Erased;
         public int CurbsConnected, CurbsSimple, CurbsFailed, EdgesFixed;
         public List<string> Messages { get; } = new();
+        public string Styles { get; set; } = "";
 
         public override string ToString() =>
             $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, divergentes {EdgesFixed}) | " +
@@ -182,6 +183,7 @@ internal static class ViarioCivil
 
         // Nomes livres so depois das remocoes (trechos refeitos mantem o nome).
         HashSet<string> names = AlignmentNames(tr, db);
+        report.Styles = $"estilo '{StyleName(tr, styleId)}', rotulos '{StyleName(tr, labelId)}'";
 
         // ---------- Eixos ----------
         Dictionary<string, AcadDb.ObjectId> axisIds = new();
@@ -344,6 +346,8 @@ internal static class ViarioCivil
                 }
 
                 bool ok = VerifyEdge(al, axis, e, out string why);
+                if (e.Widenings.Count > 0 && DebugWidening)
+                    report.Messages.Add($"{name} [v{v}]: {DescribeRegions(al)}");
                 if (ok || last)
                 {
                     al.Layer = LayerEdge;
@@ -403,6 +407,54 @@ internal static class ViarioCivil
             SetTransition(region.EntryTransition, w.TaperIn, w.Smooth);
             SetTransition(region.ExitTransition, w.TaperOut, w.Smooth);
             break;
+        }
+    }
+
+    /// <summary>Diagnostico temporario das regioes/transicoes criadas pelo Civil.</summary>
+    public static bool DebugWidening { get; set; } = true;
+
+    private static string DescribeRegions(CivilDb.Alignment al)
+    {
+        try
+        {
+            List<string> parts = new();
+            foreach (CivilDb.AlignmentRegion r in al.OffsetAlignmentInfo.Regions)
+            {
+                parts.Add($"R[{r.StartStation:0.##}-{r.EndStation:0.##} off={r.Offset:0.###} tipo={r.RegionType}] in={DescribeTransition(r.EntryTransition)} out={DescribeTransition(r.ExitTransition)}");
+            }
+
+            return string.Join(" ; ", parts);
+        }
+        catch (System.Exception ex)
+        {
+            return "erro: " + ex.Message;
+        }
+    }
+
+    private static string DescribeTransition(CivilDb.AlignmentTransition? t)
+    {
+        if (t is null)
+            return "-";
+
+        try
+        {
+            object? d = t.TransitionDescription;
+            if (d is null)
+                return t.TransitionType + "(sem desc)";
+
+            List<string> props = new();
+            foreach (System.Reflection.PropertyInfo p in d.GetType().GetProperties())
+            {
+                object? val = null;
+                try { val = p.GetValue(d); } catch { val = "?"; }
+                props.Add($"{p.Name}{(p.CanWrite ? "*" : "")}={(val is double dv ? dv.ToString("0.###", CultureInfo.InvariantCulture) : val)}");
+            }
+
+            return $"{t.TransitionType}/{d.GetType().Name}{{{string.Join(",", props)}}}";
+        }
+        catch (System.Exception ex)
+        {
+            return "erro " + ex.Message;
         }
     }
 
@@ -895,6 +947,18 @@ internal static class ViarioCivil
         }
 
         return CivilDb.Site.Create(cdoc, SiteName);
+    }
+
+    private static string StyleName(AcadDb.Transaction tr, AcadDb.ObjectId id)
+    {
+        try
+        {
+            return !id.IsNull && tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.StyleBase st ? st.Name : "(nenhum)";
+        }
+        catch
+        {
+            return "?";
+        }
     }
 
     private static AcadDb.ObjectId PickStyle(AcadDb.Transaction tr, System.Collections.IEnumerable styles, params string[] preferred)

@@ -125,6 +125,8 @@ public sealed class ViarioCommands
 
         ViarioCivil.Report report = ViarioCivil.Sync(doc, create: true);
         ed.WriteMessage("\n  " + report);
+        if (report.Styles.Length > 0)
+            ed.WriteMessage("\n  Alinhamentos novos: " + report.Styles);
         foreach (string m in report.Messages.Distinct().Take(12))
             ed.WriteMessage("\n  [CIVIL] " + m);
         ed.WriteMessage($"\n  Site \"{ViarioCivil.SiteName}\", layers {ViarioCivil.LayerAxis}, {ViarioCivil.LayerEdge}, {ViarioCivil.LayerCurb}.");
