@@ -310,10 +310,20 @@ internal static class ViarioCivil
         lines.Add($"Rede: {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s), {result.Corners.Count} esquina(s), {result.Warnings.Distinct().Count()} aviso(s) do motor.");
         List<OutputLine> pink = result.Lines.Where(l => l.Level == EdgeLevel.Ilha).ToList();
         lines.Add($"Ilhas canalizadoras: {pink.Count} ({string.Join(", ", pink.Select(l => $"{l.Segs.Count} trechos/{l.Segs.Count(sg => sg.IsArc)} arcos"))}); eliminadas: {ViarioStore.LoadRemovedIslands(db).Count}; com raio: {ViarioStore.LoadIslandRadii(db).Count}.");
+        lines.Add("Elementos: " + string.Join(", ", axes.SelectMany(a => a.Events).GroupBy(e => e.Kind)
+                      .Select(g => $"{g.Key} {g.Count()}")) +
+                  $"; faixas livres: {ViarioStore.LoadSlipLanes(db).Count}; raios de esquina: {ViarioStore.LoadCornerRadii(db).Count}" +
+                  $"; eixos com raio proprio: {axes.Count(a => a.Radius is not null)}; soltas: {ViarioStore.LoadReleased(db).Count}.");
+        lines.Add("Secoes: " + string.Join(" | ", ViarioStore.LoadSections(db).Select(s =>
+                      $"{s.Id} {s.Name} pista {s.Pista:0.##} cant {s.Canteiro:0.##} raio {s.Raio:0.##} ({axes.Count(a => a.Section.Id == s.Id)} eixo(s))")) +
+                  $"; corrente {ViarioStore.LoadSettings(db).CurrentSectionId}.");
+        lines.Add("Linhas por nivel: " + string.Join(", ", result.Lines.GroupBy(l => l.Level).OrderBy(g => g.Key)
+                      .Select(g => $"{g.Key} {g.Count()}")) + ".");
         foreach (string w in result.Warnings.Distinct())
             lines.Add("AVISO motor: " + w);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        CheckDrawnLines(tr, db, result, lines, ref ok, ref fail);
         List<Tagged> existing = Scan(tr, db);
         if (existing.Count == 0)
         {
@@ -1055,6 +1065,45 @@ internal static class ViarioCivil
     // ------------------------------------------------------------------
     // Banco
     // ------------------------------------------------------------------
+
+    /// <summary>Linhas geradas no desenho x linhas que a rede pede agora (menos as soltas).</summary>
+    private static void CheckDrawnLines(AcadDb.Transaction tr, AcadDb.Database db, ViarioResult result,
+        List<string> lines, ref int ok, ref int fail)
+    {
+        HashSet<string> released = ViarioStore.LoadReleased(db);
+        Dictionary<string, int> wanted = new(StringComparer.Ordinal);
+        foreach (OutputLine line in result.Lines)
+        {
+            string key = ViarioStore.GeometryKey(line);
+            if (!released.Contains(key))
+                wanted[key] = wanted.TryGetValue(key, out int n) ? n + 1 : 1;
+        }
+
+        int expected = wanted.Values.Sum(), drawn = 0, extra = 0;
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        RXClass plClass = RXObject.GetClass(typeof(AcadDb.Polyline));
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (id.IsErased || !id.ObjectClass.IsDerivedFrom(plClass))
+                continue;
+            AcadDb.Polyline pl = (AcadDb.Polyline)tr.GetObject(id, AcadDb.OpenMode.ForRead, false);
+            if (ViarioStore.ReadTag(pl, out string levelText) != ViarioStore.TagGenerated)
+                continue;
+
+            drawn++;
+            string key = ViarioStore.GeometryKey(pl, ViarioStore.ParseLevel(levelText));
+            if (wanted.TryGetValue(key, out int n) && n > 0)
+                wanted[key] = n - 1;
+            else
+                extra++;
+        }
+
+        int missing = wanted.Values.Sum();
+        bool good = missing == 0 && extra == 0;
+        lines.Add($"{(good ? "OK   " : "FALHA")} Desenho: {drawn} linha(s) gerada(s), esperado {expected}; faltando {missing}, sobrando {extra}.");
+        if (good) ok++; else fail++;
+    }
 
     private static List<Tagged> Scan(AcadDb.Transaction tr, AcadDb.Database db)
     {

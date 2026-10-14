@@ -7,3 +7,10 @@
    (alargamento, gota, raio, mover eixo, faixa livre).
 4. Relatorio: `%TEMP%\C3DVIARIOTESTE.txt` (a etapa INICIO zera o arquivo).
    Cada objeto aparece como OK / FALHA / AVISO.
+
+## Demais comandos
+
+`teste_comandos.scr` (desenho novo): avenida com canteiro cruzada por uma via local e um T;
+testa Secao (Nova/Corrente/Editar/eXcluir), conversao no canteiro, abertura, remover
+elemento, raio de esquina + Limpar, ATribuir, SOltar/Restaurar, REmover/ADicionar eixo,
+Config, ATUalizar e UNDO. A linha "Desenho:" do relatorio confere as linhas geradas.

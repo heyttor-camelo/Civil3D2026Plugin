@@ -1,3 +1,8 @@
+## 2.26.6 - C3DVIARIO v0.4.6 / roteiro de teste dos demais comandos
+
+- `tests/viario/teste_comandos.scr`: secao nova/corrente/editar/excluir, conversao no canteiro, abertura, remover elemento, raio de esquina e Limpar, atribuir secao, soltar/restaurar linhas, remover/adicionar eixo, config, atualizar e desfazer;
+- C3DVIARIOTESTE confere tambem as linhas desenhadas contra a rede (faltando/sobrando) e resume elementos, secoes, faixas livres, raios e linhas soltas.
+
 ## 2.26.5 - C3DVIARIO v0.4.5 / raio em vertice do eixo, eliminar ilhas
 
 - **C3DVIARIORAIO** tambem concorda vertices do proprio eixo (canto de quadra, curva de uma via em polilinha): clique perto do vertice, do lado que interessa; o raio digitado/arrastado e o da face do meio-fio desse lado (dentro da curva: eixo = R + meia largura; fora: R - meia largura). A polilinha do eixo ganha o arco (os bordos ficam concentricos e os alinhamentos do Civil acompanham). Clicar de novo edita o raio; [Padrao] ou 0 volta ao canto vivo;
