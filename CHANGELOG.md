@@ -1,3 +1,13 @@
+## 2.29.0 - LispTools v1.0.0 / LISPs distribuidas dentro da DLL
+
+- **novo modulo LispTools** (`Modules/LispTools`): 24 LISPs passam a ir dentro da DLL e ficam disponiveis em todo desenho, sem APPLOAD nem Startup Suite;
+- **C3DLISP**: janela com a lista por categoria (hachuras, polilinhas, vias e meio-fio, pranchas e layouts, blocos e textos, tabelas, 3D), explicacao de cada rotina, passo a passo e botao para executar cada comando; localizar por nome, comando ou descricao; segue o tema claro/escuro do painel viario;
+- **C3DLISPLIST** (mesma lista na linha de comando) e **C3DLISPCARREGAR** (regrava e registra de novo);
+- carregamento sob demanda com `autoload`: a rotina so e carregada no primeiro uso do comando (evita, por exemplo, que o NP crie as layers PRANCHA_* em todo desenho aberto); VLX/FAS carregados inteiros;
+- a arvore do banner/C3DHELP lista as LISPs por categoria; aba LISPs na Ribbon;
+- novo: **LSLAYOUTS**, restaura um layer state como override de viewport em todos os viewports dos layouts escolhidos;
+- `VIAU.lsp` (v0.1) ficou de fora: o `VIAU_v0.4.lsp` define os mesmos comandos e funcoes.
+
 ## 2.28.3 - C3DVIARIO v0.6.3 / sinalizacao redesenha certo, botoes no tema escuro
 
 - **sinalizacao com desenho antigo na tela**: depois de UNDO o bloco tinha as marcas certas, mas a insercao mostrava a versao anterior (faixas de pedestre dentro do canteiro). A insercao agora e recriada a cada atualizacao e fica por baixo das linhas da rede;

@@ -1,0 +1,10 @@
+;;@TITULO  Malha de coordenadas
+;;@CATEGORIA Pranchas e layouts
+;;@COMANDO MALHA
+;;@DESC    Desenha a malha de coordenadas UTM ou geografica (latitude/longitude) com textos, numa janela de
+;;@DESC    opcoes: intervalo, altura e offset dos textos, prefixo, elipsoide, zona UTM, hemisferio e layers.
+;;@DESC    Arquivo compilado (VLX): o nome do comando nao pode ser lido do arquivo; confirme se e MALHA.
+;;@USO     Digite MALHA
+;;@USO     Escolha UTM ou geografica e preencha a janela
+;;@USO     Clique Desenhar
+;; ----------------------------------------------------------------

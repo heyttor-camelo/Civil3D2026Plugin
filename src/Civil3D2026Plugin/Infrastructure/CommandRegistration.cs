@@ -23,4 +23,5 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Surfaces.TrimSurfaceLinesCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Surfaces.SurfaceGapCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Geometry.PointNormalCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.LispTools.LispCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Diagnostics.PluginDiagnosticsCommands))]

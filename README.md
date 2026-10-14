@@ -200,6 +200,18 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
+## LISPs embutidas (C3DLISP, LispTools v1.0.0)
+
+Modulo em `Modules/LispTools`. As LISPs de `Modules/LispTools/Lisp` vao dentro da DLL (EmbeddedResource). Ao carregar o plugin elas sao gravadas em `%LOCALAPPDATA%\Civil3D2026Plugin\Lisp` e, em cada desenho, os comandos sao registrados com o `autoload` do AutoCAD: cada rotina so e carregada no primeiro uso do comando (rotinas que executam codigo ao carregar, como o NP, nao mexem em desenhos onde nao foram usadas). Arquivos compilados (VLX/FAS) sao carregados inteiros.
+
+```text
+C3DLISP          -> janela com as LISPs por categoria: explicacao, passo a passo e botao para cada comando
+C3DLISPLIST      -> a mesma lista na linha de comando
+C3DLISPCARREGAR  -> regrava as LISPs e registra os comandos de novo no desenho atual
+```
+
+Para incluir uma LISP: copie o arquivo para `Modules/LispTools/Lisp`, coloque o cabecalho `;;@` (veja o README da pasta) e recompile. A lista, a arvore do C3DHELP e o carregamento se atualizam sozinhos.
+
 ## Base oficial de desenvolvimento
 
 A partir da v2.8.0, use esta estrutura como base para todas as novas alteracoes.

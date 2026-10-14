@@ -246,6 +246,22 @@ public static class CommandCatalog
                 }),
 
             new(
+                "LISPs",
+                "LISPs embutidas",
+                C3DVersions.LispTools,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.LispTools.Painel, "Lista de LISPs",
+                        "Janela com as LISPs distribuidas na DLL, por categoria: explicacao, passo a passo e botao para executar cada comando."),
+                    new CommandDefinition(C3DCommands.LispTools.Lista, "Lista na linha de comando",
+                        "Mostra as LISPs embutidas com explicacao e modo de uso na linha de comando.",
+                        ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.LispTools.Carregar, "Recarregar LISPs",
+                        "Regrava as LISPs na pasta local e registra os comandos de novo no desenho atual.",
+                        ShowInRibbon: false)
+                }),
+
+            new(
                 "Diagnostico",
                 "Plugin / sessao",
                 null,

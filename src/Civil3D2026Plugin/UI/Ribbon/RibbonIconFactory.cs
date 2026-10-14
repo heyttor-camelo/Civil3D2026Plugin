@@ -125,6 +125,8 @@ internal static class RibbonIconFactory
             return "LG";
         if (commandName.StartsWith("C3DSOLID", StringComparison.OrdinalIgnoreCase))
             return "3D";
+        if (commandName.StartsWith("C3DLISP", StringComparison.OrdinalIgnoreCase))
+            return "LSP";
         if (commandName.StartsWith("PASSAGEM", StringComparison.OrdinalIgnoreCase))
             return "PS";
         if (commandName.StartsWith("FL", StringComparison.OrdinalIgnoreCase))
@@ -154,6 +156,7 @@ internal static class RibbonIconFactory
             "Geometria" => WpfColor.FromRgb(162, 141, 225),
             "Quadros" => WpfColor.FromRgb(236, 140, 120),
             "Viario" => WpfColor.FromRgb(244, 196, 64),
+            "LISPs" => WpfColor.FromRgb(140, 200, 110),
             _ => WpfColor.FromRgb(192, 205, 215)
         };
 }

@@ -73,6 +73,16 @@
     </Reference>
   </ItemGroup>
 
+  <!--
+    LISPs distribuidas dentro da DLL (modulo LispTools).
+    Basta copiar .lsp/.vlx/.fas para Modules\LispTools\Lisp e recompilar.
+    .info = cabecalho ;;@ avulso para arquivos compilados (VLX/FAS).
+  -->
+  <ItemGroup>
+    <EmbeddedResource Include="Modules\LispTools\Lisp\*.lsp;Modules\LispTools\Lisp\*.vlx;Modules\LispTools\Lisp\*.fas;Modules\LispTools\Lisp\*.info"
+                      LogicalName="Lisp\%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <Target Name="ShowNetloadPath" AfterTargets="Build">
     <Message Importance="high" Text="============================================================" />
     <Message Importance="high" Text="DLL pronta para NETLOAD: $(TargetPath)" />

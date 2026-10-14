@@ -61,3 +61,10 @@
 #*.PDF   diff=astextplain
 #*.rtf   diff=astextplain
 #*.RTF   diff=astextplain
+
+# LISPs embutidas: bytes preservados (ha arquivos em Latin-1 e UTF-8) e compilados binarios
+*.lsp -text
+*.LSP -text
+*.vlx binary
+*.VLX binary
+*.fas binary

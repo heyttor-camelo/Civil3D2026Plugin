@@ -112,6 +112,13 @@ public static class CommandNames
         public const string PointNormalDebug = "PTNORMALDBG";
     }
 
+    public static class LispTools
+    {
+        public const string Painel = "C3DLISP";
+        public const string Lista = "C3DLISPLIST";
+        public const string Carregar = "C3DLISPCARREGAR";
+    }
+
     public static class Diagnostico
     {
         public const string TesteDll = "TESTEDLL";

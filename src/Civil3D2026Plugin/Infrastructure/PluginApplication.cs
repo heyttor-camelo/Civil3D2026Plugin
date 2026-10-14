@@ -6,6 +6,7 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 using Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
+using Civil3D2026Plugin.Modules.LispTools;
 using Civil3D2026Plugin.Modules.Viario;
 using Civil3D2026Plugin.UI.Ribbon;
 
@@ -36,6 +37,9 @@ public sealed class PluginApplication : IExtensionApplication
         // Rede viaria (C3DVIARIO): bordos e intersecoes associativos aos eixos.
         ViarioSync.Initialize();
 
+        // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
+        LispModule.Initialize();
+
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
             WriteBanner(doc.Editor, includeDescriptions: false);
@@ -43,6 +47,7 @@ public sealed class PluginApplication : IExtensionApplication
 
     public void Terminate()
     {
+        LispModule.Terminate();
         ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();
@@ -100,6 +105,7 @@ public sealed class PluginApplication : IExtensionApplication
         ed.WriteMessage("\n");
 
         CommandCatalog.WriteTree(ed, includeDescriptions);
+        LispModule.WriteTree(ed, includeDescriptions);
 
         ed.WriteMessage("\n============================================================");
         ed.WriteMessage($"\n Use {C3DCommands.Core.Help} para exibir esta arvore novamente.");
