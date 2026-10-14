@@ -1,3 +1,9 @@
+## 2.26.7 - C3DVIARIO v0.4.7 / conversao no canteiro do lado certo, alinhamentos sem site
+
+- **C3DVIARIOCONVERSAO**: a baia de conversao a esquerda cortava o canteiro do lado da pista oposta; agora corta junto da pista de quem chega (os modelos com conversao no canteiro tambem). Desenhos com conversao ja lancada mudam de lado ao regenerar;
+- alinhamentos do Civil (eixos, bordos, curb returns) criados **sem site**: no site "VIARIO" eles fechavam as quadras e o Civil criava lotes (parcels) com rotulo de area. Para limpar um desenho antigo: C3DVIARIOCIVIL > Remover e Gerar de novo;
+- roteiro `teste_comandos.scr` rodado no Civil: 16 etapas, 0 falhas.
+
 ## 2.26.6 - C3DVIARIO v0.4.6 / roteiro de teste dos demais comandos
 
 - `tests/viario/teste_comandos.scr`: secao nova/corrente/editar/excluir, conversao no canteiro, abertura, remover elemento, raio de esquina e Limpar, atribuir secao, soltar/restaurar linhas, remover/adicionar eixo, config, atualizar e desfazer;

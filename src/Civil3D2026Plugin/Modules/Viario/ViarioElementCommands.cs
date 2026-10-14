@@ -169,7 +169,7 @@ internal static class ViarioElementCommands
             return;
         }
 
-        string? side = Keyword(ed, "\nLado do canteiro, para quem chega [Esquerda/Direita] <Esquerda>: ",
+        string? side = Keyword(ed, "\nConversao de quem chega [Esquerda/Direita] <Esquerda> (Esquerda corta o canteiro junto da pista de quem chega): ",
             "Esquerda Direita", "Esquerda");
         if (side is null)
             return;

@@ -1646,7 +1646,9 @@ internal static class ViarioEngine
                         break;
 
                     case AxisEventKind.Baia:
-                        int medianSide = (ev.Side == 0 ? -1 : ev.Side) * ev.Dir;
+                        // Conversao a esquerda (Side -1) corta o canteiro do lado da pista de quem chega,
+                        // que fica a direita do eixo no sentido de chegada (lado motor = Dir).
+                        int medianSide = -(ev.Side == 0 ? -1 : ev.Side) * ev.Dir;
                         AddRamp(ctx.Narrow, i, medianSide, new Ramp
                         {
                             A = a, Dir = ev.Dir, Full = crossHalf + ev.Length, Taper = ev.Taper,

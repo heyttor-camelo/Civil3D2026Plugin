@@ -112,7 +112,8 @@ internal static class ViarioCivil
         CivilDocument cdoc = CivilDocument.GetCivilDocument(db);
         ViarioStore.EnsureRegApp(tr, db);
         Dictionary<string, AcadDb.ObjectId> layers = EnsureLayers(tr, db);
-        AcadDb.ObjectId siteId = EnsureSite(tr, cdoc);
+        // Sem site: alinhamentos num mesmo site formam lotes (parcels) nas quadras fechadas.
+        AcadDb.ObjectId siteId = AcadDb.ObjectId.Null;
         AcadDb.ObjectId styleId = PickStyle(tr, cdoc.Styles.AlignmentStyles, "Proposed", "Proposto", "Layout", "Basic", "Basico");
         AcadDb.ObjectId labelId = PickStyle(tr, cdoc.Styles.LabelSetStyles.AlignmentLabelSetStyles, "No Labels", "Sem");
 
@@ -825,7 +826,16 @@ internal static class ViarioCivil
             AcadDb.ObjectId id = AcadDb.ObjectId.Null;
             try
             {
-                id = CivilDb.Alignment.CreateConnectedAlignment(name, siteId, layerId, styleId, labelId, p);
+                try
+                {
+                    id = CivilDb.Alignment.CreateConnectedAlignment(name, siteId, layerId, styleId, labelId, p);
+                }
+                catch (System.Exception) when (siteId.IsNull)
+                {
+                    // Se o Civil exigir site para o conectado: site proprio so de curb returns.
+                    id = CivilDb.Alignment.CreateConnectedAlignment(name, EnsureSite(tr, cdoc), layerId, styleId, labelId, p);
+                }
+
                 CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
                 if (VerifyArc(al, c.Arc))
                 {
