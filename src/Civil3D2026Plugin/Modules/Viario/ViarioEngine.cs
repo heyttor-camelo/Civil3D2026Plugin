@@ -249,6 +249,7 @@ internal static class ViarioEngine
         public bool Through;     // o eixo continua do outro lado do no
         public double Extent;    // comprimento do ramo ate o proximo no/ponta
         public bool ExtentEndsAtNode;
+        public bool FarNodeStraight; // o no do outro lado e so continuacao reta (sem esquinas)
     }
 
     private sealed class Node
@@ -649,6 +650,22 @@ internal static class ViarioEngine
         }
 
         nodes.RemoveAll(n => n.Legs.Count < 2 || n.Legs.Select(l => l.Axis).Distinct().Count() < 2);
+
+        // No do outro lado que so continua o eixo em linha reta nao disputa espaco de esquina.
+        double straight = ctx.Settings.StraightToleranceDeg * Math.PI / 180.0;
+        foreach (Node node in nodes)
+        {
+            foreach (Leg leg in node.Legs.Where(l => l.ExtentEndsAtNode && !ctx.Axes[l.Axis].Path.Closed))
+            {
+                double target = leg.S + (leg.Dir * leg.Extent);
+                Node? far = nodes.FirstOrDefault(n => n != node && n.Items.Any(it => it.Axis == leg.Axis && Math.Abs(it.S - target) <= snap + 1e-6));
+                if (far is not null && far.Legs.Count == 2 &&
+                    Math.Abs(GMath.Norm(far.Legs[1].Angle - far.Legs[0].Angle) - Math.PI) <= straight)
+                {
+                    leg.FarNodeStraight = true;
+                }
+            }
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1095,7 +1112,7 @@ internal static class ViarioEngine
         double along = (s - leg.S) * leg.Dir;
         if (axis.Closed)
             along = ((along % axis.Length) + axis.Length) % axis.Length;
-        double available = leg.ExtentEndsAtNode ? leg.Extent / 2.0 : leg.Extent;
+        double available = leg.ExtentEndsAtNode && !leg.FarNodeStraight ? leg.Extent / 2.0 : leg.Extent;
         return along <= available + 1e-6;
     }
 
