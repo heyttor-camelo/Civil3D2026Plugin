@@ -21,7 +21,7 @@ internal sealed class CivilEdgePlan
 
     public int Index { get; set; }
 
-    public string Code => (Side > 0 ? "LD" : "LE") + Index;
+    public string Code => (Side > 0 ? "LD" : "LE") + (Index > 0 ? Index.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
 
     public double Length => S1 - S0;
 
@@ -92,7 +92,9 @@ internal static class ViarioCivilPlanner
 
     private readonly record struct Gap(double A, double B);
 
-    public static CivilPlan Build(IReadOnlyList<AxisInput> axes, ViarioResult result)
+    /// <param name="split">false (padrao): um bordo LD e um LE por eixo, inteiros, como no Civil
+    /// (os curb returns passam por cima). true: bordos cortados nas esquinas.</param>
+    public static CivilPlan Build(IReadOnlyList<AxisInput> axes, ViarioResult result, bool split = false)
     {
         CivilPlan plan = new();
         plan.Axes.AddRange(axes);
@@ -152,11 +154,13 @@ internal static class ViarioCivilPlanner
             foreach (int side in new[] { -1, +1 })
             {
                 List<Gap> list = gaps.TryGetValue((axis.Key, side), out List<Gap>? g) ? g : new List<Gap>();
-                List<(double A, double B)> pieces = axis.Path.Closed
-                    ? ClosedComplement(axis.Path.Length, list)
-                    : OpenComplement(axis.Path.Length, list);
+                List<(double A, double B)> pieces = !split
+                    ? new List<(double, double)> { (0.0, axis.Path.Length) }
+                    : axis.Path.Closed
+                        ? ClosedComplement(axis.Path.Length, list)
+                        : OpenComplement(axis.Path.Length, list);
 
-                int index = 1;
+                int index = split ? 1 : 0;
                 foreach ((double a, double b) in pieces.OrderBy(p => p.A))
                 {
                     if (b - a < MinEdge)
@@ -169,7 +173,7 @@ internal static class ViarioCivilPlanner
                         Offset = side * axis.Section.EdgeOffset(EdgeLevel.FaceMF),
                         S0 = a,
                         S1 = b,
-                        Index = index++
+                        Index = split ? index++ : 0
                     });
                 }
             }
@@ -356,14 +360,14 @@ internal static class ViarioCivilPlanner
     private static CivilEdgePlan? EdgeAt(CivilPlan plan, string axis, int side, double s)
     {
         CivilEdgePlan? best = null;
-        double bestDist = 0.05;
+        double bestDist = double.MaxValue;
         foreach (CivilEdgePlan e in plan.Edges)
         {
-            if (e.AxisKey != axis || e.Side != side)
+            if (e.AxisKey != axis || e.Side != side || s < e.S0 - 0.05 || s > e.S1 + 0.05)
                 continue;
 
             double d = Math.Min(Math.Abs(e.S0 - s), Math.Abs(e.S1 - s));
-            if (d <= bestDist)
+            if (d < bestDist)
             {
                 bestDist = d;
                 best = e;

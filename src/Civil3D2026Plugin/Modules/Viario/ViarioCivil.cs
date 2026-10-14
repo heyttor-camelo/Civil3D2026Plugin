@@ -38,7 +38,7 @@ internal static class ViarioCivil
         public List<string> Messages { get; } = new();
 
         public override string ToString() =>
-            $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, fixos {EdgesFixed}) | " +
+            $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, divergentes {EdgesFixed}) | " +
             $"curb returns +{CurbsCreated} (mantidos {CurbsKept}; conectados {CurbsConnected}, simples {CurbsSimple}, falhas {CurbsFailed}) | removidos {Erased}";
     }
 
@@ -316,49 +316,57 @@ internal static class ViarioCivil
         string side = e.Side.ToString(CultureInfo.InvariantCulture);
         List<string> errors = new();
 
-        if (!e.ForceFixed)
+        // Sempre offset dinamico do Civil (ligado ao eixo). Com alargamento, testa a forma
+        // do valor (largura total ou acrescimo, com ou sem sinal) ate o bordo conferir.
+        int variants = e.Widenings.Count == 0 ? 1 : 4;
+        for (int pass = 0; pass <= variants; pass++)
         {
-            // Forma do valor do alargamento: largura total ou so o acrescimo, com ou sem sinal.
-            int variants = e.Widenings.Count == 0 ? 1 : 4;
-            for (int v = 0; v < variants; v++)
+            bool last = pass == variants;
+            int v = last ? 0 : pass;
+            AcadDb.ObjectId id = AcadDb.ObjectId.Null;
+            try
             {
-                AcadDb.ObjectId id = AcadDb.ObjectId.Null;
-                try
+                id = CivilDb.Alignment.CreateOffsetAlignment(name, parentId, e.Offset, styleId, st0, st1);
+                CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
+                foreach (CivilWidenRegion w in e.Widenings)
                 {
-                    id = CivilDb.Alignment.CreateOffsetAlignment(name, parentId, e.Offset, styleId, st0, st1);
-                    CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                    foreach (CivilWidenRegion w in e.Widenings)
-                        ApplyWidening(al, axis, e, w, v);
-
-                    if (VerifyEdge(al, axis, e, out string why))
+                    try
                     {
-                        al.Layer = LayerEdge;
-                        SetTag(al, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, e.Widenings.Count == 0 ? "OFFSET" : "OFFSET-ALARG" + v);
-                        return id;
+                        ApplyWidening(al, axis, e, w, v);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        errors.Add($"alargamento: {ex.Message}");
+                    }
+                }
+
+                bool ok = VerifyEdge(al, axis, e, out string why);
+                if (ok || last)
+                {
+                    al.Layer = LayerEdge;
+                    SetTag(al, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, ok ? "OFFSET" + (e.Widenings.Count > 0 ? "-ALARG" + v : "") : "OFFSET-DIVERGE");
+                    if (!ok)
+                    {
+                        report.EdgesFixed++;
+                        report.Messages.Add($"{name}: offset criado, mas nao bate com a rede ({why}; {string.Join(" | ", errors.Take(2))}).");
                     }
 
-                    errors.Add($"variante {v}: {why}");
-                    al.Erase();
+                    return id;
                 }
-                catch (System.Exception ex)
-                {
-                    errors.Add($"variante {v}: {ex.Message}");
-                    TryErase(tr, id);
-                }
+
+                errors.Add($"variante {v}: {why}");
+                al.Erase();
+            }
+            catch (System.Exception ex)
+            {
+                errors.Add($"variante {v}: {ex.Message}");
+                TryErase(tr, id);
+                if (last)
+                    report.Messages.Add($"{name}: {string.Join(" | ", errors.Take(3))}");
             }
         }
 
-        // Geometria fixa (o plugin mantem): segue exatamente o bordo da rede.
-        AcadDb.ObjectId fixedId = CivilDb.Alignment.Create(cdoc, name, siteId, layerId, styleId, labelId);
-        CivilDb.Alignment fixedAl = (CivilDb.Alignment)tr.GetObject(fixedId, AcadDb.OpenMode.ForWrite);
-        BuildEntities(fixedAl, FixedEdgePath(axis.Path, e));
-        fixedAl.Layer = LayerEdge;
-        SetTag(fixedAl, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, "FIXO");
-        report.EdgesFixed++;
-        report.Messages.Add(e.ForceFixed
-            ? $"{name}: taper cortado pela esquina; bordo criado com geometria fixa."
-            : $"{name}: alargamento nao conferiu como offset ({string.Join(" | ", errors.Take(2))}); geometria fixa.");
-        return fixedId;
+        return AcadDb.ObjectId.Null;
     }
 
     private static void ApplyWidening(CivilDb.Alignment al, AxisInput axis, CivilEdgePlan e, CivilWidenRegion w, int variant)
@@ -717,27 +725,19 @@ internal static class ViarioCivil
         }
     }
 
-    /// <summary>Confere centro e comprimento do arco criado (por reflexao; sem dados, aceita).</summary>
+    /// <summary>Confere centro, raio, sentido e angulo do arco criado.</summary>
     private static bool ArcMatches(object entity, Seg s)
     {
-        Type type = entity.GetType();
-
-        object? center = type.GetProperty("CenterPoint")?.GetValue(entity);
-        if (center is not null)
-        {
-            double? x = center.GetType().GetProperty("X")?.GetValue(center) as double?;
-            double? y = center.GetType().GetProperty("Y")?.GetValue(center) as double?;
-            if (x is double cx && y is double cy)
-            {
-                if (V2.Dist(new V2(cx, cy), s.Center) > 0.01)
-                    return false;
-            }
-        }
-
-        if (type.GetProperty("Length")?.GetValue(entity) is double length && Math.Abs(length - s.Length) > 0.01)
+        if (entity is not CivilDb.AlignmentArc arc)
             return false;
 
-        return true;
+        if (V2.Dist(new V2(arc.CenterPoint.X, arc.CenterPoint.Y), s.Center) > 0.01)
+            return false;
+        if (Math.Abs(arc.Radius - s.Radius) > 0.01)
+            return false;
+        if (arc.Clockwise != (s.Sweep < 0))
+            return false;
+        return Math.Abs(Math.Abs(arc.Delta) - Math.Abs(s.Sweep)) <= 1e-3;
     }
 
     /// <summary>Confere o meio de cada trecho do caminho sobre o alinhamento.</summary>

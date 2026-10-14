@@ -1,3 +1,10 @@
+## 2.26.2 - C3DVIARIO v0.4.2 / bordos inteiros e ligados ao eixo
+
+- bordos: um alinhamento offset por lado (`<eixo> - LD` e `- LE`) no comprimento inteiro do eixo, como o Civil faz; os curb returns passam por cima nas esquinas (antes eram varios trechos cortados);
+- bordo e sempre offset dinamico do Civil (ligado ao eixo, sem PIs proprios). A geometria fixa amostrada (muitos PIs) foi removida; se o alargamento nao conferir, o offset fica assim mesmo e o console avisa;
+- conferencia de arcos usa as propriedades reais do Civil (centro, raio, sentido, deflexao). Antes a leitura do comprimento falhava e o arco caia no recurso de "duas metades", criando PIs extras;
+- curb returns: com os bordos inteiros, os pais do alinhamento conectado se cruzam de fato (condicao do Civil).
+
 ## 2.26.1 - C3DVIARIO v0.4.1 / correcoes dos alinhamentos do Civil
 
 - arcos saiam espelhados (curva para o lado contrario): a sobrecarga usada pelo Civil toma a direcao no ponto final. Agora cada arco e criado pela forma "direcao no segundo ponto", conferido (centro e comprimento) e, se nao bater, desfeito e refeito por outra forma (direcao inicial, raio + sentido, ou duas metades). Vale para eixos, curb returns simples e bordos fixos; o console avisa se algum trecho do alinhamento nao confere com o eixo;
