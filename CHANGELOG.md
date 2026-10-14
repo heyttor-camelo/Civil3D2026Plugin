@@ -1,3 +1,7 @@
+## 2.26.3 - C3DVIARIO v0.4.3 / raio de esquina em eixos que se cruzam mais de uma vez
+
+- quando dois eixos se encontram em mais de um no com a mesma orientacao (ex.: via em curva que cruza outra duas vezes), as esquinas tinham a mesma chave e o editor de raio mudava as duas juntas. Agora a segunda ocorrencia em diante recebe sufixo (`#2`, `#3`, pela ordem ao longo do eixo); chaves que nao se repetem continuam iguais, entao raios ja gravados em desenhos antigos nao mudam.
+
 ## 2.26.2 - C3DVIARIO v0.4.2 / bordos inteiros e ligados ao eixo
 
 - bordos: um alinhamento offset por lado (`<eixo> - LD` e `- LE`) no comprimento inteiro do eixo, como o Civil faz; os curb returns passam por cima nas esquinas (antes eram varios trechos cortados);

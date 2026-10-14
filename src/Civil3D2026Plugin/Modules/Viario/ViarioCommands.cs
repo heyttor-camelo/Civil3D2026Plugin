@@ -554,7 +554,7 @@ public sealed class ViarioCommands
     }
 
     internal static bool CornerHasAxis(string cornerKey, string axisKey) =>
-        cornerKey.Split('|').Any(part => part.Length > 1 && part[..^1] == axisKey);
+        cornerKey.Split('#')[0].Split('|').Any(part => part.Length > 1 && part[..^1] == axisKey);
 
     private static EngineSettings With(EngineSettings engine, IEnumerable<string> keys, double radius)
     {

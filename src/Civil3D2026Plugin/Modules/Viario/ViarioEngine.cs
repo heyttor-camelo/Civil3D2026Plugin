@@ -256,6 +256,9 @@ internal static class ViarioEngine
         public V2 Point;
         public List<(int Axis, double S)> Items = new();
         public List<Leg> Legs = new();
+
+        /// <summary>Ordem deste no entre os nos do mesmo par de eixos (1 = primeiro).</summary>
+        public Dictionary<(string, string), int> PairOrdinal = new();
     }
 
     private sealed class Curve
@@ -334,6 +337,7 @@ internal static class ViarioEngine
         public Dictionary<int, List<(double A, double B)>> Openings = new();
         public List<GotaPlace> Gotas = new();
         public Dictionary<(int, int, EdgeLevel, long), GPath> CurveOffsetCache = new();
+        public HashSet<string> RepeatedKeys = new();
         public double[] ExtStartLen = Array.Empty<double>();
     }
 
@@ -348,6 +352,7 @@ internal static class ViarioEngine
 
         List<Node> nodes = FindNodes(ctx);
         BuildLegs(ctx, nodes);
+        NumberPairs(ctx, nodes);
         ResolveEvents(ctx, nodes);
         foreach (((int axis, int side), List<Ramp> ramps) in ctx.Widen)
         {
@@ -392,6 +397,67 @@ internal static class ViarioEngine
     }
 
     /// <summary>Chave de uma esquina: os dois ramos (eixo e sentido), na ordem anti-horaria.</summary>
+    private static (string, string) PairOf(string a, string b) =>
+        string.CompareOrdinal(a, b) <= 0 ? (a, b) : (b, a);
+
+    /// <summary>
+    /// Dois eixos que se cruzam em mais de um no geram esquinas com a mesma chave base;
+    /// o segundo no em diante (ao longo do eixo de menor chave) ganha o sufixo "#n".
+    /// </summary>
+    private static void NumberPairs(Ctx ctx, List<Node> nodes)
+    {
+        Dictionary<(string, string), List<(Node Node, double S)>> pairs = new();
+        foreach (Node node in nodes)
+        {
+            List<(string Key, double S)> items = node.Items.Select(it => (ctx.Axes[it.Axis].Key, it.S)).ToList();
+            HashSet<(string, string)> seen = new();
+            for (int x = 0; x < items.Count; x++)
+            {
+                for (int y = x; y < items.Count; y++)
+                {
+                    if (x == y && items.Count(it => it.Key == items[x].Key) < 2)
+                        continue;
+
+                    (string, string) pair = PairOf(items[x].Key, items[y].Key);
+                    if (!seen.Add(pair))
+                        continue;
+
+                    double s = items.Where(it => it.Key == pair.Item1).Select(it => it.S).DefaultIfEmpty(0.0).Min();
+                    if (!pairs.TryGetValue(pair, out List<(Node, double)>? list))
+                        pairs[pair] = list = new List<(Node, double)>();
+                    list.Add((node, s));
+                }
+            }
+        }
+
+        foreach (((string, string) pair, List<(Node Node, double S)> list) in pairs)
+        {
+            int n = 1;
+            foreach ((Node node, _) in list.OrderBy(t => t.S))
+                node.PairOrdinal[pair] = n++;
+        }
+
+        // So recebem sufixo as chaves que de fato se repetem (desenhos antigos mantem as suas).
+        Dictionary<string, int> count = new();
+        foreach (Node node in nodes)
+        {
+            int legs = node.Legs.Count;
+            for (int i = 0; i < legs; i++)
+            {
+                Leg li = node.Legs[i];
+                Leg lj = node.Legs[(i + 1) % legs];
+                string key = CornerKey(ctx.Axes[li.Axis].Key, li.Dir, ctx.Axes[lj.Axis].Key, lj.Dir);
+                count[key] = count.TryGetValue(key, out int c) ? c + 1 : 1;
+            }
+        }
+
+        foreach ((string key, int c) in count)
+        {
+            if (c > 1)
+                ctx.RepeatedKeys.Add(key);
+        }
+    }
+
     public static string CornerKey(string axisA, int dirA, string axisB, int dirB) =>
         axisA + (dirA > 0 ? "+" : "-") + "|" + axisB + (dirB > 0 ? "+" : "-");
 
@@ -814,6 +880,9 @@ internal static class ViarioEngine
                 continue;
 
             string key = CornerKey(ctx.Axes[li.Axis].Key, li.Dir, ctx.Axes[lj.Axis].Key, lj.Dir);
+            if (ctx.RepeatedKeys.Contains(key) &&
+                node.PairOrdinal.TryGetValue(PairOf(ctx.Axes[li.Axis].Key, ctx.Axes[lj.Axis].Key), out int ordinal) && ordinal > 1)
+                key += "#" + ordinal.ToString(System.Globalization.CultureInfo.InvariantCulture);
             SlipLane? slip = ctx.Settings.SlipLanes.TryGetValue(key, out SlipLane? sl) ? sl : null;
             double faceRadius = slip?.Radius ?? ResolveRadius(ctx, li, lj, key);
             bool concave = theta < Math.PI - straightTol;
