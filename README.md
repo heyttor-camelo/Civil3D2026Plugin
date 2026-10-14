@@ -160,14 +160,14 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.4.4)
+## Rede viaria (C3DVIARIO v0.4.5)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
-C3DVIARIORAIO        -> raio de uma esquina (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
+C3DVIARIORAIO        -> raio de uma esquina ou de um vertice do eixo (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
 C3DVIARIOALARGAR     -> faixa adicional (conversao a direita/esquerda) com armazenamento arrastavel e taper
 C3DVIARIOGOTA        -> ilha em gota na aproximacao (Tipo II)
 C3DVIARIOCONVERSAO   -> conversao a esquerda tirada do canteiro (Tipo IV)
@@ -175,6 +175,7 @@ C3DVIARIOABERTURA    -> abertura de canteiro para retorno
 C3DVIARIOLIVRE       -> faixa livre a direita com ilha triangular (Tipo III)
 C3DVIARIOELEMREMOVER -> remove um desses elementos
 C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns
+C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
 C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/SOltar/REmover/ATUalizar/CIvil/Config]

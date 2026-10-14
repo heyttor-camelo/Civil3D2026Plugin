@@ -31,6 +31,8 @@ internal static class ViarioStore
     private const string SettingsKey = "CONFIG";
     private const string RadiiKey = "RAIOS";
     private const string ReleasedKey = "SOLTAS";
+    private const string RemovedIslandsKey = "ILHASOFF";
+    private const string RemovedIslandsSignature = "VILHAOFF1";
     private const string SlipKey = "LIVRES";
     private const string SlipSignature = "VLIVRE1";
     private const string SectionSignature = "VSEC1";
@@ -443,6 +445,35 @@ internal static class ViarioStore
             list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, key));
 
         WriteRecord(tr, db, ReleasedKey, new AcadDb.ResultBuffer(list.ToArray()));
+    }
+
+    /// <summary>Pontos dentro das ilhas eliminadas pelo usuario.</summary>
+    public static List<V2> LoadRemovedIslands(AcadDb.Database db)
+    {
+        List<V2> result = new();
+        AcadDb.TypedValue[]? v = ReadRecord(db, RemovedIslandsKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != RemovedIslandsSignature)
+            return result;
+
+        for (int i = 1; i + 1 < v.Length; i += 2)
+        {
+            if (v[i].Value is double x && v[i + 1].Value is double y)
+                result.Add(new V2(x, y));
+        }
+
+        return result;
+    }
+
+    public static void SaveRemovedIslands(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<V2> seeds)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, RemovedIslandsSignature) };
+        foreach (V2 p in seeds)
+        {
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.X));
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Y));
+        }
+
+        WriteRecord(tr, db, RemovedIslandsKey, new AcadDb.ResultBuffer(list.ToArray()));
     }
 
     // ------------------------------------------------------------------

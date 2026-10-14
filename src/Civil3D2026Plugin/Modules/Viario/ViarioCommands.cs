@@ -88,6 +88,9 @@ public sealed class ViarioCommands
     [CommandMethod(C3DCommands.Viario.ElemRemover, CommandFlags.Modal)]
     public void ElemRemover() => Run(C3DCommands.Viario.ElemRemover, ViarioElementCommands.Remove);
 
+    [CommandMethod(C3DCommands.Viario.Ilha, CommandFlags.Modal)]
+    public void Ilha() => Run(C3DCommands.Viario.Ilha, ViarioVertexCommands.Islands);
+
     [CommandMethod(C3DCommands.Viario.Teste, CommandFlags.Modal)]
     public void Teste() => Run(C3DCommands.Viario.Teste, RunSelfTest);
 
@@ -420,7 +423,7 @@ public sealed class ViarioCommands
         Editor ed = doc.Editor;
         AcadDb.Database db = doc.Database;
 
-        PromptPointOptions options = new("\nClique perto da esquina ou [Ilha/Eixo/Limpar]: ");
+        PromptPointOptions options = new("\nClique perto da esquina (ou de um vertice do eixo) ou [Ilha/Eixo/Limpar]: ");
         options.Keywords.Add("Ilha");
         options.Keywords.Add("Eixo");
         options.Keywords.Add("Limpar");
@@ -449,6 +452,14 @@ public sealed class ViarioCommands
         CornerInfo? corner = result.Corners
             .OrderBy(c => DistanceToCorner(c, p))
             .FirstOrDefault();
+
+        // Vertice do proprio eixo (curva de uma via, canto de quadra) mais perto que a esquina?
+        VertexPick? vertex = ViarioVertexCommands.FindVertex(db, axes, p, 30.0);
+        if (vertex is not null && (corner is null || vertex.Distance < DistanceToCorner(corner, p)))
+        {
+            ViarioVertexCommands.EditVertex(doc, vertex, p, axes, ViarioSync.EngineSettingsFor(db), keys);
+            return;
+        }
 
         if (corner is null || DistanceToCorner(corner, p) > Math.Max(30.0, corner.Radius * 3.0))
         {

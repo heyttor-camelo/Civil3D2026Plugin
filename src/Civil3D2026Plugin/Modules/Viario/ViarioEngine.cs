@@ -184,8 +184,12 @@ internal sealed class EngineSettings
         StraightToleranceDeg = StraightToleranceDeg,
         MedianSetback = MedianSetback,
         CornerRadius = new Dictionary<string, double>(CornerRadius),
-        SlipLanes = new Dictionary<string, SlipLane>(SlipLanes)
+        SlipLanes = new Dictionary<string, SlipLane>(SlipLanes),
+        RemovedIslands = new List<V2>(RemovedIslands)
     };
+
+    /// <summary>Pontos dentro de ilhas que o usuario eliminou (vira pavimento).</summary>
+    public List<V2> RemovedIslands { get; set; } = new();
 }
 
 /// <summary>Alargamento de um lado do eixo (patamar + taper), para os objetos do Civil.</summary>
@@ -394,7 +398,66 @@ internal static class ViarioEngine
 
         BuildMedians(ctx, nodes);
         BuildGotas(ctx);
+        RemoveIslands(result, settings.RemovedIslands);
         return result;
+    }
+
+    /// <summary>
+    /// Ilha eliminada: em cada nivel, o menor anel fechado que contem o ponto sai
+    /// (face, costas, alinhamento, canteiro, gota...). O resto da rede nao muda.
+    /// </summary>
+    private static void RemoveIslands(ViarioResult result, List<V2> seeds)
+    {
+        foreach (V2 seed in seeds)
+        {
+            foreach (IGrouping<EdgeLevel, OutputLine> level in result.Lines.Where(l => l.Closed).GroupBy(l => l.Level).ToList())
+            {
+                OutputLine? ring = level
+                    .Where(l => RingContains(l.Segs, seed))
+                    .OrderBy(l => RingArea(l.Segs))
+                    .FirstOrDefault();
+                if (ring is not null)
+                    result.Lines.Remove(ring);
+            }
+        }
+    }
+
+    private static List<V2> RingPoints(IReadOnlyList<Seg> segs)
+    {
+        List<V2> pts = new();
+        foreach (Seg s in segs)
+        {
+            int n = s.IsArc ? 16 : 1;
+            for (int k = 0; k < n; k++)
+                pts.Add(s.PointAt((double)k / n));
+        }
+
+        return pts;
+    }
+
+    public static bool RingContains(IReadOnlyList<Seg> segs, V2 p)
+    {
+        List<V2> pts = RingPoints(segs);
+        bool inside = false;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+        {
+            if (((pts[i].Y > p.Y) != (pts[j].Y > p.Y)) &&
+                (p.X < ((pts[j].X - pts[i].X) * (p.Y - pts[i].Y) / (pts[j].Y - pts[i].Y)) + pts[i].X))
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    public static double RingArea(IReadOnlyList<Seg> segs)
+    {
+        List<V2> pts = RingPoints(segs);
+        double area = 0;
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+            area += V2.Cross(pts[j], pts[i]);
+        return Math.Abs(area / 2.0);
     }
 
     /// <summary>Chave de uma esquina: os dois ramos (eixo e sentido), na ordem anti-horaria.</summary>

@@ -200,6 +200,8 @@ public static class CommandCatalog
                         "Secoes (pista, canteiro, sarjeta, meio-fio, calcada, raio), rotatoria, adicionar/atribuir/remover eixos, soltar linhas e atualizar."),
                     new CommandDefinition(C3DCommands.Viario.Civil, "Objetos do Civil",
                         "Gera e mantem alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns (site VIARIO)."),
+                    new CommandDefinition(C3DCommands.Viario.Ilha, "Eliminar ilha",
+                        "Clique dentro de uma ilha (anel de meio-fio, canteiro ou gota) para elimina-la; Restaurar/Todas desfaz."),
                     new CommandDefinition(C3DCommands.Viario.Teste, "Autoteste",
                         "Confere eixos, bordos e curb returns do Civil contra a rede e grava relatorio em %TEMP%."),
                     new CommandDefinition(C3DCommands.Viario.Diag, "Diagnostico API Civil",

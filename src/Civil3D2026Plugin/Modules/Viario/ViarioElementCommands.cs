@@ -28,8 +28,8 @@ internal static class ViarioElementCommands
     public static void Menu(Document doc)
     {
         PromptKeywordOptions options = new(
-            "\nElemento [Alargamento/Gota/COnversao/ABertura/Livre/Remover] <Alargamento>: ",
-            "Alargamento Gota COnversao ABertura Livre Remover")
+            "\nElemento [Alargamento/Gota/COnversao/ABertura/Livre/Ilha/Remover] <Alargamento>: ",
+            "Alargamento Gota COnversao ABertura Livre Ilha Remover")
         {
             AllowNone = true
         };
@@ -44,6 +44,7 @@ internal static class ViarioElementCommands
             case "COnversao": Conversao(doc); break;
             case "ABertura": Abertura(doc); break;
             case "Livre": Livre(doc); break;
+            case "Ilha": ViarioVertexCommands.Islands(doc); break;
             case "Remover": Remove(doc); break;
             default: Alargar(doc); break;
         }

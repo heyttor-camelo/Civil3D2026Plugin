@@ -357,7 +357,8 @@ internal static class ViarioSync
             SnapTolerance = settings.SnapTolerance,
             MedianSetback = settings.MedianSetback,
             CornerRadius = ViarioStore.LoadCornerRadii(db),
-            SlipLanes = ViarioStore.LoadSlipLanes(db)
+            SlipLanes = ViarioStore.LoadSlipLanes(db),
+            RemovedIslands = ViarioStore.LoadRemovedIslands(db)
         };
     }
 

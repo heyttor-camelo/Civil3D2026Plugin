@@ -1,3 +1,9 @@
+## 2.26.5 - C3DVIARIO v0.4.5 / raio em vertice do eixo, eliminar ilhas
+
+- **C3DVIARIORAIO** tambem concorda vertices do proprio eixo (canto de quadra, curva de uma via em polilinha): clique perto do vertice, do lado que interessa; o raio digitado/arrastado e o da face do meio-fio desse lado (dentro da curva: eixo = R + meia largura; fora: R - meia largura). A polilinha do eixo ganha o arco (os bordos ficam concentricos e os alinhamentos do Civil acompanham). Clicar de novo edita o raio; [Padrao] ou 0 volta ao canto vivo;
+- **C3DVIARIOILHA** (e ELementos > Ilha): clique dentro de uma ilha (anel fechado de meio-fio, canteiro ou gota) e ela some - vira pavimento; [Restaurar] traz de volta a ilha clicada, [Todas] restaura todas. Anel grande (> 5000 m2, cara de quadra) pede confirmacao. Gravado no DWG (ILHASOFF);
+- script de teste cobre o raio em vertice e eliminar/restaurar ilha.
+
 ## 2.26.4 - C3DVIARIO v0.4.4 / testado no Civil 3D (roteiro automatico)
 
 Rodado no Civil 3D 2026 com `tests/viario/teste_rede.scr` (cruzamento, T, eixo curvo, rotatoria com ramos, quadra fechada; alargamento, gota, raio, mover eixo, faixa livre, apagar, desfazer, remover e gerar de novo), conferido por `C3DVIARIOTESTE`:
