@@ -88,6 +88,58 @@ public sealed class ViarioCommands
     [CommandMethod(C3DCommands.Viario.ElemRemover, CommandFlags.Modal)]
     public void ElemRemover() => Run(C3DCommands.Viario.ElemRemover, ViarioElementCommands.Remove);
 
+    [CommandMethod(C3DCommands.Viario.Teste, CommandFlags.Modal)]
+    public void Teste() => Run(C3DCommands.Viario.Teste, RunSelfTest);
+
+    /// <summary>
+    /// Autoteste: confere os objetos do Civil contra a rede e grava o relatorio em
+    /// %TEMP%\C3DVIARIOTESTE.txt (a etapa "INICIO" zera o arquivo).
+    /// </summary>
+    private static void RunSelfTest(Document doc)
+    {
+        Editor ed = doc.Editor;
+        PromptStringOptions label = new("\nEtapa do teste <manual>: ") { AllowSpaces = false };
+        PromptResult r = ed.GetString(label);
+        if (r.Status == PromptStatus.Cancel)
+            return;
+
+        string step = string.IsNullOrWhiteSpace(r.StringResult) ? "manual" : r.StringResult.Trim();
+        List<string> lines;
+        int ok, fail;
+        try
+        {
+            lines = ViarioCivil.Check(doc, out ok, out fail);
+        }
+        catch (System.Exception ex)
+        {
+            lines = new List<string> { "FALHA excecao: " + ex };
+            ok = 0;
+            fail = 1;
+        }
+
+        string header = $"=== {step} | {DateTime.Now:HH:mm:ss} | OK {ok} | FALHA {fail} ===";
+        ed.WriteMessage("\n" + header);
+        foreach (string line in lines.Where(l => !l.StartsWith("OK", StringComparison.Ordinal)).Take(25))
+            ed.WriteMessage("\n  " + line);
+
+        try
+        {
+            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "C3DVIARIOTESTE.txt");
+            List<string> all = new() { header };
+            all.AddRange(lines.Select(l => "  " + l));
+            all.Add(string.Empty);
+            if (string.Equals(step, "INICIO", StringComparison.OrdinalIgnoreCase))
+                System.IO.File.WriteAllLines(path, all);
+            else
+                System.IO.File.AppendAllLines(path, all);
+            ed.WriteMessage($"\n  Relatorio: {path}");
+        }
+        catch (System.Exception ex)
+        {
+            ed.WriteMessage("\n  Nao gravei o relatorio: " + ex.Message);
+        }
+    }
+
     [CommandMethod(C3DCommands.Viario.Civil, CommandFlags.Modal)]
     public void Civil() => Run(C3DCommands.Viario.Civil, CivilMenu);
 

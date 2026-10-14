@@ -289,6 +289,128 @@ internal static class ViarioCivil
         return report;
     }
 
+    // ------------------------------------------------------------------
+    // Autoteste (C3DVIARIOTESTE)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Confere cada objeto do Civil contra a rede calculada agora. Somente leitura.
+    /// Linhas: "OK ...", "FALHA ...", "AVISO ...".
+    /// </summary>
+    public static List<string> Check(Document doc, out int ok, out int fail)
+    {
+        ok = 0;
+        fail = 0;
+        List<string> lines = new();
+        AcadDb.Database db = doc.Database;
+        (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
+        CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
+        lines.Add($"Rede: {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s), {result.Corners.Count} esquina(s), {result.Warnings.Distinct().Count()} aviso(s) do motor.");
+        foreach (string w in result.Warnings.Distinct())
+            lines.Add("AVISO motor: " + w);
+
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        List<Tagged> existing = Scan(tr, db);
+        if (existing.Count == 0)
+        {
+            lines.Add("AVISO nenhum objeto do Civil gerado (rode C3DVIARIOCIVIL > Gerar).");
+            return lines;
+        }
+
+        HashSet<Tagged> seen = new();
+        Dictionary<string, AxisInput> byKey = axes.GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
+
+        void Ok(string m) { lines.Add("OK    " + m); }
+        void Fail(string m) { lines.Add("FALHA " + m); }
+
+        foreach (AxisInput axis in plan.Axes)
+        {
+            Tagged? t = existing.FirstOrDefault(x => x.Kind == KindAxis && x.Key == axis.Key);
+            if (t is null) { Fail($"eixo {axis.Key}: sem alinhamento"); fail++; continue; }
+            seen.Add(t);
+            CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(t.Id, AcadDb.OpenMode.ForRead);
+            int bad = axis.Path.Segs.Count(sg => sg.Length > 1e-3 && !OnAlignment(al, sg.PointAt(0.5)));
+            double dl = Math.Abs(al.Length - axis.Path.Length);
+            if (bad == 0 && dl < 0.01) { Ok($"{al.Name}: {axis.Path.Segs.Count} trecho(s), L={al.Length:0.###}"); ok++; }
+            else { Fail($"{al.Name}: {bad} trecho(s) fora, dL={dl:0.###}"); fail++; }
+        }
+
+        foreach (CivilEdgePlan e in plan.Edges)
+        {
+            Tagged? t = existing.FirstOrDefault(x => x.Kind == KindEdge && x.Key == e.AxisKey && x.Side == e.Side &&
+                                                     Math.Abs(x.S0 - e.S0) < 0.01 && Math.Abs(x.S1 - e.S1) < 0.01);
+            if (t is null) { Fail($"bordo {e.Code} do eixo {e.AxisKey}: nao existe"); fail++; continue; }
+            seen.Add(t);
+            CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(t.Id, AcadDb.OpenMode.ForRead);
+            AxisInput axis = byKey[e.AxisKey];
+            bool plate = VerifyEdge(al, axis, e, out string why);
+            string taper = string.Empty;
+            bool taperBad = false;
+            if (e.Widenings.Count > 0)
+            {
+                double dev = TaperDeviation(al, axis, e);
+                taper = $", taper desvio max {dev:0.###} m";
+                taperBad = dev > 0.10;
+            }
+
+            string info = $"{al.Name} [{t.Method}] {e.Widenings.Count} alarg.{taper}";
+            if (plate && !taperBad) { Ok(info); ok++; }
+            else { Fail(info + (plate ? "" : " | " + why) + (e.Widenings.Count > 0 ? " | " + DescribeRegions(al) : "")); fail++; }
+        }
+
+        foreach (CivilCurbPlan c in plan.Curbs)
+        {
+            Tagged? t = existing.FirstOrDefault(x => x.Kind == KindCurb && x.Key == c.Key);
+            if (t is null) { Fail($"curb return {c.Key}: nao existe"); fail++; continue; }
+            seen.Add(t);
+            CivilDb.Alignment al = (CivilDb.Alignment)tr.GetObject(t.Id, AcadDb.OpenMode.ForRead);
+            string info = $"{al.Name} [{t.Method}] R={c.Radius:0.##}";
+            if (VerifyArc(al, c.Arc)) { Ok(info); ok++; }
+            else { Fail(info + " | arco nao confere"); fail++; }
+        }
+
+        foreach (Tagged t in existing.Where(x => !seen.Contains(x)))
+        {
+            string name = tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al ? al.Name : t.Id.ToString();
+            Fail($"{name}: sobrando ({t.Kind} {t.Key})");
+            fail++;
+        }
+
+        return lines;
+    }
+
+    /// <summary>Maior distancia entre o bordo da rede e o alinhamento dentro dos tapers.</summary>
+    private static double TaperDeviation(CivilDb.Alignment al, AxisInput axis, CivilEdgePlan e)
+    {
+        double max = 0.0;
+        foreach (CivilWidenRegion w in e.Widenings)
+        {
+            foreach ((double a, double b) in new[] { (w.Start - w.TaperIn, w.Start), (w.End, w.End + w.TaperOut) })
+            {
+                if (b - a < 0.1)
+                    continue;
+                for (int i = 1; i < 10; i++)
+                {
+                    double s = a + ((b - a) * i / 10.0);
+                    V2 p = OffsetPoint(axis.Path, s, e.OffsetAt(s));
+                    try
+                    {
+                        double station = 0, offset = 0;
+                        bool outOfRange = false;
+                        al.StationOffsetAcceptOutOfRange(p.X, p.Y, ref station, ref offset, ref outOfRange);
+                        max = Math.Max(max, outOfRange ? 99.0 : Math.Abs(offset));
+                    }
+                    catch
+                    {
+                        max = 99.0;
+                    }
+                }
+            }
+        }
+
+        return max;
+    }
+
     /// <summary>Apaga todos os objetos do Civil gerados pelo modulo.</summary>
     public static int RemoveAll(Document doc)
     {

@@ -83,6 +83,7 @@ public static class CommandNames
         public const string Livre = "C3DVIARIOLIVRE";
         public const string ElemRemover = "C3DVIARIOELEMREMOVER";
         public const string Civil = "C3DVIARIOCIVIL";
+        public const string Teste = "C3DVIARIOTESTE";
         public const string Diag = "C3DVIARIODIAG";
     }
 
