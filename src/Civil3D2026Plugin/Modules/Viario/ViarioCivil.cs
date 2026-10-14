@@ -29,6 +29,9 @@ internal static class ViarioCivil
     private const double Tol = 0.005;
     private const double VerifyTol = 0.03;
 
+    /// <summary>Trecho do curb return conectado sobre cada pai (o Civil exige > 0).</summary>
+    private const double CurbOverlap = 0.5;
+
     private static readonly Dictionary<AcadDb.Database, bool> Active = new();
 
     internal sealed class Report
@@ -605,8 +608,8 @@ internal static class ViarioCivil
         CurveGroupType = Autodesk.Civil.CurbReturnCurveGroupType.Arc,
         CurveRadius = radius,
         GreaterThan180 = false,
-        ConnectionOverlapLengthIn = 0.0,
-        ConnectionOverlapLengthOut = 0.0
+        ConnectionOverlapLengthIn = CurbOverlap,
+        ConnectionOverlapLengthOut = CurbOverlap
     };
 
     /// <summary>O arco planejado esta sobre o alinhamento (inicio, meio e fim).</summary>
