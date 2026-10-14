@@ -122,22 +122,36 @@ public sealed class ViarioCommands
         foreach (string line in lines.Where(l => !l.StartsWith("OK", StringComparison.Ordinal)).Take(25))
             ed.WriteMessage("\n  " + line);
 
-        try
+        List<string> all = new() { header };
+        all.AddRange(lines.Select(l => "  " + l));
+        all.Add(string.Empty);
+        bool reset = string.Equals(step, "INICIO", StringComparison.OrdinalIgnoreCase);
+        foreach (string path in ReportPaths())
         {
-            string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "C3DVIARIOTESTE.txt");
-            List<string> all = new() { header };
-            all.AddRange(lines.Select(l => "  " + l));
-            all.Add(string.Empty);
-            if (string.Equals(step, "INICIO", StringComparison.OrdinalIgnoreCase))
-                System.IO.File.WriteAllLines(path, all);
-            else
-                System.IO.File.AppendAllLines(path, all);
-            ed.WriteMessage($"\n  Relatorio: {path}");
+            try
+            {
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+                if (reset)
+                    System.IO.File.WriteAllLines(path, all);
+                else
+                    System.IO.File.AppendAllLines(path, all);
+                ed.WriteMessage($"\n  Relatorio: {path}");
+            }
+            catch (System.Exception ex)
+            {
+                ed.WriteMessage("\n  Nao gravei o relatorio em " + path + ": " + ex.Message);
+            }
         }
-        catch (System.Exception ex)
-        {
-            ed.WriteMessage("\n  Nao gravei o relatorio: " + ex.Message);
-        }
+    }
+
+    /// <summary>%TEMP% e, se a DLL estiver na pasta NETLOAD do repositorio, tests\viario\out.</summary>
+    private static IEnumerable<string> ReportPaths()
+    {
+        yield return System.IO.Path.Combine(System.IO.Path.GetTempPath(), "C3DVIARIOTESTE.txt");
+        string? dir = System.IO.Path.GetDirectoryName(typeof(ViarioCommands).Assembly.Location);
+        string? repo = dir is null ? null : System.IO.Directory.GetParent(dir)?.FullName;
+        if (repo is not null && System.IO.Directory.Exists(System.IO.Path.Combine(repo, "tests", "viario")))
+            yield return System.IO.Path.Combine(repo, "tests", "viario", "out", "C3DVIARIOTESTE.txt");
     }
 
     [CommandMethod(C3DCommands.Viario.Civil, CommandFlags.Modal)]

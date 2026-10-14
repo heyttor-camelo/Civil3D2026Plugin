@@ -17,3 +17,4 @@ NETLOAD/*
 *.bak
 *.userosscache
 *.sln.docstates
+tests/viario/out/

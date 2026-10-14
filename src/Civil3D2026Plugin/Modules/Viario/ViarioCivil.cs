@@ -529,9 +529,9 @@ internal static class ViarioCivil
             // A regiao inicial nao tem transicao de entrada (e a final nao tem de saida):
             // o Civil lanca excecao ao ler; cada lado e tratado a parte.
             if (w.TaperIn > 1e-3)
-                SetTransition(Try(() => region.EntryTransition), w.TaperIn, w.Smooth);
+                SetTransition(Try(() => region.EntryTransition), region.StartStation - TaperStations(al, axis, e, w.Start - w.TaperIn, w.Start), region.StartStation, w.Smooth);
             if (w.TaperOut > 1e-3)
-                SetTransition(Try(() => region.ExitTransition), w.TaperOut, w.Smooth);
+                SetTransition(Try(() => region.ExitTransition), region.EndStation, region.EndStation + TaperStations(al, axis, e, w.End, w.End + w.TaperOut), w.Smooth);
             break;
         }
     }
@@ -596,9 +596,22 @@ internal static class ViarioCivil
         }
     }
 
-    private static void SetTransition(CivilDb.AlignmentTransition? transition, double length, bool smooth)
+    /// <summary>Comprimento, em estacas do bordo, de um trecho [s0, s1] do eixo.</summary>
+    private static double TaperStations(CivilDb.Alignment al, AxisInput axis, CivilEdgePlan e, double s0, double s1)
     {
-        if (transition is null || length <= 1e-3)
+        double a = StationOf(al, OffsetPoint(axis.Path, s0, e.Offset), al.StartingStation);
+        double b = StationOf(al, OffsetPoint(axis.Path, s1, e.Offset), al.EndingStation);
+        double d = Math.Abs(b - a);
+        return d > 1e-3 ? d : Math.Abs(s1 - s0);
+    }
+
+    /// <summary>
+    /// Transicao entre estacas [start, end] do bordo. O Civil guarda a transicao como
+    /// StartStation/EndStation (Length vem zerado ao criar o alargamento).
+    /// </summary>
+    private static void SetTransition(CivilDb.AlignmentTransition? transition, double start, double end, bool smooth)
+    {
+        if (transition is null || end - start <= 1e-3)
             return;
 
         try
@@ -610,22 +623,31 @@ internal static class ViarioCivil
             // Mantem o tipo padrao.
         }
 
-        try
-        {
-            object? d = transition.TransitionDescription;
-            if (d is null)
-                return;
+        object? d = Try(() => (object?)transition.TransitionDescription);
+        if (d is null)
+            return;
 
-            foreach (System.Reflection.PropertyInfo p in d.GetType().GetProperties())
+        // Depois de trocar o tipo a descricao muda de classe: le de novo.
+        Type type = d.GetType();
+        void Set(string name, object value)
+        {
+            try
             {
-                if (p.CanWrite && p.PropertyType == typeof(double) && p.Name.Contains("Length", StringComparison.OrdinalIgnoreCase))
-                    p.SetValue(d, length);
+                System.Reflection.PropertyInfo? p = type.GetProperty(name);
+                if (p is not null && p.CanWrite)
+                    p.SetValue(d, value);
+            }
+            catch
+            {
+                // Propriedade recusada pelo Civil.
             }
         }
-        catch
-        {
-            // Comprimento padrao do Civil.
-        }
+
+        // Ordem: alarga o intervalo primeiro para nao inverter inicio/fim no meio.
+        Set("StartStation", start);
+        Set("EndStation", end);
+        Set("StartStation", start);
+        Set("Length", end - start);
     }
 
     /// <summary>Confere o bordo fora das transicoes (patamares e trechos normais).</summary>
