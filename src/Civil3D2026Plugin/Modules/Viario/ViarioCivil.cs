@@ -404,8 +404,12 @@ internal static class ViarioCivil
             if (mid < region.StartStation - 1e-6 || mid > region.EndStation + 1e-6)
                 continue;
 
-            SetTransition(region.EntryTransition, w.TaperIn, w.Smooth);
-            SetTransition(region.ExitTransition, w.TaperOut, w.Smooth);
+            // A regiao inicial nao tem transicao de entrada (e a final nao tem de saida):
+            // o Civil lanca excecao ao ler; cada lado e tratado a parte.
+            if (w.TaperIn > 1e-3)
+                SetTransition(Try(() => region.EntryTransition), w.TaperIn, w.Smooth);
+            if (w.TaperOut > 1e-3)
+                SetTransition(Try(() => region.ExitTransition), w.TaperOut, w.Smooth);
             break;
         }
     }
@@ -420,7 +424,7 @@ internal static class ViarioCivil
             List<string> parts = new();
             foreach (CivilDb.AlignmentRegion r in al.OffsetAlignmentInfo.Regions)
             {
-                parts.Add($"R[{r.StartStation:0.##}-{r.EndStation:0.##} off={r.Offset:0.###} tipo={r.RegionType}] in={DescribeTransition(r.EntryTransition)} out={DescribeTransition(r.ExitTransition)}");
+                parts.Add($"R[{r.StartStation:0.##}-{r.EndStation:0.##} off={r.Offset:0.###} tipo={r.RegionType}] in={DescribeTransition(Try(() => r.EntryTransition))} out={DescribeTransition(Try(() => r.ExitTransition))}");
             }
 
             return string.Join(" ; ", parts);
@@ -455,6 +459,18 @@ internal static class ViarioCivil
         catch (System.Exception ex)
         {
             return "erro " + ex.Message;
+        }
+    }
+
+    private static T? Try<T>(Func<T> get) where T : class
+    {
+        try
+        {
+            return get();
+        }
+        catch
+        {
+            return null;
         }
     }
 
