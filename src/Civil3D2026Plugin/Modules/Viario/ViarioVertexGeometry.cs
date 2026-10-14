@@ -172,4 +172,39 @@ internal static class ViarioVertexGeometry
         return new GPath(segs);
     }
 
+
+    /// <summary>
+    /// Aplica o mesmo raio de face em varios cantos da mesma polilinha (identificados pelo PI).
+    /// Recalcula o canto a cada passo porque os indices mudam ao inserir/remover vertices.
+    /// </summary>
+    public static List<(V2 P, double Bulge)>? ApplyMany(List<(V2 P, double Bulge)> verts, bool closed, double face,
+        IEnumerable<(V2 Pi, bool Inner)> targets, double faceRadius, out string? error)
+    {
+        error = null;
+        List<(V2 P, double Bulge)> current = new(verts);
+        foreach ((V2 pi, bool inner) in targets)
+        {
+            VertexPick? pick = null;
+            for (int i = 0; i < current.Count && pick is null; i++)
+            {
+                VertexPick? c = CornerAt(current, closed, i);
+                if (c is not null && V2.Dist(c.Pi, pi) < 1e-4)
+                    pick = c;
+            }
+
+            if (pick is null)
+                continue;
+
+            pick.Vertices = current;
+            pick.Closed = closed;
+            pick.Face = face;
+            double axisRadius = faceRadius <= 1e-6 ? 0.0 : Math.Max(AxisRadiusFor(pick, inner, faceRadius), 0.0);
+            List<(V2 P, double Bulge)>? next = Apply(pick, axisRadius, out error);
+            if (next is null)
+                return null;
+            current = next;
+        }
+
+        return current;
+    }
 }

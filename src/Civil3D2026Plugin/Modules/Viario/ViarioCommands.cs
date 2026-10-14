@@ -514,22 +514,68 @@ public sealed class ViarioCommands
             .Where(c => c.Arc is not null && DistanceToLine(island, c.Arc.PointAt(0.5)) < 1e-3)
             .ToList();
 
-        if (corners.Count == 0)
+        // Cantos do proprio eixo (vertices de polilinha) que dobram em volta da ilha.
+        List<ViarioVertexCommands.IslandVertices> vertexSets = ViarioVertexCommands.FindIslandVertices(db, axes, island.Segs);
+        int vertexCount = vertexSets.Sum(v => v.Corners.Count);
+
+        if (corners.Count == 0 && vertexCount == 0)
         {
-            ed.WriteMessage("\nEssa ilha nao tem esquinas concordadas.");
+            ed.WriteMessage("\nEssa ilha nao tem esquinas nem cantos de eixo para concordar.");
             return;
         }
 
         EngineSettings engine = ViarioSync.EngineSettingsFor(db);
         string[] cornerKeys = corners.Select(c => c.Key).ToArray();
-        double current = corners.Average(c => c.Radius);
-        ed.WriteMessage($"\n  Ilha com {corners.Count} esquina(s), raio medio {Num(current)} m.");
+        List<double> currents = corners.Select(c => c.Radius)
+            .Concat(vertexSets.SelectMany(v => v.Corners).Select(c => c.CurrentFace)).ToList();
+        double current = currents.Count > 0 ? currents.Average() : 0.0;
+        ed.WriteMessage($"\n  Ilha com {corners.Count} esquina(s) e {vertexCount} canto(s) de eixo, raio medio {Num(current)} m.");
+
+        List<AxisInput> AxesWith(double r)
+        {
+            if (vertexCount == 0)
+                return axes;
+            Dictionary<string, GPath> paths = new();
+            foreach (ViarioVertexCommands.IslandVertices set in vertexSets)
+            {
+                List<(V2 P, double Bulge)>? verts = ViarioVertexGeometry.ApplyMany(set.Vertices, set.Closed, set.Face,
+                    set.Corners.Select(c => (c.Pi, c.Inner)), r, out _);
+                if (verts is not null)
+                    paths[set.AxisKey] = ViarioVertexGeometry.PathOf(verts, set.Closed);
+            }
+
+            return axes.Select(a => paths.TryGetValue(a.Key, out GPath? g) ? new AxisInput(a.Key, g, a.Section, a.Radius, a.Events) : a).ToList();
+        }
 
         double? value = DragRadius(ed, axes, engine, keys, p, current,
-            r => (axes, With(engine, cornerKeys, r)), out bool toDefault);
+            r => (AxesWith(r), With(engine, cornerKeys, r)), out bool toDefault);
 
         if (value is null && !toDefault)
             return;
+
+        // Cantos de eixo: Padrao = canto vivo.
+        double vertexRadius = toDefault ? 0.0 : value!.Value;
+        List<string> problems = new();
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            foreach (ViarioVertexCommands.IslandVertices set in vertexSets)
+            {
+                List<(V2 P, double Bulge)>? verts = ViarioVertexGeometry.ApplyMany(set.Vertices, set.Closed, set.Face,
+                    set.Corners.Select(c => (c.Pi, c.Inner)), vertexRadius, out string? error);
+                if (verts is null)
+                {
+                    problems.Add(error ?? "canto nao concordado");
+                    continue;
+                }
+
+                ViarioVertexCommands.WriteVertices((AcadDb.Polyline)tr.GetObject(set.Id, AcadDb.OpenMode.ForWrite), verts);
+            }
+
+            tr.Commit();
+        }
+
+        foreach (string problem in problems.Distinct())
+            ed.WriteMessage("\n  [AVISO] " + problem);
 
         Dictionary<string, double> radii = ViarioStore.LoadCornerRadii(db);
         foreach (string key in cornerKeys)

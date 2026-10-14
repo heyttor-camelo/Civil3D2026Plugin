@@ -124,25 +124,7 @@ internal static class ViarioVertexCommands
 
         using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
-            AcadDb.Polyline pl = (AcadDb.Polyline)tr.GetObject((AcadDb.ObjectId)v.Id!, AcadDb.OpenMode.ForWrite);
-            double elevation = pl.Elevation;
-            while (pl.NumberOfVertices > final.Count)
-                pl.RemoveVertexAt(pl.NumberOfVertices - 1);
-            for (int i = 0; i < final.Count; i++)
-            {
-                Point2d q = new(final[i].P.X, final[i].P.Y);
-                if (i < pl.NumberOfVertices)
-                {
-                    pl.SetPointAt(i, q);
-                    pl.SetBulgeAt(i, final[i].Bulge);
-                }
-                else
-                {
-                    pl.AddVertexAt(i, q, final[i].Bulge, 0, 0);
-                }
-            }
-
-            pl.Elevation = elevation;
+            WriteVertices((AcadDb.Polyline)tr.GetObject((AcadDb.ObjectId)v.Id!, AcadDb.OpenMode.ForWrite), final);
             tr.Commit();
         }
 
@@ -150,6 +132,97 @@ internal static class ViarioVertexCommands
             ? "\n  Vertice voltou a canto vivo."
             : $"\n  Eixo concordado: R={axisRadius:0.##} m no eixo, {face:0.##} m na face do meio-fio do lado clicado.");
         ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    /// <summary>Cantos de eixo (vertices) que formam a ilha: o lado de dentro da ilha de cada canto.</summary>
+    internal sealed class IslandVertices
+    {
+        public AcadDb.ObjectId Id;
+        public string AxisKey = "";
+        public List<(V2 P, double Bulge)> Vertices = new();
+        public bool Closed;
+        public double Face;
+        public List<(V2 Pi, bool Inner, double CurrentFace)> Corners = new();
+    }
+
+    public static List<IslandVertices> FindIslandVertices(AcadDb.Database db, IReadOnlyList<AxisInput> axes, IReadOnlyList<Seg> ring)
+    {
+        List<IslandVertices> list = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        foreach (AxisInput axis in axes)
+        {
+            AcadDb.ObjectId id;
+            try
+            {
+                if (!db.TryGetObjectId(new AcadDb.Handle(Convert.ToInt64(axis.Key, 16)), out id) || id.IsErased)
+                    continue;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Polyline pl)
+                continue;
+
+            List<(V2 P, double Bulge)> verts = new();
+            for (int i = 0; i < pl.NumberOfVertices; i++)
+            {
+                Point2d q = pl.GetPoint2dAt(i);
+                verts.Add((new V2(q.X, q.Y), pl.GetBulgeAt(i)));
+            }
+
+            double face = axis.Section.EdgeOffset(EdgeLevel.FaceMF);
+            IslandVertices item = new() { Id = id, AxisKey = axis.Key, Vertices = verts, Closed = pl.Closed, Face = face };
+            for (int i = 0; i < verts.Count; i++)
+            {
+                VertexPick? c = ViarioVertexGeometry.CornerAt(verts, pl.Closed, i);
+                if (c is null)
+                    continue;
+
+                // Ponto um pouco alem da face, para cada lado da bissetriz: o que cai dentro da ilha.
+                V2 d1 = (c.Pi - c.Prev).Unit();
+                V2 d2 = (c.Next - c.Pi).Unit();
+                V2 bis = (d2 - d1).Length < 1e-9 ? new V2(-d1.Y, d1.X) : (d2 - d1).Unit();   // aponta para dentro da curva
+                double reach = (face + 0.5) / Math.Max(Math.Sin((Math.PI - c.Deflection) / 2.0), 0.2);
+                c.Face = face;
+                double radiusFace(bool inner) => ViarioVertexGeometry.FaceRadiusOf(c, inner);
+                V2 inside = c.Pi + (bis * (reach + Math.Max(c.AxisRadius, 0.0)));
+                V2 outside = c.Pi - (bis * reach);
+                if (ViarioEngine.RingContains(ring, inside))
+                    item.Corners.Add((c.Pi, true, radiusFace(true)));
+                else if (ViarioEngine.RingContains(ring, outside))
+                    item.Corners.Add((c.Pi, false, radiusFace(false)));
+            }
+
+            if (item.Corners.Count > 0)
+                list.Add(item);
+        }
+
+        return list;
+    }
+
+    /// <summary>Regrava os vertices da polilinha (mesma entidade, mesmo handle e XData).</summary>
+    public static void WriteVertices(AcadDb.Polyline pl, List<(V2 P, double Bulge)> verts)
+    {
+        double elevation = pl.Elevation;
+        while (pl.NumberOfVertices > verts.Count)
+            pl.RemoveVertexAt(pl.NumberOfVertices - 1);
+        for (int i = 0; i < verts.Count; i++)
+        {
+            Point2d q = new(verts[i].P.X, verts[i].P.Y);
+            if (i < pl.NumberOfVertices)
+            {
+                pl.SetPointAt(i, q);
+                pl.SetBulgeAt(i, verts[i].Bulge);
+            }
+            else
+            {
+                pl.AddVertexAt(i, q, verts[i].Bulge, 0, 0);
+            }
+        }
+
+        pl.Elevation = elevation;
     }
 
     // ------------------------------------------------------------------
