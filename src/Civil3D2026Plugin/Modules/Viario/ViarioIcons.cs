@@ -174,6 +174,12 @@ internal static class ViarioIcons
             new Part("M16,12 V19", Yellow, 2.4),
             new Part("M16,23 V23.5", Yellow, 2.6)
         },
+        ["INFO"] = new[]
+        {
+            new Part("M16,4 a12,12 0 1,0 0.1,0", Edge, 1.8),
+            new Part("M16,14 V24", Edge, 2.6),
+            new Part("M16,9 V9.5", Edge, 2.8)
+        },
         ["CONSULTA"] = new[]
         {
             new Part("M5,6 H14 a2,2 0 0,1 2,2 V27 a2,2 0 0,0 -2,-2 H5 Z", White, 1.4),

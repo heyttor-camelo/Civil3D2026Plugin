@@ -410,6 +410,33 @@ internal sealed class ViarioPanel : SW.Window
         button.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Header));
         button.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         button.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
+        button.Setters.Add(new SW.Setter(WC.Control.BorderThicknessProperty, new SW.Thickness(1)));
+        button.Setters.Add(new SW.Setter(WC.Control.HorizontalContentAlignmentProperty, SW.HorizontalAlignment.Center));
+        button.Setters.Add(new SW.Setter(WC.Control.VerticalContentAlignmentProperty, SW.VerticalAlignment.Center));
+        // Modelo proprio: o cromado padrao pinta o fundo de azul claro no hover e o texto claro
+        // do tema escuro some.
+        SW.FrameworkElementFactory bbd = new(typeof(WC.Border), "Bd");
+        bbd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
+        bbd.SetValue(WC.Border.BorderBrushProperty, new SW.TemplateBindingExtension(WC.Control.BorderBrushProperty));
+        bbd.SetValue(WC.Border.BorderThicknessProperty, new SW.TemplateBindingExtension(WC.Control.BorderThicknessProperty));
+        bbd.SetValue(WC.Border.PaddingProperty, new SW.TemplateBindingExtension(WC.Control.PaddingProperty));
+        bbd.SetValue(WC.Border.SnapsToDevicePixelsProperty, true);
+        SW.FrameworkElementFactory bcp = new(typeof(WC.ContentPresenter));
+        bcp.SetValue(SW.FrameworkElement.HorizontalAlignmentProperty, new SW.TemplateBindingExtension(WC.Control.HorizontalContentAlignmentProperty));
+        bcp.SetValue(SW.FrameworkElement.VerticalAlignmentProperty, new SW.TemplateBindingExtension(WC.Control.VerticalContentAlignmentProperty));
+        bcp.SetValue(WC.ContentPresenter.RecognizesAccessKeyProperty, true);
+        bbd.AppendChild(bcp);
+        WC.ControlTemplate buttonTemplate = new(typeof(WC.Button)) { VisualTree = bbd };
+        SW.Trigger bHover = new() { Property = SW.UIElement.IsMouseOverProperty, Value = true };
+        bHover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
+        buttonTemplate.Triggers.Add(bHover);
+        SW.Trigger bPressed = new() { Property = WC.Primitives.ButtonBase.IsPressedProperty, Value = true };
+        bPressed.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Line, "Bd"));
+        buttonTemplate.Triggers.Add(bPressed);
+        SW.Trigger bDisabled = new() { Property = SW.UIElement.IsEnabledProperty, Value = false };
+        bDisabled.Setters.Add(new SW.Setter(SW.UIElement.OpacityProperty, 0.45));
+        buttonTemplate.Triggers.Add(bDisabled);
+        button.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, buttonTemplate));
         Resources[typeof(WC.Button)] = button;
 
         SW.Style check = new(typeof(WC.CheckBox));
@@ -859,7 +886,7 @@ internal sealed class ViarioPanel : SW.Window
                 {
                     rows.Add(new Row
                     {
-                        Id = "AV:" + h.Key, Icon = "AVISOS", Data = h,
+                        Id = "AV:" + h.Key, Icon = h.Level == HintLevel.Atencao ? "AVISOS" : "INFO", Data = h,
                         Cells = new[] { h.Level == HintLevel.Atencao ? "atencao" : "info", h.Topic, h.Message, h.Source }
                     });
                 }
@@ -895,7 +922,7 @@ internal sealed class ViarioPanel : SW.Window
             }
             else if (hs.Count > 0)
             {
-                r.Flag = "ℹ";
+                r.Flag = "i";
                 r.FlagBrush = T.Accent;
             }
         }
@@ -1136,7 +1163,7 @@ internal sealed class ViarioPanel : SW.Window
         WC.DockPanel line = new() { Margin = new SW.Thickness(0, 2, 0, 2), Background = WM.Brushes.Transparent, Cursor = WI.Cursors.Hand };
         WC.TextBlock glyph = new()
         {
-            Text = h.Level == HintLevel.Atencao ? "⚠ " : "ℹ ",
+            Text = h.Level == HintLevel.Atencao ? "⚠ " : "i  ",
             Foreground = h.Level == HintLevel.Atencao ? T.Warn : T.Accent,
             FontWeight = SW.FontWeights.Bold,
             VerticalAlignment = SW.VerticalAlignment.Top
@@ -1656,7 +1683,7 @@ internal sealed class ViarioPanel : SW.Window
         Act("Zoom", ZoomCurrent, true);
         Act("Selecionar", () => SelectAxis(a));
         Act("Aplicar secao", () => AssignSection(a));
-        Act("Tirar da rede", () => RemoveAxis(a));
+        Act("Remover da rede", () => RemoveAxis(a));
         _render = () => RenderMap(a.Path.Bounds().Inflate(a.Section.TotalWidth + 10), sh => sh.Highlight(a.Path.Segs));
     }
 

@@ -1,3 +1,8 @@
+## 2.28.3 - C3DVIARIO v0.6.3 / sinalizacao redesenha certo, botoes no tema escuro
+
+- **sinalizacao com desenho antigo na tela**: depois de UNDO o bloco tinha as marcas certas, mas a insercao mostrava a versao anterior (faixas de pedestre dentro do canteiro). A insercao agora e recriada a cada atualizacao e fica por baixo das linhas da rede;
+- explorador: botoes com modelo proprio (o hover azul claro do Windows apagava o texto no tema escuro); recomendacoes "info" com icone proprio; botao "Remover da rede".
+
 ## 2.28.2 - C3DVIARIO v0.6.2 / sinalizacao volta a gerar
 
 - **sinalizacao nao gerava** (eNoDatabase): a transparencia da layer VIARIO-SH-CONTORNO era aplicada antes de a layer entrar no desenho;

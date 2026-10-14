@@ -85,25 +85,29 @@ internal static class ViarioSignageSync
             tr.AddNewlyCreatedDBObject(pl, true);
         }
 
-        // Uma referencia na origem, no espaco do modelo.
-        AcadDb.ObjectIdCollection refs = block.GetBlockReferenceIds(true, false);
-        if (refs.Count == 0)
+        // Uma referencia na origem, no espaco do modelo. A referencia antiga e recriada:
+        // so marcar RecordGraphicsModified deixava a tela com o desenho anterior do bloco
+        // (visto apos UNDO), embora o conteudo do bloco estivesse certo.
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
+        string refLayer = LayerRef;
+        foreach (AcadDb.ObjectId id in block.GetBlockReferenceIds(true, false))
         {
-            AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
-            AcadDb.BlockReference br = new(Point3d.Origin, block.ObjectId);
-            br.SetDatabaseDefaults(db);
-            br.Layer = LayerRef;
-            ms.AppendEntity(br);
-            tr.AddNewlyCreatedDBObject(br, true);
-        }
-        else
-        {
-            foreach (AcadDb.ObjectId id in refs)
+            if (tr.GetObject(id, AcadDb.OpenMode.ForWrite) is AcadDb.BlockReference old)
             {
-                if (tr.GetObject(id, AcadDb.OpenMode.ForWrite) is AcadDb.BlockReference br)
-                    br.RecordGraphicsModified(true);
+                if (old.OwnerId == ms.ObjectId)
+                    refLayer = old.Layer;
+                old.Erase();
             }
         }
+
+        AcadDb.BlockReference br = new(Point3d.Origin, block.ObjectId);
+        br.SetDatabaseDefaults(db);
+        br.Layer = refLayer;
+        ms.AppendEntity(br);
+        tr.AddNewlyCreatedDBObject(br, true);
+        // Mantem a sinalizacao por baixo das linhas da rede.
+        AcadDb.DrawOrderTable dot = (AcadDb.DrawOrderTable)tr.GetObject(ms.DrawOrderTableId, AcadDb.OpenMode.ForWrite);
+        dot.MoveToBottom(new AcadDb.ObjectIdCollection { br.ObjectId });
 
         tr.Commit();
         return marks.Count;
