@@ -322,6 +322,10 @@ internal static class ViarioCivil
                       .Select(g => $"{g.Key} {g.Count()}")) + ".");
         foreach (string w in result.Warnings.Distinct())
             lines.Add("AVISO motor: " + w);
+        List<Hint> hints = ViarioNorms.Check(axes, result, ViarioSync.EngineSettingsFor(db), ViarioStore.LoadSections(db));
+        lines.Add($"Recomendacoes DNIT: {hints.Count(h => h.Level == HintLevel.Atencao)} atencao, {hints.Count(h => h.Level == HintLevel.Info)} informacao.");
+        foreach (Hint h in hints.OrderByDescending(h => h.Level).Take(12))
+            lines.Add("  " + h.Text);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         CheckDrawnLines(tr, db, result, lines, ref ok, ref fail);

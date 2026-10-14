@@ -217,6 +217,9 @@ public sealed class ViarioCommands
 
         ViarioSync.Initialize();
 
+        bool hints = command != C3DCommands.Viario.Teste && command != C3DCommands.Viario.Diag && command != C3DCommands.Viario.Painel;
+        HashSet<string> before = hints ? HintKeys(doc) : new HashSet<string>();
+
         try
         {
             ViarioSync.Suspended = true;
@@ -230,6 +233,42 @@ public sealed class ViarioCommands
         finally
         {
             ViarioSync.Suspended = false;
+        }
+
+        // Recomendacoes novas (manuais DNIT) que surgiram com este comando.
+        if (hints)
+        {
+            try
+            {
+                List<Hint> fresh = CurrentHints(doc).Where(h => !before.Contains(h.Key)).ToList();
+                foreach (Hint h in fresh.OrderByDescending(h => h.Level).Take(4))
+                    doc.Editor.WriteMessage("\n  [DNIT] " + h.Text);
+                if (fresh.Count > 4)
+                    doc.Editor.WriteMessage($"\n  [DNIT] ... mais {fresh.Count - 4} recomendacao(oes) no painel (C3DVIARIOPAINEL).");
+            }
+            catch
+            {
+                // Recomendacao nunca atrapalha o comando.
+            }
+        }
+    }
+
+    internal static List<Hint> CurrentHints(Document doc)
+    {
+        AcadDb.Database db = doc.Database;
+        (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
+        return ViarioNorms.Check(axes, result, ViarioSync.EngineSettingsFor(db), ViarioStore.LoadSections(db));
+    }
+
+    private static HashSet<string> HintKeys(Document doc)
+    {
+        try
+        {
+            return CurrentHints(doc).Select(h => h.Key).ToHashSet();
+        }
+        catch
+        {
+            return new HashSet<string>();
         }
     }
 

@@ -18,6 +18,7 @@ internal static class ViarioSignageSync
     public const string LayerRef = "VIARIO-SINALIZACAO";
     public const string LayerWhite = "VIARIO-SH-BRANCA";
     public const string LayerYellow = "VIARIO-SH-AMARELA";
+    public const string LayerOutline = "VIARIO-SH-CONTORNO";
 
     public static bool Exists(AcadDb.Database db)
     {
@@ -41,6 +42,7 @@ internal static class ViarioSignageSync
         EnsureLayer(tr, db, LayerRef, 7);
         EnsureLayer(tr, db, LayerWhite, 7);
         EnsureLayer(tr, db, LayerYellow, 2);
+        EnsureLayer(tr, db, LayerOutline, 8, transparencyPercent: 50);
 
         AcadDb.BlockTableRecord block;
         if (bt.Has(BlockName))
@@ -59,11 +61,26 @@ internal static class ViarioSignageSync
 
         foreach (MarkLine mark in marks)
         {
-            AcadDb.Polyline pl = ViarioStore.ToPolyline(mark.Segs, false);
-            pl.SetDatabaseDefaults(db);
-            pl.Layer = mark.Yellow ? LayerYellow : LayerWhite;
+            AcadDb.Polyline pl;
+            if (options.Vazada)
+            {
+                // So o contorno, cinza e transparente pela layer; nada pintado.
+                List<Seg> ring = ViarioSignage.Outline(mark);
+                if (ring.Count == 0)
+                    continue;
+                pl = ViarioStore.ToPolyline(ring, true);
+                pl.SetDatabaseDefaults(db);
+                pl.Layer = LayerOutline;
+            }
+            else
+            {
+                pl = ViarioStore.ToPolyline(mark.Segs, false);
+                pl.SetDatabaseDefaults(db);
+                pl.Layer = mark.Yellow ? LayerYellow : LayerWhite;
+                pl.ConstantWidth = mark.Width;
+            }
+
             pl.ColorIndex = 256;
-            pl.ConstantWidth = mark.Width;
             block.AppendEntity(pl);
             tr.AddNewlyCreatedDBObject(pl, true);
         }
@@ -146,7 +163,7 @@ internal static class ViarioSignageSync
                         "(acompanha a rede; opcoes no painel C3DVIARIOPAINEL > Sinalizacao).");
     }
 
-    private static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color)
+    private static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color, int transparencyPercent = 0)
     {
         AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
         if (table.Has(name))
@@ -158,6 +175,8 @@ internal static class ViarioSignageSync
             Name = name,
             Color = AcColors.Color.FromColorIndex(AcColors.ColorMethod.ByAci, color)
         };
+        if (transparencyPercent > 0)
+            layer.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - transparencyPercent) / 100.0));
         table.Add(layer);
         tr.AddNewlyCreatedDBObject(layer, true);
     }

@@ -160,12 +160,12 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.5.0)
+## Rede viaria (C3DVIARIO v0.6.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
-C3DVIARIOPAINEL      -> painel flutuante: comandos com icones e ilustracoes, secoes (corte transversal), eixos (mapa), sinalizacao, Civil, config
+C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
@@ -193,6 +193,8 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria (sem site, para nao formar lotes) um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
 
 Secoes tem nome, tipo de via (Local, Coletora, Arterial, Transito rapido), faixas e velocidade; desenho novo comeca com Local, Coletora e Arterial com canteiro. O codigo P1, P2... e so interno.
+
+Recomendacoes: o modulo confere a rede contra o DNIT IPR-718 (Manual de Projeto de Intersecoes) e IPR-740 (Travessias Urbanas) e mostra avisos discretos (atencao/informacao) com a fonte, no painel e na linha de comando quando um comando cria algo fora da recomendacao. Sao valores de referencia; nao substituem o projeto.
 
 Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divisoria amarela LFO (seccionada, continua ou dupla, continua antes da retencao), divisao de faixas LMS, linha de bordo LBO opcional, faixa de pedestres zebrada FTP-1 em cada aproximacao com esquina e linha de retencao LRE a 1,60 m. Cadencia pela velocidade da secao (< 60 km/h: 2/4 m; 60-80: 3/6 m; >= 80: 4/12 m e 0,15 m). Tudo num bloco na origem, layers VIARIO-SH-BRANCA e VIARIO-SH-AMARELA; o bloco acompanha a rede.
 

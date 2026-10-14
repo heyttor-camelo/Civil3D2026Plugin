@@ -1,3 +1,9 @@
+## 2.28.0 - C3DVIARIO v0.6.0 / explorador, recomendacoes DNIT, sinalizacao vazada
+
+- **C3DVIARIOPAINEL** refeito no estilo do Project Explorer: barra de ferramentas com os icones (dica com ilustracao e passos), arvore (Secoes, Eixos > elementos, Intersecoes > esquinas, Ilhas, Sinalizacao, Civil, Config), grafico do item em fundo branco com grade (corte transversal cotado para secoes, planta com destaque para eixos, esquinas, ilhas e elementos), propriedades editaveis e acoes do item;
+- **recomendacoes dos manuais do DNIT** (IPR-718 Intersecoes e IPR-740 Travessias Urbanas), discretas como no TQS: largura de faixa por tipo de via, sarjeta, calcada, canteiro, velocidade, raio de esquina pelo angulo de giro (Tab.39), faixas de conversao (largura, taper, armazenamento, sobra de canteiro), gota, abertura/retorno, faixa livre (largura x raio, Tab.45), area minima de ilha, angulo entre vias, intersecoes muito proximas, rotatoria. Aparecem no painel (por item, com zoom) e, quando um comando cria algo novo fora da recomendacao, uma linha [DNIT] na linha de comando; o autoteste lista tambem;
+- sinalizacao: opcao **Vazada** (so contornos cinza com transparencia, nada pintado, layer VIARIO-SH-CONTORNO); divisao de faixas continua antes da retencao (LMS-1); LRE comeca depois da divisoria/gota e vai ate o bordo; listras da faixa de pedestres centradas em cada meia pista; entradas de rotatoria com linha de 'De a preferencia' e travessia a >= 20 m.
+
 ## 2.27.1 - C3DVIARIO v0.5.1 / ajustes do painel e da sinalizacao (testado no Civil)
 
 - painel: o desenho e redesenhado logo apos editar secoes/eixos (antes so atualizava ao mexer no zoom); mapa da aba Rede nao corta mais a parte de baixo; lista de secoes sem rolagem lateral;

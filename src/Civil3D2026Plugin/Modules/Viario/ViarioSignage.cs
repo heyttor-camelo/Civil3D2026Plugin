@@ -22,6 +22,12 @@ internal sealed class SignageOptions
     /// <summary>Linhas de divisao de fluxos de mesmo sentido (LMS-2, branca seccionada).</summary>
     public bool Faixas { get; set; } = true;
 
+    /// <summary>Divisao de faixas continua (LMS-1) nos ultimos metros antes da retencao.</summary>
+    public double FaixasContinuasAntes { get; set; } = 15.0;
+
+    /// <summary>Desenho vazado: so contornos cinzas (transparentes), nada pintado.</summary>
+    public bool Vazada { get; set; }
+
     /// <summary>Linha de bordo (LBO, branca continua).</summary>
     public bool Bordo { get; set; }
 
@@ -92,6 +98,7 @@ internal static class ViarioSignage
         public double U0;      // inicio da faixa de pedestres (a partir do no)
         public double UStop;   // eixo da linha de retencao
         public double UCut;    // ate onde as linhas longitudinais param
+        public bool Yield;     // entrada de rotatoria: "De a preferencia" em vez de retencao
     }
 
     public static List<MarkLine> Build(IReadOnlyList<AxisInput> axes, ViarioResult result, SignageOptions o)
@@ -129,41 +136,14 @@ internal static class ViarioSignage
             List<(double A, double B)> free = Free(path.Length, cuts);
             List<(double A, double B)> freeCentral = Free(path.Length, centralCuts);
 
-            // Longitudinais.
+            // Longitudinais: continuas nos ultimos metros antes de cada retencao.
+            double centerHalf = 0.0;
             if (c <= 1e-3 && o.Central)
             {
-                List<(double A, double B)> solid = new();
-                List<(double A, double B)> dashed = new();
-                foreach ((double a, double b) in freeCentral)
-                {
-                    if (o.CentralTipo != "Seccionada")
-                    {
-                        solid.Add((a, b));
-                        continue;
-                    }
-
-                    // Continua nos ultimos metros antes de cada retencao.
-                    double a2 = a, b2 = b;
-                    if (o.ContinuaAntes > 0)
-                    {
-                        if (approaches.Any(ap => ap.Dir > 0 && Math.Abs((ap.SNode + ap.UCut) - a) < 0.01))
-                        {
-                            a2 = Math.Min(b, a + o.ContinuaAntes);
-                            solid.Add((a, a2));
-                        }
-
-                        if (approaches.Any(ap => ap.Dir < 0 && Math.Abs((ap.SNode - ap.UCut) - b) < 0.01))
-                        {
-                            b2 = Math.Max(a2, b - o.ContinuaAntes);
-                            solid.Add((b2, b));
-                        }
-                    }
-
-                    if (b2 - a2 > 0.1)
-                        dashed.Add((a2, b2));
-                }
-
+                (List<(double A, double B)> solid, List<(double A, double B)> dashed) =
+                    Split(freeCentral, approaches, o.CentralTipo == "Seccionada" ? o.ContinuaAntes : double.MaxValue);
                 double[] offsets = o.CentralTipo == "Dupla" ? new[] { -lineW, lineW } : new[] { 0.0 };
+                centerHalf = o.CentralTipo == "Dupla" ? 1.5 * lineW : lineW / 2.0;
                 foreach (double off in offsets)
                 {
                     foreach ((double a, double b) in solid)
@@ -173,18 +153,25 @@ internal static class ViarioSignage
                 }
             }
 
-            foreach ((double a, double b) in free)
+            if (o.Faixas && n > 1)
             {
-                if (o.Faixas)
+                (List<(double A, double B)> solid, List<(double A, double B)> dashed) = Split(free, approaches, o.FaixasContinuasAntes);
+                for (int k = 1; k < n; k++)
                 {
-                    for (int k = 1; k < n; k++)
+                    foreach (int side in new[] { -1, 1 })
                     {
-                        foreach (int side in new[] { -1, 1 })
-                            Dashes(marks, path, a, b, side * (c + (k * lane)), lineW, dash, gap, false, "LMS");
+                        double off = side * (c + (k * lane));
+                        foreach ((double a, double b) in solid)
+                            Add(marks, path, a, b, off, lineW, false, "LMS");
+                        foreach ((double a, double b) in dashed)
+                            Dashes(marks, path, a, b, off, lineW, dash, gap, false, "LMS");
                     }
                 }
+            }
 
-                if (o.Bordo)
+            if (o.Bordo)
+            {
+                foreach ((double a, double b) in free)
                 {
                     foreach (int side in new[] { -1, 1 })
                     {
@@ -198,15 +185,24 @@ internal static class ViarioSignage
             // Transversais em cada aproximacao.
             foreach (Approach ap in approaches)
             {
-                if (o.Travessia)
+                if (o.Travessia && !double.IsNaN(ap.U0))
                 {
                     double s0 = Clamp(path, ap.SNode + (ap.Dir * ap.U0));
                     double s1 = Clamp(path, ap.SNode + (ap.Dir * (ap.U0 + o.TravessiaLargura)));
                     double step = o.ListraLargura + o.ListraEspaco;
+                    double margin = 0.30;
                     foreach (int side in new[] { -1, 1 })
                     {
-                        for (double t = c + (o.ListraLargura / 2.0) + 0.1; t <= c + half - (o.ListraLargura / 2.0) - 0.05; t += step)
+                        // Listras centradas na meia pista (mesma folga junto ao meio-fio e ao eixo/canteiro).
+                        double from = c + margin, to = c + half - margin;
+                        int count = (int)Math.Floor(((to - from) + o.ListraEspaco) / step);
+                        if (count <= 0)
+                            continue;
+                        double used = (count * step) - o.ListraEspaco;
+                        double first = from + (((to - from) - used) / 2.0) + (o.ListraLargura / 2.0);
+                        for (int k = 0; k < count; k++)
                         {
+                            double t = first + (k * step);
                             // Listra que cai dentro de uma ilha (gota) nao e pintada.
                             V2 mid = path.PointAt((s0 + s1) / 2.0) + (path.TangentAt((s0 + s1) / 2.0).Unit().Left * (side * t));
                             if (islands.Any(ring => ViarioEngine.RingContains(ring, mid)))
@@ -221,12 +217,36 @@ internal static class ViarioSignage
                     double s = Clamp(path, ap.SNode + (ap.Dir * ap.UStop));
                     V2 p = path.PointAt(s);
                     V2 normal = path.TangentAt(s).Unit().Left;
+
                     // Quem chega anda contra Dir; a pista dele fica do lado motor = Dir.
-                    double t0 = c > 1e-3 ? c : 0.0;
+                    // Comeca depois da divisoria (ou do canteiro, ou da gota) e vai ate o bordo.
+                    double t0 = c > 1e-3 ? c : centerHalf + (centerHalf > 0 ? 0.10 : 0.0);
+                    AxisEvent? gota = axis.Events.FirstOrDefault(e =>
+                        e.Kind == AxisEventKind.Gota && e.Dir == ap.Dir && Math.Abs(e.S - ap.SNode) < 1.0);
+                    if (gota is not null)
+                        t0 = Math.Max(t0, (gota.Width / 2.0) + 0.30);
                     double t1 = c + half;
-                    marks.Add(new MarkLine(
-                        new List<Seg> { Seg.Line(p + (normal * (ap.Dir * t0)), p + (normal * (ap.Dir * t1))) },
-                        o.RetencaoLargura, false, "LRE"));
+                    if (t1 - t0 < 0.5)
+                        continue;
+
+                    if (ap.Yield)
+                    {
+                        // Rotatoria: linha de "De a preferencia" (tracejada) na entrada do anel.
+                        double len = t1 - t0;
+                        for (double x = 0.0; x < len; x += 1.0)
+                        {
+                            double xa = t0 + x, xb = t0 + Math.Min(len, x + 0.5);
+                            marks.Add(new MarkLine(
+                                new List<Seg> { Seg.Line(p + (normal * (ap.Dir * xa)), p + (normal * (ap.Dir * xb))) },
+                                0.40, false, "LDP"));
+                        }
+                    }
+                    else
+                    {
+                        marks.Add(new MarkLine(
+                            new List<Seg> { Seg.Line(p + (normal * (ap.Dir * t0)), p + (normal * (ap.Dir * t1))) },
+                            o.RetencaoLargura, false, "LRE"));
+                    }
                 }
             }
         }
@@ -286,8 +306,15 @@ internal static class ViarioSignage
                 if (uArc < 0)
                     continue;
 
+                // Rotatoria: travessia a >= 20 m da linha de "De a preferencia" (IPR-718 p.190).
+                bool ring = node.AxisKeys.Any(k => k != axis.Key && byKey.TryGetValue(k, out AxisInput? other) && other.Path.Closed);
                 double u0 = Math.Max(uArc, crossHalf) + o.TravessiaRecuo;
                 double uStop = (o.Travessia ? u0 + o.TravessiaLargura + o.RetencaoDistancia : uArc + 1.0) + (o.RetencaoLargura / 2.0);
+                if (ring)
+                {
+                    uStop = Math.Max(uArc, crossHalf) + 0.5;
+                    u0 = uStop + 20.0;
+                }
 
                 // Ramo curto: ate o proximo no (metade para cada lado) ou ate a ponta do eixo.
                 double sOther = dir > 0
@@ -296,20 +323,66 @@ internal static class ViarioSignage
                 double room = double.IsNaN(sOther)
                     ? (dir > 0 ? path.Length - sN : sN)
                     : Math.Abs(sOther - sN) / 2.0;
-                if (uStop + (o.RetencaoLargura / 2.0) > room)
-                    continue;
+                double reach = ring ? (o.Travessia ? u0 + o.TravessiaLargura : uStop) : uStop + (o.RetencaoLargura / 2.0);
+                if (reach > room)
+                {
+                    if (!ring)
+                        continue;
+                    u0 = double.NaN; // sem espaco para a travessia; fica so a linha de "De a preferencia"
+                }
                 list.Add(new Approach
                 {
                     SNode = sN,
                     Dir = dir,
                     U0 = u0,
                     UStop = uStop,
-                    UCut = uStop + (o.RetencaoLargura / 2.0)
+                    UCut = ring ? (double.IsNaN(u0) ? uStop + 0.5 : u0 + o.TravessiaLargura + 0.5) : uStop + (o.RetencaoLargura / 2.0),
+                    Yield = ring
                 });
             }
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// Separa os trechos livres em continuos (ultimos <paramref name="solidLength"/> metros antes
+    /// de cada retencao) e seccionados.
+    /// </summary>
+    private static (List<(double A, double B)> Solid, List<(double A, double B)> Dashed) Split(
+        List<(double A, double B)> free, List<Approach> approaches, double solidLength)
+    {
+        List<(double A, double B)> solid = new();
+        List<(double A, double B)> dashed = new();
+        foreach ((double a, double b) in free)
+        {
+            if (solidLength >= double.MaxValue / 2)
+            {
+                solid.Add((a, b));
+                continue;
+            }
+
+            double a2 = a, b2 = b;
+            if (solidLength > 0)
+            {
+                if (approaches.Any(ap => ap.Dir > 0 && !ap.Yield && Math.Abs((ap.SNode + ap.UCut) - a) < 0.01))
+                {
+                    a2 = Math.Min(b, a + solidLength);
+                    solid.Add((a, a2));
+                }
+
+                if (approaches.Any(ap => ap.Dir < 0 && !ap.Yield && Math.Abs((ap.SNode - ap.UCut) - b) < 0.01))
+                {
+                    b2 = Math.Max(a2, b - solidLength);
+                    solid.Add((b2, b));
+                }
+            }
+
+            if (b2 - a2 > 0.1)
+                dashed.Add((a2, b2));
+        }
+
+        return (solid, dashed);
     }
 
     private static List<(double A, double B)> Free(double length, List<(double A, double B)> cuts)
@@ -332,6 +405,22 @@ internal static class ViarioSignage
         if (length > pos + 0.1)
             free.Add((pos, length));
         return free;
+    }
+
+    /// <summary>Contorno fechado de uma marca (desenho vazado).</summary>
+    public static List<Seg> Outline(MarkLine mark)
+    {
+        GPath center = new(mark.Segs);
+        GPath left = center.Offset(mark.Width / 2.0);
+        GPath right = center.Offset(-mark.Width / 2.0).Reverse();
+        if (left.IsEmpty || right.IsEmpty)
+            return new List<Seg>();
+
+        List<Seg> ring = new(left.Segs);
+        ring.Add(Seg.Line(left.End, right.Start));
+        ring.AddRange(right.Segs);
+        ring.Add(Seg.Line(right.End, left.Start));
+        return ring;
     }
 
     private static double Clamp(GPath path, double s) => Math.Clamp(s, 0.0, path.Length);
