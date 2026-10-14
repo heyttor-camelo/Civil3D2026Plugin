@@ -226,6 +226,75 @@ internal static class ViarioVertexCommands
     }
 
     // ------------------------------------------------------------------
+    // Raio dos cantos das ilhas canalizadoras (rosa: gota, ilha da faixa livre)
+    // ------------------------------------------------------------------
+
+    /// <summary>Se o ponto esta dentro de uma ilha canalizadora, edita o raio dos cantos dela.</summary>
+    public static bool TryEditChannelIsland(Document doc, V2 p)
+    {
+        AcadDb.Database db = doc.Database;
+        Editor ed = doc.Editor;
+        (List<AxisInput> axes, ViarioResult current, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        OutputLine? ring = current.Lines
+            .Where(l => l.Closed && l.Level == EdgeLevel.Ilha && ViarioEngine.RingContains(l.Segs, p))
+            .OrderBy(l => ViarioEngine.RingArea(l.Segs))
+            .FirstOrDefault();
+        if (ring is null)
+            return false;
+
+        EngineSettings engine = ViarioSync.EngineSettingsFor(db);
+
+        // Sementes antigas desta mesma ilha saem (a ilha e reconhecida pelo anel sem arredondar).
+        EngineSettings plain = engine.Clone();
+        plain.IslandRadii.Clear();
+        ViarioResult raw = ViarioEngine.Compute(axes, plain);
+        OutputLine? rawRing = raw.Lines
+            .Where(l => l.Closed && l.Level == EdgeLevel.Ilha && ViarioEngine.RingContains(l.Segs, p))
+            .OrderBy(l => ViarioEngine.RingArea(l.Segs))
+            .FirstOrDefault();
+        List<(V2 Seed, double Radius)> others = engine.IslandRadii
+            .Where(x => rawRing is null || !ViarioEngine.RingContains(rawRing.Segs, x.Seed))
+            .ToList();
+        double currentRadius = engine.IslandRadii
+            .Where(x => rawRing is not null && ViarioEngine.RingContains(rawRing.Segs, x.Seed))
+            .Select(x => x.Radius)
+            .DefaultIfEmpty(0.0)
+            .Last();
+
+        ed.WriteMessage($"\n  Ilha canalizadora: raio dos cantos {currentRadius:0.##} m.");
+        ValueJig jig = new("Raio dos cantos da ilha", keys, p, currentRadius, r =>
+        {
+            EngineSettings e = engine.Clone();
+            e.IslandRadii = new List<(V2, double)>(others) { (p, r) };
+            return (axes, e);
+        });
+
+        PromptResult result = ed.Drag(jig);
+        List<(V2 Seed, double Radius)> save = new(others);
+        if (jig.ToDefault)
+        {
+            // Padrao = cantos vivos.
+        }
+        else if (result.Status == PromptStatus.OK)
+        {
+            save.Add((p, jig.Value));
+        }
+        else
+        {
+            return true;
+        }
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            ViarioStore.SaveIslandRadii(tr, db, save);
+            tr.Commit();
+        }
+
+        ViarioSync.Regenerate(doc, quiet: false);
+        return true;
+    }
+
+    // ------------------------------------------------------------------
     // Ilhas eliminadas
     // ------------------------------------------------------------------
 

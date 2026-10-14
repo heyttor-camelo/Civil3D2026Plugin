@@ -358,7 +358,8 @@ internal static class ViarioSync
             MedianSetback = settings.MedianSetback,
             CornerRadius = ViarioStore.LoadCornerRadii(db),
             SlipLanes = ViarioStore.LoadSlipLanes(db),
-            RemovedIslands = ViarioStore.LoadRemovedIslands(db)
+            RemovedIslands = ViarioStore.LoadRemovedIslands(db),
+            IslandRadii = ViarioStore.LoadIslandRadii(db)
         };
     }
 

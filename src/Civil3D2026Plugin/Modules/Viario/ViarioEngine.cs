@@ -185,11 +185,15 @@ internal sealed class EngineSettings
         MedianSetback = MedianSetback,
         CornerRadius = new Dictionary<string, double>(CornerRadius),
         SlipLanes = new Dictionary<string, SlipLane>(SlipLanes),
-        RemovedIslands = new List<V2>(RemovedIslands)
+        RemovedIslands = new List<V2>(RemovedIslands),
+        IslandRadii = new List<(V2, double)>(IslandRadii)
     };
 
     /// <summary>Pontos dentro de ilhas que o usuario eliminou (vira pavimento).</summary>
     public List<V2> RemovedIslands { get; set; } = new();
+
+    /// <summary>Raio dos cantos de ilhas canalizadoras (gota, ilha da faixa livre): ponto dentro + raio.</summary>
+    public List<(V2 Seed, double Radius)> IslandRadii { get; set; } = new();
 }
 
 /// <summary>Alargamento de um lado do eixo (patamar + taper), para os objetos do Civil.</summary>
@@ -398,6 +402,7 @@ internal static class ViarioEngine
 
         BuildMedians(ctx, nodes);
         BuildGotas(ctx);
+        RoundIslands(result, settings.IslandRadii);
         RemoveIslands(result, settings.RemovedIslands);
         return result;
     }
@@ -420,6 +425,102 @@ internal static class ViarioEngine
                     result.Lines.Remove(ring);
             }
         }
+    }
+
+    /// <summary>Arredonda os cantos das ilhas canalizadoras marcadas.</summary>
+    private static void RoundIslands(ViarioResult result, List<(V2 Seed, double Radius)> radii)
+    {
+        foreach ((V2 seed, double radius) in radii)
+        {
+            if (radius <= 1e-6)
+                continue;
+
+            OutputLine? ring = result.Lines
+                .Where(l => l.Closed && l.Level == EdgeLevel.Ilha && RingContains(l.Segs, seed))
+                .OrderBy(l => RingArea(l.Segs))
+                .FirstOrDefault();
+            if (ring is null)
+                continue;
+
+            List<Seg> rounded = FilletRing(ring.Segs, radius);
+            int index = result.Lines.IndexOf(ring);
+            result.Lines[index] = new OutputLine(ring.Level, rounded, closed: true);
+        }
+    }
+
+    /// <summary>
+    /// Concorda cada canto (quebra de tangente) de um anel fechado com o raio dado,
+    /// pelo lado de dentro. Raio que nao cabe e reduzido ate caber.
+    /// </summary>
+    public static List<Seg> FilletRing(IReadOnlyList<Seg> ring, double radius)
+    {
+        List<Seg> segs = ring.Where(sg => sg.Length > 1e-6).ToList();
+        int n = segs.Count;
+        if (n < 2)
+            return segs;
+
+        // Orientacao: anti-horario => interior a esquerda (offset positivo).
+        double signedArea = 0.0;
+        List<V2> pts = RingPoints(segs);
+        for (int i = 0, j = pts.Count - 1; i < pts.Count; j = i++)
+            signedArea += V2.Cross(pts[j], pts[i]);
+        double inward = signedArea >= 0 ? 1.0 : -1.0;
+
+        // Parametros de corte no inicio/fim de cada trecho e o arco de cada canto.
+        double[] t0 = new double[n];
+        double[] t1 = Enumerable.Repeat(1.0, n).ToArray();
+        Seg?[] arcs = new Seg?[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            Seg a = segs[i];
+            Seg b = segs[(i + 1) % n];
+            double turn = Math.Abs(V2.Cross(a.TangentAt(1.0), b.TangentAt(0.0)));
+            if (turn < Math.Sin(1.0 * Math.PI / 180.0) && V2.Dot(a.TangentAt(1.0), b.TangentAt(0.0)) > 0)
+                continue;
+
+            for (double r = radius; r > 0.05; r *= 0.8)
+            {
+                Seg? oa = a.Offset(inward * r);
+                Seg? ob = b.Offset(inward * r);
+                if (oa is null || ob is null)
+                    continue;
+
+                V2 corner = a.B;
+                List<V2> centers = Seg.CarrierIntersections(oa, ob);
+                if (centers.Count == 0)
+                    continue;
+                V2 c = centers.OrderBy(q => V2.Dist(q, corner)).First();
+
+                double ta = a.ParamOf(a.Closest(c).Point);
+                double tb = b.ParamOf(b.Closest(c).Point);
+                V2 pa = a.PointAt(ta);
+                V2 pb = b.PointAt(tb);
+                if (ta <= t0[i] + 1e-6 || ta >= 1.0 - 1e-9 || tb <= 1e-9 || tb >= t1[(i + 1) % n] - 1e-6)
+                    continue;
+                if (Math.Abs(V2.Dist(pa, c) - r) > 1e-3 || Math.Abs(V2.Dist(pb, c) - r) > 1e-3)
+                    continue;
+
+                V2 u = pa - c;
+                V2 w = pb - c;
+                double sweep = Math.Atan2(V2.Cross(u, w), V2.Dot(u, w));
+                t1[i] = ta;
+                t0[(i + 1) % n] = tb;
+                arcs[i] = new Seg(pa, pb, Math.Tan(sweep / 4.0));
+                break;
+            }
+        }
+
+        List<Seg> result = new();
+        for (int i = 0; i < n; i++)
+        {
+            if (t1[i] - t0[i] > 1e-9)
+                result.Add(segs[i].Sub(t0[i], t1[i]));
+            if (arcs[i] is Seg arc)
+                result.Add(arc);
+        }
+
+        return result;
     }
 
     private static List<V2> RingPoints(IReadOnlyList<Seg> segs)

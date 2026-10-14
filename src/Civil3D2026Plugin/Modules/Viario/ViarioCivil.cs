@@ -308,6 +308,8 @@ internal static class ViarioCivil
         (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
         CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
         lines.Add($"Rede: {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s), {result.Corners.Count} esquina(s), {result.Warnings.Distinct().Count()} aviso(s) do motor.");
+        List<OutputLine> pink = result.Lines.Where(l => l.Level == EdgeLevel.Ilha).ToList();
+        lines.Add($"Ilhas canalizadoras: {pink.Count} ({string.Join(", ", pink.Select(l => $"{l.Segs.Count} trechos/{l.Segs.Count(sg => sg.IsArc)} arcos"))}); eliminadas: {ViarioStore.LoadRemovedIslands(db).Count}; com raio: {ViarioStore.LoadIslandRadii(db).Count}.");
         foreach (string w in result.Warnings.Distinct())
             lines.Add("AVISO motor: " + w);
 

@@ -448,6 +448,10 @@ public sealed class ViarioCommands
         Point3d wcs = pick.Value.TransformBy(ed.CurrentUserCoordinateSystem);
         V2 p = new(wcs.X, wcs.Y);
 
+        // Clique dentro de uma ilha canalizadora (gota, ilha da faixa livre): raio dos cantos dela.
+        if (ViarioVertexCommands.TryEditChannelIsland(doc, p))
+            return;
+
         (List<AxisInput> axes, ViarioResult result, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
         CornerInfo? corner = result.Corners
             .OrderBy(c => DistanceToCorner(c, p))
@@ -490,12 +494,15 @@ public sealed class ViarioCommands
         Editor ed = doc.Editor;
         AcadDb.Database db = doc.Database;
 
-        PromptPointResult pick = ed.GetPoint(new PromptPointOptions("\nClique dentro da ilha: "));
+        PromptPointResult pick = ed.GetPoint(new PromptPointOptions("\nClique dentro da ilha (quadra, gota ou ilha da faixa livre): "));
         if (pick.Status != PromptStatus.OK)
             return;
 
         Point3d wcs = pick.Value.TransformBy(ed.CurrentUserCoordinateSystem);
         V2 p = new(wcs.X, wcs.Y);
+
+        if (ViarioVertexCommands.TryEditChannelIsland(doc, p))
+            return;
 
         (List<AxisInput> axes, ViarioResult result, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
 

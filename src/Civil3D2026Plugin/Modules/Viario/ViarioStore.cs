@@ -33,6 +33,8 @@ internal static class ViarioStore
     private const string ReleasedKey = "SOLTAS";
     private const string RemovedIslandsKey = "ILHASOFF";
     private const string RemovedIslandsSignature = "VILHAOFF1";
+    private const string IslandRadiiKey = "ILHARAIO";
+    private const string IslandRadiiSignature = "VILHARAIO1";
     private const string SlipKey = "LIVRES";
     private const string SlipSignature = "VLIVRE1";
     private const string SectionSignature = "VSEC1";
@@ -462,6 +464,36 @@ internal static class ViarioStore
         }
 
         return result;
+    }
+
+    /// <summary>Raio dos cantos das ilhas canalizadoras: ponto dentro da ilha + raio.</summary>
+    public static List<(V2 Seed, double Radius)> LoadIslandRadii(AcadDb.Database db)
+    {
+        List<(V2, double)> result = new();
+        AcadDb.TypedValue[]? v = ReadRecord(db, IslandRadiiKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != IslandRadiiSignature)
+            return result;
+
+        for (int i = 1; i + 2 < v.Length; i += 3)
+        {
+            if (v[i].Value is double x && v[i + 1].Value is double y && v[i + 2].Value is double r)
+                result.Add((new V2(x, y), r));
+        }
+
+        return result;
+    }
+
+    public static void SaveIslandRadii(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<(V2 Seed, double Radius)> items)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, IslandRadiiSignature) };
+        foreach ((V2 p, double r) in items)
+        {
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.X));
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.Y));
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, r));
+        }
+
+        WriteRecord(tr, db, IslandRadiiKey, new AcadDb.ResultBuffer(list.ToArray()));
     }
 
     public static void SaveRemovedIslands(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<V2> seeds)
