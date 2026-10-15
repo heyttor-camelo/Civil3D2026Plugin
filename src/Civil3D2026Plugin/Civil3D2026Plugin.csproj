@@ -61,11 +61,6 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
-  <!-- O SDK do 2027 recomenda a referencia explicita ao WindowsDesktop (WPF/WinForms). -->
-  <ItemGroup Condition="'$(Acad)' == '2027'">
-    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
-  </ItemGroup>
-
   <!--
     Referencias do AutoCAD / Civil 3D, na pasta do alvo ($(AcadDir)).
     Private=False evita copiar DLLs Autodesk para NETLOAD; o Civil 3D ja fornece
