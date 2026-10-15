@@ -113,6 +113,10 @@
   <Target Name="CheckAcadDir" BeforeTargets="ResolveAssemblyReferences">
     <Error Condition="!Exists('$(AcadDir)\acdbmgd.dll')"
            Text="Nao achei $(AcadDir)\acdbmgd.dll - o AutoCAD/Civil 3D $(Acad) esta instalado? (alvo escolhido por -p:Acad=2026|2027 ou pela configuracao Debug2027/Release2027)" />
+    <Error Condition="Exists('$(AcadDir)\acdbmgd.dll') And !Exists('$(AcadDir)\C3D\AeccDbMgd.dll')"
+           Text="$(AcadDir) existe, mas sem C3D\AeccDbMgd.dll: e o AutoCAD $(Acad) sem o Civil 3D (ou o Civil 3D $(Acad) esta em outra pasta). Instale o Civil 3D $(Acad) ou ajuste AcadDir no csproj." />
+    <Error Condition="Exists('$(AcadDir)\acdbmgd.dll') And !Exists('$(AcadDir)\ACA\AecBaseMgd.dll')"
+           Text="$(AcadDir) existe, mas sem ACA\AecBaseMgd.dll (componente AEC do Civil 3D $(Acad))." />
   </Target>
 
   <!--
