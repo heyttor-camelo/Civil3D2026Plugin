@@ -473,10 +473,124 @@ internal sealed class ViarioPanel : SW.Window
         check.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         Resources[typeof(WC.CheckBox)] = check;
 
-        SW.Style menu = new(typeof(WC.ContextMenu));
-        menu.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Pane));
-        menu.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        Resources[typeof(WC.ContextMenu)] = menu;
+        // Menus: o cromado padrao (Aero2) traz cores fixas - coluna de icones branca,
+        // submenus em #F0F0F0, texto desabilitado #707070 - e no tema escuro os
+        // submenus ficavam ilegiveis. Modelos proprios para ContextMenu, MenuItem
+        // e Separator, pintados com o tema.
+        Resources.MergedDictionaries.Clear();
+        try
+        {
+            Resources.MergedDictionaries.Add(MenuStyles());
+        }
+        catch
+        {
+            SW.Style menu = new(typeof(WC.ContextMenu));
+            menu.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Pane));
+            menu.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+            Resources[typeof(WC.ContextMenu)] = menu;
+        }
+    }
+
+    private static string Hex(WM.Brush brush) =>
+        brush is WM.SolidColorBrush s ? $"#{s.Color.R:X2}{s.Color.G:X2}{s.Color.B:X2}" : "#808080";
+
+    /// <summary>Dicionario com os estilos de menu (ContextMenu, MenuItem com submenu e marca, Separator) no tema corrente.</summary>
+    private SW.ResourceDictionary MenuStyles()
+    {
+        string xaml = $@"
+<ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                    xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
+  <SolidColorBrush x:Key='MBg' Color='{Hex(T.Pane)}'/>
+  <SolidColorBrush x:Key='MFg' Color='{Hex(T.Text)}'/>
+  <SolidColorBrush x:Key='MMuted' Color='{Hex(T.Muted)}'/>
+  <SolidColorBrush x:Key='MLine' Color='{Hex(T.Line)}'/>
+  <SolidColorBrush x:Key='MSel' Color='{Hex(T.Selected)}'/>
+  <SolidColorBrush x:Key='MGutter' Color='{Hex(T.Header)}'/>
+
+  <Style TargetType='ContextMenu'>
+    <Setter Property='Background' Value='{{StaticResource MBg}}'/>
+    <Setter Property='Foreground' Value='{{StaticResource MFg}}'/>
+    <Setter Property='FontFamily' Value='Tahoma'/>
+    <Setter Property='FontSize' Value='12'/>
+    <Setter Property='HasDropShadow' Value='True'/>
+    <Setter Property='Template'>
+      <Setter.Value>
+        <ControlTemplate TargetType='ContextMenu'>
+          <Border Background='{{TemplateBinding Background}}' BorderBrush='{{StaticResource MLine}}' BorderThickness='1' Padding='2' SnapsToDevicePixels='True'>
+            <Grid>
+              <Rectangle Width='24' HorizontalAlignment='Left' Fill='{{StaticResource MGutter}}' Margin='0,-2,0,-2'/>
+              <ItemsPresenter KeyboardNavigation.DirectionalNavigation='Cycle'/>
+            </Grid>
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key='{{x:Static MenuItem.SeparatorStyleKey}}' TargetType='Separator'>
+    <Setter Property='Template'>
+      <Setter.Value>
+        <ControlTemplate TargetType='Separator'>
+          <Border Height='1' Background='{{StaticResource MLine}}' Margin='28,3,4,3' SnapsToDevicePixels='True'/>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style TargetType='MenuItem'>
+    <Setter Property='Foreground' Value='{{StaticResource MFg}}'/>
+    <Setter Property='Background' Value='Transparent'/>
+    <Setter Property='Template'>
+      <Setter.Value>
+        <ControlTemplate TargetType='MenuItem'>
+          <Border x:Name='Bd' Background='{{TemplateBinding Background}}' SnapsToDevicePixels='True'>
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width='24'/>
+                <ColumnDefinition Width='*'/>
+                <ColumnDefinition Width='18'/>
+              </Grid.ColumnDefinitions>
+              <Path x:Name='Check' Data='M0,4 L3.5,7.5 L9.5,0.5' Stroke='{{TemplateBinding Foreground}}' StrokeThickness='1.8'
+                    Width='10' Height='8' Stretch='None' HorizontalAlignment='Center' VerticalAlignment='Center' Visibility='Collapsed'/>
+              <ContentPresenter Grid.Column='1' ContentSource='Header' Margin='6,4,12,4' VerticalAlignment='Center' RecognizesAccessKey='True'
+                                SnapsToDevicePixels='{{TemplateBinding SnapsToDevicePixels}}'/>
+              <Path x:Name='Arrow' Grid.Column='2' Data='M0,0 L4,4 L0,8 Z' Fill='{{TemplateBinding Foreground}}'
+                    HorizontalAlignment='Center' VerticalAlignment='Center' Visibility='Collapsed'/>
+              <Popup x:Name='PART_Popup' Grid.Column='0' Grid.ColumnSpan='3' Placement='Right' HorizontalOffset='-2' VerticalOffset='-3'
+                     IsOpen='{{Binding IsSubmenuOpen, RelativeSource={{RelativeSource TemplatedParent}}}}'
+                     AllowsTransparency='True' Focusable='False' PopupAnimation='None'>
+                <Border Background='{{StaticResource MBg}}' BorderBrush='{{StaticResource MLine}}' BorderThickness='1' Padding='2' SnapsToDevicePixels='True'>
+                  <Grid>
+                    <Rectangle Width='24' HorizontalAlignment='Left' Fill='{{StaticResource MGutter}}' Margin='0,-2,0,-2'/>
+                    <ItemsPresenter KeyboardNavigation.DirectionalNavigation='Cycle' Grid.IsSharedSizeScope='True'/>
+                  </Grid>
+                </Border>
+              </Popup>
+            </Grid>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property='IsHighlighted' Value='True'>
+              <Setter TargetName='Bd' Property='Background' Value='{{StaticResource MSel}}'/>
+            </Trigger>
+            <Trigger Property='IsSubmenuOpen' Value='True'>
+              <Setter TargetName='Bd' Property='Background' Value='{{StaticResource MSel}}'/>
+            </Trigger>
+            <Trigger Property='IsChecked' Value='True'>
+              <Setter TargetName='Check' Property='Visibility' Value='Visible'/>
+            </Trigger>
+            <Trigger Property='HasItems' Value='True'>
+              <Setter TargetName='Arrow' Property='Visibility' Value='Visible'/>
+            </Trigger>
+            <Trigger Property='IsEnabled' Value='False'>
+              <Setter Property='Foreground' Value='{{StaticResource MMuted}}'/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+</ResourceDictionary>";
+        return (SW.ResourceDictionary)System.Windows.Markup.XamlReader.Parse(xaml);
     }
 
     private WC.StackPanel BuildCommandBar()

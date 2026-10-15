@@ -10,9 +10,9 @@ using AcColors = Autodesk.AutoCAD.Colors;
 namespace Civil3D2026Plugin.Modules.Viario;
 
 /// <summary>
-/// Hachura do pavimento (C3DVIARIOHACHURA): uma HATCH unica, na layer
-/// VIARIO-PAVIMENTO, com o contorno do pavimento e os furos (quadras, canteiros,
-/// ilhas) calculados pelo <see cref="ViarioHatch"/>. Acompanha a rede: a cada
+/// Hachura do pavimento (C3DVIARIOHACHURA): uma HATCH por contorno externo, na
+/// layer VIARIO-PAVIMENTO, com o contorno do pavimento e os seus furos (quadras,
+/// canteiros, ilhas) calculados pelo <see cref="ViarioHatch"/>. Acompanha a rede: a cada
 /// regeneracao e refeita enquanto existir. Padrao, escala e "solido com
 /// transparencia" ficam gravados no desenho (Config).
 /// </summary>
@@ -74,67 +74,101 @@ internal static class ViarioHatchSync
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
 
-        AcadDb.Hatch hatch = new();
-        hatch.SetDatabaseDefaults(db);
-        hatch.Layer = Layer;
-        hatch.Normal = Vector3d.ZAxis;
-        hatch.Elevation = 0.0;
-        ms.AppendEntity(hatch);
-        tr.AddNewlyCreatedDBObject(hatch, true);
-
         bool solid = settings.HachuraSolida;
-        if (!solid)
-        {
-            hatch.PatternScale = settings.HachuraEscala > 0 ? settings.HachuraEscala : 20.0;
-            hatch.PatternAngle = settings.HachuraAngulo * Math.PI / 180.0;
-        }
+        string pattern = solid ? "SOLID" : (string.IsNullOrWhiteSpace(settings.HachuraPadrao) ? "ANSI31" : settings.HachuraPadrao);
 
-        hatch.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, solid ? "SOLID" : (string.IsNullOrWhiteSpace(settings.HachuraPadrao) ? "ANSI31" : settings.HachuraPadrao));
-        hatch.Associative = false;
-        hatch.HatchStyle = AcadDb.HatchStyle.Normal;
-
+        // Uma HATCH por contorno externo, com os seus furos. Num unico objeto com
+        // varios "externos" o AutoCAD se perde na paridade quando dois contornos se
+        // tocam; separados, um laco ruim derruba so a sua regiao, e a area de cada
+        // hachura pode ser conferida com a esperada.
         int loops = 0;
-        foreach (ViarioHatch.Loop loop in plan.Loops)
+        foreach (ViarioHatch.Loop outer in plan.Loops.Where(l => l.Outer))
         {
-            Point2dCollection pts = new();
-            DoubleCollection bulges = new();
-            foreach (Seg sg in loop.Segs)
+            AcadDb.Hatch hatch = new();
+            hatch.SetDatabaseDefaults(db);
+            hatch.Layer = Layer;
+            hatch.Normal = Vector3d.ZAxis;
+            hatch.Elevation = 0.0;
+            ms.AppendEntity(hatch);
+            tr.AddNewlyCreatedDBObject(hatch, true);
+
+            if (!solid)
             {
-                if (sg.Length < 1e-6)
-                    continue;
-                pts.Add(new Point2d(sg.A.X, sg.A.Y));
-                bulges.Add(sg.IsArc ? sg.Bulge : 0.0);
+                hatch.PatternScale = settings.HachuraEscala > 0 ? settings.HachuraEscala : 20.0;
+                hatch.PatternAngle = settings.HachuraAngulo * Math.PI / 180.0;
             }
 
-            if (pts.Count < 3)
+            hatch.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, pattern);
+            hatch.Associative = false;
+            hatch.HatchStyle = AcadDb.HatchStyle.Normal;
+
+            int added = 0;
+            if (AppendLoop(hatch, outer, AcadDb.HatchLoopTypes.External, messages))
+                added++;
+            foreach (ViarioHatch.Loop hole in outer.Holes)
+            {
+                if (AppendLoop(hatch, hole, AcadDb.HatchLoopTypes.Default, messages))
+                    added++;
+            }
+
+            if (added == 0)
+            {
+                hatch.Erase();
                 continue;
+            }
 
             try
             {
-                hatch.AppendLoop(AcadDb.HatchLoopTypes.Polyline | (loop.Outer ? AcadDb.HatchLoopTypes.External : AcadDb.HatchLoopTypes.Default), pts, bulges);
-                loops++;
+                hatch.EvaluateHatch(true);
+                double expected = ViarioHatch.NetArea(outer);
+                double got = hatch.Area;
+                if (expected > 1.0 && Math.Abs(got - expected) > Math.Max(1.0, 0.01 * expected))
+                {
+                    string where = outer.Crossing is V2 x ? $"perto de {x}" : $"com inicio em {outer.Segs[0].A}";
+                    messages?.Add($"Hachura {where}: area {got:0.#} m2, esperada {expected:0.#} m2 (contorno com problema; confira as faces de meio-fio nesse trecho).");
+                }
             }
             catch (System.Exception ex)
             {
-                messages?.Add($"Laco da hachura ignorado perto de {loop.Segs[0].A}: {ex.Message}");
+                messages?.Add($"Hachura com inicio em {outer.Segs[0].A} nao avaliada: {ex.Message}");
             }
+
+            if (solid)
+                hatch.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - Math.Clamp(settings.HachuraTransparencia, 0, 90)) / 100.0));
+
+            ViarioStore.SetTag(hatch, TagHatch, added.ToString(CultureInfo.InvariantCulture));
+            loops += added;
         }
+
+        tr.Commit();
+        return loops;
+    }
+
+    private static bool AppendLoop(AcadDb.Hatch hatch, ViarioHatch.Loop loop, AcadDb.HatchLoopTypes type, List<string>? messages)
+    {
+        Point2dCollection pts = new();
+        DoubleCollection bulges = new();
+        foreach (Seg sg in loop.Segs)
+        {
+            if (sg.Length < 1e-6)
+                continue;
+            pts.Add(new Point2d(sg.A.X, sg.A.Y));
+            bulges.Add(sg.IsArc ? sg.Bulge : 0.0);
+        }
+
+        if (pts.Count < 3)
+            return false;
 
         try
         {
-            hatch.EvaluateHatch(true);
+            hatch.AppendLoop(AcadDb.HatchLoopTypes.Polyline | type, pts, bulges);
+            return true;
         }
         catch (System.Exception ex)
         {
-            messages?.Add("Hachura nao avaliada: " + ex.Message);
+            messages?.Add($"Laco da hachura ignorado perto de {loop.Segs[0].A}: {ex.Message}");
+            return false;
         }
-
-        if (solid)
-            hatch.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - Math.Clamp(settings.HachuraTransparencia, 0, 90)) / 100.0));
-
-        ViarioStore.SetTag(hatch, TagHatch, loops.ToString(CultureInfo.InvariantCulture));
-        tr.Commit();
-        return loops;
     }
 
     public static bool Remove(Document doc)
@@ -270,8 +304,10 @@ internal static class ViarioHatchSync
         List<string> messages = new();
         int loops = Sync(doc, axes, result, create: true, messages);
         ed.WriteMessage($"\n  Hachura do pavimento {(exists ? "atualizada" : "criada")}: {loops} laco(s) (contorno + furos) na layer {Layer}; acompanha a rede.");
-        foreach (string m in messages.Distinct().Take(8))
+        foreach (string m in messages.Distinct().Take(12))
             ed.WriteMessage("\n  [HACHURA] " + m);
+        if (messages.Count == 0)
+            ed.WriteMessage("\n  Contornos fechados e areas conferidas: sem problemas de boundary.");
     }
 
     private static void Save(AcadDb.Database db, ViarioStore.Settings settings)

@@ -1,3 +1,9 @@
+## 2.34.1 - C3DVIARIO v0.7.9 / menus no tema escuro, hachura por contorno com conferencia de area
+
+- **menus do painel no tema escuro**: o cromado padrao do WPF traz cores fixas (coluna de icones branca, submenus em cinza claro, texto desabilitado #707070), e as listas de estilo/escala/padrao ficavam ilegiveis. ContextMenu, MenuItem (com marca, seta e submenu) e Separator ganharam modelos proprios pintados com o tema;
+- **hachura do pavimento**: uma HATCH por contorno externo com os seus furos (antes um objeto unico com todos os lacos: quando dois contornos se tocam o AutoCAD perde a paridade e some com regioes). Lacos que cruzam a si mesmos - duas faces de meio-fio que se encostam, dois arcos de esquina sobrepostos - sao desatados no cruzamento: a lasca e descartada e as partes seguem como lacos simples (duas vias tangentes passam a dividir a quadra em dois furos). Vertices repetidos e trechos nulos sao limpos;
+- **conferencia de boundary**: depois de avaliar cada hachura, a area obtida e comparada com a esperada (contorno menos furos); diferencas, contornos abertos e cruzamentos saem na linha de comando com a coordenada do problema ("[HACHURA] ..."); sem problemas, o comando diz isso.
+
 ## 2.34.0 - Layouts v1.0.0 / explorador de layouts (C3DLAYOUT)
 
 - **novo modulo Layouts** (`Modules/Layouts`), no mesmo molde do explorador da rede viaria: barra de categorias com contagem (Layouts, Viewports, Numeracao, Layer state, Carimbo), barra de comandos com icones e dica, vista grafica escura com a miniatura do layout e as viewports clicaveis, lista em colunas com caixa de marcacao e abas de detalhe (Propriedades, Renomear, Escala, Numeracao, Aplicar, Carimbo);
