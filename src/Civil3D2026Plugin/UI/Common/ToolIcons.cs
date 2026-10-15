@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 using WM = System.Windows.Media;
 
-namespace Civil3D2026Plugin.Modules.LispTools;
+namespace Civil3D2026Plugin.UI.Common;
 
 /// <summary>
 /// Icones vetoriais de 16x16 da lista de ferramentas: um traco no tom do texto e um
@@ -35,6 +35,22 @@ internal static class ToolIcons
         ["solido3d"] = new("M3,5 L8,2.5 L13,5 V11 L8,13.5 L3,11 Z", "M3,5 L8,7.5 L13,5 M8,7.5 V13.5"),
         ["juntar"] = new("M2,13 L6.6,8.9 M9.4,7.1 L14,3", "M6.5,8 A1.5,1.5 0 1 0 9.5,8 A1.5,1.5 0 1 0 6.5,8"),
         ["quebrar"] = new("M2,8 H6.5 M9.5,8 H14", "M8,2 V14"),
+        // Modulo Layouts
+        ["layouts"] = new("M2,3 H14 V13 H2 Z", "M4,5 H9 V8.5 H4 Z M10.5,5 H12 M10.5,7 H12 M4,10.5 H12"),
+        ["renomear"] = new("M2,11.5 H14 M3,9 L10,2 L12.5,4.5 L5.5,11.5 H3 Z", "M8.5,3.5 L11,6"),
+        ["esquerda"] = new("M13,8 H4", "M7.5,4.5 L4,8 L7.5,11.5"),
+        ["direita"] = new("M3,8 H12", "M8.5,4.5 L12,8 L8.5,11.5"),
+        ["ordenar"] = new("M3,4 H13 M3,8 H10 M3,12 H7", "M12,7 V13 M10,11 L12,13 L14,11"),
+        ["copiar"] = new("M5.5,5.5 H13.5 V13.5 H5.5 Z", "M2.5,10.5 V2.5 H10.5"),
+        ["excluir"] = new("M3,4.5 H13 M6,4.5 V3 H10 V4.5 M4,4.5 L5,13.5 H11 L12,4.5", "M7,7 V11 M9,7 V11"),
+        ["travar"] = new("M3.5,7.5 H12.5 V13.5 H3.5 Z", "M5.5,7.5 V5 A2.5,2.5 0 0 1 10.5,5 V7.5"),
+        ["destravar"] = new("M3.5,7.5 H12.5 V13.5 H3.5 Z", "M5.5,7.5 V5 A2.5,2.5 0 0 1 10.5,5"),
+        ["ligar"] = new("M2,8 C5,3 11,3 14,8 C11,13 5,13 2,8 Z", "M8,8 m-2,0 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0"),
+        ["desligar"] = new("M2,8 C5,3 11,3 14,8 C11,13 5,13 2,8 Z", "M3,13 L13,3"),
+        ["escala"] = new("M2,13 L13,2 M2,13 V9 M2,13 H6", "M5,10 L6.5,11.5 M7.5,7.5 L9,9 M10,5 L11.5,6.5"),
+        ["pdf"] = new("M3.5,1.5 H10 L13,4.5 V14.5 H3.5 Z M10,1.5 V4.5 H13", "M5.5,11.5 V7.5 H7 A1.3,1.3 0 0 1 7,10 H5.5 M8.5,11.5 V7.5 H10 A2,2 0 0 1 10,11.5 Z"),
+        ["abrir"] = new("M2,4 H6 L7.5,5.5 H14 V13 H2 Z", "M5,8.5 H11 M8,8.5 V11.5"),
+        ["atualizar"] = new("M12.5,8 A4.5,4.5 0 1 1 11,4.6", "M11,2 V5 H8"),
         ["generico"] = new("M3,3 H13 V13 H3 Z", "M5.5,8 H10.5")
     };
 

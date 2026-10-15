@@ -208,6 +208,18 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
+## Explorador de layouts (C3DLAYOUT, Layouts v1.0.0)
+
+Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS) e Carimbo em lote (atributos de um bloco em varios layouts). A miniatura mostra margem, carimbo e viewports do layout; clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts.
+
+```text
+C3DLAYOUT          -> explorador de layouts
+C3DLAYOUTVP        -> explorador na categoria Viewports
+C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo)
+C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
+NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
+```
+
 ## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.0.0)
 
 `Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.

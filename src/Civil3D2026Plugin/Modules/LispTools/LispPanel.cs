@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Civil3D2026Plugin.Modules.Utilitarios;
+using Civil3D2026Plugin.UI.Common;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using SW = System.Windows;

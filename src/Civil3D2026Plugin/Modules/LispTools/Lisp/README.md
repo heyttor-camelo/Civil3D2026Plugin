@@ -35,7 +35,7 @@ Nao da para ler o cabecalho de dentro deles. Crie um arquivo ao lado com o mesmo
 ## Quando converter para C#
 
 Rotinas curtas e estaveis passam para `Modules/Utilitarios` (mesmo nome de comando) e o `.lsp` sai daqui.
-Ja convertidas: ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP.
+Ja convertidas: ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP, NP (modulo Layouts).
 Os originais ficam no historico do git.
 
 ## Carregamento

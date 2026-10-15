@@ -1,3 +1,14 @@
+## 2.34.0 - Layouts v1.0.0 / explorador de layouts (C3DLAYOUT)
+
+- **novo modulo Layouts** (`Modules/Layouts`), no mesmo molde do explorador da rede viaria: barra de categorias com contagem (Layouts, Viewports, Numeracao, Layer state, Carimbo), barra de comandos com icones e dica, vista grafica escura com a miniatura do layout e as viewports clicaveis, lista em colunas com caixa de marcacao e abas de detalhe (Propriedades, Renomear, Escala, Numeracao, Aplicar, Carimbo);
+- **Layouts**: abrir, renomear em lote (prefixo, base, numero sequencial, sufixo, previa), mover para a esquerda/direita, ordenar pelo nome (ordem natural), copiar, excluir (com confirmacao);
+- **Viewports**: travar/destravar, ligar/desligar, escala 1:N (com escala de anotacao quando existe no desenho); marcacao na miniatura, na lista ou pelo "repetir nos demais";
+- **Numeracao de pranchas** (ex-NP, em C#): `NP [Configurar/Atualizar]` na linha de comando e a aba Numeracao no painel; textos e atributos das layers PRANCHA_NUMERO/PRANCHA_TOTAL, ordem das abas;
+- **Layer state nas viewports**: o LSLAYOUTS agora abre o explorador nessa categoria (`C3DLAYOUTLS`);
+- **Carimbo em lote** (`C3DLAYOUTCARIMBO`): lista os blocos com atributos dos layouts, mostra as tags e escreve os valores preenchidos em todos os layouts marcados (substitui o JOBEPLACE sem valores fixos no codigo);
+- comandos: `C3DLAYOUT`, `C3DLAYOUTVP`, `C3DLAYOUTLS`, `C3DLAYOUTCARIMBO`, `NP`; `NPRANCHAS.LSP` sai da DLL;
+- `ToolTheme` e `ToolIcons` movidos para `UI/Common` (compartilhados entre os paineis);
+- plotagem em PDF (`LayoutOps.PlotarPdf`) pronta no codigo, sem botao ate a v2.
 ## 2.33.0 - C3DMODULOS / escolha dos modulos na Ribbon
 
 - **C3DMODULOS** (botao "Modulos" no painel Plugin da Ribbon): janela com todos os modulos do catalogo, por categoria, para marcar quais aparecem na Ribbon e na lista de comandos (C3DHELP). Aplicar grava em `%APPDATA%\Civil3D2026Plugin\modulos.txt` e reconstroi a Ribbon na hora. Modulos desmarcados tambem deixam de iniciar seus servicos de fundo (reatores do viario, tooltip dos estais, solidos so no 3D, autoload das LISPs) na proxima carga da DLL. Os comandos continuam registrados - digitar o nome funciona - porque a DLL .NET nao descarrega por partes; o modulo Geral (ajuda, Ribbon, modulos) e fixo.

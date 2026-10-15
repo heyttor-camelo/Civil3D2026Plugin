@@ -2,7 +2,7 @@ using System;
 
 using WM = System.Windows.Media;
 
-namespace Civil3D2026Plugin.Modules.LispTools;
+namespace Civil3D2026Plugin.UI.Common;
 
 /// <summary>
 /// Cores das janelas de ferramentas (C3DLISP, LSLAYOUTS). Segue o tema claro/escuro

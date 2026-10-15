@@ -130,6 +130,15 @@ public static class CommandNames
         public const string Pp = "PP";
     }
 
+    public static class Layouts
+    {
+        public const string Painel = "C3DLAYOUT";
+        public const string Viewports = "C3DLAYOUTVP";
+        public const string LayerState = "C3DLAYOUTLS";
+        public const string Carimbo = "C3DLAYOUTCARIMBO";
+        public const string Numerar = "NP";
+    }
+
     public static class LispTools
     {
         public const string Painel = "C3DLISP";

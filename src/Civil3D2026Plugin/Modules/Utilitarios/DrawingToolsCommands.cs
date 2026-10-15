@@ -124,37 +124,11 @@ public sealed class DrawingToolsCommands
     }
 
     // ------------------------------------------------------------------
-    // LSLAYOUTS - layer state como override nas viewports escolhidas
+    // LSLAYOUTS - agora abre o explorador de layouts na categoria Layer state
     // ------------------------------------------------------------------
 
     [CommandMethod(C3DCommands.Utilitarios.LsLayouts, CommandFlags.Modal)]
-    public void LayerStateEmLayouts()
-    {
-        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null)
-            return;
-        Editor ed = doc.Editor;
-
-        List<LayerStateItem> states = LayerStateSheets.LerLayerStates(doc.Database);
-        if (states.Count == 0)
-        {
-            ed.WriteMessage("\nO desenho nao tem layer states. Crie um em LAYERSTATE, de dentro de uma viewport, para guardar as propriedades de VP.");
-            return;
-        }
-
-        List<SheetData> folhas = LayerStateSheets.LerLayouts(doc.Database);
-        if (folhas.Count == 0)
-        {
-            ed.WriteMessage("\nNenhum layout com viewport encontrado.");
-            return;
-        }
-
-        var janela = new LayerStateWindow(doc, states, folhas);
-        AcApp.ShowModalWindow(janela);
-
-        if (janela.Aplicou)
-            ed.Command("_.REGENALL");
-    }
+    public void LayerStateEmLayouts() => Civil3D2026Plugin.Modules.Layouts.LayoutPanel.ShowPanel("LAYERSTATE");
 
     // ------------------------------------------------------------------
     // MOFF - varios offsets em polilinhas fechadas (antes: MOFF_v1.0.lsp)

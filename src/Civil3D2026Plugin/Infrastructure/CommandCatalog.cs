@@ -255,6 +255,21 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Layouts",
+                "Explorador de layouts",
+                C3DVersions.Layouts,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Layouts.Painel, "Explorador de layouts",
+                        "Janela no molde do Project Explorer: layouts com miniatura e viewports, renomear/reordenar/copiar/excluir, viewports (travar, ligar, escala), numeracao de pranchas, layer state nas viewports e carimbo em lote."),
+                    new CommandDefinition(C3DCommands.Layouts.Viewports, "Viewports", "Abre o explorador na categoria Viewports."),
+                    new CommandDefinition(C3DCommands.Layouts.LayerState, "Layer state nas viewports", "Abre o explorador na categoria Layer state."),
+                    new CommandDefinition(C3DCommands.Layouts.Carimbo, "Carimbo em lote", "Abre o explorador na categoria Carimbo."),
+                    new CommandDefinition(C3DCommands.Layouts.Numerar, "Numerar pranchas",
+                        "[Configurar/Atualizar]: numero (01, 02...) e total (/NN) nos textos das layers PRANCHA_NUMERO e PRANCHA_TOTAL, na ordem das abas.")
+                }),
+
+            new(
                 "LISPs",
                 "Utilitarios (ex-LISP)",
                 C3DVersions.Utilitarios,
@@ -264,7 +279,7 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Utilitarios.Tlen, "Comprimento total", "Soma o comprimento das curvas selecionadas."),
                     new CommandDefinition(C3DCommands.Utilitarios.JobeCount, "Numerar textos", "Acrescenta numero sequencial aos textos, na ordem de leitura."),
                     new CommandDefinition(C3DCommands.Utilitarios.SmartHatch, "Hachura ignorando gaps", "Hachura SOLID clicando dentro de area com aberturas no contorno."),
-                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Janela: layer states do desenho e miniatura dos layouts; clique nas viewports e aplique o layer state como override."),
+                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Abre o explorador de layouts na categoria Layer state."),
                     new CommandDefinition(C3DCommands.Utilitarios.Moff, "Varios offsets", "Varios offsets em polilinhas fechadas, para dentro ou para fora."),
                     new CommandDefinition(C3DCommands.Utilitarios.MoffSet, "Varios offsets (alias)", "Mesmo que MOFF.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite."),

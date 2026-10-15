@@ -7,7 +7,7 @@ using Autodesk.AutoCAD.Geometry;
 
 using WPoint = System.Windows.Point;
 
-namespace Civil3D2026Plugin.Modules.Utilitarios;
+namespace Civil3D2026Plugin.Modules.Layouts;
 
 /// <summary>Viewport de modelo de um layout, ja no espaco do papel.</summary>
 internal sealed class SheetViewport
@@ -19,6 +19,8 @@ internal sealed class SheetViewport
     public double Altura { get; init; }
     public string Escala { get; init; } = "";
     public bool Ligada { get; init; } = true;
+    public bool Travada { get; init; }
+    public double EscalaCustom { get; init; }
 
     /// <summary>Layer state aplicado nesta sessao da janela (so para mostrar).</summary>
     public string? Aplicado { get; set; }
@@ -29,6 +31,13 @@ internal sealed class SheetData
 {
     public string Nome { get; init; } = "";
     public int Ordem { get; init; }
+    public ObjectId Id { get; init; }
+    public bool Atual { get; init; }
+    public string Dispositivo { get; init; } = "";
+    public string Papel { get; init; } = "";
+    public string EstiloPlot { get; init; } = "";
+    public double PapelLargura { get; init; }
+    public double PapelAltura { get; init; }
     public List<WPoint[]> Linhas { get; } = new();
     public List<SheetViewport> Viewports { get; } = new();
     public double MinX { get; set; } = double.MaxValue;
@@ -55,7 +64,7 @@ internal sealed record LayerStateItem(string Nome, string Descricao);
 /// Le os layouts (miniatura e viewports) e os layer states do desenho e aplica um
 /// layer state como override nas viewports escolhidas.
 /// </summary>
-internal static class LayerStateSheets
+internal static class LayoutReader
 {
     private const int MaxPontosPorLayout = 25000;
     private const int MaxProfundidadeBloco = 3;
@@ -120,7 +129,19 @@ internal static class LayerStateSheets
             if (layout.ModelType)
                 continue;
 
-            var folha = new SheetData { Nome = layout.LayoutName, Ordem = layout.TabOrder };
+            string atual = LayoutManager.Current.CurrentLayout;
+            var folha = new SheetData
+            {
+                Nome = layout.LayoutName,
+                Ordem = layout.TabOrder,
+                Id = layout.ObjectId,
+                Atual = string.Equals(layout.LayoutName, atual, StringComparison.OrdinalIgnoreCase),
+                Dispositivo = layout.PlotConfigurationName,
+                Papel = layout.CanonicalMediaName,
+                EstiloPlot = layout.CurrentStyleSheet,
+                PapelLargura = layout.PlotPaperSize.X,
+                PapelAltura = layout.PlotPaperSize.Y
+            };
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             HashSet<ObjectId> papel = ViewportsDoPapel(tr, layout, btr);
             int pontos = 0;
@@ -142,15 +163,18 @@ internal static class LayerStateSheets
                     pontos += Desenhar(tr, ent, Matrix3d.Identity, folha, 0);
             }
 
-            if (folha.Viewports.Count == 0)
-                continue;
-
             if (folha.MinX > folha.MaxX)
             {
                 // Sem desenho no papel: usa so as viewports.
                 foreach (SheetViewport v in folha.Viewports)
                     foreach (WPoint p in v.Contorno)
                         folha.Incluir(p);
+                if (folha.MinX > folha.MaxX)
+                {
+                    // Layout vazio: mostra o papel.
+                    folha.Incluir(new WPoint(0, 0));
+                    folha.Incluir(new WPoint(Math.Max(folha.PapelLargura, 1), Math.Max(folha.PapelAltura, 1)));
+                }
             }
 
             folhas.Add(folha);
@@ -224,7 +248,9 @@ internal static class LayerStateSheets
             Largura = vp.Width,
             Altura = vp.Height,
             Escala = escala,
-            Ligada = vp.On
+            Ligada = vp.On,
+            Travada = vp.Locked,
+            EscalaCustom = vp.CustomScale
         };
     }
 
@@ -301,38 +327,5 @@ internal static class LayerStateSheets
         }
 
         return pts.Select(p => p.TransformBy(xf)).Select(p => new WPoint(p.X, p.Y));
-    }
-
-    // ------------------------------------------------------------------
-    // Aplicar
-    // ------------------------------------------------------------------
-
-    /// <summary>Restaura o layer state como override de viewport (flag 4) em cada viewport.</summary>
-    public static (int Ok, int Falhas) Aplicar(Document doc, string layerState, IEnumerable<ObjectId> viewports)
-    {
-        int ok = 0, falhas = 0;
-        using DocumentLock _ = doc.LockDocument();
-        Database db = doc.Database;
-        LayerStateManager lsm = db.LayerStateManager;
-        LayerStateMasks mascara = lsm.GetLayerStateMask(layerState);
-
-        using (Transaction tr = db.TransactionManager.StartTransaction())
-        {
-            foreach (ObjectId id in viewports)
-            {
-                try
-                {
-                    lsm.RestoreLayerState(layerState, id, 4, mascara);
-                    ok++;
-                }
-                catch (Autodesk.AutoCAD.Runtime.Exception)
-                {
-                    falhas++;
-                }
-            }
-            tr.Commit();
-        }
-
-        return (ok, falhas);
     }
 }

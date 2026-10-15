@@ -44,9 +44,9 @@ public static class UtilCatalog
             "smart_hatch.lsp"),
 
         new UtilTool("Layer state em varios layouts", "camadas",
-            "Janela com os layer states do desenho e a miniatura de cada layout: clique nas viewports, repita a selecao nos outros layouts pela posicao e aplique o layer state como override de viewport (VP Freeze, cor de VP etc.).",
+            "Abre o explorador de layouts (C3DLAYOUT) na categoria Layer state: lista dos layer states e miniatura de cada layout com as viewports clicaveis.",
             new[] { C3DCommands.Utilitarios.LsLayouts },
-            new[] { "Escolha o layer state na lista.", "Clique nas viewports das miniaturas; \"repetir nos demais\" marca as da mesma posicao nos outros layouts.", "Aplicar; da para aplicar outro layer state em outras viewports sem fechar." },
+            new[] { "Escolha o layer state na lista.", "Marque as viewports na miniatura; \"repetir nos demais\" marca a mesma posicao nos outros layouts.", "Aplicar." },
             "LSLAYOUTS.lsp"),
 
         new UtilTool("Varios offsets em polilinhas fechadas", "offset",
