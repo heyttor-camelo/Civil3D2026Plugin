@@ -1,3 +1,7 @@
+## 2.33.0 - C3DMODULOS / escolha dos modulos na Ribbon
+
+- **C3DMODULOS** (botao "Modulos" no painel Plugin da Ribbon): janela com todos os modulos do catalogo, por categoria, para marcar quais aparecem na Ribbon e na lista de comandos (C3DHELP). Aplicar grava em `%APPDATA%\Civil3D2026Plugin\modulos.txt` e reconstroi a Ribbon na hora. Modulos desmarcados tambem deixam de iniciar seus servicos de fundo (reatores do viario, tooltip dos estais, solidos so no 3D, autoload das LISPs) na proxima carga da DLL. Os comandos continuam registrados - digitar o nome funciona - porque a DLL .NET nao descarrega por partes; o modulo Geral (ajuda, Ribbon, modulos) e fixo.
+
 ## 2.32.8 - C3DVIARIO v0.7.8 / hachura do pavimento, raio da alca, contorno nas esquinas obliquas
 
 - **C3DVIARIOHACHURA** (tambem `C3DVIARIO > HAchura` e botao com menu no painel): uma HATCH unica so da regiao de pavimento - contorno pelas faces de meio-fio, tampas nas pontas livres dos eixos, quadras fechadas, canteiros, ilhas e ilha central de rotatoria como furos (estilo par/impar). Padrao (ANSI31...), escala, angulo ou SOLID com transparencia, gravados no desenho (Config); layer VIARIO-PAVIMENTO; [Ocultar/Mostrar/Remover]; acompanha a rede a cada atualizacao; o autoteste confere;

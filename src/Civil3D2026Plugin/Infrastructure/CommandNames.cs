@@ -13,6 +13,7 @@ public static class CommandNames
         public const string Help = "C3DHELP";
         public const string Ribbon = "C3DRIBBON";
         public const string RibbonReset = "C3DRIBBONRESET";
+        public const string Modulos = "C3DMODULOS";
     }
 
     public static class Drenagem

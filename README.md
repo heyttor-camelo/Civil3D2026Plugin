@@ -160,6 +160,10 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
+## Modulos na Ribbon (C3DMODULOS)
+
+`C3DMODULOS` (ou o botao Modulos no painel Plugin) abre a lista dos modulos por categoria; so os marcados aparecem na Ribbon e na arvore do `C3DHELP`, e so eles iniciam seus servicos de fundo na proxima carga da DLL (reatores do viario, tooltip dos estais, solidos so no 3D, autoload das LISPs). A escolha fica em `%APPDATA%\Civil3D2026Plugin\modulos.txt`. Os comandos continuam registrados (digitar o nome funciona): a DLL .NET nao descarrega por partes.
+
 ## Rede viaria (C3DVIARIO v0.7.8)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.

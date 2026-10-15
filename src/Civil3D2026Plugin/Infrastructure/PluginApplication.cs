@@ -8,6 +8,7 @@ using Civil3D2026Plugin.Modules.CorridorTools.PlanVisibility;
 using Civil3D2026Plugin.Modules.CorridorTools.SolidArray;
 using Civil3D2026Plugin.Modules.LispTools;
 using Civil3D2026Plugin.Modules.Viario;
+using Civil3D2026Plugin.UI;
 using Civil3D2026Plugin.UI.Ribbon;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -28,17 +29,23 @@ public sealed class PluginApplication : IExtensionApplication
         // O gerenciador tenta imediatamente e, se necessario, repete no Idle.
         RibbonUiManager.Initialize();
 
+        // Servicos de fundo so dos modulos marcados em C3DMODULOS (os comandos ficam registrados sempre).
+
         // Tooltip dos estais (C3DSOLIDLIGAR) via Editor.PointMonitor.
-        SolidLinkTooltip.Initialize();
+        if (ModuleSettings.IsCommandEnabled(C3DCommands.Corridor.SolidLigar))
+            SolidLinkTooltip.Initialize();
 
         // Solidos so no 3D (C3DOCULTARPLANTA): reativa a configuracao salva do usuario.
-        PlanVisibilityManager.Initialize();
+        if (ModuleSettings.IsCommandEnabled(C3DCommands.Corridor.OcultarPlanta))
+            PlanVisibilityManager.Initialize();
 
         // Rede viaria (C3DVIARIO): bordos e intersecoes associativos aos eixos.
-        ViarioSync.Initialize();
+        if (ModuleSettings.IsCategoryEnabled("Viario"))
+            ViarioSync.Initialize();
 
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
-        LispModule.Initialize();
+        if (ModuleSettings.IsCategoryEnabled("LISPs"))
+            LispModule.Initialize();
 
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
@@ -63,6 +70,9 @@ public sealed class PluginApplication : IExtensionApplication
 
         WriteBanner(doc.Editor, includeDescriptions: true);
     }
+
+    [CommandMethod(C3DCommands.Core.Modulos, CommandFlags.Modal)]
+    public void ShowModules() => ModulesWindow.Open();
 
     [CommandMethod(C3DCommands.Core.Ribbon, CommandFlags.Modal)]
     public void ShowRibbon()
@@ -111,6 +121,8 @@ public sealed class PluginApplication : IExtensionApplication
         ed.WriteMessage($"\n Use {C3DCommands.Core.Help} para exibir esta arvore novamente.");
         ed.WriteMessage($"\n Use {C3DCommands.Core.Ribbon} para abrir a Ribbon.");
         ed.WriteMessage($"\n Use {C3DCommands.Core.RibbonReset} para reconstruir a Ribbon.");
+        ed.WriteMessage($"\n Use {C3DCommands.Core.Modulos} para escolher quais modulos aparecem na Ribbon" +
+                        (ModuleSettings.DisabledCount > 0 ? $" ({ModuleSettings.DisabledCount} desativado(s))." : "."));
         ed.WriteMessage("\n============================================================");
         ed.WriteMessage("\n");
     }

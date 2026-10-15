@@ -44,6 +44,11 @@ public static class CommandCatalog
                         "Mostra a arvore atual de modulos, comandos, versoes e DLL carregada."),
 
                     new CommandDefinition(
+                        C3DCommands.Core.Modulos,
+                        "Modulos",
+                        "Marque quais modulos aparecem na Ribbon e na lista de comandos (e iniciam seus servicos na proxima carga)."),
+
+                    new CommandDefinition(
                         C3DCommands.Core.Ribbon,
                         "Mostrar Ribbon",
                         "Cria ou reativa a aba C3D Tools da Ribbon.",
@@ -296,9 +301,11 @@ public static class CommandCatalog
                 ShowInRibbon: false)
         };
 
+    /// <summary>Modulos que vao para a Ribbon: marcados pelo usuario (C3DMODULOS) e com comandos de Ribbon.</summary>
     public static IEnumerable<ModuleDefinition> RibbonModules =>
         Modules.Where(module =>
             module.ShowInRibbon &&
+            ModuleSettings.IsEnabled(module) &&
             module.Commands.Any(command => command.ShowInRibbon));
 
     public static void WriteTree(Editor ed, bool includeDescriptions = false)
@@ -312,6 +319,12 @@ public static class CommandCatalog
                 string version = string.IsNullOrWhiteSpace(module.Version)
                     ? string.Empty
                     : $" v{module.Version}";
+
+                if (!ModuleSettings.IsEnabled(module))
+                {
+                    ed.WriteMessage($"\n  |-- {module.Name}{version}  (desativado em {C3DCommands.Core.Modulos})");
+                    continue;
+                }
 
                 ed.WriteMessage($"\n  |-- {module.Name}{version}");
 
