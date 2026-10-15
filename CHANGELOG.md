@@ -1,3 +1,8 @@
+## 2.32.6 - C3DVIARIO v0.7.6 / reconcordar pela tangente, ocultar sinalizacao
+
+- **Reconcordar trechos** ganhou a opcao **[Arco/Tangente]**: Arco refaz o arco pela direcao da reta (como antes); **Tangente** mantem o arco (mesmo circulo) e move a reta vizinha ate tangencia-lo - o vertice vai para o ponto de tangencia tirado da ponta fixa da reta e o arco e encurtado/prolongado no mesmo circulo. Entre dois arcos continua Seguinte/Anterior;
+- **sinalizacao**: `C3DVIARIOSINAL` tem [Ocultar/Mostrar] (desliga/liga as layers VIARIO-SH-*; o bloco fica acompanhando a rede) e o botao do painel abre um menu: gerar/atualizar, ocultar, mostrar, remover, opcoes.
+
 ## 2.32.5 - C3DVIARIO v0.7.5 / menu do botao Cotar faixas, cotas sem sobreposicao, remover por clique
 
 - **botao Cotar faixas** no painel abre um menu para clicar: Cotar faixas..., estilo de cota (lista dos estilos do desenho), escala DIMSCALE (lista: do estilo, 0.25 ... 1000, Outro... em Config), sarjeta e meio-fio separados, remover cota (clique perto) e remover todas; layer VIARIO-COTAS;

@@ -480,37 +480,77 @@ public sealed class ViarioCommands
             return;
         }
 
-        string auto = nextArc ? "Seguinte" : "Anterior";
-        string which = auto;
-        if (prevArc && nextArc)
-        {
-            PromptKeywordOptions opt = new("\nQual trecho refazer [Seguinte/Anterior] <Seguinte>: ", "Seguinte Anterior") { AllowNone = true };
-            PromptResult r = ed.GetKeywords(opt);
-            if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None)
-                return;
-            which = r.Status == PromptStatus.OK ? r.StringResult : "Seguinte";
-        }
-
         Seg prev = new(pts[vertex - 1], pts[vertex], bulges[vertex - 1]);
         Seg next = new(pts[vertex], pts[vertex + 1], bulges[vertex]);
         double before = Math.Abs(Math.Atan2(V2.Cross(prev.TangentAt(1.0), next.TangentAt(0.0)), V2.Dot(prev.TangentAt(1.0), next.TangentAt(0.0)))) * 180.0 / Math.PI;
+        ed.WriteMessage($"\n  Vertice {vertex} de {target.Handle}: {(prevArc ? "arco" : "reta")} -> {(nextArc ? "arco" : "reta")}, quebra de {before:0.#} graus.");
+
+        // O que se ajusta: o arco (refeito tangente a reta) ou a reta (movida ate tangenciar o arco, que fica).
+        string what = "Arco";
+        if (prevArc != nextArc)
+        {
+            PromptKeywordOptions wk = new(
+                "\nO que ajustar [Arco/Tangente] <Arco> (Arco: refaz o arco pela direcao da reta; Tangente: mantem o arco e move a reta ate tangencia-lo): ",
+                "Arco Tangente")
+            {
+                AllowNone = true
+            };
+            PromptResult wr = ed.GetKeywords(wk);
+            if (wr.Status != PromptStatus.OK && wr.Status != PromptStatus.None)
+                return;
+            what = wr.Status == PromptStatus.OK ? wr.StringResult : "Arco";
+        }
 
         target.UpgradeOpen();
-        if (which == "Seguinte")
+        string done;
+        if (what == "Tangente")
         {
-            // Arco seguinte: sai do vertice na direcao em que o trecho anterior chega.
-            target.SetBulgeAt(vertex, ViarioChain.TangentBulge(prev.TangentAt(1.0), pts[vertex], pts[vertex + 1]));
+            // Reta vizinha vai ate o ponto de tangencia do circulo do arco, tirado da ponta fixa da reta.
+            bool arcIsPrev = prevArc;
+            Seg arc = arcIsPrev ? prev : next;
+            V2 arcFixedEnd = arcIsPrev ? pts[vertex - 1] : pts[vertex + 1];
+            V2 lineFarEnd = arcIsPrev ? pts[vertex + 1] : pts[vertex - 1];
+            (V2 Vertex, double Bulge)? sol = ViarioChain.LineToArc(arc, arcFixedEnd, lineFarEnd, pts[vertex], arcEndsAtVertex: arcIsPrev);
+            if (sol is null)
+            {
+                ed.WriteMessage("\n  Nao ha tangente: a outra ponta da reta esta dentro do circulo do arco (ou o arco fecharia a volta). Ajuste pelo Arco ou mova a ponta da reta.");
+                return;
+            }
+
+            target.SetPointAt(vertex, new Point2d(sol.Value.Vertex.X, sol.Value.Vertex.Y));
+            target.SetBulgeAt(arcIsPrev ? vertex - 1 : vertex, sol.Value.Bulge);
+            done = $"reta {(arcIsPrev ? "seguinte" : "anterior")} movida ate a tangencia; arco mantido (R {arc.Radius:0.##} m), vertice deslocado {V2.Dist(sol.Value.Vertex, pts[vertex]):0.##} m";
         }
         else
         {
-            // Arco anterior: chega ao vertice na direcao em que o trecho seguinte sai
-            // (e o arco tangente visto de tras, com o sinal trocado).
-            V2 h = next.TangentAt(0.0);
-            target.SetBulgeAt(vertex - 1, -ViarioChain.TangentBulge(-h, pts[vertex], pts[vertex - 1]));
+            string which = nextArc ? "Seguinte" : "Anterior";
+            if (prevArc && nextArc)
+            {
+                PromptKeywordOptions opt = new("\nQual arco refazer [Seguinte/Anterior] <Seguinte>: ", "Seguinte Anterior") { AllowNone = true };
+                PromptResult r = ed.GetKeywords(opt);
+                if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None)
+                    return;
+                which = r.Status == PromptStatus.OK ? r.StringResult : "Seguinte";
+            }
+
+            if (which == "Seguinte")
+            {
+                // Arco seguinte: sai do vertice na direcao em que o trecho anterior chega.
+                target.SetBulgeAt(vertex, ViarioChain.TangentBulge(prev.TangentAt(1.0), pts[vertex], pts[vertex + 1]));
+            }
+            else
+            {
+                // Arco anterior: chega ao vertice na direcao em que o trecho seguinte sai
+                // (e o arco tangente visto de tras, com o sinal trocado).
+                V2 h = next.TangentAt(0.0);
+                target.SetBulgeAt(vertex - 1, -ViarioChain.TangentBulge(-h, pts[vertex], pts[vertex - 1]));
+            }
+
+            done = $"arco {(which == "Seguinte" ? "seguinte" : "anterior")} refeito tangente";
         }
 
         tr.Commit();
-        ed.WriteMessage($"\n  Trecho {(which == "Seguinte" ? "seguinte" : "anterior")} refeito tangente (quebra de {before:0.#} graus eliminada)." +
+        ed.WriteMessage($"\n  {done} (quebra de {before:0.#} graus eliminada)." +
                         (ViarioStore.IsChained(target) ? "" : " O eixo continua em edicao livre; Concordancia > Selecionar > Manter para fixar."));
         ViarioSync.Regenerate(doc, quiet: true);
     }

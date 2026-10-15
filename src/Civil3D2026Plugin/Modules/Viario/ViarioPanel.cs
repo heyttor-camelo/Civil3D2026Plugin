@@ -168,8 +168,8 @@ internal sealed class ViarioPanel : SW.Window
         new("ILHA", "C3DVIARIOILHA ", "Eliminar ilha", "Linhas",
             "A ilha clicada vira pavimento; [Restaurar] ou [Todas] desfaz.", new[] { "Clique dentro da ilha." }),
         new("RECONCORDAR", "C3DVIARIOEIXO CO V ", "Reconcordar trechos", "Eixos",
-            "Refaz o arco vizinho a um vertice para ficar tangente ao outro trecho (eixo editado livre).",
-            new[] { "Clique perto do vertice entre os dois trechos.", "Entre duas retas, use Raio no vertice." }),
+            "Num vertice entre reta e arco: [Arco] refaz o arco pela direcao da reta, ou [Tangente] mantem o arco e move a reta ate tangencia-lo.",
+            new[] { "Clique perto do vertice entre os dois trechos.", "Escolha Arco ou Tangente (e Seguinte/Anterior entre dois arcos).", "Entre duas retas, use Raio no vertice." }),
         new("INVERTER", "C3DVIARIOEIXO I ", "Inverter sentido do eixo", "Eixos",
             "Inverte o sentido (estacas e esquerda/direita); elementos e raios acompanham.", new[] { "Selecione os eixos." }),
         new("DESVINCULAR", "C3DVIARIO DE ", "Desvincular linhas", "Linhas",
@@ -179,7 +179,7 @@ internal sealed class ViarioPanel : SW.Window
         new("CIVIL", "C3DVIARIOCIVIL G ", "Objetos do Civil", "Saidas",
             "Alinhamentos do Civil: eixos, bordos LD/LE e curb returns conectados.", new[] { "Gera ou atualiza; depois acompanham a rede." }),
         new("SINAL", "C3DVIARIOSINAL G ", "Sinalizacao horizontal", "Saidas",
-            "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "Opcoes na categoria Sinalizacao." }),
+            "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "O botao abre o menu: gerar/atualizar, ocultar, mostrar, remover.", "Opcoes na categoria Sinalizacao." }),
         new("COTAR", "C3DVIARIOCOTAR ", "Cotar faixas", "Saidas",
             "Cadeia de cotas da secao em planta (faixas, canteiro, passeio) e largura total, na estaca clicada.",
             new[] { "O botao abre o menu: estilo de cota, escala (DIMSCALE), detalhe, cotar e remover.", "Cotar: passe sobre o eixo (a cadeia segue o cursor) e clique." }),
@@ -499,7 +499,20 @@ internal sealed class ViarioPanel : SW.Window
                 WC.ToolTipService.SetInitialShowDelay(button, 250);
                 WC.ToolTipService.SetShowDuration(button, 30000);
                 Cmd c = cmd;
-                if (c.Key == "COTAR")
+                if (c.Key == "SINAL")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenSignageMenu(button);
+                }
+                else if (c.Key == "COTAR")
                 {
                     button.Content = new WC.StackPanel
                     {
@@ -592,6 +605,41 @@ internal sealed class ViarioPanel : SW.Window
         menu.Items.Add(remove);
         menu.Items.Add(new WC.MenuItem { Header = "Layer: " + ViarioStore.LayerDims, IsEnabled = false });
 
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Menu do botao Sinalizacao: gerar/atualizar, ocultar/mostrar, remover e opcoes.</summary>
+    private void OpenSignageMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+        bool visible = true;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                visible = ViarioSignageSync.IsVisible(d.Database);
+        }
+        catch
+        {
+            // Sem desenho ativo.
+        }
+
+        WC.MenuItem gen = new() { Header = _signExists ? "Atualizar sinalizacao" : "Gerar sinalizacao", FontWeight = SW.FontWeights.Bold };
+        gen.Click += (_, _) => Send("C3DVIARIOSINAL G ", "Sinalizacao gerada.");
+        menu.Items.Add(gen);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem hide = new() { Header = "Ocultar (desliga as layers VIARIO-SH-*)", IsEnabled = _signExists && visible };
+        hide.Click += (_, _) => Send("C3DVIARIOSINAL O ", "Sinalizacao oculta.");
+        menu.Items.Add(hide);
+        WC.MenuItem show = new() { Header = "Mostrar", IsEnabled = _signExists && !visible };
+        show.Click += (_, _) => Send("C3DVIARIOSINAL M ", "Sinalizacao visivel.");
+        menu.Items.Add(show);
+        WC.MenuItem remove = new() { Header = "Remover bloco", IsEnabled = _signExists };
+        remove.Click += (_, _) => Send("C3DVIARIOSINAL R ", "Sinalizacao removida.");
+        menu.Items.Add(remove);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem opts = new() { Header = "Opcoes (categoria Sinalizacao)" };
+        opts.Click += (_, _) => SelectCategory("SINAL");
+        menu.Items.Add(opts);
         menu.IsOpen = true;
     }
 

@@ -160,13 +160,13 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.7.5)
+## Rede viaria (C3DVIARIO v0.7.6)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
-C3DVIARIOSINAL       -> [Gerar/Remover/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
+C3DVIARIOSINAL       -> [Gerar/Remover/Ocultar/Mostrar/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
 C3DVIARIOCOTAR       -> cadeia de cotas da secao segue o cursor sobre o eixo; clique grava (faixas, canteiro, passeio e largura total); [Detalhe/Estilo/Escala/Remover]
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos como no Vehicle Tracking: [Tangent/Arc/Undo] (T reta na direcao corrente, A arco tangente pelo ponto, U desfaz; clicar no ultimo vertice desfaz); [Free/Chain] alterna lancamento livre; [COncordancia] Manter/Liberar/Selecionar/Vertice (reconcordar dois trechos); [Inverter] inverte o sentido do eixo

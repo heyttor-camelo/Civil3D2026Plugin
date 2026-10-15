@@ -126,6 +126,52 @@ internal static class ViarioChain
         return true;
     }
 
+    // ------------------------------------------------------------------
+    // Reconcordancia local num vertice
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Mantem o arco (circulo: centro e raio) e move a reta vizinha para ficar
+    /// tangente a ele: o vertice comum vai para o ponto de tangencia tirado da
+    /// outra ponta da reta (fixa); o arco e encurtado/prolongado no mesmo circulo.
+    /// </summary>
+    /// <param name="arc">Arco atual.</param>
+    /// <param name="arcFixedEnd">Ponta do arco que nao muda (a oposta ao vertice).</param>
+    /// <param name="lineFarEnd">Ponta da reta que nao muda.</param>
+    /// <param name="vertex">Vertice atual (para escolher a tangente mais proxima).</param>
+    /// <param name="arcEndsAtVertex">true: o arco chega no vertice (arco antes da reta); false: sai dele.</param>
+    /// <returns>Novo vertice e novo bulge do arco, ou null se a ponta da reta esta dentro do circulo.</returns>
+    public static (V2 Vertex, double Bulge)? LineToArc(Seg arc, V2 arcFixedEnd, V2 lineFarEnd, V2 vertex, bool arcEndsAtVertex)
+    {
+        if (!arc.IsArc)
+            return null;
+
+        V2 c = arc.Center;
+        double r = arc.Radius;
+        double d = V2.Dist(lineFarEnd, c);
+        if (d <= r + 1e-9)
+            return null; // ponta da reta dentro do circulo: nao ha tangente
+
+        // Pontos de tangencia de lineFarEnd ao circulo.
+        double ang = Math.Acos(r / d);
+        double baseAng = (lineFarEnd - c).Angle;
+        V2 t1 = c + (V2.FromAngle(baseAng + ang) * r);
+        V2 t2 = c + (V2.FromAngle(baseAng - ang) * r);
+        V2 t = V2.Dist(t1, vertex) <= V2.Dist(t2, vertex) ? t1 : t2;
+
+        // Arco no mesmo circulo e mesmo sentido de giro, entre a ponta fixa e o novo vertice.
+        int dir = Math.Sign(arc.Bulge);
+        V2 a = arcEndsAtVertex ? arcFixedEnd : t;
+        V2 b = arcEndsAtVertex ? t : arcFixedEnd;
+        double sweep = GMath.Norm((b - c).Angle - (a - c).Angle); // [0, 2pi)
+        if (dir < 0)
+            sweep -= 2.0 * Math.PI; // horario: negativo
+        if (Math.Abs(sweep) < 1e-6 || Math.Abs(sweep) > 2.0 * Math.PI - 1e-6)
+            return null;
+
+        return (t, Math.Tan(sweep / 4.0));
+    }
+
     /// <summary>Descricao dos trechos (tipo, comprimento, raio) para listas e relatorios.</summary>
     public static IEnumerable<(int Index, string Tipo, double Length, double Radius, double S0, double S1, V2 A, V2 B)> Elements(GPath path)
     {

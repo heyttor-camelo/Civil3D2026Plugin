@@ -113,6 +113,36 @@ internal static class ViarioSignageSync
         return marks.Count;
     }
 
+    /// <summary>Liga/desliga as layers da sinalizacao (o bloco fica; so some da tela e da plotagem).</summary>
+    public static void SetVisible(Document doc, bool visible)
+    {
+        AcadDb.Database db = doc.Database;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+        foreach (string name in new[] { LayerRef, LayerWhite, LayerYellow, LayerOutline })
+        {
+            if (!table.Has(name))
+                continue;
+            AcadDb.LayerTableRecord layer = (AcadDb.LayerTableRecord)tr.GetObject(table[name], AcadDb.OpenMode.ForWrite);
+            if (layer.ObjectId == db.Clayer && !visible)
+                continue; // layer corrente nao pode ser desligada sem aviso
+            layer.IsOff = !visible;
+        }
+
+        tr.Commit();
+        doc.Editor.Regen();
+    }
+
+    /// <summary>Se a sinalizacao existe e esta visivel (layer das marcas ligada).</summary>
+    public static bool IsVisible(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+        if (!table.Has(LayerWhite))
+            return true;
+        return tr.GetObject(table[LayerWhite], AcadDb.OpenMode.ForRead) is AcadDb.LayerTableRecord l && !l.IsOff;
+    }
+
     public static bool Remove(Document doc)
     {
         AcadDb.Database db = doc.Database;
@@ -139,7 +169,7 @@ internal static class ViarioSignageSync
         Editor ed = doc.Editor;
         bool exists = Exists(doc.Database);
         PromptKeywordOptions options = new(
-            "\nSinalizacao horizontal previa [Gerar/Remover/Painel] <Gerar>: ", "Gerar Remover Painel")
+            "\nSinalizacao horizontal previa [Gerar/Remover/Ocultar/Mostrar/Painel] <Gerar>: ", "Gerar Remover Ocultar Mostrar Painel")
         {
             AllowNone = true
         };
@@ -152,6 +182,15 @@ internal static class ViarioSignageSync
         if (choice == "Remover")
         {
             ed.WriteMessage(Remove(doc) ? "\n  Sinalizacao removida." : "\n  Nao ha sinalizacao no desenho.");
+            return;
+        }
+
+        if (choice is "Ocultar" or "Mostrar")
+        {
+            SetVisible(doc, choice == "Mostrar");
+            ed.WriteMessage(choice == "Mostrar"
+                ? "\n  Sinalizacao visivel (layers VIARIO-SH-* ligadas)."
+                : "\n  Sinalizacao oculta (layers VIARIO-SH-* desligadas; o bloco continua acompanhando a rede).");
             return;
         }
 
