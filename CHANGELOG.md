@@ -1,3 +1,9 @@
+## 2.32.5 - C3DVIARIO v0.7.5 / menu do botao Cotar faixas, cotas sem sobreposicao, remover por clique
+
+- **botao Cotar faixas** no painel abre um menu para clicar: Cotar faixas..., estilo de cota (lista dos estilos do desenho), escala DIMSCALE (lista: do estilo, 0.25 ... 1000, Outro... em Config), sarjeta e meio-fio separados, remover cota (clique perto) e remover todas; layer VIARIO-COTAS;
+- **cotas sobrepostas**: a altura do texto passou a vir do estilo de cota escolhido (DIMTXT x DIMSCALE, ou a escala de anotacao corrente se o estilo for anotativo), e a largura total fica uma fileira inteira acima da cadeia;
+- **[Remover]** do C3DVIARIOCOTAR: clique perto da cadeia (apaga eixo + estaca daquela cadeia) ou [Todas].
+
 ## 2.32.4 - C3DVIARIO v0.7.4 / por que o raio nao coube
 
 - quando o raio pedido numa esquina nao cabe, o aviso (linha de comando, `C3DVIARIORAIO` e painel > Esquina > Limite) diz o motivo: "a curva do eixo X se afasta da esquina: nao existe arco tangente aos dois com esse raio" (alca que ja sai curvando do no - estique a tangente antes do no ou aumente o raio da alca) ou "a tangente do arco passaria do no vizinho (ramo curto)". O `C3DVIARIORAIO` tambem informa, logo apos aplicar, o raio que de fato ficou.

@@ -27,6 +27,12 @@ internal static class ViarioDimensions
     /// <summary>Lembrado na sessao: cotar sarjeta e meio-fio separados.</summary>
     private static bool _detail;
 
+    public static bool Detail
+    {
+        get => _detail;
+        set => _detail = value;
+    }
+
     public static void Command(Document doc)
     {
         Editor ed = doc.Editor;
@@ -50,7 +56,7 @@ internal static class ViarioDimensions
                 switch (jig.Keyword)
                 {
                     case "Remover":
-                        ed.WriteMessage($"\n  {RemoveAll(db)} cota(s) do viario removida(s).");
+                        RemovePrompt(doc);
                         break;
                     case "Detalhe":
                         _detail = !_detail;
@@ -184,10 +190,9 @@ internal static class ViarioDimensions
             return dims;
 
         AcadDb.ObjectId style = StyleId(db, settings);
-        double scale = settings.CotaEscala > 0 ? settings.CotaEscala : db.Dimscale > 0 ? db.Dimscale : 1.0;
-        double txt = Math.Max(0.05, db.Dimtxt * scale);
+        double txt = TextHeight(db, style, settings);
         double off1 = 2.0 * txt;          // linha de cota da cadeia, adiante do ponto
-        double off2 = off1 + (3.5 * txt); // largura total
+        double off2 = off1 + (4.0 * txt); // largura total, uma fileira acima (nunca sobre a cadeia)
 
         Point3d P(V2 v) => new(v.X, v.Y, 0);
         void Add(double a, double b, double off)
@@ -206,6 +211,53 @@ internal static class ViarioDimensions
             Add(breaks[i - 1], breaks[i], off1);
         Add(breaks[0], breaks[^1], off2);
         return dims;
+    }
+
+    /// <summary>
+    /// Altura do texto da cota no modelo: DIMTXT do estilo x DIMSCALE (o configurado,
+    /// senao o do estilo/desenho); estilo anotativo usa a escala de anotacao corrente.
+    /// </summary>
+    public static double TextHeight(AcadDb.Database db, AcadDb.ObjectId style, ViarioStore.Settings settings)
+    {
+        double dimtxt = db.Dimtxt;
+        double dimscale = db.Dimscale;
+        bool annotative = false;
+        try
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+            if (tr.GetObject(style, AcadDb.OpenMode.ForRead) is AcadDb.DimStyleTableRecord r)
+            {
+                dimtxt = r.Dimtxt;
+                dimscale = r.Dimscale;
+                annotative = r.Annotative == AcadDb.AnnotativeStates.True;
+            }
+        }
+        catch
+        {
+            // Fica com as variaveis do desenho.
+        }
+
+        double factor;
+        if (annotative)
+        {
+            double anno = 1.0;
+            try
+            {
+                anno = db.Cannoscale?.Scale ?? 1.0;
+            }
+            catch
+            {
+                // Sem escala de anotacao.
+            }
+
+            factor = anno > 1e-9 ? 1.0 / anno : 1.0;
+        }
+        else
+        {
+            factor = settings.CotaEscala > 0 ? settings.CotaEscala : dimscale > 0 ? dimscale : 1.0;
+        }
+
+        return Math.Max(0.05, (dimtxt > 0 ? dimtxt : 2.5) * factor);
     }
 
     private static int Place(Document doc, AxisInput axis, double s, ViarioResult result, bool detail, ViarioStore.Settings settings)
@@ -228,6 +280,82 @@ internal static class ViarioDimensions
 
         tr.Commit();
         return count;
+    }
+
+    /// <summary>Remover: a cadeia perto do clique (mesma estaca do mesmo eixo) ou [Todas].</summary>
+    private static void RemovePrompt(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+        while (true)
+        {
+            PromptPointOptions opt = new("\nClique perto da cota a remover ou [Todas] <voltar>: ") { AllowNone = true };
+            opt.Keywords.Add("Todas");
+            opt.AppendKeywordsToMessage = false;
+            PromptPointResult r = ed.GetPoint(opt);
+            if (r.Status == PromptStatus.Keyword)
+            {
+                ed.WriteMessage($"\n  {RemoveAll(db)} cota(s) do viario removida(s).");
+                return;
+            }
+
+            if (r.Status != PromptStatus.OK)
+                return;
+
+            Point3d w = r.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+            int n = RemoveNear(db, new V2(w.X, w.Y));
+            ed.WriteMessage(n == 0 ? "\n  Nenhuma cota do viario perto desse ponto." : $"\n  {n} cota(s) da cadeia removida(s).");
+        }
+    }
+
+    /// <summary>Apaga a cadeia (eixo + estaca) da cota mais proxima do ponto.</summary>
+    private static int RemoveNear(AcadDb.Database db, V2 p)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+
+        List<(AcadDb.ObjectId Id, string Group, double Dist)> dims = new();
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (!id.ObjectClass.DxfName.Equals("DIMENSION", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Dimension dim)
+                continue;
+            List<string>? values = ViarioStore.ReadValues(dim);
+            if (values is null || values.Count < 3 || values[0] != TagDim)
+                continue;
+
+            double dist;
+            if (dim is AcadDb.AlignedDimension al)
+            {
+                V2 a = new(al.XLine1Point.X, al.XLine1Point.Y), b = new(al.XLine2Point.X, al.XLine2Point.Y);
+                dist = Seg.Line(a, b).Closest(p).Dist;
+            }
+            else
+            {
+                dist = V2.Dist(new V2(dim.TextPosition.X, dim.TextPosition.Y), p);
+            }
+
+            dims.Add((id, values[1] + "@" + values[2], dist));
+        }
+
+        if (dims.Count == 0)
+            return 0;
+
+        (AcadDb.ObjectId _, string group, double best) = dims.OrderBy(d => d.Dist).First();
+        if (best > 15.0)
+            return 0;
+
+        int n = 0;
+        foreach ((AcadDb.ObjectId id, string g, _) in dims.Where(d => d.Group == group))
+        {
+            tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+            n++;
+        }
+
+        tr.Commit();
+        return n;
     }
 
     private static int RemoveAll(AcadDb.Database db)

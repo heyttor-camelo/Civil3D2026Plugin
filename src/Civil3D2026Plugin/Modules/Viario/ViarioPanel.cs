@@ -182,7 +182,7 @@ internal sealed class ViarioPanel : SW.Window
             "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "Opcoes na categoria Sinalizacao." }),
         new("COTAR", "C3DVIARIOCOTAR ", "Cotar faixas", "Saidas",
             "Cadeia de cotas da secao em planta (faixas, canteiro, passeio) e largura total, na estaca clicada.",
-            new[] { "Clique sobre o eixo onde quer a cota.", "[Detalhe] separa sarjeta e meio-fio; [Remover] apaga todas." }),
+            new[] { "O botao abre o menu: estilo de cota, escala (DIMSCALE), detalhe, cotar e remover.", "Cotar: passe sobre o eixo (a cadeia segue o cursor) e clique." }),
         new("TESTE", "C3DVIARIOTESTE  ", "Autoteste", "Saidas",
             "Confere linhas, sinalizacao e objetos do Civil contra a rede.", new[] { "Relatorio em %TEMP%\\C3DVIARIOTESTE.txt." })
     };
@@ -499,12 +499,111 @@ internal sealed class ViarioPanel : SW.Window
                 WC.ToolTipService.SetInitialShowDelay(button, 250);
                 WC.ToolTipService.SetShowDuration(button, 30000);
                 Cmd c = cmd;
-                button.Click += (_, _) => Send(c.Send, c.Title + ": siga a linha de comando.");
+                if (c.Key == "COTAR")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenDimensionMenu(button);
+                }
+                else
+                {
+                    button.Click += (_, _) => Send(c.Send, c.Title + ": siga a linha de comando.");
+                }
+
                 bar.Children.Add(button);
             }
         }
 
         return tray;
+    }
+
+    /// <summary>Escalas (DIMSCALE) oferecidas no menu das cotas; 0 = a do estilo/desenho.</summary>
+    private static readonly double[] DimScales = { 0, 0.25, 0.5, 1, 2, 5, 10, 20, 25, 50, 100, 200, 250, 500, 1000 };
+
+    /// <summary>Menu do botao Cotar faixas: estilo e escala para clicar, detalhe, cotar e remover.</summary>
+    private void OpenDimensionMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+
+        WC.MenuItem run = new() { Header = "Cotar faixas... (passe sobre o eixo e clique)", FontWeight = SW.FontWeights.Bold };
+        run.Click += (_, _) => Send("C3DVIARIOCOTAR ", "Passe sobre o eixo e clique onde quer a cota.");
+        menu.Items.Add(run);
+        menu.Items.Add(new WC.Separator());
+
+        // Estilo de cota.
+        WC.MenuItem styles = new() { Header = "Estilo de cota: " + (_settings.CotaEstilo.Length > 0 ? _settings.CotaEstilo : "corrente do desenho") };
+        List<string> names = new();
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                names = ViarioDimensions.StyleNames(d.Database);
+        }
+        catch
+        {
+            // Sem desenho ativo.
+        }
+
+        foreach ((string text, string value) in new[] { ("corrente do desenho", "") }.Concat(names.Select(n => (n, n))))
+        {
+            WC.MenuItem mi = new() { Header = text, IsCheckable = true, IsChecked = value == _settings.CotaEstilo };
+            string v = value;
+            mi.Click += (_, _) => SaveDimensionSetting(st => st.CotaEstilo = v, "Estilo de cota: " + text);
+            styles.Items.Add(mi);
+        }
+
+        menu.Items.Add(styles);
+
+        // Escala (DIMSCALE).
+        WC.MenuItem scales = new() { Header = "Escala (DIMSCALE): " + (_settings.CotaEscala > 0 ? N(_settings.CotaEscala) : "do estilo") };
+        foreach (double sc in DimScales)
+        {
+            string text = sc <= 0 ? "do estilo / desenho" : N(sc);
+            WC.MenuItem mi = new() { Header = text, IsCheckable = true, IsChecked = Math.Abs(sc - _settings.CotaEscala) < 1e-9 };
+            double v = sc;
+            mi.Click += (_, _) => SaveDimensionSetting(st => st.CotaEscala = v, "Escala das cotas: " + text);
+            scales.Items.Add(mi);
+        }
+
+        if (_settings.CotaEscala > 0 && !DimScales.Any(v => Math.Abs(v - _settings.CotaEscala) < 1e-9))
+            scales.Items.Add(new WC.MenuItem { Header = N(_settings.CotaEscala) + " (atual)", IsCheckable = true, IsChecked = true, IsEnabled = false });
+        scales.Items.Add(new WC.Separator());
+        WC.MenuItem other = new() { Header = "Outro valor... (Config > Cotas das faixas)" };
+        other.Click += (_, _) => SelectCategory("CONFIG");
+        scales.Items.Add(other);
+        menu.Items.Add(scales);
+
+        WC.MenuItem detail = new() { Header = "Sarjeta e meio-fio em cotas separadas", IsCheckable = true, IsChecked = ViarioDimensions.Detail };
+        detail.Click += (_, _) => ViarioDimensions.Detail = detail.IsChecked;
+        menu.Items.Add(detail);
+
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem removeNear = new() { Header = "Remover cota... (clique perto da cadeia)" };
+        removeNear.Click += (_, _) => Send("C3DVIARIOCOTAR R ", "Clique perto da cadeia de cotas a remover.");
+        menu.Items.Add(removeNear);
+        WC.MenuItem remove = new() { Header = "Remover todas as cotas do viario" };
+        remove.Click += (_, _) => Send("C3DVIARIOCOTAR R T ", "Cotas removidas; Enter para sair.");
+        menu.Items.Add(remove);
+        menu.Items.Add(new WC.MenuItem { Header = "Layer: " + ViarioStore.LayerDims, IsEnabled = false });
+
+        menu.IsOpen = true;
+    }
+
+    private void SaveDimensionSetting(Action<ViarioStore.Settings> change, string what)
+    {
+        change(_settings);
+        Edit(what, db =>
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            ViarioStore.SaveSettings(tr, db, _settings);
+            tr.Commit();
+        }, regenerate: false);
     }
 
     private static WC.ToolTip Tip(Cmd cmd)
