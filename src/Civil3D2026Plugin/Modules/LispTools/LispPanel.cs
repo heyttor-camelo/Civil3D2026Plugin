@@ -22,22 +22,11 @@ internal sealed class LispPanel : SW.Window
 {
     private static LispPanel? _instance;
 
-    private sealed record Theme(WM.Brush Back, WM.Brush Pane, WM.Brush Hover, WM.Brush Line,
-        WM.Brush Text, WM.Brush Muted, WM.Brush Input, WM.Brush Accent, WM.Brush Selected);
-
-    private static readonly Theme Light = new(
-        Brush(240, 240, 240), Brush(255, 255, 255), Brush(236, 241, 247), Brush(200, 200, 200),
-        Brush(20, 20, 20), Brush(110, 110, 110), Brush(255, 255, 255), Brush(0, 95, 170), Brush(204, 228, 247));
-
-    private static readonly Theme Dark = new(
-        Brush(45, 45, 48), Brush(37, 37, 38), Brush(50, 54, 60), Brush(70, 70, 74),
-        Brush(222, 222, 222), Brush(150, 150, 150), Brush(30, 30, 30), Brush(80, 160, 255), Brush(38, 79, 120));
-
     /// <summary>Uma linha da lista (ferramenta nativa ou LISP).</summary>
     private sealed record Entry(string Titulo, string Icone, string Descricao, IReadOnlyList<string> Comandos,
         IReadOnlyList<string> Uso, bool Lisp, string Origem);
 
-    private readonly Theme T = ViarioDarkPreference() ? Dark : Light;
+    private readonly ToolTheme T = ToolTheme.Current;
     private readonly List<Entry> _entries;
     private readonly Dictionary<string, WM.ImageSource> _icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly WC.TextBox _find = new();
@@ -362,28 +351,5 @@ internal sealed class LispPanel : SW.Window
         int p = texto.IndexOf(". ", StringComparison.Ordinal);
         string s = p > 0 ? texto[..(p + 1)] : texto;
         return s.Length > 0 && s.EndsWith('.') ? s[..^1] : s;
-    }
-
-    private static bool ViarioDarkPreference()
-    {
-        try
-        {
-            string path = System.IO.Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "Civil3D2026Plugin", "viario_painel.txt");
-            return System.IO.File.Exists(path) &&
-                   System.IO.File.ReadAllText(path).Contains("tema=escuro", StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static WM.SolidColorBrush Brush(byte r, byte g, byte b)
-    {
-        WM.SolidColorBrush brush = new(WM.Color.FromRgb(r, g, b));
-        brush.Freeze();
-        return brush;
     }
 }

@@ -20,9 +20,9 @@ public static class UtilCatalog
     public static IReadOnlyList<UtilTool> Tools { get; } = new[]
     {
         new UtilTool("Cores ACI para RGB", "cor",
-            "Converte a cor indice (ACI) dos objetos selecionados para a cor RGB equivalente. ByLayer e ByBlock ficam como estao; layers travadas sao ignoradas.",
+            "Converte a cor indice (ACI) para a cor RGB equivalente: dos objetos selecionados, das layers desses objetos ou dos dois. ByLayer e ByBlock ficam como estao.",
             new[] { C3DCommands.Utilitarios.AllToRgb },
-            new[] { "Selecione os objetos." },
+            new[] { "Escolha [Objetos/Layers/Ambos] (Enter repete).", "Selecione os objetos; em Layers, as layers deles sao convertidas." },
             "ALL TO RGB.LSP (Lee Mac)"),
 
         new UtilTool("Comprimento total", "medida",
@@ -44,9 +44,9 @@ public static class UtilCatalog
             "smart_hatch.lsp"),
 
         new UtilTool("Layer state em varios layouts", "camadas",
-            "Restaura um layer state como override de viewport (VP Freeze, cor de VP etc.) em todos os viewports dos layouts escolhidos. O layer state precisa ter sido salvo de dentro de um viewport.",
+            "Janela com os layer states do desenho e a miniatura de cada layout: clique nas viewports, repita a selecao nos outros layouts pela posicao e aplique o layer state como override de viewport (VP Freeze, cor de VP etc.).",
             new[] { C3DCommands.Utilitarios.LsLayouts },
-            new[] { "Nome do layer state.", "Layouts com curinga (ex.: PR-*); Enter repete o ultimo." },
+            new[] { "Escolha o layer state na lista.", "Clique nas viewports das miniaturas; \"repetir nos demais\" marca as da mesma posicao nos outros layouts.", "Aplicar; da para aplicar outro layer state em outras viewports sem fechar." },
             "LSLAYOUTS.lsp"),
 
         new UtilTool("Varios offsets em polilinhas fechadas", "offset",

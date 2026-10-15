@@ -1,0 +1,338 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Autodesk.AutoCAD.ApplicationServices;
+using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.Geometry;
+
+using WPoint = System.Windows.Point;
+
+namespace Civil3D2026Plugin.Modules.Utilitarios;
+
+/// <summary>Viewport de modelo de um layout, ja no espaco do papel.</summary>
+internal sealed class SheetViewport
+{
+    public ObjectId Id { get; init; }
+    public WPoint[] Contorno { get; init; } = Array.Empty<WPoint>();
+    public WPoint Centro { get; init; }
+    public double Largura { get; init; }
+    public double Altura { get; init; }
+    public string Escala { get; init; } = "";
+    public bool Ligada { get; init; } = true;
+
+    /// <summary>Layer state aplicado nesta sessao da janela (so para mostrar).</summary>
+    public string? Aplicado { get; set; }
+}
+
+/// <summary>Um layout com o desenho simplificado do papel (para a miniatura) e as viewports.</summary>
+internal sealed class SheetData
+{
+    public string Nome { get; init; } = "";
+    public int Ordem { get; init; }
+    public List<WPoint[]> Linhas { get; } = new();
+    public List<SheetViewport> Viewports { get; } = new();
+    public double MinX { get; set; } = double.MaxValue;
+    public double MinY { get; set; } = double.MaxValue;
+    public double MaxX { get; set; } = double.MinValue;
+    public double MaxY { get; set; } = double.MinValue;
+
+    public double Largura => MaxX - MinX;
+    public double Altura => MaxY - MinY;
+
+    public void Incluir(WPoint p)
+    {
+        MinX = Math.Min(MinX, p.X);
+        MinY = Math.Min(MinY, p.Y);
+        MaxX = Math.Max(MaxX, p.X);
+        MaxY = Math.Max(MaxY, p.Y);
+    }
+}
+
+/// <summary>Um layer state do desenho.</summary>
+internal sealed record LayerStateItem(string Nome, string Descricao);
+
+/// <summary>
+/// Le os layouts (miniatura e viewports) e os layer states do desenho e aplica um
+/// layer state como override nas viewports escolhidas.
+/// </summary>
+internal static class LayerStateSheets
+{
+    private const int MaxPontosPorLayout = 25000;
+    private const int MaxProfundidadeBloco = 3;
+
+    // ------------------------------------------------------------------
+    // Layer states
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Nomes dos layer states. Ficam no dicionario ACAD_LAYERSTATES do dicionario de
+    /// extensao da tabela de layers.
+    /// </summary>
+    public static List<LayerStateItem> LerLayerStates(Database db)
+    {
+        var lista = new List<LayerStateItem>();
+        LayerStateManager lsm = db.LayerStateManager;
+
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            if (!lt.ExtensionDictionary.IsNull)
+            {
+                var ext = (DBDictionary)tr.GetObject(lt.ExtensionDictionary, OpenMode.ForRead);
+                if (ext.Contains("ACAD_LAYERSTATES"))
+                {
+                    var states = (DBDictionary)tr.GetObject(ext.GetAt("ACAD_LAYERSTATES"), OpenMode.ForRead);
+                    foreach (DBDictionaryEntry e in states)
+                    {
+                        if (!lsm.HasLayerState(e.Key))
+                            continue;
+                        string desc = "";
+                        try
+                        {
+                            desc = lsm.GetLayerStateDescription(e.Key) ?? "";
+                        }
+                        catch (Autodesk.AutoCAD.Runtime.Exception)
+                        {
+                        }
+                        lista.Add(new LayerStateItem(e.Key, desc));
+                    }
+                }
+            }
+            tr.Commit();
+        }
+
+        return lista.OrderBy(l => l.Nome, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    // ------------------------------------------------------------------
+    // Layouts
+    // ------------------------------------------------------------------
+
+    public static List<SheetData> LerLayouts(Database db)
+    {
+        var folhas = new List<SheetData>();
+        using Transaction tr = db.TransactionManager.StartTransaction();
+
+        var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (DBDictionaryEntry entry in dic)
+        {
+            var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(entry.Value, OpenMode.ForRead);
+            if (layout.ModelType)
+                continue;
+
+            var folha = new SheetData { Nome = layout.LayoutName, Ordem = layout.TabOrder };
+            var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+            HashSet<ObjectId> papel = ViewportsDoPapel(tr, layout, btr);
+            int pontos = 0;
+
+            foreach (ObjectId id in btr)
+            {
+                Entity? ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                if (ent is null || !ent.Visible)
+                    continue;
+
+                if (ent is Viewport vp)
+                {
+                    if (!papel.Contains(id))
+                        folha.Viewports.Add(LerViewport(tr, vp, folha));
+                    continue;
+                }
+
+                if (pontos < MaxPontosPorLayout)
+                    pontos += Desenhar(tr, ent, Matrix3d.Identity, folha, 0);
+            }
+
+            if (folha.Viewports.Count == 0)
+                continue;
+
+            if (folha.MinX > folha.MaxX)
+            {
+                // Sem desenho no papel: usa so as viewports.
+                foreach (SheetViewport v in folha.Viewports)
+                    foreach (WPoint p in v.Contorno)
+                        folha.Incluir(p);
+            }
+
+            folhas.Add(folha);
+        }
+
+        tr.Commit();
+        return folhas.OrderBy(f => f.Ordem).ToList();
+    }
+
+    /// <summary>
+    /// Viewport do proprio papel (nao recebe override). E a primeira da lista do layout;
+    /// em layout ainda nao inicializado a lista vem vazia e vale a primeira do bloco.
+    /// </summary>
+    private static HashSet<ObjectId> ViewportsDoPapel(Transaction tr, Autodesk.AutoCAD.DatabaseServices.Layout layout, BlockTableRecord btr)
+    {
+        var set = new HashSet<ObjectId>();
+        ObjectIdCollection ids = layout.GetViewports();
+        if (ids.Count > 0)
+        {
+            set.Add(ids[0]);
+            return set;
+        }
+
+        foreach (ObjectId id in btr)
+        {
+            if (tr.GetObject(id, OpenMode.ForRead) is Viewport)
+            {
+                set.Add(id);
+                break;
+            }
+        }
+        return set;
+    }
+
+    private static SheetViewport LerViewport(Transaction tr, Viewport vp, SheetData folha)
+    {
+        WPoint[] contorno;
+        if (vp.NonRectClipOn && !vp.NonRectClipEntityId.IsNull &&
+            tr.GetObject(vp.NonRectClipEntityId, OpenMode.ForRead) is Curve clip)
+        {
+            contorno = Amostrar(clip, Matrix3d.Identity).ToArray();
+        }
+        else
+        {
+            Point3d c = vp.CenterPoint;
+            double w = vp.Width / 2.0, h = vp.Height / 2.0;
+            contorno = new[]
+            {
+                new WPoint(c.X - w, c.Y - h), new WPoint(c.X + w, c.Y - h),
+                new WPoint(c.X + w, c.Y + h), new WPoint(c.X - w, c.Y + h), new WPoint(c.X - w, c.Y - h)
+            };
+        }
+
+        foreach (WPoint p in contorno)
+            folha.Incluir(p);
+
+        string escala = "";
+        try
+        {
+            escala = vp.AnnotationScale?.Name ?? "";
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+        }
+
+        return new SheetViewport
+        {
+            Id = vp.ObjectId,
+            Contorno = contorno,
+            Centro = new WPoint(vp.CenterPoint.X, vp.CenterPoint.Y),
+            Largura = vp.Width,
+            Altura = vp.Height,
+            Escala = escala,
+            Ligada = vp.On
+        };
+    }
+
+    /// <summary>Linhas, polilinhas, arcos etc. do papel, entrando em blocos (carimbo, margem).</summary>
+    private static int Desenhar(Transaction tr, Entity ent, Matrix3d xf, SheetData folha, int nivel)
+    {
+        switch (ent)
+        {
+            case Curve c when ent is not Xline and not Ray:
+            {
+                WPoint[] pts = Amostrar(c, xf).ToArray();
+                if (pts.Length < 2)
+                    return 0;
+                folha.Linhas.Add(pts);
+                foreach (WPoint p in pts)
+                    folha.Incluir(p);
+                return pts.Length;
+            }
+            case BlockReference br when nivel < MaxProfundidadeBloco:
+            {
+                int total = 0;
+                Matrix3d bx = xf * br.BlockTransform;
+                var def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
+                foreach (ObjectId id in def)
+                {
+                    if (total > MaxPontosPorLayout)
+                        break;
+                    if (tr.GetObject(id, OpenMode.ForRead) is Entity filho && filho.Visible && filho is not AttributeDefinition)
+                        total += Desenhar(tr, filho, bx, folha, nivel + 1);
+                }
+                return total;
+            }
+            default:
+                return 0;
+        }
+    }
+
+    private static IEnumerable<WPoint> Amostrar(Curve c, Matrix3d xf)
+    {
+        var pts = new List<Point3d>();
+        try
+        {
+            switch (c)
+            {
+                case Line l:
+                    pts.Add(l.StartPoint);
+                    pts.Add(l.EndPoint);
+                    break;
+                case Polyline pl:
+                {
+                    int nSeg = pl.Closed ? pl.NumberOfVertices : pl.NumberOfVertices - 1;
+                    for (int i = 0; i < nSeg; i++)
+                    {
+                        int div = Math.Abs(pl.GetBulgeAt(i)) > 1e-9 ? 8 : 1;
+                        for (int k = 0; k < div; k++)
+                            pts.Add(pl.GetPointAtParameter(i + (double)k / div));
+                    }
+                    pts.Add(pl.GetPointAtParameter(nSeg));
+                    break;
+                }
+                default:
+                {
+                    const int n = 24;
+                    double a = c.StartParam, b = c.EndParam;
+                    for (int k = 0; k <= n; k++)
+                        pts.Add(c.GetPointAtParameter(a + (b - a) * k / n));
+                    break;
+                }
+            }
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return Array.Empty<WPoint>();
+        }
+
+        return pts.Select(p => p.TransformBy(xf)).Select(p => new WPoint(p.X, p.Y));
+    }
+
+    // ------------------------------------------------------------------
+    // Aplicar
+    // ------------------------------------------------------------------
+
+    /// <summary>Restaura o layer state como override de viewport (flag 4) em cada viewport.</summary>
+    public static (int Ok, int Falhas) Aplicar(Document doc, string layerState, IEnumerable<ObjectId> viewports)
+    {
+        int ok = 0, falhas = 0;
+        using DocumentLock _ = doc.LockDocument();
+        Database db = doc.Database;
+        LayerStateManager lsm = db.LayerStateManager;
+        LayerStateMasks mascara = lsm.GetLayerStateMask(layerState);
+
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            foreach (ObjectId id in viewports)
+            {
+                try
+                {
+                    lsm.RestoreLayerState(layerState, id, 4, mascara);
+                    ok++;
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                    falhas++;
+                }
+            }
+            tr.Commit();
+        }
+
+        return (ok, falhas);
+    }
+}

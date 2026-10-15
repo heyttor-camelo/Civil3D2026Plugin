@@ -1,3 +1,8 @@
+## 2.31.0 - Utilitarios v1.1.0 / LSLAYOUTS com janela, ALLTORGB com layers
+
+- **LSLAYOUTS** sem digitacao: janela com a lista dos layer states do desenho (nome e descricao) e uma miniatura de cada layout (margem, carimbo e viewports, desenhados a partir do papel). Clique nas viewports para marcar; por layout, "todas" e "repetir nos demais" (marca nos outros layouts as viewports na mesma posicao e tamanho, para pranchas do mesmo modelo); filtro de layouts com curinga; Todas/Nenhuma. Aplicar restaura o layer state como override nas marcadas e a janela continua aberta para aplicar outro layer state em outras viewports; a miniatura mostra o layer state aplicado. REGENALL ao fechar;
+- **ALLTORGB**: opcao [Objetos/Layers/Ambos]; em Layers converte a cor das layers dos objetos selecionados (layers de xref sao ignoradas; layer travada pode ter a cor convertida).
+
 ## 2.30.0 - Utilitarios v1.0.0 (LISPs leves em C#) / LispTools v1.1.0 (lista com icones)
 
 - **8 LISPs convertidas para C#** (`Modules/Utilitarios`), com o mesmo nome de comando: ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP. Os `.lsp` sairam da DLL (ficam no historico do git);

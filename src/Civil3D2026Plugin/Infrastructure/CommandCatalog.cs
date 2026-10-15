@@ -251,11 +251,11 @@ public static class CommandCatalog
                 C3DVersions.Utilitarios,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Utilitarios.AllToRgb, "Cores ACI para RGB", "Converte a cor ACI dos objetos para a RGB equivalente."),
+                    new CommandDefinition(C3DCommands.Utilitarios.AllToRgb, "Cores ACI para RGB", "Converte a cor ACI para RGB: dos objetos, das layers deles ou dos dois."),
                     new CommandDefinition(C3DCommands.Utilitarios.Tlen, "Comprimento total", "Soma o comprimento das curvas selecionadas."),
                     new CommandDefinition(C3DCommands.Utilitarios.JobeCount, "Numerar textos", "Acrescenta numero sequencial aos textos, na ordem de leitura."),
                     new CommandDefinition(C3DCommands.Utilitarios.SmartHatch, "Hachura ignorando gaps", "Hachura SOLID clicando dentro de area com aberturas no contorno."),
-                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Restaura um layer state como override nos viewports dos layouts escolhidos."),
+                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Janela: layer states do desenho e miniatura dos layouts; clique nas viewports e aplique o layer state como override."),
                     new CommandDefinition(C3DCommands.Utilitarios.Moff, "Varios offsets", "Varios offsets em polilinhas fechadas, para dentro ou para fora."),
                     new CommandDefinition(C3DCommands.Utilitarios.MoffSet, "Varios offsets (alias)", "Mesmo que MOFF.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite."),

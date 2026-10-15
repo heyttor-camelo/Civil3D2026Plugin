@@ -12,13 +12,11 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3D2026Plugin.Modules.Utilitarios;
 
 /// <summary>
-/// Utilitarios de desenho convertidos das LISPs: SMARTHATCH, LSLAYOUTS e MOFF.
+/// Utilitarios de desenho: SMARTHATCH, LSLAYOUTS (janela com miniaturas) e MOFF.
 /// </summary>
 public sealed class DrawingToolsCommands
 {
     private static double _gapTol = 50.0;
-    private static string _layerState = "";
-    private static string _layouts = "*";
     private static double? _moffDist;
     private static int _moffQtd = 1;
     private static string _moffDir = "Fora";
@@ -126,7 +124,7 @@ public sealed class DrawingToolsCommands
     }
 
     // ------------------------------------------------------------------
-    // LSLAYOUTS - layer state como override de viewport em varios layouts
+    // LSLAYOUTS - layer state como override nas viewports escolhidas
     // ------------------------------------------------------------------
 
     [CommandMethod(C3DCommands.Utilitarios.LsLayouts, CommandFlags.Modal)]
@@ -136,79 +134,26 @@ public sealed class DrawingToolsCommands
         if (doc is null)
             return;
         Editor ed = doc.Editor;
-        Database db = doc.Database;
-        LayerStateManager lsm = db.LayerStateManager;
 
-        string padrao = _layerState.Length > 0 ? $" <{_layerState}>" : "";
-        var pso = new PromptStringOptions($"\nNome do layer state{padrao}: ") { AllowSpaces = true };
-        PromptResult pr = ed.GetString(pso);
-        if (pr.Status != PromptStatus.OK)
-            return;
-        string nome = pr.StringResult.Trim().Length > 0 ? pr.StringResult.Trim() : _layerState;
-        if (nome.Length == 0)
-            return;
-        if (!lsm.HasLayerState(nome))
+        List<LayerStateItem> states = LayerStateSheets.LerLayerStates(doc.Database);
+        if (states.Count == 0)
         {
-            ed.WriteMessage($"\nLayer state \"{nome}\" nao encontrado no desenho.");
+            ed.WriteMessage("\nO desenho nao tem layer states. Crie um em LAYERSTATE, de dentro de uma viewport, para guardar as propriedades de VP.");
             return;
         }
-        _layerState = nome;
 
-        var plo = new PromptStringOptions($"\nLayouts (curinga, ex. PR-*,DET-?) <{_layouts}>: ") { AllowSpaces = false };
-        PromptResult plr = ed.GetString(plo);
-        if (plr.Status != PromptStatus.OK)
-            return;
-        if (plr.StringResult.Trim().Length > 0)
-            _layouts = plr.StringResult.Trim();
-
-        int viewports = 0, layouts = 0;
-        using (Transaction tr = db.TransactionManager.StartTransaction())
+        List<SheetData> folhas = LayerStateSheets.LerLayouts(doc.Database);
+        if (folhas.Count == 0)
         {
-            LayerStateMasks mascara = lsm.GetLayerStateMask(nome);
-            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-            foreach (DBDictionaryEntry entry in dic)
-            {
-                var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(entry.Value, OpenMode.ForRead);
-                if (layout.ModelType || !UtilHelpers.WildcardMatch(layout.LayoutName, _layouts))
-                    continue;
-
-                List<ObjectId> vps = ViewportsDoLayout(tr, layout);
-                if (vps.Count == 0)
-                    continue;
-
-                layouts++;
-                foreach (ObjectId vp in vps)
-                {
-                    lsm.RestoreLayerState(nome, vp, 4, mascara); // 4 = restaurar como override de viewport
-                    viewports++;
-                }
-            }
-            tr.Commit();
+            ed.WriteMessage("\nNenhum layout com viewport encontrado.");
+            return;
         }
 
-        if (viewports > 0)
+        var janela = new LayerStateWindow(doc, states, folhas);
+        AcApp.ShowModalWindow(janela);
+
+        if (janela.Aplicou)
             ed.Command("_.REGENALL");
-        ed.WriteMessage($"\n\"{nome}\" aplicado em {viewports} viewport(s) de {layouts} layout(s).");
-    }
-
-    /// <summary>Viewports de modelo do layout, sem o viewport do papel.</summary>
-    private static List<ObjectId> ViewportsDoLayout(Transaction tr, Autodesk.AutoCAD.DatabaseServices.Layout layout)
-    {
-        var lista = new List<ObjectId>();
-        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-        bool primeiro = true;
-        foreach (ObjectId id in btr)
-        {
-            if (tr.GetObject(id, OpenMode.ForRead) is not Viewport vp)
-                continue;
-
-            // O primeiro viewport do layout e o da folha (numero 1 quando o layout ja foi aberto).
-            bool papel = vp.Number == 1 || (vp.Number < 1 && primeiro);
-            primeiro = false;
-            if (!papel)
-                lista.Add(id);
-        }
-        return lista;
     }
 
     // ------------------------------------------------------------------

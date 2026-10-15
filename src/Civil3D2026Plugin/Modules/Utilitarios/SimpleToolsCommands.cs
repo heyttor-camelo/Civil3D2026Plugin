@@ -16,6 +16,7 @@ namespace Civil3D2026Plugin.Modules.Utilitarios;
 /// </summary>
 public sealed class SimpleToolsCommands
 {
+    private static string _rgbModo = "Objetos";
     private static int _jobeInicio = 1;
     private static int _jobeIncremento = 1;
 
@@ -31,36 +32,87 @@ public sealed class SimpleToolsCommands
             return;
         Editor ed = doc.Editor;
 
+        var pko = new PromptKeywordOptions($"\nConverter [Objetos/Layers/Ambos] <{_rgbModo}>: ", "Objetos Layers Ambos") { AllowNone = true };
+        PromptResult pkr = ed.GetKeywords(pko);
+        if (pkr.Status == PromptStatus.OK)
+            _rgbModo = pkr.StringResult;
+        else if (pkr.Status != PromptStatus.None)
+            return;
+        bool objetos = _rgbModo != "Layers";
+        bool layers = _rgbModo != "Objetos";
+
         var pso = new PromptSelectionOptions
         {
-            MessageForAdding = "\nSelecione os objetos para converter a cor para RGB: ",
-            RejectObjectsOnLockedLayers = true
+            MessageForAdding = layers && !objetos
+                ? "\nSelecione objetos das layers que terao a cor convertida para RGB: "
+                : "\nSelecione os objetos para converter a cor para RGB: ",
+            // Layer travada: o objeto nao muda, mas a cor da layer pode ser convertida.
+            RejectObjectsOnLockedLayers = !layers
         };
         PromptSelectionResult psr = ed.GetSelection(pso);
         if (psr.Status != PromptStatus.OK)
             return;
 
-        int convertidos = 0;
+        int nObjetos = 0, nLayers = 0, xref = 0;
         using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
+            var layerIds = new HashSet<ObjectId>();
             foreach (ObjectId id in psr.Value.GetObjectIds())
             {
                 if (tr.GetObject(id, OpenMode.ForRead) is not Entity ent)
                     continue;
 
-                AcColor cor = ent.Color;
-                if (!cor.IsByAci || cor.ColorIndex < 1 || cor.ColorIndex > 255)
-                    continue;
+                layerIds.Add(ent.LayerId);
 
-                System.Drawing.Color rgb = cor.ColorValue;
-                ent.UpgradeOpen();
-                ent.Color = AcColor.FromRgb(rgb.R, rgb.G, rgb.B);
-                convertidos++;
+                if (objetos && ParaRgb(ent.Color) is AcColor nova)
+                {
+                    var lt = (LayerTableRecord)tr.GetObject(ent.LayerId, OpenMode.ForRead);
+                    if (lt.IsLocked)
+                        continue;
+                    ent.UpgradeOpen();
+                    ent.Color = nova;
+                    nObjetos++;
+                }
+            }
+
+            if (layers)
+            {
+                foreach (ObjectId lid in layerIds)
+                {
+                    var ltr = (LayerTableRecord)tr.GetObject(lid, OpenMode.ForRead);
+                    if (ltr.IsDependent)
+                    {
+                        // Layer de xref: a cor nao fica salva no desenho.
+                        xref++;
+                        continue;
+                    }
+                    if (ParaRgb(ltr.Color) is AcColor nova)
+                    {
+                        ltr.UpgradeOpen();
+                        ltr.Color = nova;
+                        nLayers++;
+                    }
+                }
             }
             tr.Commit();
         }
 
-        ed.WriteMessage($"\n{convertidos} objeto(s) convertido(s) para cor RGB. ByLayer/ByBlock ficam como estao.");
+        var partes = new List<string>();
+        if (objetos)
+            partes.Add($"{nObjetos} objeto(s)");
+        if (layers)
+            partes.Add($"{nLayers} layer(s)");
+        ed.WriteMessage($"\nConvertido(s) para RGB: {string.Join(" e ", partes)}. Cores ByLayer/ByBlock e ja RGB ficam como estao." +
+                        (xref > 0 ? $" {xref} layer(s) de xref ignorada(s)." : ""));
+    }
+
+    /// <summary>Cor ACI 1-255 convertida para o RGB equivalente; null se nao for ACI.</summary>
+    private static AcColor? ParaRgb(AcColor cor)
+    {
+        if (!cor.IsByAci || cor.ColorIndex < 1 || cor.ColorIndex > 255)
+            return null;
+        System.Drawing.Color rgb = cor.ColorValue;
+        return AcColor.FromRgb(rgb.R, rgb.G, rgb.B);
     }
 
     // ------------------------------------------------------------------
