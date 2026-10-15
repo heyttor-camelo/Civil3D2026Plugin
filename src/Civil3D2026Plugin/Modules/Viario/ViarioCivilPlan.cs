@@ -139,11 +139,11 @@ internal static class ViarioCivilPlanner
                     AxisIn = fA.Value.Axis.Key,
                     SideIn = fA.Value.Side,
                     StationIn = fA.Value.S,
-                    OffsetIn = fA.Value.Side * fA.Value.Axis.Section.EdgeOffset(EdgeLevel.FaceMF),
+                    OffsetIn = fA.Value.Side * fA.Value.Axis.Section.EdgeOffset(EdgeLevel.FaceMF, -fA.Value.Side),
                     AxisOut = fB.Value.Axis.Key,
                     SideOut = fB.Value.Side,
                     StationOut = fB.Value.S,
-                    OffsetOut = fB.Value.Side * fB.Value.Axis.Section.EdgeOffset(EdgeLevel.FaceMF)
+                    OffsetOut = fB.Value.Side * fB.Value.Axis.Section.EdgeOffset(EdgeLevel.FaceMF, -fB.Value.Side)
                 });
             }
         }
@@ -170,7 +170,7 @@ internal static class ViarioCivilPlanner
                     {
                         AxisKey = axis.Key,
                         Side = side,
-                        Offset = side * axis.Section.EdgeOffset(EdgeLevel.FaceMF),
+                        Offset = side * axis.Section.EdgeOffset(EdgeLevel.FaceMF, -side), // lado do Civil: + direita
                         S0 = a,
                         S1 = b,
                         Index = split ? index++ : 0
@@ -213,12 +213,12 @@ internal static class ViarioCivilPlanner
         foreach (AxisInput axis in a.Key == b.Key ? new[] { a } : new[] { a, b })
         {
             (double s, V2 q, double dist) = axis.Path.Project(p);
-            double err = Math.Abs(dist - axis.Section.EdgeOffset(EdgeLevel.FaceMF));
+            V2 t = axis.Path.TangentAt(s);
+            int side = V2.Cross(t, p - q) > 0 ? -1 : +1; // convencao do Civil: + direita
+            double err = Math.Abs(dist - axis.Section.EdgeOffset(EdgeLevel.FaceMF, -side));
             if (err >= bestErr)
                 continue;
 
-            V2 t = axis.Path.TangentAt(s);
-            int side = V2.Cross(t, p - q) > 0 ? -1 : +1;
             best = new Foot(axis, s, side);
             bestErr = err;
         }

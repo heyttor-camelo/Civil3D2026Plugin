@@ -60,6 +60,7 @@ internal static class ViarioSync
             Attach(doc);
 
         AcApp.Idle += OnIdle;
+        ViarioGripPreview.Register();
     }
 
     public static void Terminate()
@@ -68,6 +69,7 @@ internal static class ViarioSync
             return;
 
         _initialized = false;
+        ViarioGripPreview.Unregister();
         try
         {
             AcApp.Idle -= OnIdle;
@@ -328,7 +330,7 @@ internal static class ViarioSync
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve curve)
                 continue;
 
-            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events))
+            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained))
             {
                 state.Axes.Remove(id);
                 continue;
@@ -342,7 +344,7 @@ internal static class ViarioSync
                 continue;
 
             RoadSection section = sections.TryGetValue(sectionId, out RoadSection? sec) ? sec : fallback;
-            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius, events));
+            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius, events, chained));
         }
 
         return axes;
@@ -356,6 +358,7 @@ internal static class ViarioSync
         {
             SnapTolerance = settings.SnapTolerance,
             MedianSetback = settings.MedianSetback,
+            EndCapture = settings.Capture,
             CornerRadius = ViarioStore.LoadCornerRadii(db),
             SlipLanes = ViarioStore.LoadSlipLanes(db),
             RemovedIslands = ViarioStore.LoadRemovedIslands(db),
@@ -419,6 +422,43 @@ internal static class ViarioSync
         state.Scanned = true;
     }
 
+    /// <summary>
+    /// Eixos com concordancia mantida: depois de um grip, STRETCH ou MOVE de vertice,
+    /// refaz a cadeia (retas na direcao corrente, arcos tangentes) a partir dos
+    /// vertices atuais. Devolve quantos eixos foram reescritos.
+    /// </summary>
+    private static int EnforceChains(AcadDb.Transaction tr, DbState state)
+    {
+        int count = 0;
+        foreach (AcadDb.ObjectId id in state.Axes.ToList())
+        {
+            if (id.IsNull || id.IsErased)
+                continue;
+
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Polyline pl ||
+                pl.Closed || pl.NumberOfVertices < 3 || !ViarioStore.IsChained(pl))
+            {
+                continue;
+            }
+
+            (List<V2> pts, List<double> bulges) = ViarioStore.Vertices(pl);
+            (List<V2> np, List<double> nb, bool changed) = ViarioChain.Solve(pts, bulges);
+            if (!changed)
+                continue;
+
+            pl.UpgradeOpen();
+            for (int i = 0; i < np.Count; i++)
+            {
+                pl.SetPointAt(i, new Autodesk.AutoCAD.Geometry.Point2d(np[i].X, np[i].Y));
+                pl.SetBulgeAt(i, i < nb.Count ? nb[i] : 0.0);
+            }
+
+            count++;
+        }
+
+        return count;
+    }
+
     public static Dictionary<string, RoadSection> SectionMap(AcadDb.Database db) =>
         ViarioStore.LoadSections(db).GroupBy(p => p.Id).ToDictionary(g => g.Key, g => g.First());
 
@@ -445,6 +485,11 @@ internal static class ViarioSync
 
             using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
             {
+                EnsureScanned(db, tr, state);
+                int rechained = EnforceChains(tr, state);
+                if (rechained > 0 && !quiet)
+                    doc.Editor.WriteMessage($"\n  Concordancia refeita em {rechained} eixo(s).");
+
                 axes = CollectAxes(db, tr, sections);
                 result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
 
@@ -517,6 +562,7 @@ internal static class ViarioSync
             }
 
             state.Pending = false;
+            ViarioGripPreview.Invalidate();
 
             // Objetos do Civil acompanham a rede quando ja foram gerados.
             ViarioCivil.Report? civil = null;

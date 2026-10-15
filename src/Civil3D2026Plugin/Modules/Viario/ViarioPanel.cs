@@ -53,11 +53,14 @@ internal sealed class ViarioPanel : SW.Window
 
     // A vista grafica e escura nos dois temas, como no Project Explorer.
     private static readonly WM.Brush GraphicBack = Brush(56, 58, 62);
-    private static readonly WM.Brush GraphicGrid = Brush(70, 72, 77);
-    private static readonly WM.Brush GraphicText = Brush(200, 200, 200);
+    private static readonly WM.Brush GraphicGrid = Brush(66, 68, 73);
+    private static readonly WM.Brush GraphicGridMajor = Brush(86, 88, 94);
+    private static readonly WM.Brush GraphicRuler = Brush(44, 46, 50);
+    private static readonly WM.Brush GraphicText = Brush(205, 205, 205);
     private static readonly WM.Brush HighlightBrush = Brush(255, 176, 0);
 
-    private static readonly WM.FontFamily UiFont = new("Arial");
+    private static readonly WM.FontFamily UiFont = new("Tahoma");
+    private static readonly WM.FontFamily MonoFont = new("Consolas");
 
     private static bool _dark = LoadDarkPreference();
     private Theme T => _dark ? Dark : Light;
@@ -104,7 +107,7 @@ internal sealed class ViarioPanel : SW.Window
     private bool _showText = true;
 
     // Transformacao da vista grafica (para coordenadas, zoom e pan).
-    private double _vScale, _vCx, _vCy, _vW, _vH;
+    private double _vScale, _vCx, _vCy, _vW, _vH, _vOx, _vOy;
     private double _zoom = 1;
     private V2 _pan = new(0, 0);
     private SW.Point? _dragFrom;
@@ -265,7 +268,7 @@ internal sealed class ViarioPanel : SW.Window
         _categoryBar = new WC.WrapPanel { Margin = new SW.Thickness(4, 4, 4, 0) };
         _graphic = new WC.Canvas { Background = GraphicBack, ClipToBounds = true };
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
-        _coords = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
+        _coords = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), FontFamily = MonoFont };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
         _find = new WC.TextBox { Width = 160, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, VerticalContentAlignment = SW.VerticalAlignment.Center };
         _tabStrip = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -731,15 +734,16 @@ internal sealed class ViarioPanel : SW.Window
                         Id = "SEC:" + s.Id, Icon = "SECAO", Data = s,
                         Cells = new[]
                         {
-                            s.Name + (s.Id == _settings.CurrentSectionId ? " (corrente)" : ""), s.Tipo, N(s.Pista), (s.FaixasPorSentido * 2).ToString(CultureInfo.InvariantCulture),
-                            N(s.Canteiro), N(s.Sarjeta), N(s.MeioFio), N(s.Calcada), N(s.Raio), N(s.Velocidade),
-                            _axes.Count(a => a.Section.Id == s.Id).ToString(CultureInfo.InvariantCulture)
+                            s.Name + (s.Id == _settings.CurrentSectionId ? " (corrente)" : ""), s.Tipo, N(s.Pista, 2), (s.FaixasPorSentido * 2).ToString(CultureInfo.InvariantCulture),
+                            N(s.Canteiro, 2), N(s.Sarjeta, 2), N(s.MeioFio, 2), N(s.Calcada, 2),
+                            s.Simetrica ? "ambos" : $"{ViarioStore.LadosNome(s.LadosSarjeta)}/{ViarioStore.LadosNome(s.LadosMeioFio)}/{ViarioStore.LadosNome(s.LadosCalcada)}",
+                            N(s.Raio, 2), N(s.Velocidade), _axes.Count(a => a.Section.Id == s.Id).ToString(CultureInfo.InvariantCulture)
                         }
                     });
                 }
 
-                return (new[] { "Nome", "Tipo", "Pista", "Faixas", "Canteiro", "Sarjeta", "Meio-fio", "Calcada", "Raio", "km/h", "Eixos" },
-                    new double[] { 170, 90, 50, 50, 60, 55, 60, 60, 45, 45, 45 }, rows);
+                return (new[] { "Nome", "Tipo", "Pista [m]", "Faixas", "Canteiro [m]", "Sarjeta [m]", "Meio-fio [m]", "Calcada [m]", "Lados", "Raio [m]", "km/h", "Eixos" },
+                    new double[] { 170, 90, 65, 50, 80, 70, 80, 75, 110, 60, 45, 45 }, rows);
 
             case "EIXOS":
                 for (int i = 0; i < _axes.Count; i++)
@@ -750,15 +754,18 @@ internal sealed class ViarioPanel : SW.Window
                         Id = "EIXO:" + a.Key, Icon = a.Path.Closed ? "ROTATORIA" : "EIXO", Data = a,
                         Cells = new[]
                         {
-                            AxisName(a, i), a.Section.Name, N(a.Path.Length), $"{a.Path.Segs.Count} ({a.Path.Segs.Count(s => s.IsArc)} arco)",
+                            AxisName(a, i), a.Section.Name, N(a.Path.Length, 2), Estaca(a.Path.Length, true),
+                            a.Path.Segs.Count.ToString(CultureInfo.InvariantCulture), a.Path.Segs.Count(s => s.IsArc).ToString(CultureInfo.InvariantCulture),
+                            a.Path.Segs.Any(s => s.IsArc) ? N(a.Path.Segs.Where(s => s.IsArc).Min(s => s.Radius), 2) : "-",
+                            a.Path.Closed ? "anel" : a.Chained ? "mantida" : "livre",
                             a.Radius is double r ? N(r) : "secao", _result.Nodes.Count(n => n.AxisKeys.Contains(a.Key)).ToString(CultureInfo.InvariantCulture),
                             a.Events.Count == 0 ? "-" : string.Join(", ", a.Events.Select(e => KindName(e.Kind)))
                         }
                     });
                 }
 
-                return (new[] { "Nome", "Secao", "Comprimento", "Trechos", "Raio", "Nos", "Elementos" },
-                    new double[] { 150, 130, 85, 85, 55, 45, 200 }, rows);
+                return (new[] { "Nome", "Secao", "Comp. [m]", "Est. final", "Trechos", "Arcos", "R min [m]", "Concord.", "R esq.", "Nos", "Elementos" },
+                    new double[] { 150, 120, 80, 80, 55, 50, 70, 70, 55, 40, 200 }, rows);
 
             case "ELEMENTOS":
                 for (int i = 0; i < _axes.Count; i++)
@@ -809,7 +816,7 @@ internal sealed class ViarioPanel : SW.Window
                     });
                 }
 
-                return (new[] { "No", "Ramos", "Eixos", "Raios", "X", "Y" }, new double[] { 70, 50, 220, 120, 80, 80 }, rows);
+                return (new[] { "No", "Ramos", "Eixos", "Raios [m]", "E", "N" }, new double[] { 70, 50, 220, 120, 95, 95 }, rows);
 
             case "ESQUINAS":
                 for (int i = 0; i < _result.Corners.Count; i++)
@@ -829,8 +836,8 @@ internal sealed class ViarioPanel : SW.Window
                     });
                 }
 
-                return (new[] { "Esquina", "Eixos", "Giro", "Raio", "Origem", "VP min", "CO min" },
-                    new double[] { 80, 220, 50, 55, 85, 55, 55 }, rows);
+                return (new[] { "Esquina", "Eixos", "Giro [graus]", "Raio [m]", "Origem", "VP min [m]", "CO min [m]" },
+                    new double[] { 100, 200, 75, 60, 85, 70, 70 }, rows);
 
             case "ILHAS":
                 List<OutputLine> islands = Islands();
@@ -927,7 +934,7 @@ internal sealed class ViarioPanel : SW.Window
             }
         }
 
-        _list.View = ListViewFor(columns, widths);
+        _list.View = ListViewFor(columns, widths, rows);
         _list.ItemsSource = rows;
 
         Row? keep = rows.FirstOrDefault(r => r.Id == _selectedRow) ?? rows.FirstOrDefault();
@@ -943,7 +950,30 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     /// <summary>GridView com coluna de aviso, icone + primeira coluna e as demais por indice.</summary>
-    private static WC.GridView ListViewFor(string[] columns, double[] widths)
+    private static readonly System.Text.RegularExpressions.Regex NumberLike =
+        new(@"^[-+]?\d+([.,]\d+)?( ?(m|m2|km/h|graus|%))?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Coluna numerica: todos os valores preenchidos sao numeros (alinhada a direita, fonte mono).</summary>
+    private static bool IsNumeric(List<Row> rows, int column)
+    {
+        bool any = false;
+        foreach (Row r in rows)
+        {
+            if (column >= r.Cells.Length)
+                continue;
+            string c = r.Cells[column].Trim();
+            if (c.Length == 0 || c == "-")
+                continue;
+            if (!NumberLike.IsMatch(c))
+                return false;
+            any = true;
+        }
+
+        return any;
+    }
+
+    /// <summary>GridView com coluna de aviso, icone + primeira coluna e as demais por indice; numeros a direita.</summary>
+    private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null)
     {
         WC.GridView view = new();
 
@@ -951,7 +981,8 @@ internal sealed class ViarioPanel : SW.Window
         flag.SetBinding(WC.TextBlock.TextProperty, new WD.Binding("Flag"));
         flag.SetBinding(WC.TextBlock.ForegroundProperty, new WD.Binding("FlagBrush"));
         flag.SetValue(WC.TextBlock.FontWeightProperty, SW.FontWeights.Bold);
-        view.Columns.Add(new WC.GridViewColumn { Header = "", Width = 22, CellTemplate = new SW.DataTemplate { VisualTree = flag } });
+        flag.SetValue(WC.TextBlock.TextAlignmentProperty, SW.TextAlignment.Center);
+        view.Columns.Add(new WC.GridViewColumn { Header = "", Width = 20, CellTemplate = new SW.DataTemplate { VisualTree = flag } });
 
         for (int i = 0; i < columns.Length; i++)
         {
@@ -967,13 +998,26 @@ internal sealed class ViarioPanel : SW.Window
                 panel.AppendChild(img);
                 SW.FrameworkElementFactory txt = new(typeof(WC.TextBlock));
                 txt.SetBinding(WC.TextBlock.TextProperty, new WD.Binding("Cells[0]"));
+                txt.SetValue(WC.TextBlock.VerticalAlignmentProperty, SW.VerticalAlignment.Center);
                 panel.AppendChild(txt);
                 view.Columns.Add(new WC.GridViewColumn { Header = columns[0], Width = widths[0], CellTemplate = new SW.DataTemplate { VisualTree = panel } });
+                continue;
             }
-            else
+
+            bool numeric = rows is not null && IsNumeric(rows, i);
+            SW.FrameworkElementFactory cell = new(typeof(WC.TextBlock));
+            cell.SetBinding(WC.TextBlock.TextProperty, new WD.Binding($"Cells[{i}]"));
+            if (numeric)
             {
-                view.Columns.Add(new WC.GridViewColumn { Header = columns[i], Width = i < widths.Length ? widths[i] : 80, DisplayMemberBinding = new WD.Binding($"Cells[{i}]") });
+                cell.SetValue(WC.TextBlock.TextAlignmentProperty, SW.TextAlignment.Right);
+                cell.SetValue(WC.TextBlock.FontFamilyProperty, MonoFont);
+                cell.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
             }
+
+            WC.GridViewColumnHeader header = new() { Content = columns[i] };
+            if (numeric)
+                header.HorizontalContentAlignment = SW.HorizontalAlignment.Right;
+            view.Columns.Add(new WC.GridViewColumn { Header = header, Width = i < widths.Length ? widths[i] : 80, CellTemplate = new SW.DataTemplate { VisualTree = cell } });
         }
 
         return view;
@@ -1067,8 +1111,20 @@ internal sealed class ViarioPanel : SW.Window
                 tabs.Add(("Eixos", $"Eixos ({uses.Count})", () => SubList(new[] { "Eixo", "Comprimento" }, new double[] { 200, 100 }, uses)));
                 break;
             case AxisInput a when _category == "EIXOS":
+                List<Row> geo = ViarioChain.Elements(a.Path).Select(e => new Row
+                {
+                    Icon = e.Tipo == "Arco" ? "RAIO" : "EIXO", Data = a,
+                    Cells = new[]
+                    {
+                        e.Index.ToString(CultureInfo.InvariantCulture), e.Tipo, N(e.Length, 2), e.Tipo == "Arco" ? N(e.Radius, 2) : "-",
+                        Estaca(e.S0, true), Estaca(e.S1, true), N(e.A.X, 3), N(e.A.Y, 3), N(e.B.X, 3), N(e.B.Y, 3)
+                    }
+                }).ToList();
+                tabs.Add(("Geometria", $"Geometria ({geo.Count})", () => SubList(
+                    new[] { "#", "Tipo", "Comp. [m]", "Raio [m]", "Est. inicial", "Est. final", "E inicial", "N inicial", "E final", "N final" },
+                    new double[] { 40, 60, 75, 75, 85, 85, 95, 95, 95, 95 }, geo)));
                 List<Row> evs = a.Events.Select(ev => new Row { Icon = EventIcon(ev.Kind), Data = (a, ev), Cells = new[] { KindName(ev.Kind), N(ev.Width), N(ev.Length) } }).ToList();
-                tabs.Add(("Elementos", $"Elementos ({evs.Count})", () => SubList(new[] { "Tipo", "Largura", "Comprimento" }, new double[] { 180, 70, 90 }, evs)));
+                tabs.Add(("Elementos", $"Elementos ({evs.Count})", () => SubList(new[] { "Tipo", "Largura [m]", "Comp. [m]" }, new double[] { 180, 80, 80 }, evs)));
                 break;
             case NodeInfo nd:
                 List<Row> cs = CornersAt(nd).Select(c => new Row { Icon = "RAIO", Data = c, Cells = new[] { AxisLabel(c.AxisA) + " x " + AxisLabel(c.AxisB), N(c.Radius) } }).ToList();
@@ -1120,7 +1176,7 @@ internal sealed class ViarioPanel : SW.Window
     private SW.UIElement SubList(string[] columns, double[] widths, List<Row> rows)
     {
         WC.ListView list = new() { BorderThickness = new SW.Thickness(0), Background = T.Pane, Foreground = T.Text };
-        list.View = ListViewFor(columns, widths);
+        list.View = ListViewFor(columns, widths, rows);
         list.ItemsSource = rows;
         list.MouseDoubleClick += (_, _) =>
         {
@@ -1498,10 +1554,14 @@ internal sealed class ViarioPanel : SW.Window
         EditProp("Pista", "Largura de rolamento (m)", N(s.Pista));
         EditProp("Faixas", "Faixas, dois sentidos (0 = auto)", s.Faixas.ToString(CultureInfo.InvariantCulture));
         EditProp("Canteiro", "Canteiro central (m)", N(s.Canteiro));
-        Category("Bordos");
+        Category("Bordos (lados no sentido do eixo)");
+        IEnumerable<(string, string)> lados = ViarioStore.LadosOpcoes.Select(o => (o.Text, o.Text));
         EditProp("Sarjeta", "Sarjeta (m)", N(s.Sarjeta));
+        ChoiceProp("LadosSarjeta", "Sarjeta em", lados, ViarioStore.LadosNome(s.LadosSarjeta), () => _render?.Invoke());
         EditProp("MeioFio", "Meio-fio (m)", N(s.MeioFio));
+        ChoiceProp("LadosMeioFio", "Meio-fio em", lados, ViarioStore.LadosNome(s.LadosMeioFio), () => _render?.Invoke());
         EditProp("Calcada", "Calcada (m)", N(s.Calcada));
+        ChoiceProp("LadosCalcada", "Calcada em", lados, ViarioStore.LadosNome(s.LadosCalcada), () => _render?.Invoke());
         EditProp("Raio", "Raio de esquina (m)", N(s.Raio));
         Category("Calculado");
         Prop("Faixa de rolamento", N((s.Pista / 2.0) / s.FaixasPorSentido) + " m");
@@ -1543,6 +1603,12 @@ internal sealed class ViarioPanel : SW.Window
         s.Calcada = calcada.Value;
         s.Raio = raio.Value;
         s.Velocidade = vel.Value;
+        if (Text("LadosSarjeta") is { Length: > 0 } ls)
+            s.LadosSarjeta = ViarioStore.LadosDe(ls);
+        if (Text("LadosMeioFio") is { Length: > 0 } lm)
+            s.LadosMeioFio = ViarioStore.LadosDe(lm);
+        if (Text("LadosCalcada") is { Length: > 0 } lc)
+            s.LadosCalcada = ViarioStore.LadosDe(lc);
         return s;
     }
 
@@ -1673,6 +1739,12 @@ internal sealed class ViarioPanel : SW.Window
         Prop("Comprimento", N(a.Path.Length) + " m");
         Prop("Trechos", $"{a.Path.Segs.Count} ({a.Path.Segs.Count(s => s.IsArc)} arco(s))");
         Prop("Tipo", a.Path.Closed ? "anel de rotatoria" : "eixo");
+        if (!a.Path.Closed)
+        {
+            ChoiceProp("Concordancia", "Concordancia dos trechos",
+                new[] { ("mantida (refeita ao editar)", "1"), ("livre", "0") }, a.Chained ? "1" : "0",
+                () => SetChained(a, Text("Concordancia") == "1"));
+        }
         Prop("Handle", a.Key);
         Category("Secao");
         ChoiceProp("Secao", "Secao", _sections.Select(s => (s.Name, s.Id)), a.Section.Id);
@@ -1685,6 +1757,19 @@ internal sealed class ViarioPanel : SW.Window
         Act("Aplicar secao", () => AssignSection(a));
         Act("Remover da rede", () => RemoveAxis(a));
         _render = () => RenderMap(a.Path.Bounds().Inflate(a.Section.TotalWidth + 10), sh => sh.Highlight(a.Path.Segs));
+    }
+
+    private void SetChained(AxisInput a, bool chained)
+    {
+        if (chained == a.Chained)
+            return;
+        Edit(chained ? "Concordancia mantida: " + AxisLabel(a.Key) : "Concordancia liberada: " + AxisLabel(a.Key), db =>
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForWrite) is AcadDb.Entity e)
+                ViarioStore.SetChained(e, chained);
+            tr.Commit();
+        });
     }
 
     private void AssignSection(AxisInput a)
@@ -2284,7 +2369,9 @@ internal sealed class ViarioPanel : SW.Window
         _graphicInfo.Text += $"   |   {marks.Count} marca(s): {ViarioSignageSync.Summary(marks)}";
     }
 
-    private V2 ToWorld(SW.Point p) => new(_vCx + ((p.X - (_vW / 2.0)) / _vScale), _vCy - ((p.Y - (_vH / 2.0)) / _vScale));
+    private V2 ToWorld(SW.Point p) => new(_vCx + ((p.X - _vOx) / _vScale), _vCy - ((p.Y - _vOy) / _vScale));
+
+    private SW.Point ToScreen(V2 p) => new(_vOx + ((p.X - _vCx) * _vScale), _vOy - ((p.Y - _vCy) * _vScale));
 
     private void OnGraphicMouseMove(object sender, WI.MouseEventArgs e)
     {
@@ -2292,7 +2379,7 @@ internal sealed class ViarioPanel : SW.Window
             return;
         SW.Point p = e.GetPosition(_graphic);
         V2 w = ToWorld(p);
-        _coords.Text = $"{w.X:0.000}, {w.Y:0.000}";
+        _coords.Text = $"E {w.X,12:0.000}   N {w.Y,12:0.000}";
         if (_dragFrom is SW.Point f && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             _pan = new V2(_pan.X - ((p.X - f.X) / _vScale), _pan.Y + ((p.Y - f.Y) / _vScale));
@@ -2314,6 +2401,27 @@ internal sealed class ViarioPanel : SW.Window
         _render?.Invoke();
     }
 
+    // Reguas da vista em planta (px).
+    private const double RulerLeft = 44;
+    private const double RulerBottom = 16;
+
+    /// <summary>Passo "redondo" (1-2-5) maior ou igual a raw.</summary>
+    private static double NiceStep(double raw)
+    {
+        double mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(raw, 1e-9))));
+        return new[] { 1.0, 2.0, 5.0, 10.0 }.Select(k => k * mag).First(v => v >= raw);
+    }
+
+    /// <summary>Estaca de 20 m: 14+15.00 (ou so "14" quando cai na estaca inteira).</summary>
+    private static string Estaca(double s, bool full = false)
+    {
+        int e = (int)Math.Floor((s / 20.0) + 1e-9);
+        double r = s - (20.0 * e);
+        if (r < 0.005 && !full)
+            return e.ToString(CultureInfo.InvariantCulture);
+        return $"{e}+{r.ToString("0.00", CultureInfo.InvariantCulture)}";
+    }
+
     private void Draw(Shapes sh, Box2? focus)
     {
         _graphic.Children.Clear();
@@ -2328,35 +2436,51 @@ internal sealed class ViarioPanel : SW.Window
             return;
         }
 
+        double dw = w - RulerLeft, dh = h - RulerBottom;
         Box2 box = focus ?? new Box2(all.Min(p => p.X), all.Min(p => p.Y), all.Max(p => p.X), all.Max(p => p.Y));
-        _vScale = 0.92 * Math.Min(w / Math.Max(box.MaxX - box.MinX, 1e-6), h / Math.Max(box.MaxY - box.MinY, 1e-6)) * _zoom;
+        _vScale = 0.90 * Math.Min(dw / Math.Max(box.MaxX - box.MinX, 1e-6), dh / Math.Max(box.MaxY - box.MinY, 1e-6)) * _zoom;
         _vCx = ((box.MinX + box.MaxX) / 2.0) + _pan.X;
         _vCy = ((box.MinY + box.MaxY) / 2.0) + _pan.Y;
+        _vOx = RulerLeft + (dw / 2.0);
+        _vOy = dh / 2.0;
         _vW = w;
         _vH = h;
-        double scale = _vScale, cx = _vCx, cy = _vCy;
-        SW.Point P(V2 p) => new((w / 2.0) + ((p.X - cx) * scale), (h / 2.0) - ((p.Y - cy) * scale));
+        double scale = _vScale;
+        SW.Point P(V2 p) => ToScreen(p);
 
-        double raw = Math.Max(w, h) / scale / 8.0;
-        double mag = Math.Pow(10, Math.Floor(Math.Log10(Math.Max(raw, 1e-6))));
-        double step = new[] { 1.0, 2.0, 5.0, 10.0 }.Select(k => k * mag).First(v => v >= raw);
+        // Grade: passo maior (1-2-5) e menor (1/5) quando ha espaco.
+        double step = NiceStep(Math.Max(dw, dh) / scale / 8.0);
+        double minor = step / 5.0;
+        bool showMinor = minor * scale >= 9;
+        double x0 = _vCx - ((_vOx - RulerLeft) / scale), x1 = _vCx + ((w - _vOx) / scale);
+        double y0 = _vCy - ((dh - _vOy) / scale), y1 = _vCy + (_vOy / scale);
+
+        void GridLine(double a, double b, double c, double d, WM.Brush brush) =>
+            _graphic.Children.Add(new WS.Line { X1 = a, Y1 = b, X2 = c, Y2 = d, Stroke = brush, StrokeThickness = 1, SnapsToDevicePixels = true });
+
         if (_showGrid)
         {
-            double x0 = cx - (w / 2.0 / scale), x1 = cx + (w / 2.0 / scale);
-            double y0 = cy - (h / 2.0 / scale), y1 = cy + (h / 2.0 / scale);
-            for (double x = Math.Ceiling(x0 / step) * step; x <= x1; x += step)
+            double g = showMinor ? minor : step;
+            for (double x = Math.Ceiling(x0 / g) * g; x <= x1; x += g)
             {
-                double px = P(new V2(x, y0)).X;
-                _graphic.Children.Add(new WS.Line { X1 = px, X2 = px, Y1 = 0, Y2 = h, Stroke = GraphicGrid, StrokeThickness = 1 });
+                bool major = Math.Abs((x / step) - Math.Round(x / step)) < 1e-6;
+                double px = Math.Round(P(new V2(x, 0)).X) + 0.5;
+                if (px < RulerLeft)
+                    continue;
+                GridLine(px, 0, px, dh, major ? GraphicGridMajor : GraphicGrid);
             }
 
-            for (double y = Math.Ceiling(y0 / step) * step; y <= y1; y += step)
+            for (double y = Math.Ceiling(y0 / g) * g; y <= y1; y += g)
             {
-                double py = P(new V2(x0, y)).Y;
-                _graphic.Children.Add(new WS.Line { X1 = 0, X2 = w, Y1 = py, Y2 = py, Stroke = GraphicGrid, StrokeThickness = 1 });
+                bool major = Math.Abs((y / step) - Math.Round(y / step)) < 1e-6;
+                double py = Math.Round(P(new V2(0, y)).Y) + 0.5;
+                if (py > dh)
+                    continue;
+                GridLine(RulerLeft, py, w, py, major ? GraphicGridMajor : GraphicGrid);
             }
         }
 
+        // Linhas da rede.
         foreach ((List<V2> pts, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) in sh.Items)
         {
             if (pts.Count < 2)
@@ -2365,38 +2489,184 @@ internal sealed class ViarioPanel : SW.Window
             WS.Shape shape = closed ? new WS.Polygon { Points = points, Fill = fill } : new WS.Polyline { Points = points };
             shape.Stroke = brush;
             shape.StrokeThickness = thickness < 0 ? Math.Max(0.6, -thickness * scale) : thickness;
-            shape.StrokeLineJoin = WM.PenLineJoin.Round;
+            shape.StrokeLineJoin = WM.PenLineJoin.Miter;
             if (dashed)
-                shape.StrokeDashArray = new WM.DoubleCollection { 8, 3, 1, 3 };
+                shape.StrokeDashArray = new WM.DoubleCollection { 12, 4, 2, 4 };
             _graphic.Children.Add(shape);
         }
 
+        // Estacas ao longo dos eixos.
+        double stStep = new[] { 20.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0 }.First(v => v * scale >= 40 || v >= 5000);
+        if (_showAxes && _showText)
+            DrawStations(stStep);
+
+        // Marcadores (local de uma recomendacao).
         foreach (V2 m in sh.Markers)
         {
             SW.Point c = P(m);
-            WS.Ellipse ring = new() { Width = 26, Height = 26, Stroke = Brush(255, 80, 60), StrokeThickness = 2 };
-            WC.Canvas.SetLeft(ring, c.X - 13);
-            WC.Canvas.SetTop(ring, c.Y - 13);
+            WS.Ellipse ring = new() { Width = 22, Height = 22, Stroke = Brush(255, 80, 60), StrokeThickness = 1.5 };
+            WC.Canvas.SetLeft(ring, c.X - 11);
+            WC.Canvas.SetTop(ring, c.Y - 11);
             _graphic.Children.Add(ring);
+            GridLine(c.X - 16, c.Y, c.X + 16, c.Y, Brush(255, 80, 60));
+            GridLine(c.X, c.Y - 16, c.X, c.Y + 16, Brush(255, 80, 60));
         }
 
-        _graphicInfo.Text = $"grade {N(step)} m   |   roda: zoom   arrastar: mover   duplo clique: enquadrar";
+        DrawRulers(step, dw, dh, x0, x1, y0, y1);
+        DrawScaleBar(step, dh);
+        DrawNorth();
+
+        // 1 px = 25.4/96 mm no monitor.
+        double den = 1000.0 / (scale * (25.4 / 96.0));
+        string denText = den >= 100 ? Math.Round(den / 10.0) * 10 + "" : Math.Round(den) + "";
+        _graphicInfo.Text = $"Grade {N(step)} m   Estacas {N(stStep)} m   Esc. 1:{denText}      roda: zoom   arrastar: mover   duplo clique: enquadrar";
+    }
+
+    private void DrawRulers(double step, double dw, double dh, double x0, double x1, double y0, double y1)
+    {
+        double w = _vW;
+        WS.Rectangle left = new() { Width = RulerLeft, Height = dh, Fill = GraphicRuler };
+        _graphic.Children.Add(left);
+        WS.Rectangle bottom = new() { Width = w, Height = RulerBottom, Fill = GraphicRuler };
+        WC.Canvas.SetTop(bottom, dh);
+        _graphic.Children.Add(bottom);
+        _graphic.Children.Add(new WS.Line { X1 = RulerLeft + 0.5, Y1 = 0, X2 = RulerLeft + 0.5, Y2 = dh, Stroke = GraphicGridMajor, StrokeThickness = 1 });
+        _graphic.Children.Add(new WS.Line { X1 = 0, Y1 = dh + 0.5, X2 = w, Y2 = dh + 0.5, Stroke = GraphicGridMajor, StrokeThickness = 1 });
+
+        string Fmt(double v) => Math.Abs(v) >= 1e5 ? v.ToString("0", CultureInfo.InvariantCulture) : v.ToString(step < 1 ? "0.0" : "0", CultureInfo.InvariantCulture);
+
+        double lastX = double.MinValue;
+        for (double x = Math.Ceiling(x0 / step) * step; x <= x1; x += step)
+        {
+            double px = ToScreen(new V2(x, 0)).X;
+            if (px < RulerLeft + 2)
+                continue;
+            _graphic.Children.Add(new WS.Line { X1 = Math.Round(px) + 0.5, Y1 = dh, X2 = Math.Round(px) + 0.5, Y2 = dh + 4, Stroke = GraphicText, StrokeThickness = 1 });
+            if (px - lastX < 52)
+                continue;
+            lastX = px;
+            WC.TextBlock t = Mono(Fmt(x), 9.5);
+            t.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+            WC.Canvas.SetLeft(t, px - (t.DesiredSize.Width / 2.0));
+            WC.Canvas.SetTop(t, dh + 2);
+            _graphic.Children.Add(t);
+        }
+
+        double lastY = double.MaxValue;
+        for (double y = Math.Ceiling(y0 / step) * step; y <= y1; y += step)
+        {
+            double py = ToScreen(new V2(0, y)).Y;
+            if (py > dh - 2)
+                continue;
+            _graphic.Children.Add(new WS.Line { X1 = RulerLeft - 4, Y1 = Math.Round(py) + 0.5, X2 = RulerLeft, Y2 = Math.Round(py) + 0.5, Stroke = GraphicText, StrokeThickness = 1 });
+            if (lastY - py < 14)
+                continue;
+            lastY = py;
+            WC.TextBlock t = Mono(Fmt(y), 9.5);
+            t.Width = RulerLeft - 7;
+            t.TextAlignment = SW.TextAlignment.Right;
+            WC.Canvas.SetLeft(t, 1);
+            WC.Canvas.SetTop(t, py - 7);
+            _graphic.Children.Add(t);
+        }
+    }
+
+    private void DrawStations(double stStep)
+    {
+        double dh = _vH - RulerBottom;
+        int budget = 400;
+        for (int i = 0; i < _axes.Count && budget > 0; i++)
+        {
+            AxisInput a = _axes[i];
+            double len = a.Path.Length;
+            for (double s = 0; s <= len + 1e-6 && budget > 0; s += stStep)
+            {
+                double ss = Math.Min(s, len);
+                V2 p = a.Path.PointAt(ss);
+                SW.Point c = ToScreen(p);
+                if (c.X < RulerLeft || c.Y < 0 || c.X > _vW || c.Y > dh)
+                    continue;
+                V2 n = a.Path.TangentAt(ss).Left;
+                double tick = 4;
+                _graphic.Children.Add(new WS.Line
+                {
+                    X1 = c.X - (n.X * tick), Y1 = c.Y + (n.Y * tick), X2 = c.X + (n.X * tick), Y2 = c.Y - (n.Y * tick),
+                    Stroke = GraphicText, StrokeThickness = 1
+                });
+                WC.TextBlock t = Mono(Estaca(ss), 9);
+                WC.Canvas.SetLeft(t, c.X + (n.X * 7) + 1);
+                WC.Canvas.SetTop(t, c.Y - (n.Y * 7) - 6);
+                _graphic.Children.Add(t);
+                budget--;
+            }
+
+            // Ponta final com a estaca completa.
+            if (!a.Path.Closed && len % stStep > 1e-6)
+            {
+                SW.Point c = ToScreen(a.Path.PointAt(len));
+                if (c.X >= RulerLeft && c.Y >= 0 && c.X <= _vW && c.Y <= dh)
+                {
+                    WC.TextBlock t = Mono("PF " + Estaca(len, true), 9);
+                    WC.Canvas.SetLeft(t, c.X + 5);
+                    WC.Canvas.SetTop(t, c.Y + 4);
+                    _graphic.Children.Add(t);
+                }
+            }
+        }
+
+        DrawLabels();
+    }
+
+    private void DrawScaleBar(double step, double dh)
+    {
+        double px = step * _vScale;
+        if (px < 30 || px > _vW * 0.5)
+            return;
+        double x1 = _vW - 14, x0 = x1 - px, y = dh - 16;
+        WM.Brush ink = GraphicText;
+        _graphic.Children.Add(new WS.Rectangle { Width = px / 2.0, Height = 4, Fill = ink, Stroke = ink, StrokeThickness = 0.8 }.At(x0, y));
+        _graphic.Children.Add(new WS.Rectangle { Width = px / 2.0, Height = 4, Fill = GraphicBack, Stroke = ink, StrokeThickness = 0.8 }.At(x0 + (px / 2.0), y));
+        WC.TextBlock t0 = Mono("0", 9);
+        WC.Canvas.SetLeft(t0, x0 - 3);
+        WC.Canvas.SetTop(t0, y - 14);
+        _graphic.Children.Add(t0);
+        WC.TextBlock t1 = Mono(N(step) + " m", 9);
+        t1.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+        WC.Canvas.SetLeft(t1, x1 - t1.DesiredSize.Width + 2);
+        WC.Canvas.SetTop(t1, y - 14);
+        _graphic.Children.Add(t1);
+    }
+
+    private void DrawNorth()
+    {
+        double x = _vW - 20, y0 = 36, y1 = 12;
+        _graphic.Children.Add(new WS.Line { X1 = x, Y1 = y0, X2 = x, Y2 = y1, Stroke = GraphicText, StrokeThickness = 1 });
+        _graphic.Children.Add(new WS.Polygon
+        {
+            Points = new WM.PointCollection { new(x, y1), new(x - 3.5, y1 + 9), new(x + 3.5, y1 + 9) },
+            Fill = GraphicText
+        });
+        WC.TextBlock n = Mono("N", 9);
+        WC.Canvas.SetLeft(n, x - 4);
+        WC.Canvas.SetTop(n, y0 + 1);
+        _graphic.Children.Add(n);
     }
 
     private void DrawLabels()
     {
         if (_vScale <= 0.8)
             return;
-        double w = _vW, h = _vH;
-        SW.Point P(V2 p) => new((w / 2.0) + ((p.X - _vCx) * _vScale), (h / 2.0) - ((p.Y - _vCy) * _vScale));
+        double w = _vW, h = _vH - RulerBottom;
         for (int i = 0; i < _axes.Count; i++)
         {
             AxisInput a = _axes[i];
             // Rotulo deslocado ao longo do eixo para nao sobrepor os vizinhos.
-            SW.Point p = P(a.Path.PointAt(a.Path.Length * (0.25 + (0.15 * (i % 3)))));
-            if (p.X < 0 || p.Y < 0 || p.X > w || p.Y > h)
+            double s = a.Path.Length * (0.25 + (0.15 * (i % 3)));
+            SW.Point p = ToScreen(a.Path.PointAt(s));
+            if (p.X < RulerLeft || p.Y < 0 || p.X > w || p.Y > h)
                 continue;
-            Label(AxisName(a, i), p.X + 4, p.Y - 14, 10);
+            V2 n = a.Path.TangentAt(s).Left;
+            Label(AxisName(a, i), p.X - (n.X * 12) + 3, p.Y + (n.Y * 12) - 14, 10);
         }
     }
 
@@ -2408,7 +2678,13 @@ internal sealed class ViarioPanel : SW.Window
         _graphic.Children.Add(t);
     }
 
-    /// <summary>Corte transversal cotado (vista de secao).</summary>
+    private static WC.TextBlock Mono(string text, double size, WM.Brush? brush = null) =>
+        new() { Text = text, Foreground = brush ?? GraphicText, FontSize = size, FontFamily = MonoFont };
+
+    // ------------------------------------------------------------------
+    // Corte transversal da secao tipo (desenho cotado)
+    // ------------------------------------------------------------------
+
     private void RenderSection(RoadSection s)
     {
         _graphic.Children.Clear();
@@ -2417,87 +2693,216 @@ internal sealed class ViarioPanel : SW.Window
             return;
 
         _vScale = 0;
-        double total = s.TotalWidth;
-        double k = (w - 80) / Math.Max(total, 1.0);
-        double X(double x) => (w / 2.0) + (x * k);
-        double road = h * 0.42, curbTop = road - 12, baseY = road + 10;
+        double aL = s.EdgeOffset(EdgeLevel.Alinhamento, RoadSection.Esquerda);
+        double aR = s.EdgeOffset(EdgeLevel.Alinhamento, RoadSection.Direita);
+        double margin = Math.Max(1.5, (aL + aR) * 0.08);
+        double k = (w - 60) / (aL + aR + (2 * margin));
+        double X(double x) => 30 + ((x + aL + margin) * k);
 
-        if (_showGrid)
+        double road = h * 0.40;
+        double curbH = 10;                 // altura do meio-fio em px (sem escala vertical)
+        double curbTop = road - curbH;
+        double ground = road + 14;
+        WM.Brush ink = Brush(225, 225, 225);
+        WM.Brush dim = Brush(190, 190, 190);
+        WM.Brush soft = Brush(140, 140, 140);
+
+        WS.Line L(double xa, double ya, double xb, double yb, WM.Brush b, double t = 1.0, WM.DoubleCollection? dash = null)
         {
-            for (double y = 20; y < h; y += 20)
-                _graphic.Children.Add(new WS.Line { X1 = 0, X2 = w, Y1 = y, Y2 = y, Stroke = GraphicGrid, StrokeThickness = 1 });
+            WS.Line line = new() { X1 = xa, Y1 = ya, X2 = xb, Y2 = yb, Stroke = b, StrokeThickness = t };
+            if (dash is not null)
+                line.StrokeDashArray = dash;
+            _graphic.Children.Add(line);
+            return line;
         }
 
-        WM.Brush ink = Brush(210, 210, 210);
-        void Rect(double x0, double x1, double top, double bottom, WM.Brush fill)
+        void Txt(string text, double x, double y, double size, WM.Brush b, bool center = true, bool right = false)
         {
-            if (Math.Abs(x1 - x0) < 1e-6)
-                return;
-            WS.Rectangle r = new() { Width = Math.Max(1, Math.Abs(X(x1) - X(x0))), Height = Math.Max(1, bottom - top), Fill = fill, Stroke = ink, StrokeThickness = 0.6 };
-            WC.Canvas.SetLeft(r, Math.Min(X(x0), X(x1)));
-            WC.Canvas.SetTop(r, top);
-            _graphic.Children.Add(r);
+            WC.TextBlock t = Mono(text, size, b);
+            t.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double dx = center ? t.DesiredSize.Width / 2.0 : right ? t.DesiredSize.Width : 0;
+            WC.Canvas.SetLeft(t, x - dx);
+            WC.Canvas.SetTop(t, y);
+            _graphic.Children.Add(t);
+        }
+
+        // Regua de offsets (embaixo) e grade vertical a cada metro.
+        double rulerY = h - RulerBottom;
+        _graphic.Children.Add(new WS.Rectangle { Width = w, Height = RulerBottom, Fill = GraphicRuler }.At(0, rulerY));
+        L(0, rulerY + 0.5, w, rulerY + 0.5, GraphicGridMajor);
+        double labStep = k >= 40 ? 1 : k >= 18 ? 2 : k >= 8 ? 5 : 10;
+        for (double x = Math.Ceiling((-aL - margin)); x <= aR + margin; x += 1)
+        {
+            double px = Math.Round(X(x)) + 0.5;
+            bool lab = Math.Abs((x / labStep) - Math.Round(x / labStep)) < 1e-9;
+            if (_showGrid)
+                L(px, 0, px, rulerY, lab ? GraphicGridMajor : GraphicGrid);
+            L(px, rulerY, px, rulerY + (lab ? 5 : 3), GraphicText);
+            if (lab)
+                Txt(x.ToString("+0;-0;0", CultureInfo.InvariantCulture), px, rulerY + 2, 9.5, GraphicText);
+        }
+
+        // Terreno/base e eixo.
+        L(X(-aL - (margin * 0.7)), ground + 0.5, X(aR + (margin * 0.7)), ground + 0.5, soft, 1, new WM.DoubleCollection { 6, 3 });
+        if (_showAxes)
+        {
+            L(X(0), 22, X(0), ground + 8, Brush(220, 80, 80), 0.9, new WM.DoubleCollection { 14, 4, 2, 4 });
+            Txt("EIXO", X(0), 8, 9, Brush(220, 80, 80));
+        }
+
+        double c = s.Canteiro / 2.0;
+        List<double> breaks = new();
+        List<(double A, double B, string T)> rowA = new(), rowB = new();
+        List<(string T, double A, double B)> names = new();
+
+        foreach (int side in new[] { RoadSection.Esquerda, RoadSection.Direita })
+        {
+            double sg = side == RoadSection.Esquerda ? -1 : 1;
+            double p = c + (s.Pista / 2.0);
+            double f = p + s.SarjetaEm(side);
+            double b = f + s.MeioFioEm(side);
+            double a = b + s.CalcadaEm(side);
+            bool hasCurb = s.MeioFioEm(side) > 1e-3;
+            bool hasWalk = s.CalcadaEm(side) > 1e-3;
+            bool hasGutter = s.SarjetaEm(side) > 1e-3;
+
+            // Pista.
+            L(X(sg * c), road + 0.5, X(sg * p), road + 0.5, ink, 1.4);
+            // Sarjeta (leve caimento para a guia).
+            if (hasGutter)
+                L(X(sg * p), road + 0.5, X(sg * f), road + 3.5, ink, 1.2);
+            double edgeY = hasGutter ? road + 3.5 : road + 0.5;
+            if (hasCurb)
+            {
+                // Face, topo e costas do meio-fio; costas descem ate a base.
+                L(X(sg * f), edgeY, X(sg * f), curbTop, ink, 1.4);
+                L(X(sg * f), curbTop + 0.5, X(sg * b), curbTop + 0.5, ink, 1.4);
+                L(X(sg * b), curbTop, X(sg * b), ground, dim, 0.8);
+                L(X(sg * f), edgeY, X(sg * f), ground, dim, 0.8);
+            }
+            else
+            {
+                // Bordo livre: pequena saia ate a base.
+                L(X(sg * f), edgeY, X(sg * (f + 0.6)), ground, dim, 0.9);
+            }
+
+            if (hasWalk)
+            {
+                double top = hasCurb ? curbTop : edgeY - 2;
+                L(X(sg * b), top + 0.5, X(sg * a), top + 0.5, ink, 1.2);
+                L(X(sg * a), top, X(sg * a), ground, dim, 0.8);
+                // Hachura de calcada (pontilhado de concreto).
+                double x0 = Math.Min(X(sg * b), X(sg * a)), x1 = Math.Max(X(sg * b), X(sg * a));
+                for (double hx = x0 + 6; hx < x1 - 3; hx += 9)
+                    L(hx, top + 3, hx + 1.5, top + 4.5, soft, 0.8);
+            }
+
+            // Faixas de rolamento (LMS) e nomes.
+            int n = s.FaixasPorSentido;
+            for (int i = 1; i < n; i++)
+            {
+                double x = sg * (c + (i * (s.Pista / 2.0) / n));
+                L(X(x), road - 6, X(x), road, Brush(245, 245, 245), 1.2, new WM.DoubleCollection { 2, 2 });
+            }
+
+            names.Add(($"PISTA {N(s.Pista / 2.0)} ({n} x {N((s.Pista / 2.0) / n)})", sg * c, sg * p));
+            if (hasWalk)
+                names.Add(($"CALCADA {N(s.CalcadaEm(side))}", sg * b, sg * a));
+
+            // Cotas: componentes (linha A) e meia pista (linha B).
+            if (hasGutter)
+                rowA.Add((sg * p, sg * f, N(s.Sarjeta)));
+            if (hasCurb)
+                rowA.Add((sg * f, sg * b, N(s.MeioFio)));
+            if (hasWalk)
+                rowA.Add((sg * b, sg * a, N(s.Calcada)));
+            rowB.Add((sg * c, sg * p, N(s.Pista / 2.0)));
+            breaks.AddRange(new[] { sg * c, sg * p, sg * f, sg * b, sg * a });
+        }
+
+        // Canteiro central ou linha de eixo (LFO).
+        if (c > 1e-3)
+        {
+            L(X(-c), road + 0.5, X(-c), curbTop, ink, 1.4);
+            L(X(c), road + 0.5, X(c), curbTop, ink, 1.4);
+            L(X(-c), curbTop + 0.5, X(c), curbTop + 0.5, ink, 1.4);
+            for (double hx = X(-c) + 5; hx < X(c) - 3; hx += 8)
+                L(hx, curbTop - 3, hx + 1, curbTop, Brush(110, 170, 110), 0.9);
+            names.Add(($"CANTEIRO {N(s.Canteiro)}", -c, c));
+            rowB.Add((-c, c, N(s.Canteiro)));
+        }
+        else
+        {
+            L(X(0), road - 6, X(0), road, Brush(240, 190, 30), 1.6);
+        }
+
+        // Nomes dos componentes acima do corte.
+        foreach ((string text, double a, double b) in names)
+        {
+            double px = Math.Abs(X(b) - X(a));
+            if (px < 44)
+                continue;
+            Txt(text, (X(a) + X(b)) / 2.0, curbTop - 18, 9, dim);
+        }
+
+        // Cotas estilo CAD: linhas de chamada, linha de cota continua, tracos obliquos, texto acima.
+        double yA = ground + 26, yB = yA + 18, yC = yB + 18;
+        if (yC > rulerY - 6)
+        {
+            yA = ground + 20;
+            yB = yA + 15;
+            yC = yB + 15;
+        }
+
+        void Tick(double x, double y)
+        {
+            L(x - 3, y + 3, x + 3, y - 3, ink, 1.0);
         }
 
         void Dim(double a, double b, double y, string text)
         {
-            if (Math.Abs(b - a) < 1e-3)
+            if (Math.Abs(b - a) < 1e-4)
                 return;
-            _graphic.Children.Add(new WS.Line { X1 = X(a), X2 = X(b), Y1 = y, Y2 = y, Stroke = ink, StrokeThickness = 0.8 });
-            foreach (double v in new[] { a, b })
-                _graphic.Children.Add(new WS.Line { X1 = X(v), X2 = X(v), Y1 = y - 4, Y2 = y + 4, Stroke = ink, StrokeThickness = 0.8 });
-            WC.TextBlock t = new() { Text = text, FontSize = 10, Foreground = ink, FontFamily = UiFont };
-            t.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
-            WC.Canvas.SetLeft(t, ((X(a) + X(b)) / 2.0) - (t.DesiredSize.Width / 2.0));
-            WC.Canvas.SetTop(t, y - 15);
-            _graphic.Children.Add(t);
+            double xa = X(Math.Min(a, b)), xb = X(Math.Max(a, b));
+            L(xa, y + 0.5, xb, y + 0.5, ink, 0.9);
+            Tick(xa, y + 0.5);
+            Tick(xb, y + 0.5);
+            if (xb - xa >= 18)
+                Txt(text, (xa + xb) / 2.0, y - 13, 9.5, ink);
         }
 
-        double c = s.Canteiro / 2.0, p = c + (s.Pista / 2.0), f = p + s.Sarjeta, b = f + s.MeioFio, a = b + s.Calcada;
-        foreach (int side in new[] { -1, 1 })
+        foreach (double bx in breaks.Distinct().OrderBy(v => v))
+            L(X(bx), ground + 4, X(bx), yC + 4, dim, 0.6);
+
+        foreach ((double a, double b, string t) in rowA)
+            Dim(a, b, yA, t);
+        foreach ((double a, double b, string t) in rowB)
+            Dim(a, b, yB, t);
+        Dim(-aL, aR, yC, N(aL + aR));
+
+        // Altura do meio-fio (cota vertical, no lado direito se houver).
+        int curbSide = s.MeioFioEm(RoadSection.Direita) > 1e-3 ? RoadSection.Direita : s.MeioFioEm(RoadSection.Esquerda) > 1e-3 ? RoadSection.Esquerda : 0;
+        if (curbSide != 0)
         {
-            Rect(side * c, side * p, road, baseY, Brush(88, 90, 96));
-            Rect(side * p, side * f, road + 2, baseY, Brush(130, 130, 130));
-            Rect(side * f, side * b, curbTop, baseY, Brush(165, 165, 165));
-            Rect(side * b, side * a, curbTop, curbTop + 5, Brush(150, 135, 105));
-
-            int n = s.FaixasPorSentido;
-            for (int i = 1; i < n; i++)
-            {
-                double x = side * (c + (i * (s.Pista / 2.0) / n));
-                _graphic.Children.Add(new WS.Line { X1 = X(x), X2 = X(x), Y1 = road - 5, Y2 = road, Stroke = Brush(245, 245, 245), StrokeThickness = 1.5 });
-            }
+            double sg = curbSide == RoadSection.Direita ? 1 : -1;
+            double b = c + (s.Pista / 2.0) + s.SarjetaEm(curbSide) + s.MeioFioEm(curbSide);
+            double x = X(sg * b) + (sg * 14);
+            L(x, curbTop, x, road + 4, dim, 0.7);
+            L(x - 3, curbTop + 0.5, x + 3, curbTop + 0.5, dim, 0.7);
+            L(x - 3, road + 4.5, x + 3, road + 4.5, dim, 0.7);
+            Txt("h 0.15", x + (sg > 0 ? 5 : -5), road - 14, 8.5, dim, center: false, right: sg < 0);
         }
-
-        if (c > 1e-3)
-            Rect(-c, c, curbTop, baseY, Brush(85, 130, 80));
-        else
-            _graphic.Children.Add(new WS.Line { X1 = X(0) - 1, X2 = X(0) - 1, Y1 = road - 5, Y2 = road, Stroke = Brush(240, 190, 30), StrokeThickness = 1.5 });
-
-        if (_showAxes)
-        {
-            _graphic.Children.Add(new WS.Line
-            {
-                X1 = X(0), X2 = X(0), Y1 = 26, Y2 = h - 8, Stroke = Brush(220, 80, 80), StrokeThickness = 0.8,
-                StrokeDashArray = new WM.DoubleCollection { 8, 3, 1, 3 }
-            });
-        }
-
-        double y1 = baseY + 24;
-        if (c > 1e-3)
-            Dim(-c, c, y1, N(s.Canteiro));
-        Dim(c, p, y1, N(s.Pista / 2.0));
-        if (s.Sarjeta > 0)
-            Dim(p, f, y1 + 18, N(s.Sarjeta));
-        if (s.MeioFio > 0)
-            Dim(f, b, y1 + 36, N(s.MeioFio));
-        if (s.Calcada > 0)
-            Dim(b, a, y1, N(s.Calcada));
-        Dim(-a, a, Math.Min(h - 10, y1 + 58), "total " + N(total));
 
         if (_showText)
-            Label($"{s.Name}  |  {s.Tipo}  |  {s.FaixasPorSentido * 2} faixas de {N((s.Pista / 2.0) / s.FaixasPorSentido)} m  |  {N(s.Velocidade)} km/h  |  raio {N(s.Raio)} m", 8, 6);
-        _graphicInfo.Text = "Corte transversal (sem escala vertical)";
+        {
+            Txt($"SECAO TIPO  {s.Name.ToUpperInvariant()} [{s.Id}]   {s.Tipo.ToUpperInvariant()}   " +
+                 $"{s.FaixasPorSentido * 2} FAIXAS x {N((s.Pista / 2.0) / s.FaixasPorSentido)} m   {N(s.Velocidade)} km/h   R ESQ. {N(s.Raio)} m   LARGURA {N(aL + aR)} m",
+                8, 6, 9.5, GraphicText, center: false);
+            Txt("LE", X(-aL - (margin * 0.6)), road - 7, 9, soft);
+            Txt("LD", X(aR + (margin * 0.6)), road - 7, 9, soft);
+        }
+
+        _graphicInfo.Text = "Corte transversal, offsets em m (esquerda negativa); sem escala vertical";
     }
 
     // ------------------------------------------------------------------
@@ -2527,5 +2932,16 @@ internal sealed class ViarioPanel : SW.Window
 
     private static string N(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 
-    private static string N(double v, int decimals) => Math.Round(v, decimals).ToString(CultureInfo.InvariantCulture);
+    private static string N(double v, int decimals) => v.ToString("F" + decimals, CultureInfo.InvariantCulture);
+}
+
+internal static class CanvasExtensions
+{
+    /// <summary>Posiciona o elemento no Canvas e o devolve (para encadear).</summary>
+    public static T At<T>(this T element, double left, double top) where T : SW.UIElement
+    {
+        WC.Canvas.SetLeft(element, left);
+        WC.Canvas.SetTop(element, top);
+        return element;
+    }
 }

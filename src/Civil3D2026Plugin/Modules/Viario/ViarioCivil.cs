@@ -315,8 +315,18 @@ internal static class ViarioCivil
                       .Select(g => $"{g.Key} {g.Count()}")) +
                   $"; faixas livres: {ViarioStore.LoadSlipLanes(db).Count}; raios de esquina: {ViarioStore.LoadCornerRadii(db).Count}" +
                   $"; eixos com raio proprio: {axes.Count(a => a.Radius is not null)}; desvinculadas: {ViarioStore.LoadReleased(db).Count}.");
+        List<AxisInput> chained = axes.Where(a => a.Chained).ToList();
+        lines.Add($"Concordancia mantida: {chained.Count} eixo(s)" + (chained.Count == 0 ? "." : " - " + string.Join(", ", chained.Select(a =>
+        {
+            List<V2> pts = new() { a.Path.Segs[0].A };
+            pts.AddRange(a.Path.Segs.Select(sg => sg.B));
+            bool cont = ViarioChain.IsTangentContinuous(pts, a.Path.Segs.Select(sg => sg.IsArc ? sg.Bulge : 0.0).ToList());
+            return $"{a.Key} {a.Path.Segs.Count} trechos {(cont ? "OK" : "SEM CONCORDANCIA")}";
+        })) + "."));
         lines.Add("Secoes: " + string.Join(" | ", ViarioStore.LoadSections(db).Select(s =>
-                      $"{s.Id} {s.Name} pista {s.Pista:0.##} cant {s.Canteiro:0.##} raio {s.Raio:0.##} ({axes.Count(a => a.Section.Id == s.Id)} eixo(s))")) +
+                      $"{s.Id} {s.Name} pista {s.Pista:0.##} cant {s.Canteiro:0.##} raio {s.Raio:0.##}" +
+                      (s.Simetrica ? "" : $" lados sarj/mf/calc {ViarioStore.LadosNome(s.LadosSarjeta)}/{ViarioStore.LadosNome(s.LadosMeioFio)}/{ViarioStore.LadosNome(s.LadosCalcada)}") +
+                      $" ({axes.Count(a => a.Section.Id == s.Id)} eixo(s))")) +
                   $"; corrente {ViarioStore.LoadSettings(db).CurrentSectionId}.");
         lines.Add("Linhas por nivel: " + string.Join(", ", result.Lines.GroupBy(l => l.Level).OrderBy(g => g.Key)
                       .Select(g => $"{g.Key} {g.Count()}")) + ".");

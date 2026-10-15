@@ -518,11 +518,11 @@ internal static class ViarioElementCommands
 
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         AcadDb.Entity entity = (AcadDb.Entity)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-        if (!ViarioStore.ReadAxis(entity, out string sectionId, out double? radius, out List<AxisEvent> events))
+        if (!ViarioStore.ReadAxis(entity, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained))
             return;
 
         change(events);
-        ViarioStore.SetAxis(entity, sectionId, radius, events);
+        ViarioStore.SetAxis(entity, sectionId, radius, events, chained);
         tr.Commit();
     }
 

@@ -160,7 +160,7 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.6.0)
+## Rede viaria (C3DVIARIO v0.7.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -168,7 +168,7 @@ Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do me
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
-C3DVIARIOEIXO        -> lanca eixos com preview; [Arco/Linha] alterna reta e arco tangente
+C3DVIARIOEIXO        -> lanca eixos como no Vehicle Tracking: [Tangent/Arc/Undo] (T reta na direcao corrente, A arco tangente pelo ponto, U desfaz; clicar no ultimo vertice desfaz); [Free/Chain] alterna lancamento livre; [COncordancia] Manter/Liberar em eixos existentes
 C3DVIARIORAIO        -> raio de uma esquina ou de um vertice do eixo (clique perto), de uma [Ilha] ou de um [Eixo]; arraste ou digite
 C3DVIARIOALARGAR     -> faixa adicional (conversao a direita/esquerda) com armazenamento arrastavel e taper
 C3DVIARIOGOTA        -> ilha em gota na aproximacao (Tipo II)
@@ -183,7 +183,9 @@ C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
 C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config]
 ```
 
-- secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas);
+- secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas); sarjeta, meio-fio e calcada podem existir so a esquerda, so a direita ou nos dois lados (no sentido do eixo);
+- concordancia: eixo lancado com T/A guarda a marca "concordancia mantida"; ao mover um vertice (grip, STRETCH, MOVE) a cadeia e refeita a jusante (reta segue a direcao, arco tangente passa pelo vertice) e o preview da rede aparece durante o arraste; "Liberar" (comando ou painel) volta a edicao livre;
+- pontas: ponta de eixo a ate a distancia de captura (Config) de outro eixo vale como ligada (EXTEND/grip que para um pouco antes ou passa um pouco);
 - layers por elemento: `VIARIO-EIXO`, `VIARIO-PISTA`, `VIARIO-MF-FACE`, `VIARIO-MF-COSTAS`, `VIARIO-ALINHAMENTO`, `VIARIO-CANTEIRO`, `VIARIO-ILHA`;
 - elementos gravados no eixo (XData) e ancorados no no mais proximo: acompanham o eixo quando ele e editado;
 - modelos: cruzamento, T, Y, T/cruz com gotas, T/cruz com faixas livres, cruz com conversao a esquerda (canteiro ou alargamento), T com faixas de conversao, rotatorias de 3, 4 e 5 ramos com gotas;

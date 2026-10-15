@@ -285,6 +285,9 @@ public sealed class ViarioCommands
     // Eixo (retas e arcos, com preview)
     // ------------------------------------------------------------------
 
+    /// <summary>Modo de lancamento lembrado na sessao: concordancia mantida (Vehicle Tracking) ou livre.</summary>
+    private static bool _chainMode = true;
+
     private static void DrawAxes(Document doc)
     {
         Editor ed = doc.Editor;
@@ -296,17 +299,21 @@ public sealed class ViarioCommands
             RoadSection section = CurrentSection(db, settings);
 
             PromptPointOptions first = new(
-                "\nPrimeiro ponto do eixo [" + section.Name + "] ou [Secao] <sair>: ")
+                "\nPrimeiro ponto do eixo [" + section.Name + ", " + (_chainMode ? "concordancia mantida" : "livre") + "] ou [Secao/COncordancia] <sair>: ")
             {
                 AllowNone = true
             };
             first.Keywords.Add("Secao");
+            first.Keywords.Add("COncordancia");
             first.AppendKeywordsToMessage = false;
 
             PromptPointResult start = ed.GetPoint(first);
             if (start.Status == PromptStatus.Keyword)
             {
-                ChooseCurrentSection(doc);
+                if (start.StringResult == "Secao")
+                    ChooseCurrentSection(doc);
+                else
+                    ChainMenu(doc);
                 continue;
             }
 
@@ -317,6 +324,7 @@ public sealed class ViarioCommands
             List<V2> points = new() { new V2(p0.X, p0.Y) };
             List<double> bulges = new();
             bool arcMode = false;
+            bool chained = _chainMode;
 
             (List<AxisInput> existing, _, HashSet<string> existingKeys) = ViarioSync.ComputeCurrent(db);
             EngineSettings engine = ViarioSync.EngineSettingsFor(db);
@@ -324,7 +332,8 @@ public sealed class ViarioCommands
             bool finished = false;
             while (!finished)
             {
-                AxisJig jig = new(points, bulges, arcMode, section, existing, existingKeys, engine, settings.Capture);
+                double tol = ClickTolerance(ed);
+                AxisJig jig = new(points, bulges, arcMode, chained, tol, section, existing, existingKeys, engine, settings.Capture);
                 PromptResult drag = ed.Drag(jig);
 
                 if (jig.Finished || drag.Status == PromptStatus.None)
@@ -335,25 +344,31 @@ public sealed class ViarioCommands
                 {
                     switch (keyword)
                     {
-                        case "Arco":
+                        case "Arc":
                             arcMode = true;
                             break;
-                        case "Linha":
+                        case "Tangent":
                             arcMode = false;
                             break;
-                        default:
-                            if (points.Count > 1)
-                            {
-                                points.RemoveAt(points.Count - 1);
-                                bulges.RemoveAt(bulges.Count - 1);
-                            }
-
+                        case "Free":
+                            chained = false;
+                            break;
+                        case "Chain":
+                            chained = true;
+                            break;
+                        default: // Undo
+                            Undo(points, bulges);
                             break;
                     }
                 }
                 else if (drag.Status == PromptStatus.OK)
                 {
-                    if (V2.Dist(points[^1], jig.Current) > 1e-6)
+                    if (points.Count > 1 && V2.Dist(points[^1], jig.Picked) <= tol)
+                    {
+                        // Clique em cima do ultimo vertice: desfaz o ultimo trecho (como no Vehicle Tracking).
+                        Undo(points, bulges);
+                    }
+                    else if (V2.Dist(points[^1], jig.Current) > 1e-6)
                     {
                         points.Add(jig.Current);
                         bulges.Add(jig.CurrentBulge);
@@ -368,18 +383,111 @@ public sealed class ViarioCommands
             if (points.Count < 2)
                 continue;
 
-            List<V2> final = AxisJig.Capture(points, existing, settings.Capture);
-            CreateAxis(doc, final, bulges, section);
+            _chainMode = chained;
+            List<V2> final = chained
+                ? AxisJig.CaptureAlong(points, bulges, existing, settings.Capture)
+                : AxisJig.Capture(points, existing, settings.Capture);
+            if (chained)
+            {
+                (final, bulges, _) = ViarioChain.Solve(final, bulges);
+            }
+
+            CreateAxis(doc, final, bulges, section, chained);
             ViarioResult? result = ViarioSync.Regenerate(doc, quiet: true);
             if (result is not null)
             {
-                ed.WriteMessage($"\n  Eixo criado. Rede: {result.Nodes.Count} intersecao(oes), {result.Lines.Count} linha(s).");
+                ed.WriteMessage($"\n  Eixo criado ({points.Count - 1} trecho(s), {(chained ? "concordancia mantida" : "livre")}). " +
+                                $"Rede: {result.Nodes.Count} intersecao(oes), {result.Lines.Count} linha(s).");
                 ViarioSync.WriteWarnings(doc, result);
+            }
+        }
+
+        static void Undo(List<V2> points, List<double> bulges)
+        {
+            if (points.Count > 1)
+            {
+                points.RemoveAt(points.Count - 1);
+                bulges.RemoveAt(bulges.Count - 1);
             }
         }
     }
 
-    private static void CreateAxis(Document doc, List<V2> points, List<double> bulges, RoadSection section)
+    /// <summary>Raio, em unidades do desenho, para "clicar em cima" de um vertice (cerca de 1% da altura da tela).</summary>
+    private static double ClickTolerance(Editor ed)
+    {
+        try
+        {
+            using AcadDb.ViewTableRecord view = ed.GetCurrentView();
+            return Math.Max(view.Height / 90.0, 1e-3);
+        }
+        catch
+        {
+            return 0.5;
+        }
+    }
+
+    /// <summary>Concordancia: modo dos proximos eixos, ou Manter/Liberar em eixos existentes.</summary>
+    private static void ChainMenu(Document doc)
+    {
+        Editor ed = doc.Editor;
+        PromptKeywordOptions opt = new(
+            "\nConcordancia [Manter/Liberar/Selecionar] <" + (_chainMode ? "Manter" : "Liberar") + ">: ", "Manter Liberar Selecionar")
+        {
+            AllowNone = true
+        };
+        PromptResult r = ed.GetKeywords(opt);
+        if (r.Status == PromptStatus.None)
+            return;
+        if (r.Status != PromptStatus.OK)
+            return;
+
+        switch (r.StringResult)
+        {
+            case "Manter":
+                _chainMode = true;
+                ed.WriteMessage("\n  Proximos eixos: retas e arcos concordantes (T reta na direcao, A arco tangente, U desfaz).");
+                return;
+            case "Liberar":
+                _chainMode = false;
+                ed.WriteMessage("\n  Proximos eixos: lancamento livre (vertices e arcos independentes).");
+                return;
+        }
+
+        PromptSelectionOptions sel = new() { MessageForAdding = "\nEixos para mudar a concordancia: " };
+        PromptSelectionResult selection = ed.GetSelection(sel, new SelectionFilter(new[]
+        {
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Start, "LWPOLYLINE"),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, ViarioStore.RegApp)
+        }));
+        if (selection.Status != PromptStatus.OK)
+            return;
+
+        PromptKeywordOptions what = new("\nNesses eixos [Manter/Liberar] <Manter>: ", "Manter Liberar") { AllowNone = true };
+        PromptResult w = ed.GetKeywords(what);
+        if (w.Status != PromptStatus.OK && w.Status != PromptStatus.None)
+            return;
+        bool keep = w.Status != PromptStatus.OK || w.StringResult == "Manter";
+
+        int count = 0;
+        using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartTransaction())
+        {
+            foreach (AcadDb.ObjectId id in selection.Value.GetObjectIds())
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForWrite) is not AcadDb.Polyline pl || !ViarioStore.IsAxis(pl, out _))
+                    continue;
+                ViarioStore.SetChained(pl, keep);
+                count++;
+            }
+
+            tr.Commit();
+        }
+
+        ed.WriteMessage($"\n  {count} eixo(s): concordancia {(keep ? "mantida (refeita na proxima atualizacao)" : "liberada")}.");
+        if (keep)
+            ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    private static void CreateAxis(Document doc, List<V2> points, List<double> bulges, RoadSection section, bool chained = false)
     {
         AcadDb.Database db = doc.Database;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
@@ -398,7 +506,7 @@ public sealed class ViarioCommands
         pl.Layer = ViarioStore.LayerAxis;
         ms.AppendEntity(pl);
         tr.AddNewlyCreatedDBObject(pl, true);
-        ViarioStore.SetAxis(pl, section.Id, null);
+        ViarioStore.SetAxis(pl, section.Id, null, null, chained && points.Count > 2);
         tr.Commit();
     }
 
@@ -999,8 +1107,11 @@ public sealed class ViarioCommands
     private static string Describe(RoadSection s) =>
         $"{s.Name} [{s.Id}, {s.Tipo}]: pista {Num(s.Pista)} ({s.FaixasPorSentido * 2} faixas)" +
         (s.Canteiro > 0 ? $" | canteiro {Num(s.Canteiro)}" : "") +
-        $" | sarjeta {Num(s.Sarjeta)} | meio-fio {Num(s.MeioFio)} | calcada {Num(s.Calcada)} | raio {Num(s.Raio)}" +
+        $" | sarjeta {Num(s.Sarjeta)}{LadosSufixo(s.LadosSarjeta)} | meio-fio {Num(s.MeioFio)}{LadosSufixo(s.LadosMeioFio)}" +
+        $" | calcada {Num(s.Calcada)}{LadosSufixo(s.LadosCalcada)} | raio {Num(s.Raio)}" +
         $" (total {Num(s.TotalWidth)} m)";
+
+    private static string LadosSufixo(Lados l) => l == Lados.Ambos ? "" : " (" + ViarioStore.LadosNome(l) + ")";
 
     private static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
 
@@ -1112,6 +1223,37 @@ public sealed class ViarioCommands
         double? raio = AskDouble(ed, "Raio de esquina na face do meio-fio (m, 0 = canto vivo)", s.Raio, allowZero: true);
         if (raio is null) return false;
 
+        // Lados: sarjeta, meio-fio e calcada podem existir so de um lado (pista de mao unica, bordo
+        // junto de um talude...). Esquerda/direita no sentido do eixo.
+        string ladosAtual = s.Simetrica ? "Ambos" : "Detalhar";
+        PromptKeywordOptions ladosOpt = new(
+            "\nSarjeta, meio-fio e calcada em que lados (no sentido do eixo) [Ambos/Esquerda/Direita/Detalhar] <" + ladosAtual + ">: ",
+            "Ambos Esquerda Direita Detalhar")
+        {
+            AllowNone = true
+        };
+        PromptResult ladosRes = ed.GetKeywords(ladosOpt);
+        if (ladosRes.Status != PromptStatus.OK && ladosRes.Status != PromptStatus.None)
+            return false;
+        string lados = ladosRes.Status == PromptStatus.OK ? ladosRes.StringResult : ladosAtual;
+        switch (lados)
+        {
+            case "Ambos": s.LadosSarjeta = s.LadosMeioFio = s.LadosCalcada = Lados.Ambos; break;
+            case "Esquerda": s.LadosSarjeta = s.LadosMeioFio = s.LadosCalcada = Lados.Esquerda; break;
+            case "Direita": s.LadosSarjeta = s.LadosMeioFio = s.LadosCalcada = Lados.Direita; break;
+            default:
+                Lados? ls = AskLados(ed, "Sarjeta", s.LadosSarjeta);
+                if (ls is null) return false;
+                Lados? lm = AskLados(ed, "Meio-fio", s.LadosMeioFio);
+                if (lm is null) return false;
+                Lados? lc = AskLados(ed, "Calcada", s.LadosCalcada);
+                if (lc is null) return false;
+                s.LadosSarjeta = ls.Value;
+                s.LadosMeioFio = lm.Value;
+                s.LadosCalcada = lc.Value;
+                break;
+        }
+
         // Largura de pista mudou pela linha de comando: faixas voltam ao automatico.
         if (Math.Abs(pista.Value - s.Pista) > 1e-6 || Math.Abs(canteiro.Value - s.Canteiro) > 1e-6)
             s.Faixas = 0;
@@ -1122,6 +1264,21 @@ public sealed class ViarioCommands
         s.Calcada = calcada.Value;
         s.Raio = raio.Value;
         return true;
+    }
+
+    private static Lados? AskLados(Editor ed, string label, Lados current)
+    {
+        string atual = current switch { Lados.Esquerda => "Esquerda", Lados.Direita => "Direita", Lados.Nenhum => "Nenhum", _ => "Ambos" };
+        PromptKeywordOptions opt = new("\n" + label + " [Ambos/Esquerda/Direita/Nenhum] <" + atual + ">: ", "Ambos Esquerda Direita Nenhum")
+        {
+            AllowNone = true
+        };
+        PromptResult r = ed.GetKeywords(opt);
+        if (r.Status == PromptStatus.None)
+            return current;
+        if (r.Status != PromptStatus.OK)
+            return null;
+        return r.StringResult switch { "Esquerda" => Lados.Esquerda, "Direita" => Lados.Direita, "Nenhum" => Lados.Nenhum, _ => Lados.Ambos };
     }
 
     private static double? AskDouble(Editor ed, string label, double current, bool allowZero)
@@ -1282,27 +1439,37 @@ internal sealed class AxisJig : DrawJig
     private readonly List<V2> _points;
     private readonly List<double> _bulges;
     private readonly bool _arcMode;
+    private readonly bool _chained;
+    private readonly double _tol;
     private readonly RoadSection _section;
     private readonly List<AxisInput> _existing;
     private readonly HashSet<string> _existingKeys;
     private readonly EngineSettings _engine;
     private readonly double _capture;
 
-    public AxisJig(List<V2> points, List<double> bulges, bool arcMode, RoadSection section,
+    public AxisJig(List<V2> points, List<double> bulges, bool arcMode, bool chained, double tol, RoadSection section,
         List<AxisInput> existing, HashSet<string> existingKeys, EngineSettings engine, double capture)
     {
         _points = points;
         _bulges = bulges;
         _arcMode = arcMode;
+        _chained = chained;
+        _tol = tol;
         _section = section;
         _existing = existing;
         _existingKeys = existingKeys;
         _engine = engine;
         _capture = capture;
         Current = points[^1];
+        Picked = points[^1];
     }
 
+    /// <summary>Ponto final do trecho em andamento (ja resolvido: projetado na direcao, no modo concordante).</summary>
     public V2 Current { get; private set; }
+
+    /// <summary>Ponto onde o mouse esta (sem resolver), para o clique em cima do ultimo vertice.</summary>
+    public V2 Picked { get; private set; }
+
     public double CurrentBulge { get; private set; }
     public bool Finished { get; private set; }
     public string? Keyword { get; private set; }
@@ -1312,10 +1479,11 @@ internal sealed class AxisJig : DrawJig
     protected override SamplerStatus Sampler(JigPrompts prompts)
     {
         V2 last = _points[^1];
-        string mode = _arcMode && CanArc ? "arco tangente" : "reta";
+        bool arc = _arcMode && CanArc;
+        string mode = arc ? "arco tangente" : _chained && CanArc ? "reta na direcao corrente" : "reta";
+        string keys = "Tangent/Arc" + (_points.Count > 1 ? "/Undo" : "") + (_chained ? "/Free" : "/Chain");
         JigPromptPointOptions options = new(
-            "\nProximo ponto (" + mode + ") ou [" + (_arcMode ? "Linha" : "Arco") +
-            (_points.Count > 1 ? "/Desfazer" : "") + "] <terminar>: ")
+            "\nProximo ponto (" + mode + ") ou [" + keys + "] <terminar>: ")
         {
             UserInputControls = UserInputControls.Accept3dCoordinates |
                                 UserInputControls.NullResponseAccepted |
@@ -1325,9 +1493,11 @@ internal sealed class AxisJig : DrawJig
             Cursor = CursorType.RubberBand
         };
 
-        options.Keywords.Add(_arcMode ? "Linha" : "Arco");
+        options.Keywords.Add("Tangent");
+        options.Keywords.Add("Arc");
         if (_points.Count > 1)
-            options.Keywords.Add("Desfazer");
+            options.Keywords.Add("Undo");
+        options.Keywords.Add(_chained ? "Free" : "Chain");
 
         PromptPointResult result = prompts.AcquirePoint(options);
 
@@ -1346,25 +1516,37 @@ internal sealed class AxisJig : DrawJig
         }
 
         V2 p = new(result.Value.X, result.Value.Y);
-        if (V2.Dist(p, Current) < 1e-9)
+        if (V2.Dist(p, Picked) < 1e-9)
             return SamplerStatus.NoChange;
 
-        Current = p;
-        CurrentBulge = _arcMode && CanArc ? TangentBulge(EndTangent(), last, p) : 0.0;
+        Picked = p;
+        (Current, CurrentBulge) = Resolve(p);
         return SamplerStatus.OK;
+    }
+
+    /// <summary>Fim e bulge do trecho em andamento para o ponto p do mouse.</summary>
+    private (V2 End, double Bulge) Resolve(V2 p)
+    {
+        V2 last = _points[^1];
+        bool arc = _arcMode && CanArc;
+
+        if (_chained && CanArc)
+        {
+            // Concordancia: resolve a cadeia inteira com o trecho novo no fim.
+            List<V2> pts = new(_points) { p };
+            List<double> bulges = new(_bulges) { arc ? 1e-3 : 0.0 };
+            (List<V2> np, List<double> nb, _) = ViarioChain.Solve(pts, bulges);
+            return (np[^1], nb[^1]);
+        }
+
+        return (p, arc ? TangentBulge(EndTangent(), last, p) : 0.0);
     }
 
     private V2 EndTangent() =>
         new Seg(_points[^2], _points[^1], _bulges[^1]).TangentAt(1.0);
 
     /// <summary>Bulge do arco tangente a t que sai de a e chega em b.</summary>
-    public static double TangentBulge(V2 tangent, V2 a, V2 b)
-    {
-        V2 chord = b - a;
-        double alpha = Math.Atan2(V2.Cross(tangent, chord), V2.Dot(tangent, chord));
-        alpha = Math.Clamp(alpha, -Math.PI + 0.02, Math.PI - 0.02);
-        return Math.Tan(alpha / 2.0);
-    }
+    public static double TangentBulge(V2 tangent, V2 a, V2 b) => ViarioChain.TangentBulge(tangent, a, b);
 
     protected override bool WorldDraw(WorldDraw draw)
     {
@@ -1390,6 +1572,15 @@ internal sealed class AxisJig : DrawJig
             {
                 axis.ColorIndex = 1;
                 draw.Geometry.Draw(axis);
+            }
+
+            if (_points.Count > 1)
+            {
+                // Alvo do "clique em cima do ultimo vertice desfaz".
+                bool over = V2.Dist(Picked, _points[^1]) <= _tol;
+                using AcadDb.Circle dot = new(new Point3d(_points[^1].X, _points[^1].Y, 0), Vector3d.ZAxis, Math.Max(_tol * 0.6, 1e-3));
+                dot.ColorIndex = over ? 2 : 8;
+                draw.Geometry.Draw(dot);
             }
 
             List<AxisInput> axes = new(PreviewSubset(path));
@@ -1428,6 +1619,52 @@ internal sealed class AxisJig : DrawJig
         for (int i = 1; i < pts.Count; i++)
             segs.Add(new Seg(pts[i - 1], pts[i], i - 1 < bulges.Count ? bulges[i - 1] : 0.0));
         return new GPath(segs);
+    }
+
+    /// <summary>
+    /// Captura para eixo concordante: a ultima ponta e levada ate o eixo vizinho ao
+    /// longo da propria direcao do ultimo trecho (prolonga/encurta a reta), para
+    /// nao quebrar a concordancia; a primeira ponta vai pela perpendicular.
+    /// </summary>
+    public static List<V2> CaptureAlong(List<V2> pts, List<double> bulges, List<AxisInput> existing, double capture)
+    {
+        List<V2> result = Capture(pts, existing, capture);
+        if (capture <= 0 || existing.Count == 0 || pts.Count < 2)
+            return result;
+
+        int n = pts.Count;
+        bool lastIsArc = bulges.Count >= n - 1 && Math.Abs(bulges[n - 2]) > 1e-9;
+        if (lastIsArc || V2.Dist(result[n - 1], pts[n - 1]) < 1e-9)
+            return result; // arco no fim (fica a perpendicular) ou nada capturado
+
+        V2 a = pts[n - 2], b = pts[n - 1];
+        V2 dir = (b - a).Unit();
+        if (dir.Length < 1e-9)
+            return result;
+
+        // Reta prolongada alguns comprimentos de captura para os dois lados da ponta.
+        double reach = Math.Max(capture * 4.0, 1.0);
+        GPath probe = new(new List<Seg> { Seg.Line(b - (dir * reach), b + (dir * reach)) });
+        V2? best = null;
+        double bestDist = capture * 1.5;
+        foreach (AxisInput axis in existing)
+        {
+            if (!axis.Path.Bounds().Inflate(reach).Intersects(Box2.Empty.Add(b)))
+                continue;
+            foreach ((_, _, V2 x) in probe.Intersections(axis.Path))
+            {
+                double d = V2.Dist(x, b);
+                if (d < bestDist)
+                {
+                    bestDist = d;
+                    best = x;
+                }
+            }
+        }
+
+        if (best is V2 along)
+            result[n - 1] = along;
+        return result;
     }
 
     /// <summary>Puxa a primeira e a ultima ponta para o eixo vizinho mais proximo (dentro da captura).</summary>

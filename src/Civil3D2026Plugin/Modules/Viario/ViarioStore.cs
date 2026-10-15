@@ -105,14 +105,30 @@ internal static class ViarioStore
     public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius) =>
         ReadAxis(obj, out sectionId, out radius, out _);
 
-    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius, out List<AxisEvent> events)
+    /// <summary>Marca de eixo com concordancia mantida (retas e arcos tangentes entre si).</summary>
+    public const string FlagChain = "CONC=1";
+
+    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius, out List<AxisEvent> events) =>
+        ReadAxis(obj, out sectionId, out radius, out events, out _);
+
+    /// <summary>Se o eixo tem a concordancia mantida (so polilinhas lancadas assim).</summary>
+    public static bool IsChained(AcadDb.DBObject obj)
+    {
+        List<string>? values = ReadValues(obj);
+        return values is not null && values.Count > 0 && values[0] == TagAxis && values.Contains(FlagChain);
+    }
+
+    public static bool ReadAxis(AcadDb.DBObject obj, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained)
     {
         sectionId = string.Empty;
         radius = null;
+        chained = false;
         events = new List<AxisEvent>();
         List<string>? values = ReadValues(obj);
         if (values is null || values[0] != TagAxis)
             return false;
+
+        chained = values.Contains(FlagChain);
 
         sectionId = values.Count > 1 ? values[1] : string.Empty;
         if (values.Count > 2 &&
@@ -145,7 +161,7 @@ internal static class ViarioStore
         entity.XData = new AcadDb.ResultBuffer(list.ToArray());
     }
 
-    public static void SetAxis(AcadDb.Entity entity, string sectionId, double? radius, IEnumerable<AxisEvent>? events = null)
+    public static void SetAxis(AcadDb.Entity entity, string sectionId, double? radius, IEnumerable<AxisEvent>? events = null, bool chained = false)
     {
         List<string> values = new()
         {
@@ -154,17 +170,44 @@ internal static class ViarioStore
             radius is double r ? r.ToString("0.###", CultureInfo.InvariantCulture) : string.Empty
         };
 
+        if (chained)
+            values.Add(FlagChain);
         if (events is not null)
             values.AddRange(events.Select(e => e.Serialize()));
 
         SetTag(entity, values.ToArray());
     }
 
-    /// <summary>Muda a secao ou o raio do eixo mantendo os elementos dele.</summary>
+    /// <summary>Muda a secao ou o raio do eixo mantendo os elementos e a concordancia dele.</summary>
     public static void UpdateAxis(AcadDb.Entity entity, string? sectionId = null, double? radius = null, bool clearRadius = false)
     {
-        ReadAxis(entity, out string currentSection, out double? currentRadius, out List<AxisEvent> events);
-        SetAxis(entity, sectionId ?? currentSection, clearRadius ? null : radius ?? currentRadius, events);
+        ReadAxis(entity, out string currentSection, out double? currentRadius, out List<AxisEvent> events, out bool chained);
+        SetAxis(entity, sectionId ?? currentSection, clearRadius ? null : radius ?? currentRadius, events, chained);
+    }
+
+    /// <summary>Liga/desliga a concordancia mantida do eixo.</summary>
+    public static void SetChained(AcadDb.Entity entity, bool chained)
+    {
+        if (!ReadAxis(entity, out string sectionId, out double? radius, out List<AxisEvent> events, out _))
+            return;
+        SetAxis(entity, sectionId, radius, events, chained);
+    }
+
+    /// <summary>Vertices e bulges de uma polilinha (bulge por trecho, n-1 para aberta).</summary>
+    public static (List<V2> Points, List<double> Bulges) Vertices(AcadDb.Polyline pl)
+    {
+        List<V2> pts = new();
+        List<double> bulges = new();
+        int n = pl.NumberOfVertices;
+        for (int i = 0; i < n; i++)
+        {
+            Point2d q = pl.GetPoint2dAt(i);
+            pts.Add(new V2(q.X, q.Y));
+            if (i < n - 1 || pl.Closed)
+                bulges.Add(pl.GetBulgeAt(i));
+        }
+
+        return (pts, bulges);
     }
 
     public static void ClearTag(AcadDb.Entity entity)
@@ -278,6 +321,8 @@ internal static class ViarioStore
                         s.Faixas = v[10].Value is int faixas ? faixas : v[10].Value is short f16 ? f16 : 0;
                         s.Velocidade = Real(v[11], 40.0);
                     }
+                    if (v.Length >= 13 && (v[12].Value is int lados || (v[12].Value is short l16 && (lados = l16) == l16)))
+                        UnpackLados(s, lados);
                     else
                     {
                         s.Tipo = GuessTipo(s);
@@ -332,10 +377,32 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Raio),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.Tipo),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.Faixas),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Velocidade)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Velocidade),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, PackLados(s))));
 
         EraseRecord(tr, db, LegacyProfilePrefix + s.Id);
     }
+
+    /// <summary>Lados de sarjeta, meio-fio e calcada num inteiro (2 bits cada).</summary>
+    public static int PackLados(RoadSection s) =>
+        (int)s.LadosSarjeta | ((int)s.LadosMeioFio << 2) | ((int)s.LadosCalcada << 4);
+
+    public static void UnpackLados(RoadSection s, int packed)
+    {
+        s.LadosSarjeta = (Lados)(packed & 3);
+        s.LadosMeioFio = (Lados)((packed >> 2) & 3);
+        s.LadosCalcada = (Lados)((packed >> 4) & 3);
+    }
+
+    public static readonly (string Text, Lados Value)[] LadosOpcoes =
+    {
+        ("ambos", Lados.Ambos), ("esquerda", Lados.Esquerda), ("direita", Lados.Direita), ("nenhum", Lados.Nenhum)
+    };
+
+    public static string LadosNome(Lados l) => LadosOpcoes.First(o => o.Value == l).Text;
+
+    public static Lados LadosDe(string text) =>
+        LadosOpcoes.FirstOrDefault(o => o.Text.Equals(text.Trim(), StringComparison.OrdinalIgnoreCase), LadosOpcoes[0]).Value;
 
     public static void DeleteSection(AcadDb.Transaction tr, AcadDb.Database db, string id)
     {

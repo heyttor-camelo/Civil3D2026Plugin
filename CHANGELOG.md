@@ -1,3 +1,13 @@
+## 2.32.0 - C3DVIARIO v0.7.0 / eixo tipo Vehicle Tracking, preview nos grips, secao por lado, monitor tecnico
+
+- **C3DVIARIOEIXO no modelo do Vehicle Tracking**: `Tangent` (reta na direcao corrente, o clique da o comprimento), `Arc` (arco tangente que passa pelo ponto), `Undo`; clicar em cima do ultimo vertice desfaz o ultimo trecho; todos os trechos concordantes. `Free`/`Chain` alterna o lancamento livre (como antes). Eixo lancado assim fica com **concordancia mantida**: mover um vertice (grip, STRETCH, MOVE) refaz a cadeia a jusante; `C3DVIARIOEIXO > COncordancia` (Manter/Liberar, tambem por selecao) e a propriedade do eixo no painel liberam/religam;
+- **preview durante o arraste de grips**: ao mover um vertice do eixo a rede recalculada (e o eixo concordado) aparece antes de soltar;
+- **pontas quase encostadas**: ponta de eixo a ate a distancia de captura de outro eixo (Config, 1 m) vale como ligada - cobre EXTEND/grip que para antes ou passa um pouco do eixo transversal;
+- **secao tipo por lado**: sarjeta, meio-fio e calcada em ambos os lados, so a esquerda, so a direita ou nenhum (no sentido do eixo); linha de comando (`Secao > Nova/Editar`: Ambos/Esquerda/Direita/Detalhar), painel (Sarjeta em / Meio-fio em / Calcada em) e corte;
+- **monitor tecnico**: reguas de coordenadas E/N, grade maior/menor, estacas de 20 m ao longo dos eixos (14+15.00, PF na ponta), escala grafica, norte e escala aproximada; corte da secao com cotas de desenho (linhas de chamada, tracos obliquos, texto na cota, cadeia por componente / meia pista / total), regua de offsets, nomes dos componentes, LE/LD e altura do meio-fio;
+- explorador: fontes Tahoma (interface) e Consolas (numeros, coordenadas, cotas); colunas numericas alinhadas a direita com unidade no cabecalho; aba **Geometria** do eixo (trecho, tipo, comprimento, raio, estacas e coordenadas iniciais/finais); colunas Est. final, R min, Concord. nos eixos; Lados nas secoes;
+- autoteste: linha "Concordancia mantida" (confere a continuidade) e lados das secoes.
+
 ## 2.31.0 - Utilitarios v1.1.0 / LSLAYOUTS com janela, ALLTORGB com layers
 
 - **LSLAYOUTS** sem digitacao: janela com a lista dos layer states do desenho (nome e descricao) e uma miniatura de cada layout (margem, carimbo e viewports, desenhados a partir do papel). Clique nas viewports para marcar; por layout, "todas" e "repetir nos demais" (marca nos outros layouts as viewports na mesma posicao e tamanho, para pranchas do mesmo modelo); filtro de layouts com curinga; Todas/Nenhuma. Aplicar restaura o layer state como override nas marcadas e a janela continua aberta para aplicar outro layer state em outras viewports; a miniatura mostra o layer state aplicado. REGENALL ao fechar;
