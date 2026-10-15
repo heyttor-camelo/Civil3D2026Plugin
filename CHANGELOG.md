@@ -1,3 +1,8 @@
+## 2.32.2 - C3DVIARIO v0.7.2 / narizes de ilha em bicos agudos
+
+- **bicos agudos** (ramos que se separam em angulo pequeno, como os narizes das ilhas entre pistas que se bifurcam) ficavam em canto vivo e nao aceitavam raio: a esquina fica longe do no (a 3,8 m / sen(angulo/2)) e a regra "metade do ramo" nao deixava o arco caber. Agora o ramo cede ate o que o outro no precisa, o centro e procurado onde um bico agudo o poe, e a busca do raio e mais fina (reduz de 20 em 20%);
+- **raio de nariz**: bicos com menos de 35 graus recebem por padrao 1,00 m (IPR-718, narizes de ilha 0,5-1,0 m) em vez do raio de esquina da secao; `C3DVIARIORAIO` continua valendo por esquina. Com o nariz arredondado, as linhas de sarjeta/pista deixam de formar o "espeto" que parecia uma sarjeta maior.
+
 ## 2.32.1 - C3DVIARIO v0.7.1 / cotar faixas com um clique
 
 - **C3DVIARIOCOTAR** (tambem `C3DVIARIO > COtar` e no painel): clique sobre o eixo e a secao e cotada naquela estaca, em planta, com cotas alinhadas perpendiculares ao eixo em cadeia (calcada, meio-fio+sarjeta, cada faixa, canteiro) e a largura total numa segunda linha. As posicoes vem das linhas geradas na estaca (alargamentos entram); as faixas, da secao. Estilo de cota corrente, layer VIARIO-COTAS; [Detalhe] separa sarjeta e meio-fio; [Remover] apaga todas as cotas do viario.

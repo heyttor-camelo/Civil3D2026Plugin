@@ -241,6 +241,9 @@ internal sealed class EngineSettings
     /// </summary>
     public double EndCapture { get; set; } = 1.0;
 
+    /// <summary>Raio do nariz em bicos agudos (ramos a menos de 35 graus), na face do meio-fio.</summary>
+    public double NoseRadius { get; set; } = 1.0;
+
     /// <summary>Raios especificos por esquina (chave de CornerInfo).</summary>
     public Dictionary<string, double> CornerRadius { get; set; } = new();
 
@@ -253,6 +256,7 @@ internal sealed class EngineSettings
         StraightToleranceDeg = StraightToleranceDeg,
         MedianSetback = MedianSetback,
         EndCapture = EndCapture,
+        NoseRadius = NoseRadius,
         CornerRadius = new Dictionary<string, double>(CornerRadius),
         SlipLanes = new Dictionary<string, SlipLane>(SlipLanes),
         RemovedIslands = new List<V2>(RemovedIslands),
@@ -1203,6 +1207,9 @@ internal static class ViarioEngine
     // Esquinas
     // ------------------------------------------------------------------
 
+    /// <summary>Angulo entre ramos abaixo do qual a esquina e tratada como nariz de ilha.</summary>
+    private const double NoseAngle = 35.0 * Math.PI / 180.0;
+
     private static double ResolveRadius(Ctx ctx, Leg li, Leg lj, string key)
     {
         if (ctx.Settings.CornerRadius.TryGetValue(key, out double specific))
@@ -1243,6 +1250,11 @@ internal static class ViarioEngine
             SlipLane? slip = ctx.Settings.SlipLanes.TryGetValue(key, out SlipLane? sl) ? sl : null;
             double faceRadius = slip?.Radius ?? ResolveRadius(ctx, li, lj, key);
             bool concave = theta < Math.PI - straightTol;
+
+            // Bico agudo (ramos que se separam em angulo pequeno): o que fica entre eles e um
+            // nariz de ilha/canteiro, com raio de 0,5-1,0 m (IPR-718), nao o raio de esquina.
+            if (concave && slip is null && !ctx.Settings.CornerRadius.ContainsKey(key) && theta < NoseAngle)
+                faceRadius = Math.Min(faceRadius, ctx.Settings.NoseRadius);
 
             foreach (EdgeLevel level in EdgeLevels)
                 ProcessCorner(ctx, node, li, lj, sideI, sideJ, theta, concave, level, faceRadius, key, concave ? slip : null);
@@ -1322,7 +1334,7 @@ internal static class ViarioEngine
         if (radius > 1e-6)
         {
             (bool ok, double r, double s1, double s2, Seg? a, V2 center) =
-                Fillet(ctx, li, lj, sideI, sideJ, d1, d2, c1, c2, x.Value.P, x.Value.S1, x.Value.S2, radius);
+                Fillet(ctx, li, lj, sideI, sideJ, d1, d2, c1, c2, x.Value.P, x.Value.S1, x.Value.S2, radius, theta);
 
             if (ok && a is not null && level == EdgeLevel.FaceMF && slip is not null)
                 BuildSlipIsland(ctx, c1, c2, x.Value.P, center, r, slip);
@@ -1394,11 +1406,15 @@ internal static class ViarioEngine
 
     private static (bool Ok, double Radius, double S1, double S2, Seg? Arc, V2 Center) Fillet(
         Ctx ctx, Leg li, Leg lj, int sideI, int sideJ, double d1, double d2,
-        Curve c1, Curve c2, V2 corner, double sx1, double sx2, double radius)
+        Curve c1, Curve c2, V2 corner, double sx1, double sx2, double radius, double theta)
     {
         double r = radius;
+        // Em bico agudo o centro fica longe da esquina (r / sen(theta/2)).
+        double sinHalf = Math.Max(Math.Abs(Math.Sin(theta / 2.0)), 0.05);
 
-        for (int attempt = 0; attempt < 8; attempt++, r *= 0.6)
+        // Tenta o raio pedido e vai reduzindo aos poucos (ate ~5% dele), para ficar
+        // perto do maior raio que cabe - bicos agudos (narizes de ilha) precisam disso.
+        for (int attempt = 0; attempt < 14; attempt++, r *= 0.8)
         {
             // Centro: encontro das paralelas (a distancia r) das proprias linhas,
             // que ja incluem alargamentos e tapers.
@@ -1407,10 +1423,11 @@ internal static class ViarioEngine
 
             V2? center = null;
             double best = double.MaxValue;
+            double limit = Math.Max((3.0 * r) + d1 + d2 + 5.0, (1.2 * r / sinHalf) + 1.0);
             foreach ((_, _, V2 p) in o1.Intersections(o2))
             {
                 double dist = V2.Dist(p, corner);
-                if (dist < best && dist <= (3.0 * r) + d1 + d2 + 5.0)
+                if (dist < best && dist <= limit)
                 {
                     best = dist;
                     center = p;
@@ -1430,7 +1447,7 @@ internal static class ViarioEngine
             if (SignedAlong(c1, sx1, s1, li.Dir) < -1e-6 || SignedAlong(c2, sx2, s2, lj.Dir) < -1e-6)
                 continue;
 
-            if (!FitsInLeg(ctx, li, p1) || !FitsInLeg(ctx, lj, p2))
+            if (!FitsInLeg(ctx, li, p1, radius) || !FitsInLeg(ctx, lj, p2, radius))
                 continue;
 
             double a0 = (p1 - o).Angle;
@@ -1445,14 +1462,22 @@ internal static class ViarioEngine
         return (false, 0.0, sx1, sx2, null, default);
     }
 
-    private static bool FitsInLeg(Ctx ctx, Leg leg, V2 tangentPoint)
+    /// <summary>
+    /// O ponto de tangencia precisa caber no ramo. Quando o ramo termina em outro no,
+    /// este no pode usar ate a metade do ramo ou, se sobrar, tudo menos o que o outro
+    /// no precisa para as proprias esquinas (bicos agudos ficam longe do no e
+    /// precisam dessa folga).
+    /// </summary>
+    private static bool FitsInLeg(Ctx ctx, Leg leg, V2 tangentPoint, double faceRadius)
     {
         GPath axis = ctx.Axes[leg.Axis].Path;
         double s = axis.Project(tangentPoint).S;
         double along = (s - leg.S) * leg.Dir;
         if (axis.Closed)
             along = ((along % axis.Length) + axis.Length) % axis.Length;
-        double available = leg.ExtentEndsAtNode && !leg.FarNodeStraight ? leg.Extent / 2.0 : leg.Extent;
+        double available = leg.ExtentEndsAtNode && !leg.FarNodeStraight
+            ? Math.Max(leg.Extent / 2.0, leg.Extent - Math.Max(2.0 * faceRadius, 6.0))
+            : leg.Extent;
         return along <= available + 1e-6;
     }
 

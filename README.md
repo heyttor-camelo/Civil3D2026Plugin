@@ -160,7 +160,7 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.7.1)
+## Rede viaria (C3DVIARIO v0.7.2)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
