@@ -104,7 +104,23 @@ internal sealed class ViarioPanel : SW.Window
 
     private bool _showGrid = true;
     private bool _showAxes = true;
-    private bool _showText = true;
+
+    /// <summary>Textos da vista: quais aparecem (menu Textos).</summary>
+    private static readonly (string Key, string Title)[] TextKinds =
+    {
+        ("eixos", "Nomes dos eixos"),
+        ("estacas", "Estacas ao longo dos eixos"),
+        ("pf", "Estaca final (PF)"),
+        ("reguas", "Reguas de coordenadas"),
+        ("escala", "Escala grafica e norte"),
+        ("titulo", "Titulo e LE/LD (secao)"),
+        ("componentes", "Nomes dos componentes (secao)"),
+        ("cotas", "Textos das cotas (secao)")
+    };
+
+    private static HashSet<string> _texts = LoadTextPreference();
+    private static bool Show(string key) => _texts.Contains(key);
+    private bool _sectionView;
 
     // Transformacao da vista grafica (para coordenadas, zoom e pan).
     private double _vScale, _vCx, _vCy, _vW, _vH, _vOx, _vOy;
@@ -151,6 +167,11 @@ internal sealed class ViarioPanel : SW.Window
             "Remove alargamento, gota, conversao, abertura ou faixa livre.", new[] { "Clique perto do elemento e confirme." }),
         new("ILHA", "C3DVIARIOILHA ", "Eliminar ilha", "Linhas",
             "A ilha clicada vira pavimento; [Restaurar] ou [Todas] desfaz.", new[] { "Clique dentro da ilha." }),
+        new("RECONCORDAR", "C3DVIARIOEIXO CO V ", "Reconcordar trechos", "Eixos",
+            "Refaz o arco vizinho a um vertice para ficar tangente ao outro trecho (eixo editado livre).",
+            new[] { "Clique perto do vertice entre os dois trechos.", "Entre duas retas, use Raio no vertice." }),
+        new("INVERTER", "C3DVIARIOEIXO I ", "Inverter sentido do eixo", "Eixos",
+            "Inverte o sentido (estacas e esquerda/direita); elementos e raios acompanham.", new[] { "Selecione os eixos." }),
         new("DESVINCULAR", "C3DVIARIO DE ", "Desvincular linhas", "Linhas",
             "Linhas geradas viram polilinhas comuns para edicao manual; o plugin nao as recria nem apaga.",
             new[] { "Selecione as linhas.", "Desvincular > Revincular devolve ao plugin." }),
@@ -329,7 +350,7 @@ internal sealed class ViarioPanel : SW.Window
         WC.StackPanel toggles = new() { Orientation = WC.Orientation.Horizontal };
         toggles.Children.Add(Toggle("Grade", () => _showGrid, v => _showGrid = v));
         toggles.Children.Add(Toggle("Eixos", () => _showAxes, v => _showAxes = v));
-        toggles.Children.Add(Toggle("Textos", () => _showText, v => _showText = v));
+        toggles.Children.Add(TextMenu());
         WC.DockPanel.SetDock(toggles, WC.Dock.Left);
         graphicBar.Children.Add(toggles);
         WC.DockPanel.SetDock(_coords, WC.Dock.Right);
@@ -522,6 +543,60 @@ internal sealed class ViarioPanel : SW.Window
         return box;
     }
 
+    /// <summary>Botao "Textos" com a lista do que mostrar na vista.</summary>
+    private WC.Button TextMenu()
+    {
+        WC.Button b = new()
+        {
+            Content = "Textos  ▾",
+            Padding = new SW.Thickness(8, 1, 8, 1),
+            Margin = new SW.Thickness(8, 1, 4, 1),
+            VerticalAlignment = SW.VerticalAlignment.Center,
+            Background = T.Header,
+            Foreground = T.Text,
+            BorderBrush = T.Line
+        };
+        b.Click += (_, _) =>
+        {
+            WC.ContextMenu menu = new() { PlacementTarget = b };
+            foreach ((string key, string title) in TextKinds)
+            {
+                WC.MenuItem mi = new() { Header = title, IsCheckable = true, IsChecked = Show(key), StaysOpenOnClick = true };
+                mi.Click += (_, _) =>
+                {
+                    if (mi.IsChecked)
+                        _texts.Add(key);
+                    else
+                        _texts.Remove(key);
+                    SaveTextPreference();
+                    _render?.Invoke();
+                };
+                menu.Items.Add(mi);
+            }
+
+            menu.Items.Add(new WC.Separator());
+            WC.MenuItem all = new() { Header = "Todos" };
+            all.Click += (_, _) =>
+            {
+                foreach ((string key, _) in TextKinds)
+                    _texts.Add(key);
+                SaveTextPreference();
+                _render?.Invoke();
+            };
+            menu.Items.Add(all);
+            WC.MenuItem none = new() { Header = "Nenhum" };
+            none.Click += (_, _) =>
+            {
+                _texts.Clear();
+                SaveTextPreference();
+                _render?.Invoke();
+            };
+            menu.Items.Add(none);
+            menu.IsOpen = true;
+        };
+        return b;
+    }
+
     private static WC.Button FooterButton(string text, Action action)
     {
         WC.Button b = new() { Content = text, MinWidth = 96, Padding = new SW.Thickness(10, 3, 10, 3), Margin = new SW.Thickness(0, 0, 6, 0) };
@@ -554,32 +629,58 @@ internal sealed class ViarioPanel : SW.Window
     private static string PreferencesPath() =>
         System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "viario_painel.txt");
 
-    private static bool LoadDarkPreference()
+    private static Dictionary<string, string> ReadPreferences()
     {
+        Dictionary<string, string> map = new(StringComparer.OrdinalIgnoreCase);
         try
         {
             string path = PreferencesPath();
-            return System.IO.File.Exists(path) && System.IO.File.ReadAllText(path).Contains("tema=escuro", StringComparison.OrdinalIgnoreCase);
+            if (!System.IO.File.Exists(path))
+                return map;
+            foreach (string line in System.IO.File.ReadAllLines(path))
+            {
+                int eq = line.IndexOf('=');
+                if (eq > 0)
+                    map[line[..eq].Trim()] = line[(eq + 1)..].Trim();
+            }
         }
         catch
         {
-            return false;
+            // Preferencia e conveniencia.
         }
+
+        return map;
     }
 
-    private static void SaveDarkPreference(bool dark)
+    private static void WritePreference(string key, string value)
     {
         try
         {
+            Dictionary<string, string> map = ReadPreferences();
+            map[key] = value;
             string path = PreferencesPath();
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-            System.IO.File.WriteAllText(path, "tema=" + (dark ? "escuro" : "claro"));
+            System.IO.File.WriteAllLines(path, map.Select(kv => kv.Key + "=" + kv.Value));
         }
         catch
         {
             // Preferencia e conveniencia.
         }
     }
+
+    private static bool LoadDarkPreference() =>
+        ReadPreferences().TryGetValue("tema", out string? tema) && tema.Equals("escuro", StringComparison.OrdinalIgnoreCase);
+
+    private static void SaveDarkPreference(bool dark) => WritePreference("tema", dark ? "escuro" : "claro");
+
+    private static HashSet<string> LoadTextPreference()
+    {
+        if (ReadPreferences().TryGetValue("textos", out string? list))
+            return new HashSet<string>(list.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(t => t.Trim()), StringComparer.OrdinalIgnoreCase);
+        return new HashSet<string>(TextKinds.Select(t => t.Key), StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static void SaveTextPreference() => WritePreference("textos", string.Join(",", _texts));
 
     private static WM.SolidColorBrush Brush(byte r, byte g, byte b)
     {
@@ -1758,8 +1859,30 @@ internal sealed class ViarioPanel : SW.Window
         Act("Zoom", ZoomCurrent, true);
         Act("Selecionar", () => SelectAxis(a));
         Act("Aplicar secao", () => AssignSection(a));
+        if (!a.Path.Closed)
+        {
+            Act("Inverter sentido", () => ReverseAxis(a));
+            Act("Reconcordar trecho...", () => Send("C3DVIARIOEIXO CO V ", "Clique perto do vertice entre os dois trechos."));
+        }
+        Act("Cotar faixas...", () => Send("C3DVIARIOCOTAR ", "Passe sobre o eixo e clique onde quer a cota."));
         Act("Remover da rede", () => RemoveAxis(a));
         _render = () => RenderMap(a.Path.Bounds().Inflate(a.Section.TotalWidth + 10), sh => sh.Highlight(a.Path.Segs));
+    }
+
+    private void ReverseAxis(AxisInput a)
+    {
+        Edit("Sentido invertido: " + AxisLabel(a.Key), db =>
+        {
+            Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc is null)
+                return;
+            AcadDb.ObjectId id = db.GetObjectId(false, new AcadDb.Handle(Convert.ToInt64(a.Key, 16)), 0);
+            (int count, List<string> notes) = ViarioCommands.ReverseAxes(doc, new[] { id });
+            foreach (string n in notes)
+                doc.Editor.WriteMessage("\n  [C3DVIARIO] " + n);
+            if (count > 0 && notes.Count > 0)
+                Say(notes[0]);
+        });
     }
 
     private void SetChained(AxisInput a, bool chained)
@@ -1823,7 +1946,13 @@ internal sealed class ViarioPanel : SW.Window
         Prop(ev.Kind == AxisEventKind.Gota ? "Largura maxima" : "Largura", N(ev.Width) + " m");
         Prop(ev.Kind is AxisEventKind.Abertura or AxisEventKind.Gota ? "Comprimento" : "Armazenamento", N(ev.Length) + " m");
         if (ev.Kind != AxisEventKind.Abertura)
-            Prop("Taper", N(ev.Taper) + " m" + (ev.Smooth ? " (suave)" : " (reto)"));
+            Prop("Taper", N(Math.Max(ev.Taper, ev.TaperIn)) + " m" + (ev.Smooth ? " (suave)" : " (reto)"));
+        if (ev.Kind is AxisEventKind.Alargamento or AxisEventKind.Baia)
+        {
+            ChoiceProp("TaperModo", "Taper fica",
+                new[] { ("longe do no (saida)", "longe"), ("junto ao no (entrada)", "junto"), ("nas duas pontas", "ambos") }, ev.TaperMode,
+                () => SaveTaperMode(a, ev, Text("TaperModo")));
+        }
         if (ev.Kind == AxisEventKind.Gota)
             Prop("Recuo da ponta", N(ev.Gap) + " m");
         Prop("Descricao", ev.Describe());
@@ -1838,6 +1967,20 @@ internal sealed class ViarioPanel : SW.Window
                 ViarioElementCommands.ModifyAxisEvents(AcApp.DocumentManager.MdiActiveDocument, a.Key, events => events.RemoveAll(e => e.Serialize() == serialized)));
         });
         _render = () => RenderMap(box, sh => sh.Highlight(a.Path.Segs));
+    }
+
+    private void SaveTaperMode(AxisInput a, AxisEvent ev, string mode)
+    {
+        if (mode == ev.TaperMode)
+            return;
+        string serialized = ev.Serialize();
+        double taper = Math.Max(ev.Taper, ev.TaperIn);
+        string where = mode == "junto" ? "Junto" : mode == "ambos" ? "Ambos" : "Longe";
+        Edit("Taper: " + mode, _ => ViarioElementCommands.ModifyAxisEvents(AcApp.DocumentManager.MdiActiveDocument, a.Key, events =>
+        {
+            foreach (AxisEvent e in events.Where(e => e.Serialize() == serialized))
+                ViarioElementCommands.ApplyTaperWhere(e, where, taper);
+        }));
     }
 
     private void ShowSlip(string key)
@@ -2127,12 +2270,26 @@ internal sealed class ViarioPanel : SW.Window
         EditProp("Capture", "Captura das pontas (m, 0 = nao)", N(_settings.Capture));
         Category("Canteiro");
         EditProp("MedianSetback", "Recuo do nariz do canteiro (m)", N(_settings.MedianSetback));
+        Category("Cotas das faixas (C3DVIARIOCOTAR)");
+        List<(string, string)> styles = new() { ("corrente do desenho", "") };
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                styles.AddRange(ViarioDimensions.StyleNames(d.Database).Select(n => (n, n)));
+        }
+        catch
+        {
+            // Sem desenho ativo.
+        }
+        ChoiceProp("CotaEstilo", "Estilo de cota", styles, _settings.CotaEstilo);
+        EditProp("CotaEscala", "Escala (DIMSCALE, 0 = do estilo)", N(_settings.CotaEscala));
+        Prop("Layer", ViarioStore.LayerDims);
         Category("Painel");
         Prop("Tema", (_dark ? "escuro" : "claro") + " (Preferencias...)");
         Act("Salvar", () =>
         {
-            double? snap = Number("SnapTolerance", 1e-6), capture = Number("Capture"), setback = Number("MedianSetback");
-            if (snap is null || capture is null || setback is null)
+            double? snap = Number("SnapTolerance", 1e-6), capture = Number("Capture"), setback = Number("MedianSetback"), cotaEscala = Number("CotaEscala");
+            if (snap is null || capture is null || setback is null || cotaEscala is null)
             {
                 Say("Corrija os valores em vermelho.");
                 return;
@@ -2143,6 +2300,8 @@ internal sealed class ViarioPanel : SW.Window
                 _settings.SnapTolerance = snap.Value;
                 _settings.Capture = capture.Value;
                 _settings.MedianSetback = setback.Value;
+                _settings.CotaEstilo = Text("CotaEstilo");
+                _settings.CotaEscala = cotaEscala.Value;
                 using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
                 ViarioStore.SaveSettings(tr, db, _settings);
                 tr.Commit();
@@ -2348,8 +2507,6 @@ internal sealed class ViarioPanel : SW.Window
         Shapes sh = NetworkShapes();
         extra?.Invoke(sh);
         Draw(sh, focus);
-        if (_showText)
-            DrawLabels();
     }
 
     private void RenderSignage(SignageOptions o, string? kind)
@@ -2382,7 +2539,7 @@ internal sealed class ViarioPanel : SW.Window
             return;
         SW.Point p = e.GetPosition(_graphic);
         V2 w = ToWorld(p);
-        _coords.Text = $"E {w.X,12:0.000}   N {w.Y,12:0.000}";
+        _coords.Text = _sectionView ? $"offset {w.X,8:0.000} m" : $"E {w.X,12:0.000}   N {w.Y,12:0.000}";
         if (_dragFrom is SW.Point f && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             _pan = new V2(_pan.X - ((p.X - f.X) / _vScale), _pan.Y + ((p.Y - f.Y) / _vScale));
@@ -2427,6 +2584,7 @@ internal sealed class ViarioPanel : SW.Window
 
     private void Draw(Shapes sh, Box2? focus)
     {
+        _sectionView = false;
         _graphic.Children.Clear();
         double w = _graphic.ActualWidth, h = _graphic.ActualHeight;
         List<V2> all = sh.Items.SelectMany(i => i.Points).ToList();
@@ -2500,7 +2658,7 @@ internal sealed class ViarioPanel : SW.Window
 
         // Estacas ao longo dos eixos.
         double stStep = new[] { 20.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0 }.First(v => v * scale >= 40 || v >= 5000);
-        if (_showAxes && _showText)
+        if (_showAxes)
             DrawStations(stStep);
 
         // Marcadores (local de uma recomendacao).
@@ -2515,9 +2673,13 @@ internal sealed class ViarioPanel : SW.Window
             GridLine(c.X, c.Y - 16, c.X, c.Y + 16, Brush(255, 80, 60));
         }
 
-        DrawRulers(step, dw, dh, x0, x1, y0, y1);
-        DrawScaleBar(step, dh);
-        DrawNorth();
+        if (Show("reguas"))
+            DrawRulers(step, dw, dh, x0, x1, y0, y1);
+        if (Show("escala"))
+        {
+            DrawScaleBar(step, dh);
+            DrawNorth();
+        }
 
         // 1 px = 25.4/96 mm no monitor.
         double den = 1000.0 / (scale * (25.4 / 96.0));
@@ -2577,8 +2739,8 @@ internal sealed class ViarioPanel : SW.Window
     private void DrawStations(double stStep)
     {
         double dh = _vH - RulerBottom;
-        int budget = 400;
-        for (int i = 0; i < _axes.Count && budget > 0; i++)
+        int budget = Show("estacas") ? 400 : 0;
+        for (int i = 0; i < _axes.Count; i++)
         {
             AxisInput a = _axes[i];
             double len = a.Path.Length;
@@ -2604,7 +2766,7 @@ internal sealed class ViarioPanel : SW.Window
             }
 
             // Ponta final com a estaca completa.
-            if (!a.Path.Closed && len % stStep > 1e-6)
+            if (Show("pf") && !a.Path.Closed && len % stStep > 1e-6)
             {
                 SW.Point c = ToScreen(a.Path.PointAt(len));
                 if (c.X >= RulerLeft && c.Y >= 0 && c.X <= _vW && c.Y <= dh)
@@ -2617,27 +2779,63 @@ internal sealed class ViarioPanel : SW.Window
             }
         }
 
-        DrawLabels();
+        if (Show("eixos"))
+            DrawLabels();
     }
 
+    /// <summary>Escala grafica cartografica: duas fileiras alternadas, primeiro trecho subdividido, valores nos tracos maiores.</summary>
     private void DrawScaleBar(double step, double dh)
     {
         double px = step * _vScale;
-        if (px < 30 || px > _vW * 0.5)
+        if (px < 70 || px > _vW * 0.5)
             return;
-        double x1 = _vW - 14, x0 = x1 - px, y = dh - 16;
+
+        double major = NiceStep(step / 5.0);
+        if (major >= step)
+            major = step / 2.0;
+        int majors = (int)Math.Round(step / major);
+        int subs = 4;
+        double x1 = _vW - 14, x0 = x1 - px, y = dh - 20, rowH = 3.5;
         WM.Brush ink = GraphicText;
-        _graphic.Children.Add(new WS.Rectangle { Width = px / 2.0, Height = 4, Fill = ink, Stroke = ink, StrokeThickness = 0.8 }.At(x0, y));
-        _graphic.Children.Add(new WS.Rectangle { Width = px / 2.0, Height = 4, Fill = GraphicBack, Stroke = ink, StrokeThickness = 0.8 }.At(x0 + (px / 2.0), y));
-        WC.TextBlock t0 = Mono("0", 9);
-        WC.Canvas.SetLeft(t0, x0 - 3);
-        WC.Canvas.SetTop(t0, y - 14);
-        _graphic.Children.Add(t0);
-        WC.TextBlock t1 = Mono(N(step) + " m", 9);
-        t1.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
-        WC.Canvas.SetLeft(t1, x1 - t1.DesiredSize.Width + 2);
-        WC.Canvas.SetTop(t1, y - 14);
-        _graphic.Children.Add(t1);
+        double Px(double v) => x0 + ((v / step) * px);
+
+        void Block(double v0, double v1, double top, bool filled)
+        {
+            WS.Rectangle r = new()
+            {
+                Width = Math.Max(0.5, Px(v1) - Px(v0)), Height = rowH, Fill = filled ? ink : GraphicBack, Stroke = ink, StrokeThickness = 0.6
+            };
+            _graphic.Children.Add(r.At(Px(v0), top));
+        }
+
+        // Primeiro trecho subdividido; demais inteiros. Fileira de cima comeca cheia, a de baixo vazia.
+        for (int k = 0; k < subs; k++)
+        {
+            double v0 = major * k / subs, v1 = major * (k + 1) / subs;
+            Block(v0, v1, y, k % 2 == 0);
+            Block(v0, v1, y + rowH, k % 2 != 0);
+        }
+
+        for (int m = 1; m < majors; m++)
+        {
+            double v0 = major * m, v1 = Math.Min(step, major * (m + 1));
+            Block(v0, v1, y, m % 2 == 1);
+            Block(v0, v1, y + rowH, m % 2 == 0);
+        }
+
+        // Valores: 0, cada traco maior e o fim com a unidade.
+        for (int m = 0; m <= majors; m++)
+        {
+            double v = Math.Min(step, major * m);
+            string text = m == majors ? N(v) + " m" : N(v);
+            WC.TextBlock t = Mono(text, 9);
+            t.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+            double tx = Px(v) - (m == majors ? t.DesiredSize.Width - 2 : m == 0 ? 2 : t.DesiredSize.Width / 2.0);
+            WC.Canvas.SetLeft(t, tx);
+            WC.Canvas.SetTop(t, y - 14);
+            _graphic.Children.Add(t);
+            _graphic.Children.Add(new WS.Line { X1 = Px(v), Y1 = y - 2, X2 = Px(v), Y2 = y, Stroke = ink, StrokeThickness = 1 });
+        }
     }
 
     private void DrawNorth()
@@ -2695,12 +2893,21 @@ internal sealed class ViarioPanel : SW.Window
         if (w < 60 || h < 60)
             return;
 
-        _vScale = 0;
         double aL = s.EdgeOffset(EdgeLevel.Alinhamento, RoadSection.Esquerda);
         double aR = s.EdgeOffset(EdgeLevel.Alinhamento, RoadSection.Direita);
         double margin = Math.Max(1.5, (aL + aR) * 0.08);
-        double k = (w - 60) / (aL + aR + (2 * margin));
-        double X(double x) => 30 + ((x + aL + margin) * k);
+        double k = (w - 60) / (aL + aR + (2 * margin)) * _zoom;
+        double xMid = ((aR - aL) / 2.0) + _pan.X;
+        // Roda e arrasto valem tambem aqui (so na horizontal): a vista guarda escala e centro.
+        _vScale = k;
+        _vCx = xMid;
+        _vCy = 0;
+        _vOx = w / 2.0;
+        _vOy = h / 2.0;
+        _vW = w;
+        _vH = h;
+        double X(double x) => (w / 2.0) + ((x - xMid) * k);
+        double xVis0 = xMid - (w / 2.0 / k), xVis1 = xMid + (w / 2.0 / k);
 
         double road = h * 0.40;
         double curbH = 10;                 // altura do meio-fio em px (sem escala vertical)
@@ -2734,7 +2941,8 @@ internal sealed class ViarioPanel : SW.Window
         _graphic.Children.Add(new WS.Rectangle { Width = w, Height = RulerBottom, Fill = GraphicRuler }.At(0, rulerY));
         L(0, rulerY + 0.5, w, rulerY + 0.5, GraphicGridMajor);
         double labStep = k >= 40 ? 1 : k >= 18 ? 2 : k >= 8 ? 5 : 10;
-        for (double x = Math.Ceiling((-aL - margin)); x <= aR + margin; x += 1)
+        double tickStep = k >= 4 ? 1 : labStep;
+        for (double x = Math.Ceiling(xVis0 / tickStep) * tickStep; x <= xVis1; x += tickStep)
         {
             double px = Math.Round(X(x)) + 0.5;
             bool lab = Math.Abs((x / labStep) - Math.Round(x / labStep)) < 1e-9;
@@ -2750,7 +2958,8 @@ internal sealed class ViarioPanel : SW.Window
         if (_showAxes)
         {
             L(X(0), 22, X(0), ground + 8, Brush(220, 80, 80), 0.9, new WM.DoubleCollection { 14, 4, 2, 4 });
-            Txt("EIXO", X(0), 8, 9, Brush(220, 80, 80));
+            if (Show("titulo"))
+                Txt("EIXO", X(0), 8, 9, Brush(220, 80, 80));
         }
 
         double c = s.Canteiro / 2.0;
@@ -2843,7 +3052,7 @@ internal sealed class ViarioPanel : SW.Window
         foreach ((string text, double a, double b) in names)
         {
             double px = Math.Abs(X(b) - X(a));
-            if (px < 44)
+            if (px < 44 || !Show("componentes"))
                 continue;
             Txt(text, (X(a) + X(b)) / 2.0, curbTop - 18, 9, dim);
         }
@@ -2870,7 +3079,7 @@ internal sealed class ViarioPanel : SW.Window
             L(xa, y + 0.5, xb, y + 0.5, ink, 0.9);
             Tick(xa, y + 0.5);
             Tick(xb, y + 0.5);
-            if (xb - xa >= 18)
+            if (xb - xa >= 18 && Show("cotas"))
                 Txt(text, (xa + xb) / 2.0, y - 13, 9.5, ink);
         }
 
@@ -2893,10 +3102,11 @@ internal sealed class ViarioPanel : SW.Window
             L(x, curbTop, x, road + 4, dim, 0.7);
             L(x - 3, curbTop + 0.5, x + 3, curbTop + 0.5, dim, 0.7);
             L(x - 3, road + 4.5, x + 3, road + 4.5, dim, 0.7);
-            Txt("h 0.15", x + (sg > 0 ? 5 : -5), road - 14, 8.5, dim, center: false, right: sg < 0);
+            if (Show("cotas"))
+                Txt("h " + N(s.MeioFio), x + (sg > 0 ? 5 : -5), road - 14, 8.5, dim, center: false, right: sg < 0);
         }
 
-        if (_showText)
+        if (Show("titulo"))
         {
             Txt($"SECAO TIPO  {s.Name.ToUpperInvariant()} [{s.Id}]   {s.Tipo.ToUpperInvariant()}   " +
                  $"{s.FaixasPorSentido * 2} FAIXAS x {N((s.Pista / 2.0) / s.FaixasPorSentido)} m   {N(s.Velocidade)} km/h   R ESQ. {N(s.Raio)} m   LARGURA {N(aL + aR)} m",
@@ -2905,7 +3115,8 @@ internal sealed class ViarioPanel : SW.Window
             Txt("LD", X(aR + (margin * 0.6)), road - 7, 9, soft);
         }
 
-        _graphicInfo.Text = "Corte transversal, offsets em m (esquerda negativa); sem escala vertical";
+        _graphicInfo.Text = "Corte transversal, offsets em m (esquerda negativa); sem escala vertical   |   roda: zoom   arrastar: mover   duplo clique: enquadrar";
+        _sectionView = true;
     }
 
     // ------------------------------------------------------------------

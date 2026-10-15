@@ -1,3 +1,11 @@
+## 2.32.3 - C3DVIARIO v0.7.3 / inverter eixo, taper nos dois sentidos, reconcordar, cotas interativas, textos e zoom do corte
+
+- **Inverter sentido do eixo** (`C3DVIARIOEIXO > Inverter`, botao no painel): geometria revertida, elementos reancorados (estaca L - s, lado do no trocado) e raios/faixas livres das esquinas reescritos; avisa quando a secao tem lados diferentes (esquerda/direita trocam);
+- **taper nos dois sentidos**: alargamento e conversao perguntam onde fica o taper - Longe do no (saida, como antes), Junto ao no (o alargamento comeca na intersecao e cresce) ou Ambos; editavel no painel (Elementos > Taper fica);
+- **reconcordar trechos** (`C3DVIARIOEIXO > COncordancia > Vertice`, botao Reconcordar): clique perto de um vertice e o arco vizinho e refeito tangente ao outro trecho (Seguinte/Anterior); entre duas retas, Raio no vertice insere o arco;
+- **C3DVIARIOCOTAR interativo**: a cadeia de cotas segue o cursor ao longo do eixo antes de clicar; opcoes [Estilo] (lista os estilos de cota do desenho) e [Escala] (DIMSCALE), gravadas no desenho e no painel (Config > Cotas das faixas); layer VIARIO-COTAS criada com as demais; botao "Cotar faixas..." nas propriedades do eixo;
+- explorador: **Textos** virou lista do que mostrar (nomes dos eixos, estacas, PF, reguas, escala e norte, titulo, nomes dos componentes, textos das cotas), lembrada entre sessoes; **zoom e arrasto no corte da secao** (roda/arrastar, offset sob o cursor); **escala grafica cartografica** (duas fileiras alternadas, primeiro trecho subdividido, valores nos tracos maiores).
+
 ## 2.32.2 - C3DVIARIO v0.7.2 / narizes de ilha em bicos agudos
 
 - **bicos agudos** (ramos que se separam em angulo pequeno, como os narizes das ilhas entre pistas que se bifurcam) ficavam em canto vivo e nao aceitavam raio: a esquina fica longe do no (a 3,8 m / sen(angulo/2)) e a regra "metade do ramo" nao deixava o arco caber. Agora o ramo cede ate o que o outro no precisa, o centro e procurado onde um bico agudo o poe, e a busca do raio e mais fina (reduz de 20 em 20%);

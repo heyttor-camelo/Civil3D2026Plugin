@@ -76,6 +76,9 @@ internal static class ViarioElementCommands
         bool? smooth = AskShape(ed);
         if (smooth is null)
             return;
+        string? where = AskTaperWhere(ed);
+        if (where is null)
+            return;
 
         AxisEvent ev = new()
         {
@@ -84,10 +87,10 @@ internal static class ViarioElementCommands
             Dir = leg.Dir,
             Side = side == "Direita" ? 1 : side == "Esquerda" ? -1 : 0,
             Width = width.Value,
-            Taper = taper.Value,
             Smooth = smooth.Value,
             Length = 30.0
         };
+        ApplyTaperWhere(ev, where, taper.Value);
 
         V2 stopLine = leg.Node.Point + (leg.Direction * leg.CrossHalf);
         double? length = DragEvent(doc, axes, keys, leg, ev, stopLine, "Comprimento do armazenamento (a partir da pista transversal)",
@@ -181,6 +184,9 @@ internal static class ViarioElementCommands
         double? taper = AskDouble(ed, "Comprimento do taper (m)", 20.0, true);
         if (taper is null)
             return;
+        string? where = AskTaperWhere(ed);
+        if (where is null)
+            return;
 
         AxisEvent ev = new()
         {
@@ -189,10 +195,10 @@ internal static class ViarioElementCommands
             Dir = leg.Dir,
             Side = side == "Direita" ? 1 : -1,
             Width = width.Value,
-            Taper = taper.Value,
             Smooth = true,
             Length = 30.0
         };
+        ApplyTaperWhere(ev, where, taper.Value);
 
         V2 stopLine = leg.Node.Point + (leg.Direction * leg.CrossHalf);
         double? length = DragEvent(doc, axes, keys, leg, ev, stopLine, "Comprimento do armazenamento",
@@ -539,6 +545,30 @@ internal static class ViarioElementCommands
         if (result.Status == PromptStatus.None)
             return fallback;
         return result.Status == PromptStatus.OK ? result.StringResult : null;
+    }
+
+    /// <summary>Onde fica o taper em relacao ao no: Longe (saida, padrao), Junto (entrada) ou Ambos.</summary>
+    private static string? AskTaperWhere(Editor ed) =>
+        Keyword(ed, "\nTaper fica [Longe/Junto/Ambos] do no <Longe> (Junto: o alargamento comeca na intersecao e cresce; Ambos: taper nas duas pontas): ",
+            "Longe Junto Ambos", "Longe");
+
+    public static void ApplyTaperWhere(AxisEvent ev, string where, double taper)
+    {
+        switch (where)
+        {
+            case "Junto":
+                ev.TaperIn = taper;
+                ev.Taper = 0.0;
+                break;
+            case "Ambos":
+                ev.TaperIn = taper;
+                ev.Taper = taper;
+                break;
+            default:
+                ev.TaperIn = 0.0;
+                ev.Taper = taper;
+                break;
+        }
     }
 
     private static bool? AskShape(Editor ed)

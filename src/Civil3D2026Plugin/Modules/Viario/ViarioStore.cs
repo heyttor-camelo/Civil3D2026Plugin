@@ -66,6 +66,12 @@ internal static class ViarioStore
 
         /// <summary>Recuo do nariz do canteiro em relacao a pista transversal.</summary>
         public double MedianSetback { get; set; } = 1.0;
+
+        /// <summary>Estilo de cota do C3DVIARIOCOTAR (vazio = corrente).</summary>
+        public string CotaEstilo { get; set; } = "";
+
+        /// <summary>DIMSCALE das cotas do C3DVIARIOCOTAR (0 = o do estilo/desenho).</summary>
+        public double CotaEscala { get; set; }
     }
 
     // ------------------------------------------------------------------
@@ -232,9 +238,12 @@ internal static class ViarioStore
     // Layers
     // ------------------------------------------------------------------
 
+    public const string LayerDims = "VIARIO-COTAS";
+
     public static void EnsureLayers(AcadDb.Transaction tr, AcadDb.Database db)
     {
         EnsureLayer(tr, db, LayerAxis, 1);
+        EnsureLayer(tr, db, LayerDims, 2);
         foreach ((string layer, short color, _) in Elements.Values)
             EnsureLayer(tr, db, layer, color);
     }
@@ -441,6 +450,10 @@ internal static class ViarioStore
         settings.Capture = v[3].Value is double capture && capture >= 0 ? capture : 1.0;
         if (v.Length >= 5 && v[4].Value is double setback && setback >= 0)
             settings.MedianSetback = setback;
+        if (v.Length >= 6)
+            settings.CotaEstilo = v[5].Value as string ?? "";
+        if (v.Length >= 7 && v[6].Value is double escala && escala >= 0)
+            settings.CotaEscala = escala;
         return settings;
     }
 
@@ -451,7 +464,9 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.CurrentSectionId),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.SnapTolerance),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Capture),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MedianSetback)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MedianSetback),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.CotaEstilo ?? ""),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.CotaEscala)));
     }
 
     // ------------------------------------------------------------------

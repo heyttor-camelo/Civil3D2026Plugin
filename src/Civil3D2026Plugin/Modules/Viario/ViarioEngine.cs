@@ -373,11 +373,28 @@ internal static class ViarioEngine
         public bool Smooth;
         public bool Behind;
 
+        /// <summary>Taper de entrada: a largura cresce de In0 ate In0 + TaperIn (0 = sem).</summary>
+        public double In0;
+        public double TaperIn;
+
         public double ValueAt(double s)
         {
             double u = (s - A) * Dir;
-            if (u < 0)
+            if (TaperIn > 1e-9)
+            {
+                if (u < In0)
+                    return Behind ? Width : 0.0;
+                if (u < In0 + TaperIn)
+                {
+                    double ti = (u - In0) / TaperIn;
+                    return Width * (Smooth ? 0.5 * (1.0 - Math.Cos(Math.PI * ti)) : ti);
+                }
+            }
+            else if (u < 0)
+            {
                 return Behind ? Width : 0.0;
+            }
+
             if (u <= Full)
                 return Width;
             if (Taper <= 1e-9)
@@ -391,6 +408,12 @@ internal static class ViarioEngine
         public IEnumerable<double> Breaks()
         {
             yield return A;
+            if (TaperIn > 1e-9)
+            {
+                yield return A + (Dir * In0);
+                yield return A + (Dir * (In0 + TaperIn));
+            }
+
             yield return A + (Dir * Full);
             yield return A + (Dir * (Full + Taper));
         }
@@ -1825,8 +1848,9 @@ internal static class ViarioEngine
                         {
                             AddRamp(ctx.Widen, i, side, new Ramp
                             {
-                                A = a, Dir = ev.Dir, Full = crossHalf + ev.Length, Taper = ev.Taper,
-                                Width = ev.Width, Smooth = ev.Smooth, Behind = !through
+                                A = a, Dir = ev.Dir, Full = crossHalf + ev.TaperIn + ev.Length, Taper = ev.Taper,
+                                Width = ev.Width, Smooth = ev.Smooth, Behind = !through,
+                                In0 = crossHalf, TaperIn = ev.TaperIn
                             });
                         }
 
@@ -1852,8 +1876,9 @@ internal static class ViarioEngine
                         int medianSide = -(ev.Side == 0 ? -1 : ev.Side) * ev.Dir;
                         AddRamp(ctx.Narrow, i, medianSide, new Ramp
                         {
-                            A = a, Dir = ev.Dir, Full = crossHalf + ev.Length, Taper = ev.Taper,
-                            Width = ev.Width, Smooth = ev.Smooth, Behind = !through
+                            A = a, Dir = ev.Dir, Full = crossHalf + ev.TaperIn + ev.Length, Taper = ev.Taper,
+                            Width = ev.Width, Smooth = ev.Smooth, Behind = !through,
+                            In0 = crossHalf, TaperIn = ev.TaperIn
                         });
                         break;
                 }

@@ -303,21 +303,25 @@ public sealed class ViarioCommands
             RoadSection section = CurrentSection(db, settings);
 
             PromptPointOptions first = new(
-                "\nPrimeiro ponto do eixo [" + section.Name + ", " + (_chainMode ? "concordancia mantida" : "livre") + "] ou [Secao/COncordancia] <sair>: ")
+                "\nPrimeiro ponto do eixo [" + section.Name + ", " + (_chainMode ? "concordancia mantida" : "livre") + "] ou [Secao/COncordancia/Inverter] <sair>: ")
             {
                 AllowNone = true
             };
             first.Keywords.Add("Secao");
             first.Keywords.Add("COncordancia");
+            first.Keywords.Add("Inverter");
             first.AppendKeywordsToMessage = false;
 
             PromptPointResult start = ed.GetPoint(first);
             if (start.Status == PromptStatus.Keyword)
             {
-                if (start.StringResult == "Secao")
-                    ChooseCurrentSection(doc);
-                else
-                    ChainMenu(doc);
+                switch (start.StringResult)
+                {
+                    case "Secao": ChooseCurrentSection(doc); break;
+                    case "Inverter": ReverseAxesPrompt(doc); break;
+                    default: ChainMenu(doc); break;
+                }
+
                 continue;
             }
 
@@ -416,6 +420,241 @@ public sealed class ViarioCommands
         }
     }
 
+    // ------------------------------------------------------------------
+    // Reconcordar dois trechos de um eixo (num vertice)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Clique perto de um vertice interno do eixo: o arco vizinho e refeito para
+    /// sair/chegar tangente ao outro trecho (Seguinte: o arco depois do vertice
+    /// recebe a direcao do trecho anterior; Anterior: o arco antes do vertice
+    /// passa a chegar na direcao do trecho seguinte). Entre duas retas, use
+    /// C3DVIARIORAIO no vertice para inserir o arco.
+    /// </summary>
+    private static void ReconcordVertex(Document doc)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        PromptPointResult pick = ed.GetPoint(new PromptPointOptions("\nClique perto do vertice entre os dois trechos: "));
+        if (pick.Status != PromptStatus.OK)
+            return;
+        Point3d w = pick.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+        V2 p = new(w.X, w.Y);
+        double tol = Math.Max(ClickTolerance(ed) * 3.0, 1.0);
+
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.Polyline? target = null;
+        int vertex = -1;
+        double best = tol;
+        foreach (AxisInput a in ViarioSync.CollectAxes(db, tr, ViarioSync.SectionMap(db)))
+        {
+            AcadDb.ObjectId id = db.GetObjectId(false, new AcadDb.Handle(Convert.ToInt64(a.Key, 16)), 0);
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not AcadDb.Polyline pl || pl.Closed)
+                continue;
+            for (int i = 1; i < pl.NumberOfVertices - 1; i++)
+            {
+                Point2d q = pl.GetPoint2dAt(i);
+                double d = V2.Dist(new V2(q.X, q.Y), p);
+                if (d < best)
+                {
+                    best = d;
+                    target = pl;
+                    vertex = i;
+                }
+            }
+        }
+
+        if (target is null)
+        {
+            ed.WriteMessage("\n  Nenhum vertice interno de eixo perto desse ponto.");
+            return;
+        }
+
+        (List<V2> pts, List<double> bulges) = ViarioStore.Vertices(target);
+        bool prevArc = Math.Abs(bulges[vertex - 1]) > 1e-9;
+        bool nextArc = Math.Abs(bulges[vertex]) > 1e-9;
+        if (!prevArc && !nextArc)
+        {
+            ed.WriteMessage("\n  Os dois trechos sao retas: use C3DVIARIORAIO perto do vertice para inserir o arco de concordancia.");
+            return;
+        }
+
+        string auto = nextArc ? "Seguinte" : "Anterior";
+        string which = auto;
+        if (prevArc && nextArc)
+        {
+            PromptKeywordOptions opt = new("\nQual trecho refazer [Seguinte/Anterior] <Seguinte>: ", "Seguinte Anterior") { AllowNone = true };
+            PromptResult r = ed.GetKeywords(opt);
+            if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None)
+                return;
+            which = r.Status == PromptStatus.OK ? r.StringResult : "Seguinte";
+        }
+
+        Seg prev = new(pts[vertex - 1], pts[vertex], bulges[vertex - 1]);
+        Seg next = new(pts[vertex], pts[vertex + 1], bulges[vertex]);
+        double before = Math.Abs(Math.Atan2(V2.Cross(prev.TangentAt(1.0), next.TangentAt(0.0)), V2.Dot(prev.TangentAt(1.0), next.TangentAt(0.0)))) * 180.0 / Math.PI;
+
+        target.UpgradeOpen();
+        if (which == "Seguinte")
+        {
+            // Arco seguinte: sai do vertice na direcao em que o trecho anterior chega.
+            target.SetBulgeAt(vertex, ViarioChain.TangentBulge(prev.TangentAt(1.0), pts[vertex], pts[vertex + 1]));
+        }
+        else
+        {
+            // Arco anterior: chega ao vertice na direcao em que o trecho seguinte sai
+            // (e o arco tangente visto de tras, com o sinal trocado).
+            V2 h = next.TangentAt(0.0);
+            target.SetBulgeAt(vertex - 1, -ViarioChain.TangentBulge(-h, pts[vertex], pts[vertex - 1]));
+        }
+
+        tr.Commit();
+        ed.WriteMessage($"\n  Trecho {(which == "Seguinte" ? "seguinte" : "anterior")} refeito tangente (quebra de {before:0.#} graus eliminada)." +
+                        (ViarioStore.IsChained(target) ? "" : " O eixo continua em edicao livre; Concordancia > Selecionar > Manter para fixar."));
+        ViarioSync.Regenerate(doc, quiet: true);
+    }
+
+    // ------------------------------------------------------------------
+    // Inverter o sentido do eixo
+    // ------------------------------------------------------------------
+
+    private static void ReverseAxesPrompt(Document doc)
+    {
+        Editor ed = doc.Editor;
+        PromptSelectionOptions sel = new() { MessageForAdding = "\nEixos para inverter o sentido (estacas, esquerda/direita): " };
+        PromptSelectionResult selection = ed.GetSelection(sel, new SelectionFilter(new[]
+        {
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, ViarioStore.RegApp)
+        }));
+        if (selection.Status != PromptStatus.OK)
+            return;
+
+        (int count, List<string> notes) = ReverseAxes(doc, selection.Value.GetObjectIds());
+        ed.WriteMessage($"\n  {count} eixo(s) invertido(s).");
+        foreach (string n in notes)
+            ed.WriteMessage("\n  " + n);
+        if (count > 0)
+            ViarioSync.Regenerate(doc, quiet: false);
+    }
+
+    /// <summary>
+    /// Inverte o sentido de eixos: a geometria e revertida, os elementos sao
+    /// reancorados (estaca L - s, lado do no trocado) e as chaves das esquinas
+    /// (raios e faixas livres, que guardam o sentido do ramo) sao reescritas.
+    /// Secoes com lados diferentes trocam de lado neste eixo (aviso).
+    /// </summary>
+    internal static (int Count, List<string> Notes) ReverseAxes(Document doc, IEnumerable<AcadDb.ObjectId> ids)
+    {
+        AcadDb.Database db = doc.Database;
+        List<string> notes = new();
+        int count = 0;
+        Dictionary<string, RoadSection> sections = ViarioSync.SectionMap(db);
+
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        Dictionary<string, double> radii = ViarioStore.LoadCornerRadii(db);
+        Dictionary<string, SlipLane> slips = ViarioStore.LoadSlipLanes(db);
+        bool keysChanged = false;
+
+        foreach (AcadDb.ObjectId id in ids)
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForWrite) is not AcadDb.Curve curve ||
+                !ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained))
+            {
+                continue;
+            }
+
+            if (curve is AcadDb.Circle)
+            {
+                notes.Add($"{curve.Handle}: anel de rotatoria nao tem sentido a inverter.");
+                continue;
+            }
+
+            GPath? before = ViarioStore.ToPath(curve);
+            if (before is null)
+                continue;
+
+            try
+            {
+                curve.ReverseCurve();
+            }
+            catch (System.Exception ex)
+            {
+                notes.Add($"{curve.Handle}: nao foi possivel inverter ({ex.Message}).");
+                continue;
+            }
+
+            double length = before.Length;
+            foreach (AxisEvent ev in events)
+            {
+                ev.S = Math.Max(0.0, length - ev.S);
+                ev.Dir = -ev.Dir;
+            }
+
+            ViarioStore.SetAxis(curve, sectionId, radius, events, chained);
+
+            string key = curve.Handle.ToString();
+            keysChanged |= FlipCornerKeys(radii, key);
+            keysChanged |= FlipCornerKeys(slips, key);
+
+            if (sections.TryGetValue(sectionId, out RoadSection? sec) && !sec.Simetrica)
+                notes.Add($"{key}: a secao {sec.Name} tem lados diferentes; esquerda e direita trocam neste eixo.");
+
+            count++;
+        }
+
+        if (keysChanged)
+        {
+            ViarioStore.SaveCornerRadii(tr, db, radii);
+            ViarioStore.SaveSlipLanes(tr, db, slips);
+        }
+
+        tr.Commit();
+        return (count, notes);
+    }
+
+    /// <summary>Troca o sinal do sentido nas chaves "A+|B-" (e "A+|B-#2") que citam o eixo.</summary>
+    private static bool FlipCornerKeys<T>(Dictionary<string, T> map, string axisKey)
+    {
+        bool changed = false;
+        foreach (string old in map.Keys.ToList())
+        {
+            string suffix = "";
+            string body = old;
+            int hash = old.IndexOf('#');
+            if (hash >= 0)
+            {
+                suffix = old[hash..];
+                body = old[..hash];
+            }
+
+            string[] parts = body.Split('|');
+            bool hit = false;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (parts[i].Length < 2)
+                    continue;
+                string k = parts[i][..^1];
+                char sign = parts[i][^1];
+                if (k == axisKey && (sign == '+' || sign == '-'))
+                {
+                    parts[i] = k + (sign == '+' ? "-" : "+");
+                    hit = true;
+                }
+            }
+
+            if (!hit)
+                continue;
+
+            T value = map[old];
+            map.Remove(old);
+            map[string.Join("|", parts) + suffix] = value;
+            changed = true;
+        }
+
+        return changed;
+    }
+
     /// <summary>Raio, em unidades do desenho, para "clicar em cima" de um vertice (cerca de 1% da altura da tela).</summary>
     private static double ClickTolerance(Editor ed)
     {
@@ -435,7 +674,8 @@ public sealed class ViarioCommands
     {
         Editor ed = doc.Editor;
         PromptKeywordOptions opt = new(
-            "\nConcordancia [Manter/Liberar/Selecionar] <" + (_chainMode ? "Manter" : "Liberar") + ">: ", "Manter Liberar Selecionar")
+            "\nConcordancia [Manter/Liberar/Selecionar/Vertice] <" + (_chainMode ? "Manter" : "Liberar") + "> (Vertice: reconcorda dois trechos de um eixo): ",
+            "Manter Liberar Selecionar Vertice")
         {
             AllowNone = true
         };
@@ -454,6 +694,9 @@ public sealed class ViarioCommands
             case "Liberar":
                 _chainMode = false;
                 ed.WriteMessage("\n  Proximos eixos: lancamento livre (vertices e arcos independentes).");
+                return;
+            case "Vertice":
+                ReconcordVertex(doc);
                 return;
         }
 

@@ -174,6 +174,19 @@ internal static class ViarioIcons
             new Part("M16,12 V19", Yellow, 2.4),
             new Part("M16,23 V23.5", Yellow, 2.6)
         },
+        ["RECONCORDAR"] = new[]
+        {
+            new Part("M3,26 H14", Edge, 1.8),
+            new Part("M14,26 a12,12 0 0,0 12,-12 V5", Edge, 1.8),
+            new Part("M10,22 L18,22", Yellow, 1.4),
+            new Part("M14,26 a3,3 0 1,0 0.1,0", Yellow, 1.6)
+        },
+        ["INVERTER"] = new[]
+        {
+            new Part("M4,16 H28", Axis, 2.0),
+            new Part("M10,10 L4,16 L10,22", White, 1.6),
+            new Part("M22,10 L28,16 L22,22", White, 1.6)
+        },
         ["COTAR"] = new[]
         {
             new Part("M4,8 V26 M16,8 V26 M28,8 V26", Edge, 1.0),
