@@ -97,7 +97,7 @@ internal static class ViarioHatchSync
         foreach (ViarioHatch.Loop loop in plan.Loops)
         {
             Point2dCollection pts = new();
-            AcadDb.DoubleCollection bulges = new();
+            DoubleCollection bulges = new();
             foreach (Seg sg in loop.Segs)
             {
                 if (sg.Length < 1e-6)
