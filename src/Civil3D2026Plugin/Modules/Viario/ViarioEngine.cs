@@ -456,6 +456,8 @@ internal static class ViarioEngine
 
         /// <summary>Tangencias do no em processamento, por linha: a remocao e decidida ao fim do no.</summary>
         public Dictionary<Curve, List<(Leg Leg, double ST)>> PendingRemovals = new();
+        /// <summary>Tangencias ja colocadas em cada linha (todos os nos): o arco de uma esquina nao pode passar do arco da esquina vizinha.</summary>
+        public Dictionary<Curve, List<(double ST, int Dir, double NodeS)>> Tangencies = new();
     }
 
     public static ViarioResult Compute(IReadOnlyList<AxisInput> axes, EngineSettings settings)
@@ -1425,6 +1427,34 @@ internal static class ViarioEngine
         if (!ctx.PendingRemovals.TryGetValue(curve, out List<(Leg, double)>? list))
             ctx.PendingRemovals[curve] = list = new List<(Leg, double)>();
         list.Add((leg, sT));
+        if (!ctx.Tangencies.TryGetValue(curve, out List<(double, int, double)>? placed))
+            ctx.Tangencies[curve] = placed = new List<(double, int, double)>();
+        placed.Add((sT, leg.Dir, leg.S));
+    }
+
+    /// <summary>
+    /// Se a tangencia nova (sT, no sentido do ramo) passa de uma tangencia ja colocada
+    /// por outro no, vinda do sentido contrario, na mesma linha: os dois arcos se
+    /// sobreporiam e a face ficaria cruzando a si mesma (ramo curto entre duas esquinas
+    /// de tangentes longas, como numa alca). O FitsInLeg so limita pelo comprimento do
+    /// ramo; isto limita pelo arco que o vizinho de fato usou.
+    /// </summary>
+    private static bool PassesNeighbourArc(Ctx ctx, Curve curve, double sT, Leg leg)
+    {
+        if (!ctx.Tangencies.TryGetValue(curve, out List<(double ST, int Dir, double NodeS)>? placed))
+            return false;
+        double sNode = SOnCurve(ctx, curve, leg.S);
+        foreach ((double other, int dir, double nodeS) in placed)
+        {
+            if (dir == leg.Dir || Math.Abs(nodeS - leg.S) < 1e-6)
+                continue;
+            if (SignedAlong(curve, sNode, other, leg.Dir) <= 1e-6)
+                continue; // esta atras do nosso no
+            if (SignedAlong(curve, sT, other, leg.Dir) < -1e-6)
+                return true; // o vizinho esta entre o no e a nossa tangencia
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -1546,6 +1576,13 @@ internal static class ViarioEngine
                 {
                     Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, tangencia antes da esquina");
                     _fitReason ??= "o arco tangenciaria a linha antes da esquina";
+                    continue;
+                }
+
+                if (PassesNeighbourArc(ctx, c1, cs1, li) || PassesNeighbourArc(ctx, c2, cs2, lj))
+                {
+                    Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, passa do arco da esquina vizinha");
+                    _fitReason ??= "o arco se sobreporia ao arco da esquina vizinha (ramo curto entre as duas)";
                     continue;
                 }
 

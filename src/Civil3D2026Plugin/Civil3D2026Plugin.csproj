@@ -1,11 +1,44 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Alvo do AutoCAD/Civil 3D: 2026 (.NET 8) ou 2027 (.NET 10).
+    - dotnet build -p:Acad=2027     (ou configuracao Debug2027 / Release2027 no VS)
+    - sem nada: 2026, como sempre.
+    O 2027 nao e compativel em binario com o 2026 (blog.autodesk.io, "AutoCAD 2027 SDK"):
+    precisa recompilar contra as DLLs de 2027, e projetos .NET para 2027 exigem VS 2026.
+  -->
   <PropertyGroup>
+    <Acad Condition="'$(Acad)' == '' And $([System.String]::Copy('$(Configuration)').EndsWith('2027'))">2027</Acad>
+    <Acad Condition="'$(Acad)' == ''">2026</Acad>
+    <Configurations>Debug;Release;Debug2027;Release2027</Configurations>
+    <!-- Debug2027/Release2027 herdam de Debug/Release -->
+    <DebugSymbols Condition="'$(Configuration)' == 'Debug2027'">true</DebugSymbols>
+    <DebugType Condition="'$(Configuration)' == 'Debug2027'">portable</DebugType>
+    <Optimize Condition="'$(Configuration)' == 'Debug2027'">false</Optimize>
+    <DefineConstants Condition="'$(Configuration)' == 'Debug2027'">$(DefineConstants);DEBUG;TRACE</DefineConstants>
+    <Optimize Condition="'$(Configuration)' == 'Release2027'">true</Optimize>
+    <DefineConstants Condition="'$(Configuration)' == 'Release2027'">$(DefineConstants);TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Acad)' == '2026'">
     <TargetFramework>net8.0-windows</TargetFramework>
+    <AcadDir>$(ProgramFiles)\Autodesk\AutoCAD 2026</AcadDir>
+    <!-- 2026 continua saindo em NETLOAD\ (mesmo caminho de sempre). -->
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\</OutputPath>
+    <DefineConstants>$(DefineConstants);ACAD2026</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Acad)' == '2027'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AcadDir>$(ProgramFiles)\Autodesk\AutoCAD 2027</AcadDir>
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\2027\</OutputPath>
+    <DefineConstants>$(DefineConstants);ACAD2027</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <AssemblyName>Civil3D2026Plugin</AssemblyName>
     <RootNamespace>Civil3D2026Plugin</RootNamespace>
 
-    <!-- Civil 3D 2026.2 atual: .NET 8 / x64 -->
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
@@ -18,9 +51,9 @@
     <!--
       Saida fixa para facilitar NETLOAD.
       Depois de qualquer Build/Rebuild, a DLL atual fica em:
-      <raiz-do-projeto>\NETLOAD\Civil3D2026Plugin.dll
+      <raiz-do-projeto>\NETLOAD\Civil3D2026Plugin.dll        (2026)
+      <raiz-do-projeto>\NETLOAD\2027\Civil3D2026Plugin.dll   (2027)
     -->
-    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
@@ -28,50 +61,59 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
+  <!-- O SDK do 2027 recomenda a referencia explicita ao WindowsDesktop (WPF/WinForms). -->
+  <ItemGroup Condition="'$(Acad)' == '2027'">
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App" />
+  </ItemGroup>
 
   <!--
-    Referencias do AutoCAD / Civil 3D 2026.
+    Referencias do AutoCAD / Civil 3D, na pasta do alvo ($(AcadDir)).
     Private=False evita copiar DLLs Autodesk para NETLOAD; o Civil 3D ja fornece
     essas dependencias em runtime.
   -->
   <ItemGroup>
     <Reference Include="accoremgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\accoremgd.dll</HintPath>
+      <HintPath>$(AcadDir)\accoremgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Acdbmgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acdbmgd.dll</HintPath>
+      <HintPath>$(AcadDir)\acdbmgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="acdbmgdbrep">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acdbmgdbrep.dll</HintPath>
+      <HintPath>$(AcadDir)\acdbmgdbrep.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="Acmgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\acmgd.dll</HintPath>
+      <HintPath>$(AcadDir)\acmgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AdWindows">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\AdWindows.dll</HintPath>
+      <HintPath>$(AcadDir)\AdWindows.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AecBaseMgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\ACA\AecBaseMgd.dll</HintPath>
+      <HintPath>$(AcadDir)\ACA\AecBaseMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AecPropDataMgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\ACA\AecPropDataMgd.dll</HintPath>
+      <HintPath>$(AcadDir)\ACA\AecPropDataMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AeccDbMgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\C3D\AeccDbMgd.dll</HintPath>
+      <HintPath>$(AcadDir)\C3D\AeccDbMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AeccPressurePipesMgd">
-      <HintPath>$(ProgramFiles)\Autodesk\AutoCAD 2026\C3D\AeccPressurePipesMgd.dll</HintPath>
+      <HintPath>$(AcadDir)\C3D\AeccPressurePipesMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
   </ItemGroup>
+
+  <Target Name="CheckAcadDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AcadDir)\acdbmgd.dll')"
+           Text="Nao achei $(AcadDir)\acdbmgd.dll - o AutoCAD/Civil 3D $(Acad) esta instalado? (alvo escolhido por -p:Acad=2026|2027 ou pela configuracao Debug2027/Release2027)" />
+  </Target>
 
   <!--
     LISPs distribuidas dentro da DLL (modulo LispTools).
@@ -85,7 +127,7 @@
 
   <Target Name="ShowNetloadPath" AfterTargets="Build">
     <Message Importance="high" Text="============================================================" />
-    <Message Importance="high" Text="DLL pronta para NETLOAD: $(TargetPath)" />
+    <Message Importance="high" Text="DLL pronta para NETLOAD (Civil 3D $(Acad), $(TargetFramework)): $(TargetPath)" />
     <Message Importance="high" Text="============================================================" />
   </Target>
 

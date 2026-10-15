@@ -1,3 +1,8 @@
+## 2.34.2 - C3DVIARIO v0.7.10 / arco nao passa do arco da esquina vizinha; alvo Civil 3D 2027
+
+- **esquinas vizinhas num ramo curto** (alca): o arco de uma esquina podia passar do arco da esquina do outro no na mesma face - a face ficava cruzando a si mesma (1 m sobreposto), o que atrapalhava a hachura e sairia errado nos alinhamentos. O FitsInLeg limitava so pelo comprimento do ramo; agora a tangencia tambem nao pode passar da tangencia ja colocada pelo no vizinho (o raio reduz e o motivo aparece: "o arco se sobreporia ao arco da esquina vizinha");
+- **compilacao para Civil 3D 2027**: `.csproj` com alvo por propriedade `Acad` (2026 = .NET 8, pastas `AutoCAD 2026`, saida `NETLOAD\`; 2027 = .NET 10, pastas `AutoCAD 2027`, saida `NETLOAD\2027\`), configuracoes `Debug2027`/`Release2027` na solucao, `tools\Build.ps1 -Acad 2027`, simbolos `ACAD2026`/`ACAD2027`, erro claro se a pasta do AutoCAD do alvo nao existir. O 2027 exige VS 2026; nada muda para quem compila o 2026.
+
 ## 2.34.1 - C3DVIARIO v0.7.9 / menus no tema escuro, hachura por contorno com conferencia de area
 
 - **menus do painel no tema escuro**: o cromado padrao do WPF traz cores fixas (coluna de icones branca, submenus em cinza claro, texto desabilitado #707070), e as listas de estilo/escala/padrao ficavam ilegiveis. ContextMenu, MenuItem (com marca, seta e submenu) e Separator ganharam modelos proprios pintados com o tema;

@@ -1,6 +1,6 @@
 # Civil3D2026Plugin
 
-Projeto unificado para Civil 3D 2026.2, em **.NET 8 (`net8.0-windows`) / x64**.
+Projeto unificado para Civil 3D 2026.2 (**.NET 8 / x64**) e Civil 3D 2027 (**.NET 10 / x64**), mesmo codigo-fonte.
 
 ## Abrir e compilar
 
@@ -9,8 +9,18 @@ Abra `Civil3D2026Plugin.sln` no Visual Studio e use **Recompilar Solucao**.
 A DLL resultante fica sempre em um caminho curto e fixo:
 
 ```text
-NETLOAD\Civil3D2026Plugin.dll
+NETLOAD\Civil3D2026Plugin.dll        (Civil 3D 2026 - configuracoes Debug/Release)
+NETLOAD\2027\Civil3D2026Plugin.dll   (Civil 3D 2027 - configuracoes Debug2027/Release2027)
 ```
+
+### Civil 3D 2027
+
+O 2027 nao carrega a DLL do 2026 (mudou para .NET 10 e nao ha compatibilidade binaria). O
+alvo e escolhido pela propriedade `Acad` do `.csproj`: configuracao `Debug2027`/`Release2027`
+no Visual Studio, `tools\Build.ps1 -Acad 2027`, ou `dotnet build -p:Acad=2027`. O alvo 2027
+procura as DLLs em `C:\Program Files\Autodesk\AutoCAD 2027\` e exige **Visual Studio 2026**
+(o VS 2022 nao compila .NET 10). No codigo, `#if ACAD2027` / `#if ACAD2026` separam o que
+mudar de API entre versoes.
 
 No Civil 3D, execute `NETLOAD` nessa DLL. Ao carregar, o plugin mostra:
 
