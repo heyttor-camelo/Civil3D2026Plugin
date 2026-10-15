@@ -1,3 +1,7 @@
+## 2.32.1 - C3DVIARIO v0.7.1 / cotar faixas com um clique
+
+- **C3DVIARIOCOTAR** (tambem `C3DVIARIO > COtar` e no painel): clique sobre o eixo e a secao e cotada naquela estaca, em planta, com cotas alinhadas perpendiculares ao eixo em cadeia (calcada, meio-fio+sarjeta, cada faixa, canteiro) e a largura total numa segunda linha. As posicoes vem das linhas geradas na estaca (alargamentos entram); as faixas, da secao. Estilo de cota corrente, layer VIARIO-COTAS; [Detalhe] separa sarjeta e meio-fio; [Remover] apaga todas as cotas do viario.
+
 ## 2.32.0 - C3DVIARIO v0.7.0 / eixo tipo Vehicle Tracking, preview nos grips, secao por lado, monitor tecnico
 
 - **C3DVIARIOEIXO no modelo do Vehicle Tracking**: `Tangent` (reta na direcao corrente, o clique da o comprimento), `Arc` (arco tangente que passa pelo ponto), `Undo`; clicar em cima do ultimo vertice desfaz o ultimo trecho; todos os trechos concordantes. `Free`/`Chain` alterna o lancamento livre (como antes). Eixo lancado assim fica com **concordancia mantida**: mover um vertice (grip, STRETCH, MOVE) refaz a cadeia a jusante; `C3DVIARIOEIXO > COncordancia` (Manter/Liberar, tambem por selecao) e a propriedade do eixo no painel liberam/religam;

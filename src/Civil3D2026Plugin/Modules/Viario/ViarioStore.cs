@@ -239,7 +239,7 @@ internal static class ViarioStore
             EnsureLayer(tr, db, layer, color);
     }
 
-    private static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color)
+    public static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color)
     {
         AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
         if (table.Has(name))

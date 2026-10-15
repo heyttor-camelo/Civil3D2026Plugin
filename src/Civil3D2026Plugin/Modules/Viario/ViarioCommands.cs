@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/PAinel/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar CIvil SInalizacao PAinel Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/COtar/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar CIvil SInalizacao COtar PAinel Config")
             {
                 AllowNone = true
             };
@@ -56,6 +56,7 @@ public sealed class ViarioCommands
                 case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
                 case "CIvil": CivilMenu(doc); break;
                 case "SInalizacao": ViarioSignageSync.Command(doc); break;
+                case "COtar": ViarioDimensions.Command(doc); break;
                 case "PAinel": ViarioPanel.Command(doc); break;
                 case "Config": Configure(doc); break;
                 default: DrawAxes(doc); break;
@@ -68,6 +69,9 @@ public sealed class ViarioCommands
 
     [CommandMethod(C3DCommands.Viario.Sinal, CommandFlags.Modal)]
     public void Sinal() => Run(C3DCommands.Viario.Sinal, ViarioSignageSync.Command);
+
+    [CommandMethod(C3DCommands.Viario.Cotar, CommandFlags.Modal)]
+    public void Cotar() => Run(C3DCommands.Viario.Cotar, ViarioDimensions.Command);
 
     [CommandMethod(C3DCommands.Viario.Eixo, CommandFlags.Modal)]
     public void Eixo() => Run(C3DCommands.Viario.Eixo, DrawAxes);

@@ -159,6 +159,9 @@ internal sealed class ViarioPanel : SW.Window
             "Alinhamentos do Civil: eixos, bordos LD/LE e curb returns conectados.", new[] { "Gera ou atualiza; depois acompanham a rede." }),
         new("SINAL", "C3DVIARIOSINAL G ", "Sinalizacao horizontal", "Saidas",
             "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "Opcoes na categoria Sinalizacao." }),
+        new("COTAR", "C3DVIARIOCOTAR ", "Cotar faixas", "Saidas",
+            "Cadeia de cotas da secao em planta (faixas, canteiro, passeio) e largura total, na estaca clicada.",
+            new[] { "Clique sobre o eixo onde quer a cota.", "[Detalhe] separa sarjeta e meio-fio; [Remover] apaga todas." }),
         new("TESTE", "C3DVIARIOTESTE  ", "Autoteste", "Saidas",
             "Confere linhas, sinalizacao e objetos do Civil contra a rede.", new[] { "Relatorio em %TEMP%\\C3DVIARIOTESTE.txt." })
     };
