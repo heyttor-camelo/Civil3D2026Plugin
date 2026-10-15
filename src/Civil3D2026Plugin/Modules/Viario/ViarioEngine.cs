@@ -1459,22 +1459,14 @@ internal static class ViarioEngine
             GPath o1 = CurveOffset(ctx, c1, r);
             GPath o2 = CurveOffset(ctx, c2, r);
 
-            V2? center = null;
-            double best = double.MaxValue;
+            // Candidatos a centro, do mais perto da esquina para o mais longe: o primeiro que
+            // tangencia as duas linhas depois da esquina e cabe nos ramos vale (em alcas e
+            // curvas, o encontro mais proximo nem sempre e o certo).
             double limit = Math.Max((3.0 * r) + d1 + d2 + 5.0, (1.2 * r / sinHalf) + 1.0);
-            foreach ((_, _, V2 p) in o1.Intersections(o2))
+            List<V2> candidates = o1.Intersections(o2).Select(x => x.P).OrderBy(p => V2.Dist(p, corner)).ToList();
+            if (candidates.Count == 0)
             {
-                double dist = V2.Dist(p, corner);
-                if (dist < best && dist <= limit)
-                {
-                    best = dist;
-                    center = p;
-                }
-            }
-
-            if (center is not V2 o)
-            {
-                Debug?.Invoke($"fillet r={r:0.##}: sem centro (paralelas nao se cruzam perto da esquina)");
+                Debug?.Invoke($"fillet r={r:0.##}: sem centro (paralelas nao se cruzam)");
                 if (_fitReason is null)
                 {
                     // Uma das linhas e curva e se afasta da esquina: nao ha circulo tangente as duas com esse raio.
@@ -1489,28 +1481,54 @@ internal static class ViarioEngine
                 continue;
             }
 
-            (double s1, V2 p1, double dist1) = c1.P.Project(o);
-            (double s2, V2 p2, double dist2) = c2.P.Project(o);
-
-            double tol = Math.Max(1e-3, r * 1e-4);
-            if (Math.Abs(dist1 - r) > tol || Math.Abs(dist2 - r) > tol)
+            V2 o = default, p1 = default, p2 = default;
+            double s1 = 0, s2 = 0;
+            bool found = false;
+            foreach (V2 cand in candidates)
             {
-                Debug?.Invoke($"fillet r={r:0.##}: centro a {dist1:0.###}/{dist2:0.###} das linhas");
-                continue;
+                double distCorner = V2.Dist(cand, corner);
+                (double cs1, V2 cp1, double dist1) = c1.P.Project(cand);
+                (double cs2, V2 cp2, double dist2) = c2.P.Project(cand);
+
+                double tol = Math.Max(1e-3, r * 1e-4);
+                if (Math.Abs(dist1 - r) > tol || Math.Abs(dist2 - r) > tol)
+                {
+                    Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, centro a {dist1:0.###}/{dist2:0.###} das linhas");
+                    continue;
+                }
+
+                if (SignedAlong(c1, sx1, cs1, li.Dir) < -1e-6 || SignedAlong(c2, sx2, cs2, lj.Dir) < -1e-6)
+                {
+                    Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, tangencia antes da esquina");
+                    _fitReason ??= "o arco tangenciaria a linha antes da esquina";
+                    continue;
+                }
+
+                if (!FitsInLeg(ctx, li, cp1, radius) || !FitsInLeg(ctx, lj, cp2, radius))
+                {
+                    Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, nao cabe no ramo");
+                    _fitReason ??= "a tangente do arco passaria do no vizinho (ramo curto)";
+                    continue;
+                }
+
+                if (distCorner > limit * 3.0)
+                {
+                    Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, longe demais da esquina");
+                    _fitReason ??= "o unico arco tangente ficaria longe demais da esquina";
+                    continue;
+                }
+
+                o = cand;
+                p1 = cp1;
+                p2 = cp2;
+                s1 = cs1;
+                s2 = cs2;
+                found = true;
+                break;
             }
 
-            if (SignedAlong(c1, sx1, s1, li.Dir) < -1e-6 || SignedAlong(c2, sx2, s2, lj.Dir) < -1e-6)
-            {
-                Debug?.Invoke($"fillet r={r:0.##}: tangencia antes da esquina ({SignedAlong(c1, sx1, s1, li.Dir):0.##}/{SignedAlong(c2, sx2, s2, lj.Dir):0.##})");
+            if (!found)
                 continue;
-            }
-
-            if (!FitsInLeg(ctx, li, p1, radius) || !FitsInLeg(ctx, lj, p2, radius))
-            {
-                Debug?.Invoke($"fillet r={r:0.##}: nao cabe no ramo");
-                _fitReason ??= "a tangente do arco passaria do no vizinho (ramo curto)";
-                continue;
-            }
 
             double a0 = (p1 - o).Angle;
             double a1 = (p2 - o).Angle;

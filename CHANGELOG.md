@@ -1,3 +1,7 @@
+## 2.32.7 - C3DVIARIO v0.7.7 / busca do centro da esquina mais robusta
+
+- o arco da esquina testa todos os encontros das paralelas (do mais perto ao mais longe da esquina) e fica com o primeiro que tangencia as duas linhas depois da esquina e cabe nos ramos; antes so o mais proximo era considerado, o que em alcas e curvas podia descartar o certo. Os motivos de "nao coube" ficaram mais especificos.
+
 ## 2.32.6 - C3DVIARIO v0.7.6 / reconcordar pela tangente, ocultar sinalizacao
 
 - **Reconcordar trechos** ganhou a opcao **[Arco/Tangente]**: Arco refaz o arco pela direcao da reta (como antes); **Tangente** mantem o arco (mesmo circulo) e move a reta vizinha ate tangencia-lo - o vertice vai para o ponto de tangencia tirado da ponta fixa da reta e o arco e encurtado/prolongado no mesmo circulo. Entre dois arcos continua Seguinte/Anterior;
