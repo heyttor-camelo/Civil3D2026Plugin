@@ -25,6 +25,8 @@ internal static class ViarioSync
     {
         public readonly HashSet<AcadDb.ObjectId> Axes = new();
         public readonly HashSet<AcadDb.ObjectId> Generated = new();
+        /// <summary>Ultima geometria concordante de cada eixo (para reconhecer a edicao do arco).</summary>
+        public readonly Dictionary<AcadDb.ObjectId, (List<V2> Pts, List<double> Bulges)> ChainSnapshot = new();
         public bool Scanned;
         public bool Pending;
     }
@@ -105,6 +107,7 @@ internal static class ViarioSync
         AcadDb.Database db = doc.Database;
         db.ObjectAppended += OnObjectAppended;
         db.ObjectModified += OnObjectModified;
+        db.ObjectOpenedForModify += OnObjectOpenedForModify;
         db.ObjectErased += OnObjectErased;
         doc.CommandEnded += OnCommandEnded;
     }
@@ -119,6 +122,7 @@ internal static class ViarioSync
             AcadDb.Database db = doc.Database;
             db.ObjectAppended -= OnObjectAppended;
             db.ObjectModified -= OnObjectModified;
+            db.ObjectOpenedForModify -= OnObjectOpenedForModify;
             db.ObjectErased -= OnObjectErased;
             doc.CommandEnded -= OnCommandEnded;
             States.Remove(db);
@@ -168,6 +172,28 @@ internal static class ViarioSync
             {
                 state.Generated.Add(obj.ObjectId);
             }
+        }
+        catch
+        {
+            // Nunca interromper a edicao do usuario.
+        }
+    }
+
+    /// <summary>
+    /// Guarda a geometria do eixo concordante antes da primeira edicao (quando ainda nao
+    /// ha retrato da ultima atualizacao): e o que permite reconhecer "so o arco mudou".
+    /// </summary>
+    private static void OnObjectOpenedForModify(object? sender, AcadDb.ObjectEventArgs e)
+    {
+        try
+        {
+            if (_syncing || e.DBObject is not AcadDb.Polyline pl || pl.Closed || pl.NumberOfVertices < 3)
+                return;
+            DbState state = State(pl.Database);
+            if (state.ChainSnapshot.ContainsKey(pl.ObjectId) || !ViarioStore.IsChained(pl))
+                return;
+            (List<V2> pts, List<double> bulges) = ViarioStore.Vertices(pl);
+            state.ChainSnapshot[pl.ObjectId] = (pts, bulges);
         }
         catch
         {
@@ -442,7 +468,9 @@ internal static class ViarioSync
             }
 
             (List<V2> pts, List<double> bulges) = ViarioStore.Vertices(pl);
-            (List<V2> np, List<double> nb, bool changed) = ViarioChain.Solve(pts, bulges);
+            state.ChainSnapshot.TryGetValue(id, out (List<V2> Pts, List<double> Bulges) prev);
+            (List<V2> np, List<double> nb, bool changed) = ViarioChain.Solve(pts, bulges, prev.Pts, prev.Bulges);
+            state.ChainSnapshot[id] = (np, nb);
             if (!changed)
                 continue;
 

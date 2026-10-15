@@ -1,3 +1,8 @@
+## 2.34.3 - C3DVIARIO v0.7.11 / editar o arco do eixo concordante; botao Concordancia com desvincular
+
+- **arco manda quando e ele que foi editado**: num eixo com concordancia vinculada, arrastar o grip do meio do arco (ou mudar o bulge por PEDIT/propriedades) era desfeito - a cadeia refazia o arco pelas tangentes. Agora, quando so o arco mudou (pontas e demais vertices no lugar), o arco vira a concordancia entre as duas retas vizinhas com o raio que poe o meio do arco onde ele foi solto: as retas mantem a direcao (mesmo PI) e os pontos de tangencia andam sobre elas; o resto do eixo nao muda. Arco no fim do eixo ou seguido de outro arco: mantem o inicio e a tangente de chegada, troca o raio e preserva o angulo central. Mover vertice continua como antes (as tangentes mandam). Vale no preview do grip e na atualizacao;
+- **botao Concordancia** (antigo Reconcordar) abre um menu: Vincular concordancia (selecionar eixos), **Desvincular concordancia** (selecionar eixos), modo dos proximos eixos (concordantes/livres) e Reconcordar trecho. Na linha de comando, `C3DVIARIOEIXO > COncordancia` ganhou [VIncular/DEsvincular]. Na aba Propriedades do eixo continua a escolha Concordancia mantida/livre.
+
 ## 2.34.2 - C3DVIARIO v0.7.10 / arco nao passa do arco da esquina vizinha; alvo Civil 3D 2027
 
 - **esquinas vizinhas num ramo curto** (alca): o arco de uma esquina podia passar do arco da esquina do outro no na mesma face - a face ficava cruzando a si mesma (1 m sobreposto), o que atrapalhava a hachura e sairia errado nos alinhamentos. O FitsInLeg limitava so pelo comprimento do ramo; agora a tangencia tambem nao pode passar da tangencia ja colocada pelo no vizinho (o raio reduz e o motivo aparece: "o arco se sobreporia ao arco da esquina vizinha");

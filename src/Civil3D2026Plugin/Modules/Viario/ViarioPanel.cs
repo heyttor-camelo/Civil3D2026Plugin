@@ -167,9 +167,9 @@ internal sealed class ViarioPanel : SW.Window
             "Remove alargamento, gota, conversao, abertura ou faixa livre.", new[] { "Clique perto do elemento e confirme." }),
         new("ILHA", "C3DVIARIOILHA ", "Eliminar ilha", "Linhas",
             "A ilha clicada vira pavimento; [Restaurar] ou [Todas] desfaz.", new[] { "Clique dentro da ilha." }),
-        new("RECONCORDAR", "C3DVIARIOEIXO CO V ", "Reconcordar trechos", "Eixos",
-            "Num vertice entre reta e arco: [Arco] refaz o arco pela direcao da reta, ou [Tangente] mantem o arco e move a reta ate tangencia-lo.",
-            new[] { "Clique perto do vertice entre os dois trechos.", "Escolha Arco ou Tangente (e Seguinte/Anterior entre dois arcos).", "Entre duas retas, use Raio no vertice." }),
+        new("RECONCORDAR", "C3DVIARIOEIXO CO V ", "Concordancia", "Eixos",
+            "Vincular/desvincular a concordancia de eixos existentes, modo dos proximos eixos e reconcordar dois trechos ([Arco] refaz o arco pela reta, [Tangente] move a reta ate o arco). Com a concordancia vinculada, arrastar o meio do arco muda o raio e as tangentes acompanham.",
+            new[] { "O botao abre o menu.", "Vincular/Desvincular: selecione os eixos.", "Reconcordar: clique perto do vertice entre os dois trechos." }),
         new("INVERTER", "C3DVIARIOEIXO I ", "Inverter sentido do eixo", "Eixos",
             "Inverte o sentido (estacas e esquerda/direita); elementos e raios acompanham.", new[] { "Selecione os eixos." }),
         new("DESVINCULAR", "C3DVIARIO DE ", "Desvincular linhas", "Linhas",
@@ -642,6 +642,19 @@ internal sealed class ViarioPanel : SW.Window
                     };
                     button.Click += (_, _) => OpenHatchMenu(button);
                 }
+                else if (c.Key == "RECONCORDAR")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenChainMenu(button);
+                }
                 else if (c.Key == "COTAR")
                 {
                     button.Content = new WC.StackPanel
@@ -739,6 +752,38 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     /// <summary>Menu do botao Sinalizacao: gerar/atualizar, ocultar/mostrar, remover e opcoes.</summary>
+    /// <summary>Menu do botao Concordancia: vincular/desvincular eixos, modo dos proximos e reconcordar.</summary>
+    private void OpenChainMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+
+        WC.MenuItem link = new() { Header = "Vincular concordancia... (selecione os eixos)", FontWeight = SW.FontWeights.Bold };
+        link.Click += (_, _) => Send("C3DVIARIOEIXO CO VI ", "Selecione os eixos: retas e arcos ficam tangentes e sao refeitos ao editar.");
+        menu.Items.Add(link);
+        WC.MenuItem unlink = new() { Header = "Desvincular concordancia... (selecione os eixos)" };
+        unlink.Click += (_, _) => Send("C3DVIARIOEIXO CO DE ", "Selecione os eixos: vertices e arcos passam a ser editados livremente.");
+        menu.Items.Add(unlink);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem next = new() { Header = "Proximos eixos lancados" };
+        WC.MenuItem nextChain = new() { Header = "concordantes (T reta, A arco tangente, U desfaz)" };
+        nextChain.Click += (_, _) => Send("C3DVIARIOEIXO CO M ", "Proximos eixos concordantes.");
+        next.Items.Add(nextChain);
+        WC.MenuItem nextFree = new() { Header = "livres" };
+        nextFree.Click += (_, _) => Send("C3DVIARIOEIXO CO L ", "Proximos eixos livres.");
+        next.Items.Add(nextFree);
+        menu.Items.Add(next);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem reconc = new() { Header = "Reconcordar trecho... (clique perto do vertice)" };
+        reconc.Click += (_, _) => Send("C3DVIARIOEIXO CO V ", "Clique perto do vertice entre os dois trechos.");
+        menu.Items.Add(reconc);
+        menu.Items.Add(new WC.MenuItem
+        {
+            Header = "Vinculado: arrastar o meio do arco muda o raio; tangentes acompanham",
+            IsEnabled = false
+        });
+        menu.IsOpen = true;
+    }
+
     private void OpenSignageMenu(WC.Button anchor)
     {
         WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };

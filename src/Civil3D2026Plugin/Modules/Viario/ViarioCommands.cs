@@ -718,8 +718,8 @@ public sealed class ViarioCommands
     {
         Editor ed = doc.Editor;
         PromptKeywordOptions opt = new(
-            "\nConcordancia [Manter/Liberar/Selecionar/Vertice] <" + (_chainMode ? "Manter" : "Liberar") + "> (Vertice: reconcorda dois trechos de um eixo): ",
-            "Manter Liberar Selecionar Vertice")
+            "\nConcordancia [Manter/Liberar/Selecionar/Vertice/VIncular/DEsvincular] <" + (_chainMode ? "Manter" : "Liberar") + "> (Manter/Liberar: proximos eixos; VIncular/DEsvincular: eixos existentes; Vertice: reconcorda dois trechos): ",
+            "Manter Liberar Selecionar Vertice VIncular DEsvincular")
         {
             AllowNone = true
         };
@@ -744,7 +744,16 @@ public sealed class ViarioCommands
                 return;
         }
 
-        PromptSelectionOptions sel = new() { MessageForAdding = "\nEixos para mudar a concordancia: " };
+        bool? preset = r.StringResult switch { "VIncular" => true, "DEsvincular" => false, _ => null };
+        PromptSelectionOptions sel = new()
+        {
+            MessageForAdding = preset switch
+            {
+                true => "\nEixos para vincular a concordancia (retas e arcos tangentes, refeitos ao editar): ",
+                false => "\nEixos para desvincular a concordancia (vertices e arcos livres): ",
+                _ => "\nEixos para mudar a concordancia: "
+            }
+        };
         PromptSelectionResult selection = ed.GetSelection(sel, new SelectionFilter(new[]
         {
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Start, "LWPOLYLINE"),
@@ -753,11 +762,19 @@ public sealed class ViarioCommands
         if (selection.Status != PromptStatus.OK)
             return;
 
-        PromptKeywordOptions what = new("\nNesses eixos [Manter/Liberar] <Manter>: ", "Manter Liberar") { AllowNone = true };
-        PromptResult w = ed.GetKeywords(what);
-        if (w.Status != PromptStatus.OK && w.Status != PromptStatus.None)
-            return;
-        bool keep = w.Status != PromptStatus.OK || w.StringResult == "Manter";
+        bool keep;
+        if (preset is bool fixedChoice)
+        {
+            keep = fixedChoice;
+        }
+        else
+        {
+            PromptKeywordOptions what = new("\nNesses eixos [Manter/Liberar] <Manter>: ", "Manter Liberar") { AllowNone = true };
+            PromptResult w = ed.GetKeywords(what);
+            if (w.Status != PromptStatus.OK && w.Status != PromptStatus.None)
+                return;
+            keep = w.Status != PromptStatus.OK || w.StringResult == "Manter";
+        }
 
         int count = 0;
         using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartTransaction())

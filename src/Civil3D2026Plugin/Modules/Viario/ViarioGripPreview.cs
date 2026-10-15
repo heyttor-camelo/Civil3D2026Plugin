@@ -150,7 +150,10 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         // Concordancia mantida: a cadeia e refeita a partir dos vertices provisorios.
         if (target.Chained && pts.Count > 2)
         {
-            (pts, bulges, bool changed) = ViarioChain.Solve(pts, bulges);
+            List<V2> prevPts = new() { target.Path.Segs[0].A };
+            prevPts.AddRange(target.Path.Segs.Select(sg => sg.B));
+            List<double> prevBulges = target.Path.Segs.Select(sg => sg.IsArc ? sg.Bulge : 0.0).ToList();
+            (pts, bulges, bool changed) = ViarioChain.Solve(pts, bulges, prevPts, prevBulges);
             if (changed)
             {
                 using AcadDb.Polyline solved = ViarioStore.ToPolyline(AxisJig.PathOf(pts, bulges).Segs, closed: false);

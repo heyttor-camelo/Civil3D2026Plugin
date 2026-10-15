@@ -26,18 +26,46 @@ internal static class ViarioChain
     /// Resolve a cadeia. Devolve os vertices/bulges concordantes e se algo mudou
     /// em relacao ao que entrou.
     /// </summary>
-    public static (List<V2> Points, List<double> Bulges, bool Changed) Solve(IReadOnlyList<V2> pts, IReadOnlyList<double> bulges)
+    /// <param name="prevPts">Vertices da ultima versao concordante (opcional): permite reconhecer a edicao do arco.</param>
+    /// <param name="prevBulges">Bulges da ultima versao concordante.</param>
+    public static (List<V2> Points, List<double> Bulges, bool Changed) Solve(
+        IReadOnlyList<V2> pts, IReadOnlyList<double> bulges,
+        IReadOnlyList<V2>? prevPts = null, IReadOnlyList<double>? prevBulges = null)
     {
         List<V2> outPts = new(pts);
         List<double> outBulges = new();
         for (int i = 0; i < pts.Count - 1; i++)
             outBulges.Add(i < bulges.Count ? bulges[i] : 0.0);
 
+        // Edicao do arco (grip do meio do arco, PEDIT, propriedades): as pontas do arco
+        // ficaram onde estavam e so o bulge mudou. Nesse caso o arco manda - o raio sai
+        // de onde o meio do arco foi solto e as tangentes encurtam/alongam ate ele -,
+        // em vez de a cadeia refazer o arco pelas tangentes e desfazer a edicao.
+        bool arcEdited = false;
+        if (prevPts is not null && prevBulges is not null && prevPts.Count == pts.Count)
+        {
+            for (int k = 0; k < outBulges.Count; k++)
+            {
+                double before = k < prevBulges.Count ? prevBulges[k] : 0.0;
+                bool endsKept = V2.Dist(pts[k], prevPts[k]) < 1e-6 && V2.Dist(pts[k + 1], prevPts[k + 1]) < 1e-6;
+                bool othersKept = true;
+                for (int i = 0; i < pts.Count && othersKept; i++)
+                    othersKept = V2.Dist(pts[i], prevPts[i]) < 1e-6;
+                if (!endsKept || !othersKept || Math.Abs(before) < 1e-9 || Math.Abs(outBulges[k] - before) < 1e-9)
+                    continue;
+
+                if (EditArc(outPts, outBulges, k, before))
+                    arcEdited = true;
+                break;
+            }
+        }
+
         if (pts.Count < 2)
             return (outPts, outBulges, false);
 
-        V2 p = pts[0];
-        V2? heading = StartHeading(pts, outBulges);
+        IReadOnlyList<V2> targets = arcEdited ? new List<V2>(outPts) : pts;
+        V2 p = outPts[0];
+        V2? heading = StartHeading(outPts, outBulges);
         if (heading is null)
             return (outPts, outBulges, false);
 
@@ -46,7 +74,7 @@ internal static class ViarioChain
 
         for (int k = 0; k < outPts.Count - 1; k++)
         {
-            V2 target = pts[k + 1];
+            V2 target = targets[k + 1];
             bool arc = Math.Abs(outBulges[k]) > 1e-9;
 
             if (!arc)
@@ -86,7 +114,71 @@ internal static class ViarioChain
             }
         }
 
-        return (outPts, outBulges, changed);
+        return (outPts, outBulges, changed || arcEdited);
+    }
+
+    /// <summary>
+    /// Aplica a edicao do arco k (bulge novo em bulges[k], pontas inalteradas).
+    /// Entre duas retas: as retas ficam nas mesmas direcoes (mesmo PI) e o arco vira
+    /// a concordancia com o raio cuja flecha externa poe o meio do arco onde o
+    /// usuario o soltou; os pontos de tangencia andam sobre as retas. Sem reta
+    /// depois (arco no fim, ou seguido de outro arco): mantem o inicio e a tangente
+    /// de chegada, troca o raio e preserva o angulo central; o resto da cadeia
+    /// segue pela resolucao normal.
+    /// </summary>
+    private static bool EditArc(List<V2> pts, List<double> bulges, int k, double before)
+    {
+        Seg edited = new(pts[k], pts[k + 1], bulges[k]);
+        V2 mid = edited.PointAt(0.5);
+        bool lineBefore = k > 0 && Math.Abs(bulges[k - 1]) < 1e-9;
+        bool lineAfter = k + 1 < bulges.Count && Math.Abs(bulges[k + 1]) < 1e-9;
+
+        if (lineBefore && lineAfter)
+        {
+            V2 a = pts[k - 1], b = pts[k + 2];
+            V2 d1 = (pts[k] - a).Unit();     // direcao da reta de chegada
+            V2 d2 = (b - pts[k + 1]).Unit(); // direcao da reta de saida
+            double cross = V2.Cross(d1, d2);
+            if (Math.Abs(cross) < 1e-9)
+                return false; // retas paralelas: sem PI
+
+            // PI: a + d1*t = b - d2*u
+            V2 ab = b - a;
+            double t = V2.Cross(ab, -d2) / V2.Cross(d1, -d2);
+            V2 pi = a + (d1 * t);
+            double delta = Math.Abs(Math.Atan2(cross, V2.Dot(d1, d2))); // deflexao
+            double half = delta / 2.0;
+            V2 inward = (d2 - d1).Unit();   // bissetriz, do PI para dentro da curva
+            double e = V2.Dot(mid - pi, inward);
+            double secMinus1 = (1.0 / Math.Cos(half)) - 1.0;
+            if (secMinus1 < 1e-9)
+                return false;
+
+            double maxT = Math.Min(V2.Dist(a, pi), V2.Dist(pi, b)) - MinTangent;
+            double maxR = maxT / Math.Tan(half);
+            double r = Math.Clamp(e / secMinus1, 0.5, Math.Max(0.5, maxR));
+            double tl = r * Math.Tan(half);
+            pts[k] = pi - (d1 * tl);
+            pts[k + 1] = pi + (d2 * tl);
+            bulges[k] = Math.Sign(cross) * Math.Tan(delta / 4.0);
+            return true;
+        }
+
+        // Inicio e tangente de chegada fixos: novo raio pelo ponto solto, mesmo angulo central.
+        V2 start = pts[k];
+        V2 h = k == 0 ? new Seg(pts[0], pts[1], before).TangentAt(0.0).Unit()
+                      : new Seg(pts[k - 1], pts[k], bulges[k - 1]).TangentAt(1.0).Unit();
+        double toMid = TangentBulge(h, start, mid);
+        Seg probe = new(start, mid, toMid);
+        if (!probe.IsArc)
+            return false;
+        double sweep = new Seg(pts[k], pts[k + 1], before).Sweep;
+        if (Math.Sign(probe.Sweep) != Math.Sign(sweep))
+            sweep = -sweep;
+        Seg arc = Seg.FromArc(probe.Center, probe.Radius, (start - probe.Center).Angle, sweep);
+        pts[k + 1] = arc.B;
+        bulges[k] = Math.Tan(sweep / 4.0);
+        return true;
     }
 
     /// <summary>Bulge do arco tangente a t que sai de a e chega em b (raio resulta do ponto).</summary>
