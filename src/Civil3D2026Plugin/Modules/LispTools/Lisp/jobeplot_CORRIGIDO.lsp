@@ -1,5 +1,6 @@
 ;;@TITULO  Plotagem em lote por bloco de folha
 ;;@CATEGORIA Pranchas e layouts
+;;@ICONE imprimir
 ;;@COMANDO JOBEPLOT
 ;;@DESC    Plota em PDF cada bloco de folha (A4 a A0) do Model, usando o contorno do bloco como janela.
 ;;@DESC    As folhas sao ordenadas de cima para baixo e da esquerda para a direita, e os PDFs saem numerados

@@ -112,6 +112,21 @@ public static class CommandNames
         public const string PointNormalDebug = "PTNORMALDBG";
     }
 
+    /// <summary>Utilitarios convertidos das LISPs: mantem o nome antigo do comando.</summary>
+    public static class Utilitarios
+    {
+        public const string AllToRgb = "ALLTORGB";
+        public const string Tlen = "TLEN";
+        public const string JobeCount = "JOBECOUNT";
+        public const string SmartHatch = "SMARTHATCH";
+        public const string LsLayouts = "LSLAYOUTS";
+        public const string Moff = "MOFF";
+        public const string MoffSet = "MOFFSET";
+        public const string SeparaCurvas = "SEPARA_CURVAS_RAIO";
+        public const string Kb = "KB";
+        public const string Pp = "PP";
+    }
+
     public static class LispTools
     {
         public const string Painel = "C3DLISP";

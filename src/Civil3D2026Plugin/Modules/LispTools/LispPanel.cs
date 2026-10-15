@@ -1,54 +1,58 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
+using Civil3D2026Plugin.Modules.Utilitarios;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using SW = System.Windows;
 using WC = System.Windows.Controls;
+using WD = System.Windows.Documents;
 using WI = System.Windows.Input;
 using WM = System.Windows.Media;
 
 namespace Civil3D2026Plugin.Modules.LispTools;
 
 /// <summary>
-/// Lista das LISPs embutidas (C3DLISP): a esquerda as rotinas por categoria,
-/// a direita a explicacao, o passo a passo e um botao para cada comando.
-/// Janela flutuante; segue o tema (claro/escuro) escolhido no painel viario.
+/// Lista das ferramentas (C3DLISP): utilitarios nativos e LISPs embutidas numa lista so,
+/// cada linha com icone pequeno, nome em destaque, comando e uma linha de descricao.
+/// Duplo clique (ou Enter) executa; a dica mostra o passo a passo.
 /// </summary>
 internal sealed class LispPanel : SW.Window
 {
     private static LispPanel? _instance;
 
-    private sealed record Theme(WM.Brush Back, WM.Brush Pane, WM.Brush Header, WM.Brush Line,
+    private sealed record Theme(WM.Brush Back, WM.Brush Pane, WM.Brush Hover, WM.Brush Line,
         WM.Brush Text, WM.Brush Muted, WM.Brush Input, WM.Brush Accent, WM.Brush Selected);
 
     private static readonly Theme Light = new(
-        Brush(240, 240, 240), Brush(255, 255, 255), Brush(229, 229, 229), Brush(200, 200, 200),
-        Brush(20, 20, 20), Brush(105, 105, 105), Brush(255, 255, 255), Brush(0, 95, 170), Brush(204, 228, 247));
+        Brush(240, 240, 240), Brush(255, 255, 255), Brush(236, 241, 247), Brush(200, 200, 200),
+        Brush(20, 20, 20), Brush(110, 110, 110), Brush(255, 255, 255), Brush(0, 95, 170), Brush(204, 228, 247));
 
     private static readonly Theme Dark = new(
-        Brush(45, 45, 48), Brush(37, 37, 38), Brush(58, 58, 62), Brush(70, 70, 74),
+        Brush(45, 45, 48), Brush(37, 37, 38), Brush(50, 54, 60), Brush(70, 70, 74),
         Brush(222, 222, 222), Brush(150, 150, 150), Brush(30, 30, 30), Brush(80, 160, 255), Brush(38, 79, 120));
 
-    private static readonly WM.FontFamily UiFont = new("Arial");
+    /// <summary>Uma linha da lista (ferramenta nativa ou LISP).</summary>
+    private sealed record Entry(string Titulo, string Icone, string Descricao, IReadOnlyList<string> Comandos,
+        IReadOnlyList<string> Uso, bool Lisp, string Origem);
 
     private readonly Theme T = ViarioDarkPreference() ? Dark : Light;
-
+    private readonly List<Entry> _entries;
+    private readonly Dictionary<string, WM.ImageSource> _icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly WC.TextBox _find = new();
     private readonly WC.ListBox _list = new();
-    private readonly WC.StackPanel _detail = new();
-    private readonly WC.TextBlock _status = new();
 
     private LispPanel()
     {
-        Title = "LISPs embutidas - Civil3D2026Plugin";
-        Width = 820;
-        Height = 560;
-        MinWidth = 560;
-        MinHeight = 360;
-        FontFamily = UiFont;
+        _entries = Entradas();
+
+        Title = "Ferramentas e LISPs";
+        Width = 470;
+        Height = 620;
+        MinWidth = 340;
+        MinHeight = 300;
+        FontFamily = new WM.FontFamily("Arial");
         FontSize = 12;
         Background = T.Back;
         Foreground = T.Text;
@@ -56,12 +60,28 @@ internal sealed class LispPanel : SW.Window
         WindowStartupLocation = SW.WindowStartupLocation.CenterScreen;
 
         Content = Build();
-        FillList();
-        KeyDown += (_, e) =>
+        Preencher();
+
+        PreviewKeyDown += (_, e) =>
         {
             if (e.Key == WI.Key.Escape)
+            {
                 Close();
+                e.Handled = true;
+            }
+            else if (e.Key == WI.Key.Enter && Selecionada() is Entry sel)
+            {
+                Executar(sel.Comandos[0]);
+                e.Handled = true;
+            }
+            else if (e.Key == WI.Key.Down && _find.IsKeyboardFocused && _list.Items.Count > 0)
+            {
+                _list.SelectedIndex = Math.Max(0, _list.SelectedIndex);
+                (_list.ItemContainerGenerator.ContainerFromIndex(_list.SelectedIndex) as WC.ListBoxItem)?.Focus();
+                e.Handled = true;
+            }
         };
+        Loaded += (_, _) => _find.Focus();
     }
 
     public static void ShowPanel()
@@ -80,287 +100,237 @@ internal sealed class LispPanel : SW.Window
     }
 
     // ------------------------------------------------------------------
+    // Dados
+    // ------------------------------------------------------------------
+
+    private static List<Entry> Entradas()
+    {
+        var lista = new List<Entry>();
+        foreach (UtilTool u in UtilCatalog.Tools)
+            lista.Add(new Entry(u.Titulo, u.Icone, u.Descricao, u.Comandos, u.Uso, false, u.Origem));
+        foreach (LispInfo l in LispModule.Catalogo.Where(l => l.Comandos.Count > 0))
+            lista.Add(new Entry(l.Titulo, l.Icone, l.Descricao, l.Comandos, l.Uso, true, l.Arquivo));
+        return lista.OrderBy(e => e.Titulo, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    private static bool Combina(Entry e, string filtro)
+    {
+        if (filtro.Length == 0)
+            return true;
+        bool Tem(string s) => s.Contains(filtro, StringComparison.OrdinalIgnoreCase);
+        return Tem(e.Titulo) || Tem(e.Descricao) || e.Comandos.Any(Tem);
+    }
+
+    // ------------------------------------------------------------------
     // Montagem
     // ------------------------------------------------------------------
 
     private SW.UIElement Build()
     {
-        var root = new WC.DockPanel { LastChildFill = true };
+        var root = new WC.DockPanel();
 
-        // Barra superior: localizar.
+        // Localizar.
         var top = new WC.DockPanel { Margin = new SW.Thickness(8, 8, 8, 6) };
-        var label = new WC.TextBlock
+        var count = new WC.TextBlock
         {
-            Text = "Localizar:",
+            Text = $"{_entries.Count} ferramentas",
+            Foreground = T.Muted,
+            FontSize = 11,
             VerticalAlignment = SW.VerticalAlignment.Center,
-            Margin = new SW.Thickness(0, 0, 6, 0),
-            Foreground = T.Text
+            Margin = new SW.Thickness(8, 0, 0, 0)
         };
-        _find.Width = 220;
+        WC.DockPanel.SetDock(count, WC.Dock.Right);
+        top.Children.Add(count);
         _find.Height = 22;
         _find.Background = T.Input;
         _find.Foreground = T.Text;
         _find.BorderBrush = T.Line;
         _find.CaretBrush = T.Text;
         _find.VerticalContentAlignment = SW.VerticalAlignment.Center;
-        _find.TextChanged += (_, _) => FillList();
-        var count = new WC.TextBlock
-        {
-            Text = $"{LispModule.Catalogo.Count} rotinas",
-            Foreground = T.Muted,
-            VerticalAlignment = SW.VerticalAlignment.Center,
-            HorizontalAlignment = SW.HorizontalAlignment.Right
-        };
-        WC.DockPanel.SetDock(label, WC.Dock.Left);
-        WC.DockPanel.SetDock(_find, WC.Dock.Left);
-        top.Children.Add(label);
+        _find.ToolTip = "Localizar por nome, comando ou descricao";
+        _find.TextChanged += (_, _) => Preencher();
         top.Children.Add(_find);
-        top.Children.Add(count);
         WC.DockPanel.SetDock(top, WC.Dock.Top);
         root.Children.Add(top);
 
-        // Barra inferior: pasta, recarregar, status.
-        var bottom = new WC.DockPanel { Margin = new SW.Thickness(8, 6, 8, 8) };
-        var reload = Button("Recarregar", (_, _) => Recarregar());
-        var folder = Button("Abrir pasta", (_, _) => AbrirPasta());
-        folder.Margin = new SW.Thickness(6, 0, 0, 0);
-        WC.DockPanel.SetDock(folder, WC.Dock.Right);
-        WC.DockPanel.SetDock(reload, WC.Dock.Right);
-        bottom.Children.Add(folder);
-        bottom.Children.Add(reload);
-        _status.Foreground = T.Muted;
-        _status.VerticalAlignment = SW.VerticalAlignment.Center;
-        _status.TextTrimming = SW.TextTrimming.CharacterEllipsis;
-        _status.Text = "Cada rotina e carregada no primeiro uso do comando.";
-        bottom.Children.Add(_status);
-        WC.DockPanel.SetDock(bottom, WC.Dock.Bottom);
-        root.Children.Add(bottom);
-
-        // Centro: lista | detalhe.
-        var grid = new WC.Grid { Margin = new SW.Thickness(8, 0, 8, 0) };
-        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(270) });
-        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
-        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
-
+        // Lista.
         _list.Background = T.Pane;
         _list.Foreground = T.Text;
         _list.BorderBrush = T.Line;
-        _list.SelectionChanged += (_, _) => ShowDetail(_list.SelectedItem is WC.ListBoxItem { Tag: LispInfo l } ? l : null);
-        _list.MouseDoubleClick += (_, _) =>
+        _list.Margin = new SW.Thickness(8, 0, 8, 8);
+        _list.HorizontalContentAlignment = SW.HorizontalAlignment.Stretch;
+        WC.ScrollViewer.SetHorizontalScrollBarVisibility(_list, WC.ScrollBarVisibility.Disabled);
+        _list.ItemContainerStyle = EstiloLinha();
+        _list.MouseDoubleClick += (_, e) =>
         {
-            if (_list.SelectedItem is WC.ListBoxItem { Tag: LispInfo l } && l.Comandos.Count > 0)
-                Run(l.Comandos[0]);
+            if (e.OriginalSource is SW.DependencyObject src && ItemDe(src) is WC.ListBoxItem { Tag: Entry sel })
+                Executar(sel.Comandos[0]);
         };
-        WC.Grid.SetColumn(_list, 0);
-        grid.Children.Add(_list);
-
-        var splitter = new WC.GridSplitter
-        {
-            Width = 5,
-            Background = T.Back,
-            HorizontalAlignment = SW.HorizontalAlignment.Stretch
-        };
-        WC.Grid.SetColumn(splitter, 1);
-        grid.Children.Add(splitter);
-
-        _detail.Margin = new SW.Thickness(14, 10, 14, 10);
-        var scroll = new WC.ScrollViewer
-        {
-            Content = _detail,
-            VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto,
-            HorizontalScrollBarVisibility = WC.ScrollBarVisibility.Disabled
-        };
-        var detailBorder = new WC.Border
-        {
-            Child = scroll,
-            Background = T.Pane,
-            BorderBrush = T.Line,
-            BorderThickness = new SW.Thickness(1)
-        };
-        WC.Grid.SetColumn(detailBorder, 2);
-        grid.Children.Add(detailBorder);
-
-        root.Children.Add(grid);
+        root.Children.Add(_list);
         return root;
     }
 
-    private void FillList()
+    private void Preencher()
     {
         string filtro = _find.Text.Trim();
-        LispInfo? atual = _list.SelectedItem is WC.ListBoxItem { Tag: LispInfo s } ? s : null;
-
+        Entry? atual = Selecionada();
         _list.Items.Clear();
-        WC.ListBoxItem? primeiro = null, manter = null;
 
-        foreach (IGrouping<string, LispInfo> grupo in LispModule.Catalogo.Where(l => Combina(l, filtro)).GroupBy(l => l.Categoria))
+        foreach (Entry e in _entries.Where(e => Combina(e, filtro)))
         {
-            _list.Items.Add(new WC.ListBoxItem
+            var item = new WC.ListBoxItem
             {
-                Content = grupo.Key.ToUpperInvariant(),
-                FontWeight = SW.FontWeights.Bold,
-                FontSize = 10.5,
-                Foreground = T.Muted,
-                Background = T.Header,
-                IsEnabled = false,
-                Padding = new SW.Thickness(6, 3, 6, 3)
-            });
-
-            foreach (LispInfo l in grupo)
-            {
-                var linha = new WC.StackPanel { Orientation = WC.Orientation.Vertical };
-                linha.Children.Add(new WC.TextBlock { Text = l.Titulo, Foreground = T.Text });
-                linha.Children.Add(new WC.TextBlock
-                {
-                    Text = string.Join(", ", l.Comandos),
-                    Foreground = T.Muted,
-                    FontSize = 10.5,
-                    TextTrimming = SW.TextTrimming.CharacterEllipsis
-                });
-
-                var item = new WC.ListBoxItem { Content = linha, Tag = l, Padding = new SW.Thickness(14, 3, 6, 3) };
-                _list.Items.Add(item);
-                primeiro ??= item;
-                if (ReferenceEquals(l, atual))
-                    manter = item;
-            }
+                Tag = e,
+                Content = Linha(e),
+                ToolTip = Dica(e),
+                ContextMenu = e.Comandos.Count > 1 ? MenuComandos(e) : null
+            };
+            WC.ToolTipService.SetInitialShowDelay(item, 600);
+            WC.ToolTipService.SetShowDuration(item, 30000);
+            _list.Items.Add(item);
+            if (ReferenceEquals(e, atual))
+                _list.SelectedItem = item;
         }
-
-        _list.SelectedItem = manter ?? primeiro;
-        if (_list.SelectedItem is null)
-            ShowDetail(null);
     }
 
-    private static bool Combina(LispInfo l, string filtro)
+    private SW.UIElement Linha(Entry e)
     {
-        if (filtro.Length == 0)
-            return true;
-        bool Tem(string s) => s.Contains(filtro, StringComparison.OrdinalIgnoreCase);
-        return Tem(l.Titulo) || Tem(l.Descricao) || Tem(l.Categoria) || Tem(l.Arquivo) || l.Comandos.Any(Tem);
-    }
+        var grid = new WC.Grid { Margin = new SW.Thickness(4, 4, 6, 4) };
+        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
+        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
 
-    private void ShowDetail(LispInfo? l)
-    {
-        _detail.Children.Clear();
-        if (l is null)
+        var icone = new WC.Image
         {
-            _detail.Children.Add(new WC.TextBlock { Text = "Nenhuma rotina encontrada.", Foreground = T.Muted });
-            return;
-        }
+            Source = Icone(e.Icone),
+            Width = 16,
+            Height = 16,
+            Margin = new SW.Thickness(2, 1, 9, 0),
+            VerticalAlignment = SW.VerticalAlignment.Top
+        };
+        WC.Grid.SetColumn(icone, 0);
+        grid.Children.Add(icone);
 
-        _detail.Children.Add(new WC.TextBlock
+        var textos = new WC.StackPanel();
+        var nome = new WC.TextBlock { TextTrimming = SW.TextTrimming.CharacterEllipsis };
+        nome.Inlines.Add(new WD.Run(e.Titulo) { FontWeight = SW.FontWeights.Bold, FontSize = 12.5, Foreground = T.Text });
+        // Ate dois comandos na linha; os outros ficam na dica e no botao direito.
+        string comandos = string.Join("  ", e.Comandos.Take(2)) + (e.Comandos.Count > 2 ? $"  +{e.Comandos.Count - 2}" : "");
+        nome.Inlines.Add(new WD.Run("   " + comandos) { FontSize = 11, Foreground = T.Accent });
+        textos.Children.Add(nome);
+        textos.Children.Add(new WC.TextBlock
         {
-            Text = l.Titulo,
-            FontSize = 16,
-            FontWeight = SW.FontWeights.Bold,
-            Foreground = T.Text,
-            TextWrapping = SW.TextWrapping.Wrap
-        });
-
-        string versao = l.Versao.Length > 0 ? $"  |  v{l.Versao}" : "";
-        string modo = l.CarregarInteiro ? "carregada ao abrir o desenho" : "carregada no primeiro uso";
-        _detail.Children.Add(new WC.TextBlock
-        {
-            Text = $"{l.Categoria}  |  {l.Arquivo}{versao}  |  {modo}",
+            Text = PrimeiraFrase(e.Descricao),
             Foreground = T.Muted,
             FontSize = 11,
-            Margin = new SW.Thickness(0, 2, 0, 10),
-            TextWrapping = SW.TextWrapping.Wrap
+            Margin = new SW.Thickness(0, 1, 0, 0),
+            TextTrimming = SW.TextTrimming.CharacterEllipsis
         });
+        WC.Grid.SetColumn(textos, 1);
+        grid.Children.Add(textos);
 
-        _detail.Children.Add(new WC.TextBlock
+        if (e.Lisp)
         {
-            Text = l.Descricao,
-            Foreground = T.Text,
-            TextWrapping = SW.TextWrapping.Wrap,
-            LineHeight = 17
-        });
-
-        if (l.Uso.Count > 0)
-        {
-            _detail.Children.Add(Section("Como usar"));
-            int n = 0;
-            foreach (string passo in l.Uso)
+            var tag = new WC.Border
             {
-                n++;
-                _detail.Children.Add(new WC.TextBlock
-                {
-                    Text = $"{n}.  {passo}",
-                    Foreground = T.Text,
-                    TextWrapping = SW.TextWrapping.Wrap,
-                    Margin = new SW.Thickness(4, 0, 0, 3)
-                });
-            }
+                BorderBrush = T.Line,
+                BorderThickness = new SW.Thickness(1),
+                CornerRadius = new SW.CornerRadius(2),
+                Padding = new SW.Thickness(3, 0, 3, 0),
+                Margin = new SW.Thickness(8, 1, 0, 0),
+                VerticalAlignment = SW.VerticalAlignment.Top,
+                Child = new WC.TextBlock { Text = "LISP", FontSize = 9.5, Foreground = T.Muted },
+                ToolTip = "Ainda em LISP (carregada no primeiro uso)"
+            };
+            WC.Grid.SetColumn(tag, 2);
+            grid.Children.Add(tag);
         }
 
-        if (l.Comandos.Count > 0)
-        {
-            _detail.Children.Add(Section("Comandos"));
-            var wrap = new WC.WrapPanel();
-            foreach (string cmd in l.Comandos)
-            {
-                WC.Button b = Button(cmd, (_, _) => Run(cmd));
-                b.Margin = new SW.Thickness(0, 0, 6, 6);
-                b.ToolTip = $"Executar {cmd}";
-                wrap.Children.Add(b);
-            }
-            _detail.Children.Add(wrap);
-        }
+        return grid;
     }
 
-    private WC.TextBlock Section(string text) => new()
+    private object Dica(Entry e)
     {
-        Text = text,
-        FontWeight = SW.FontWeights.Bold,
-        Foreground = T.Accent,
-        Margin = new SW.Thickness(0, 14, 0, 6)
-    };
-
-    private WC.Button Button(string text, SW.RoutedEventHandler click)
-    {
-        var b = new WC.Button
+        var painel = new WC.StackPanel { MaxWidth = 380 };
+        painel.Children.Add(new WC.TextBlock { Text = e.Titulo, FontWeight = SW.FontWeights.Bold, Margin = new SW.Thickness(0, 0, 0, 4) });
+        painel.Children.Add(new WC.TextBlock { Text = e.Descricao, TextWrapping = SW.TextWrapping.Wrap });
+        int n = 0;
+        foreach (string passo in e.Uso)
+            painel.Children.Add(new WC.TextBlock
+            {
+                Text = $"{++n}. {passo}",
+                TextWrapping = SW.TextWrapping.Wrap,
+                Margin = new SW.Thickness(0, n == 1 ? 6 : 1, 0, 0)
+            });
+        if (e.Comandos.Count > 1)
+            painel.Children.Add(new WC.TextBlock
+            {
+                Text = "Comandos: " + string.Join(", ", e.Comandos) + " (botao direito para escolher)",
+                TextWrapping = SW.TextWrapping.Wrap,
+                Margin = new SW.Thickness(0, 6, 0, 0)
+            });
+        painel.Children.Add(new WC.TextBlock
         {
-            Content = text,
-            MinWidth = 80,
-            Height = 24,
-            Padding = new SW.Thickness(10, 0, 10, 0),
-            Background = T.Header,
-            Foreground = T.Text,
-            BorderBrush = T.Line
-        };
+            Text = (e.Lisp ? "LISP: " : "C#, antes: ") + e.Origem,
+            FontSize = 10.5,
+            Opacity = 0.7,
+            Margin = new SW.Thickness(0, 6, 0, 0)
+        });
+        return painel;
+    }
 
-        // Modelo proprio: o hover padrao do Windows apaga o texto no tema escuro.
-        var border = new SW.FrameworkElementFactory(typeof(WC.Border));
-        border.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
-        border.SetValue(WC.Border.BorderBrushProperty, new SW.TemplateBindingExtension(WC.Control.BorderBrushProperty));
-        border.SetValue(WC.Border.BorderThicknessProperty, new SW.Thickness(1));
-        border.SetValue(WC.Border.PaddingProperty, new SW.TemplateBindingExtension(WC.Control.PaddingProperty));
-        var presenter = new SW.FrameworkElementFactory(typeof(WC.ContentPresenter));
-        presenter.SetValue(SW.FrameworkElement.HorizontalAlignmentProperty, SW.HorizontalAlignment.Center);
-        presenter.SetValue(SW.FrameworkElement.VerticalAlignmentProperty, SW.VerticalAlignment.Center);
-        border.AppendChild(presenter);
-        b.Template = new WC.ControlTemplate(typeof(WC.Button)) { VisualTree = border };
-        b.MouseEnter += (_, _) => b.Background = T.Selected;
-        b.MouseLeave += (_, _) => b.Background = T.Header;
+    private WC.ContextMenu MenuComandos(Entry e)
+    {
+        var menu = new WC.ContextMenu();
+        foreach (string cmd in e.Comandos)
+        {
+            var mi = new WC.MenuItem { Header = cmd };
+            mi.Click += (_, _) => Executar(cmd);
+            menu.Items.Add(mi);
+        }
+        return menu;
+    }
 
-        b.Click += click;
-        return b;
+    /// <summary>Linha com hover e selecao nas cores do tema (o modelo padrao ignora o tema escuro).</summary>
+    private SW.Style EstiloLinha()
+    {
+        var bd = new SW.FrameworkElementFactory(typeof(WC.Border), "Bd");
+        bd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
+        bd.SetValue(WC.Border.BorderBrushProperty, T.Line);
+        bd.SetValue(WC.Border.BorderThicknessProperty, new SW.Thickness(0, 0, 0, 1));
+        var cp = new SW.FrameworkElementFactory(typeof(WC.ContentPresenter));
+        bd.AppendChild(cp);
+
+        var template = new WC.ControlTemplate(typeof(WC.ListBoxItem)) { VisualTree = bd };
+        var hover = new SW.Trigger { Property = SW.UIElement.IsMouseOverProperty, Value = true };
+        hover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Hover, "Bd"));
+        template.Triggers.Add(hover);
+        var sel = new SW.Trigger { Property = WC.Primitives.Selector.IsSelectedProperty, Value = true };
+        sel.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
+        template.Triggers.Add(sel);
+
+        var style = new SW.Style(typeof(WC.ListBoxItem));
+        style.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, WM.Brushes.Transparent));
+        style.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+        style.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, template));
+        style.Setters.Add(new SW.Setter(WC.Control.HorizontalContentAlignmentProperty, SW.HorizontalAlignment.Stretch));
+        return style;
     }
 
     // ------------------------------------------------------------------
-    // Acoes
+    // Acoes e utilitarios
     // ------------------------------------------------------------------
 
-    private void Run(string command)
+    private void Executar(string comando)
     {
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
             return;
 
-        // Garante os stubs neste desenho (ex.: aberto antes do plugin ficar ocioso).
+        // Garante o registro das LISPs neste desenho (ex.: aberto antes do plugin ficar ocioso).
         LispModule.CarregarEm(doc, forcar: false);
 
-        _status.Text = $"Executando {command}...";
-        doc.SendStringToExecute("\x03\x03" + command + " ", true, false, true);
+        doc.SendStringToExecute("\x03\x03" + comando + " ", true, false, true);
         try
         {
             Autodesk.AutoCAD.Internal.Utils.SetFocusToDwgView();
@@ -371,37 +341,28 @@ internal sealed class LispPanel : SW.Window
         }
     }
 
-    private void Recarregar()
+    private Entry? Selecionada() => (_list.SelectedItem as WC.ListBoxItem)?.Tag as Entry;
+
+    private static WC.ListBoxItem? ItemDe(SW.DependencyObject? d)
     {
-        try
-        {
-            LispModule.ExtrairArquivos();
-            bool ok = LispModule.CarregarEm(AcApp.DocumentManager.MdiActiveDocument, forcar: true);
-            _status.Text = ok
-                ? $"{LispModule.Catalogo.Count} rotinas registradas de novo no desenho atual."
-                : "Nenhum desenho ativo para recarregar.";
-        }
-        catch (System.Exception ex)
-        {
-            _status.Text = $"Falha ao recarregar: {ex.Message}";
-        }
+        while (d is not null and not WC.ListBoxItem)
+            d = d is SW.Media.Visual or SW.Media.Media3D.Visual3D ? WM.VisualTreeHelper.GetParent(d) : SW.LogicalTreeHelper.GetParent(d);
+        return d as WC.ListBoxItem;
     }
 
-    private void AbrirPasta()
+    private WM.ImageSource Icone(string key)
     {
-        try
-        {
-            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{LispModule.Pasta}\"") { UseShellExecute = true });
-        }
-        catch (System.Exception ex)
-        {
-            _status.Text = $"Nao foi possivel abrir a pasta: {ex.Message}";
-        }
+        if (!_icons.TryGetValue(key, out WM.ImageSource? img))
+            _icons[key] = img = ToolIcons.Create(key, T.Text, T.Accent);
+        return img;
     }
 
-    // ------------------------------------------------------------------
-    // Utilitarios
-    // ------------------------------------------------------------------
+    private static string PrimeiraFrase(string texto)
+    {
+        int p = texto.IndexOf(". ", StringComparison.Ordinal);
+        string s = p > 0 ? texto[..(p + 1)] : texto;
+        return s.Length > 0 && s.EndsWith('.') ? s[..^1] : s;
+    }
 
     private static bool ViarioDarkPreference()
     {

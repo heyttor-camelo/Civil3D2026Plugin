@@ -1,5 +1,6 @@
 ;;@TITULO  Copiar solido nos vertices de 3DPOLY
 ;;@CATEGORIA 3D
+;;@ICONE solido3d
 ;;@COMANDO ARRAY3DSOLID
 ;;@COMANDO ARRAY3DSOLIDHELP
 ;;@VERSAO  1.1

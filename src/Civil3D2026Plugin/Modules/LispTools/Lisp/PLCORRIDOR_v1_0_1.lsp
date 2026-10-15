@@ -1,5 +1,6 @@
 ;;@TITULO  Auditoria de polilinhas para corredor
 ;;@CATEGORIA Polilinhas e geometria
+;;@ICONE polilinha
 ;;@COMANDO PLCORRIDOR
 ;;@COMANDO PLANALISAR
 ;;@COMANDO PLINVERTER

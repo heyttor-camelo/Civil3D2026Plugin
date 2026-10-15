@@ -1,5 +1,6 @@
 ;;@TITULO  Zebrado em area fechada
 ;;@CATEGORIA Vias e meio-fio
+;;@ICONE zebra
 ;;@COMANDO ZEBRA
 ;;@VERSAO  1.5
 ;;@DESC    Preenche uma polilinha fechada com zebrado (faixas inclinadas e contorno) como UMA unica hachura

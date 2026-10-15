@@ -1,5 +1,6 @@
 ;;@TITULO  Mapa-chave das pranchas
 ;;@CATEGORIA Pranchas e layouts
+;;@ICONE mapa
 ;;@COMANDO MAPACHAVE
 ;;@COMANDO MAPACHAVEDYN
 ;;@VERSAO  1.8

@@ -18,6 +18,9 @@ public sealed class LispInfo
     public string Arquivo { get; init; } = "";
     public string Titulo { get; init; } = "";
     public string Categoria { get; init; } = "";
+
+    /// <summary>Chave do icone na lista (;;@ICONE ou o padrao da categoria).</summary>
+    public string Icone { get; init; } = "";
     public string Versao { get; init; } = "";
     public string Descricao { get; init; } = "";
     public IReadOnlyList<string> Uso { get; init; } = Array.Empty<string>();
@@ -238,7 +241,7 @@ public static class LispModule
             string texto = compilado ? "" : Decodificar(bytes);
             string cabecalho = infos.TryGetValue(arquivo, out string? info) ? info : texto;
 
-            string titulo = "", categoria = "", versao = "";
+            string titulo = "", categoria = "", versao = "", icone = "";
             var desc = new List<string>();
             var uso = new List<string>();
             var cmds = new List<string>();
@@ -256,6 +259,7 @@ public static class LispModule
                 {
                     case ";;@TITULO": titulo = val; break;
                     case ";;@CATEGORIA": categoria = val; break;
+                    case ";;@ICONE": icone = val.ToLowerInvariant(); break;
                     case ";;@VERSAO": versao = val; break;
                     case ";;@DESC": desc.Add(val); break;
                     case ";;@USO": uso.Add(val); break;
@@ -276,6 +280,7 @@ public static class LispModule
                 Arquivo = arquivo,
                 Titulo = titulo.Length > 0 ? titulo : Path.GetFileNameWithoutExtension(arquivo),
                 Categoria = categoria.Length > 0 ? categoria : "Outras",
+                Icone = icone.Length > 0 ? icone : ToolIcons.ForCategory(categoria),
                 Versao = versao,
                 Descricao = desc.Count > 0 ? string.Join(" ", desc) : "(sem descricao no cabecalho)",
                 Uso = uso,

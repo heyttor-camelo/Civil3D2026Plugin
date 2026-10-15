@@ -1,5 +1,6 @@
 ;;@TITULO  Resolver entroncamentos de vias
 ;;@CATEGORIA Vias e meio-fio
+;;@ICONE via
 ;;@COMANDO VIAU
 ;;@COMANDO VIAUCLR
 ;;@VERSAO  0.4

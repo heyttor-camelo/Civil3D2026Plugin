@@ -1,5 +1,6 @@
 ;;@TITULO  Quebrar nas intersecoes
 ;;@CATEGORIA Polilinhas e geometria
+;;@ICONE quebrar
 ;;@COMANDO BREAKALL
 ;;@COMANDO BREAKOBJECT
 ;;@COMANDO BREAKWOBJECTS

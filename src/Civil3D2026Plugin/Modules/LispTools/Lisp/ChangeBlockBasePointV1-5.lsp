@@ -1,5 +1,6 @@
 ;;@TITULO  Mudar ponto-base de bloco
 ;;@CATEGORIA Blocos, textos e cores
+;;@ICONE bloco
 ;;@COMANDO CBP
 ;;@COMANDO CBPR
 ;;@VERSAO  1.5

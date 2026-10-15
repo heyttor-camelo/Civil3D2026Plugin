@@ -10,7 +10,7 @@ namespace Civil3D2026Plugin.Modules.LispTools;
 /// <summary>Comandos do modulo LispTools.</summary>
 public sealed class LispCommands
 {
-    /// <summary>Janela com a lista das LISPs, explicacao e botao para cada comando.</summary>
+    /// <summary>Lista das ferramentas (nativas e LISPs): icone, nome, comando e descricao.</summary>
     [CommandMethod(C3DCommands.LispTools.Painel, CommandFlags.Modal)]
     public void Painel()
     {
@@ -26,6 +26,13 @@ public sealed class LispCommands
             return;
 
         var sb = new StringBuilder();
+        sb.Append($"\n=== Utilitarios em C# (ex-LISP) - v{C3DVersions.Utilitarios} ===");
+        foreach (Civil3D2026Plugin.Modules.Utilitarios.UtilTool u in Civil3D2026Plugin.Modules.Utilitarios.UtilCatalog.Tools)
+        {
+            sb.Append($"\n  {string.Join(" / ", u.Comandos)}  -  {u.Titulo}");
+            sb.Append($"\n      {u.Descricao}");
+        }
+        sb.Append('\n');
         sb.Append($"\n=== LISPs embutidas - LispTools v{C3DVersions.LispTools} ({LispModule.Catalogo.Count} rotinas) ===");
         sb.Append("\nCada rotina e carregada no primeiro uso do comando.\n");
 

@@ -1,5 +1,6 @@
 ;;@TITULO  Quantificar hachuras por estaca
 ;;@CATEGORIA Hachuras
+;;@ICONE hachura
 ;;@COMANDO QHPE
 ;;@COMANDO QHPEGERAR
 ;;@COMANDO QHPEUPDATE

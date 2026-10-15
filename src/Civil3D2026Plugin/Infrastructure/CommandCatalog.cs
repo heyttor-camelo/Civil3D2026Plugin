@@ -247,12 +247,31 @@ public static class CommandCatalog
 
             new(
                 "LISPs",
+                "Utilitarios (ex-LISP)",
+                C3DVersions.Utilitarios,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Utilitarios.AllToRgb, "Cores ACI para RGB", "Converte a cor ACI dos objetos para a RGB equivalente."),
+                    new CommandDefinition(C3DCommands.Utilitarios.Tlen, "Comprimento total", "Soma o comprimento das curvas selecionadas."),
+                    new CommandDefinition(C3DCommands.Utilitarios.JobeCount, "Numerar textos", "Acrescenta numero sequencial aos textos, na ordem de leitura."),
+                    new CommandDefinition(C3DCommands.Utilitarios.SmartHatch, "Hachura ignorando gaps", "Hachura SOLID clicando dentro de area com aberturas no contorno."),
+                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Restaura um layer state como override nos viewports dos layouts escolhidos."),
+                    new CommandDefinition(C3DCommands.Utilitarios.Moff, "Varios offsets", "Varios offsets em polilinhas fechadas, para dentro ou para fora."),
+                    new CommandDefinition(C3DCommands.Utilitarios.MoffSet, "Varios offsets (alias)", "Mesmo que MOFF.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite."),
+                    new CommandDefinition(C3DCommands.Utilitarios.Kb, "Marcacao de meio-fio", "Face do meio-fio e linha central tracejada na layer Kerb Line."),
+                    new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01.")
+                },
+                ShowInRibbon: false),
+
+            new(
+                "LISPs",
                 "LISPs embutidas",
                 C3DVersions.LispTools,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.LispTools.Painel, "Lista de LISPs",
-                        "Janela com as LISPs distribuidas na DLL, por categoria: explicacao, passo a passo e botao para executar cada comando."),
+                    new CommandDefinition(C3DCommands.LispTools.Painel, "Ferramentas e LISPs",
+                        "Lista de todas as ferramentas (nativas e LISPs) com icone, nome, comando e descricao; duplo clique executa."),
                     new CommandDefinition(C3DCommands.LispTools.Lista, "Lista na linha de comando",
                         "Mostra as LISPs embutidas com explicacao e modo de uso na linha de comando.",
                         ShowInRibbon: false),

@@ -1,5 +1,6 @@
 ;;@TITULO  Numeracao automatica de pranchas
 ;;@CATEGORIA Pranchas e layouts
+;;@ICONE numero
 ;;@COMANDO NP
 ;;@DESC    Numera as pranchas pela ordem das abas de layout (01, 02... e o total /NN), usando textos nas
 ;;@DESC    layers PRANCHA_NUMERO e PRANCHA_TOTAL. O Model nao entra na contagem.

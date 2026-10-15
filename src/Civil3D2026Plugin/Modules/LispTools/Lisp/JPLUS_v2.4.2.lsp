@@ -1,5 +1,6 @@
 ;;@TITULO  Join aprimorado
 ;;@CATEGORIA Polilinhas e geometria
+;;@ICONE juntar
 ;;@COMANDO JPLUS
 ;;@COMANDO JPLU
 ;;@COMANDO JPLUSA

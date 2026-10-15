@@ -200,12 +200,18 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
-## LISPs embutidas (C3DLISP, LispTools v1.0.1)
+## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.0.0)
+
+`Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
+
+`C3DLISP` mostra tudo numa lista: icone, nome, comando e descricao; duplo clique executa.
+
+### LISPs embutidas
 
 Modulo em `Modules/LispTools`. As LISPs de `Modules/LispTools/Lisp` vao dentro da DLL (EmbeddedResource). Ao carregar o plugin elas sao gravadas em `%LOCALAPPDATA%\Civil3D2026Plugin\Lisp` e, em cada desenho, os comandos sao registrados com o `autoload` do AutoCAD: cada rotina so e carregada no primeiro uso do comando (rotinas que executam codigo ao carregar, como o NP, nao mexem em desenhos onde nao foram usadas). Arquivos compilados (VLX/FAS) sao carregados inteiros. A pasta e incluida em TRUSTEDPATHS para o SECURELOAD nao pedir confirmacao a cada arquivo.
 
 ```text
-C3DLISP          -> janela com as LISPs por categoria: explicacao, passo a passo e botao para cada comando
+C3DLISP          -> lista de ferramentas (nativas e LISPs) com icone; duplo clique executa
 C3DLISPLIST      -> a mesma lista na linha de comando
 C3DLISPCARREGAR  -> regrava as LISPs e registra os comandos de novo no desenho atual
 ```

@@ -1,5 +1,6 @@
 ;;@TITULO  Carimbo de as built (JOBE)
 ;;@CATEGORIA Pranchas e layouts
+;;@ICONE prancha
 ;;@COMANDO JOBEPLACE
 ;;@DESC    Atualiza carimbos para as built: preenche atributos fixos (REV, DATA, COMENTARIO, DISCIPLINA)
 ;;@DESC    e troca termos nos textos (PROJETADO -> EXECUTADO, A SER IMPLANTADO -> IMPLANTADO etc.).

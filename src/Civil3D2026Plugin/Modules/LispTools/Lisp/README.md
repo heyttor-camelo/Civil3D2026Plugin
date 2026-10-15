@@ -10,6 +10,7 @@ Coloque no topo do arquivo (linhas de comentario, sem acento para servir a arqui
 ```lisp
 ;;@TITULO    Nome amigavel da rotina
 ;;@CATEGORIA Hachuras
+;;@ICONE     hachura          (opcional; sem ele vale o icone da categoria)
 ;;@COMANDO   NOMECMD          (uma linha por comando exibido)
 ;;@VERSAO    1.0
 ;;@DESC      O que a rotina faz (varias linhas sao juntadas)
@@ -19,6 +20,10 @@ Coloque no topo do arquivo (linhas de comentario, sem acento para servir a arqui
 Todas as tags sao opcionais. Sem `;;@COMANDO`, a lista mostra os `(defun c:XXX)` encontrados no arquivo.
 O carregamento usa sempre todos os `(defun c:XXX)` do arquivo, mesmo os que nao aparecem na lista.
 
+Icones: `hachura`, `zebra`, `diagnostico`, `polilinha`, `offset`, `curva`, `via`, `prancha`, `imprimir`,
+`camadas`, `malha`, `mapa`, `bloco`, `numero`, `cor`, `medida`, `tabela`, `solido3d`, `juntar`, `quebrar`
+(desenhados em `Modules/LispTools/ToolIcons.cs`).
+
 Categorias em uso: `3D`, `Blocos, textos e cores`, `Hachuras`, `Polilinhas e geometria`,
 `Pranchas e layouts`, `Tabelas e Excel`, `Vias e meio-fio`.
 
@@ -26,6 +31,12 @@ Categorias em uso: `3D`, `Blocos, textos e cores`, `Hachuras`, `Polilinhas e geo
 
 Nao da para ler o cabecalho de dentro deles. Crie um arquivo ao lado com o mesmo nome mais `.info`
 (ex.: `MALHA.VLX.info`) contendo as mesmas linhas `;;@`. Esses arquivos sao carregados inteiros ao abrir o desenho.
+
+## Quando converter para C#
+
+Rotinas curtas e estaveis passam para `Modules/Utilitarios` (mesmo nome de comando) e o `.lsp` sai daqui.
+Ja convertidas: ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP.
+Os originais ficam no historico do git.
 
 ## Carregamento
 

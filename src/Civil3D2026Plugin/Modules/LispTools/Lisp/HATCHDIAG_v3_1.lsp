@@ -1,5 +1,6 @@
 ;;@TITULO  Diagnostico de hachura (v3.1)
 ;;@CATEGORIA Hachuras
+;;@ICONE diagnostico
 ;;@COMANDO HATCHDIAG31
 ;;@COMANDO HATCHDIAG31CLEAR
 ;;@COMANDO HATCHDIAG31HELP

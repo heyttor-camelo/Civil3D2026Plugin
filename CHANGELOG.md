@@ -1,3 +1,13 @@
+## 2.30.0 - Utilitarios v1.0.0 (LISPs leves em C#) / LispTools v1.1.0 (lista com icones)
+
+- **8 LISPs convertidas para C#** (`Modules/Utilitarios`), com o mesmo nome de comando: ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP. Os `.lsp` sairam da DLL (ficam no historico do git);
+  - TLEN soma qualquer curva (inclui polilinha 3D e feature line);
+  - SMARTHATCH cria a hachura com as ilhas e permite mudar o gap ([Tolerancia]);
+  - KB nao faz mais PURGE de layers nem reinicia a lista de escalas do desenho;
+  - Enter repete os ultimos valores (distancia, quantidade, raio, largura, layer state, layouts);
+- **C3DLISP** virou uma lista unica (nativas e LISPs): icone pequeno, nome em destaque, comando e uma linha de descricao; duplo clique ou Enter executa, a dica mostra o passo a passo, botao direito escolhe entre varios comandos; as que ainda sao LISP tem a marca "LISP";
+- cabecalho `;;@ICONE` nas LISPs (icones vetoriais em `ToolIcons.cs`).
+
 ## 2.29.1 - LispTools v1.0.1 / sem aviso de seguranca
 
 - a pasta das LISPs (`%LOCALAPPDATA%\Civil3D2026Plugin\Lisp`) passa a ser incluida em TRUSTEDPATHS ao carregar o plugin; antes o SECURELOAD mostrava "Unsigned Executable File" para o MALHA.VLX ao abrir o desenho e para cada LISP no primeiro uso. So essa pasta e acrescentada; o resto da variavel fica como estava.

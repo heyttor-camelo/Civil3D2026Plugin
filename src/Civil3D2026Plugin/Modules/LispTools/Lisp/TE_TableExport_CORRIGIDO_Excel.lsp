@@ -1,5 +1,6 @@
 ;;@TITULO  Exportar tabela explodida para o Excel
 ;;@CATEGORIA Tabelas e Excel
+;;@ICONE tabela
 ;;@COMANDO TE
 ;;@COMANDO TEHELP
 ;;@DESC    Le uma tabela explodida (linhas/polilinhas, TEXT/MTEXT e blocos) e recria no Excel, com linhas,
