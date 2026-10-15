@@ -451,6 +451,11 @@ internal static class ViarioEngine
         public Dictionary<(int, int, EdgeLevel, long), GPath> CurveOffsetCache = new();
         public HashSet<string> RepeatedKeys = new();
         public double[] ExtStartLen = Array.Empty<double>();
+        public List<Node> Nodes = new();
+        public Dictionary<(int Axis, int Dir, long S, int Side), (double Extent, bool AtNode)> SideExtentCache = new();
+
+        /// <summary>Tangencias do no em processamento, por linha: a remocao e decidida ao fim do no.</summary>
+        public Dictionary<Curve, List<(Leg Leg, double ST)>> PendingRemovals = new();
     }
 
     public static ViarioResult Compute(IReadOnlyList<AxisInput> axes, EngineSettings settings)
@@ -480,6 +485,7 @@ internal static class ViarioEngine
         }
 
         BuildCurves(ctx, nodes);
+        ctx.Nodes = nodes;
 
         foreach (Node node in nodes)
         {
@@ -1256,6 +1262,7 @@ internal static class ViarioEngine
     {
         int count = node.Legs.Count;
         double straightTol = ctx.Settings.StraightToleranceDeg * Math.PI / 180.0;
+        ctx.PendingRemovals.Clear();
 
         for (int i = 0; i < count; i++)
         {
@@ -1288,6 +1295,8 @@ internal static class ViarioEngine
             foreach (EdgeLevel level in EdgeLevels)
                 ProcessCorner(ctx, node, li, lj, sideI, sideJ, theta, concave, level, faceRadius, key, concave ? slip : null);
         }
+
+        FlushRemovals(ctx);
     }
 
     private static void ProcessCorner(
@@ -1407,8 +1416,44 @@ internal static class ViarioEngine
             });
         }
 
-        AddRemoval(ctx, c1, li, t1);
-        AddRemoval(ctx, c2, lj, t2);
+        QueueRemoval(ctx, c1, li, t1);
+        QueueRemoval(ctx, c2, lj, t2);
+    }
+
+    private static void QueueRemoval(Ctx ctx, Curve curve, Leg leg, double sT)
+    {
+        if (!ctx.PendingRemovals.TryGetValue(curve, out List<(Leg, double)>? list))
+            ctx.PendingRemovals[curve] = list = new List<(Leg, double)>();
+        list.Add((leg, sT));
+    }
+
+    /// <summary>
+    /// Aplica as remocoes do no. Numa linha que passa pelo no (dois ramos do mesmo eixo),
+    /// o que sai e o trecho entre as duas tangencias das esquinas que a usam - e nao
+    /// "do no ate cada tangencia": quando o bordo da via transversal cruza a linha alem
+    /// do no, as duas tangencias ficam do mesmo lado e a regra antiga apagava um pedaco
+    /// do contorno da quadra.
+    /// </summary>
+    private static void FlushRemovals(Ctx ctx)
+    {
+        foreach ((Curve curve, List<(Leg Leg, double ST)> list) in ctx.PendingRemovals)
+        {
+            bool open = !curve.Closed;
+            List<(Leg Leg, double ST)> through = list.Where(x => x.Leg.Through).ToList();
+            if (open && through.Count >= 2 && through.Select(x => x.Leg.Dir).Distinct().Count() == 2)
+            {
+                double a = through.Min(x => x.ST), b = through.Max(x => x.ST);
+                curve.Removals.Add((a, b));
+                foreach ((Leg leg, double sT) in list.Where(x => !x.Leg.Through))
+                    AddRemoval(ctx, curve, leg, sT);
+                continue;
+            }
+
+            foreach ((Leg leg, double sT) in list)
+                AddRemoval(ctx, curve, leg, sT);
+        }
+
+        ctx.PendingRemovals.Clear();
     }
 
     private static double SignedAlong(Curve curve, double from, double to, int dir)
@@ -1504,7 +1549,7 @@ internal static class ViarioEngine
                     continue;
                 }
 
-                if (!FitsInLeg(ctx, li, cp1, radius) || !FitsInLeg(ctx, lj, cp2, radius))
+                if (!FitsInLeg(ctx, li, sideI, cp1, radius) || !FitsInLeg(ctx, lj, sideJ, cp2, radius))
                 {
                     Debug?.Invoke($"fillet r={r:0.##}: candidato a {distCorner:0.#} m, nao cabe no ramo");
                     _fitReason ??= "a tangente do arco passaria do no vizinho (ramo curto)";
@@ -1543,22 +1588,82 @@ internal static class ViarioEngine
     }
 
     /// <summary>
-    /// O ponto de tangencia precisa caber no ramo. Quando o ramo termina em outro no,
-    /// este no pode usar ate a metade do ramo ou, se sobrar, tudo menos o que o outro
-    /// no precisa para as proprias esquinas (bicos agudos ficam longe do no e
-    /// precisam dessa folga).
+    /// O ponto de tangencia precisa caber no ramo, do lado em questao. O ramo e
+    /// limitado pelo proximo no que mexe nesse lado (eixo que chega por esse lado,
+    /// cruzamento, ou ponta do eixo); um no em que outro eixo so encosta pelo lado
+    /// oposto nao interrompe a face deste lado. Quando termina em no, este no pode
+    /// usar ate a metade do ramo ou, se sobrar, tudo menos o que o outro no precisa.
     /// </summary>
-    private static bool FitsInLeg(Ctx ctx, Leg leg, V2 tangentPoint, double faceRadius)
+    private static bool FitsInLeg(Ctx ctx, Leg leg, int side, V2 tangentPoint, double faceRadius)
     {
         GPath axis = ctx.Axes[leg.Axis].Path;
         double s = axis.Project(tangentPoint).S;
         double along = (s - leg.S) * leg.Dir;
         if (axis.Closed)
             along = ((along % axis.Length) + axis.Length) % axis.Length;
-        double available = leg.ExtentEndsAtNode && !leg.FarNodeStraight
-            ? Math.Max(leg.Extent / 2.0, leg.Extent - Math.Max(2.0 * faceRadius, 6.0))
-            : leg.Extent;
+
+        (double extent, bool atNode) = SideExtent(ctx, leg, side);
+        double available = atNode && !leg.FarNodeStraight
+            ? Math.Max(extent / 2.0, extent - Math.Max(2.0 * faceRadius, 6.0))
+            : extent;
         return along <= available + 1e-6;
+    }
+
+    /// <summary>
+    /// Comprimento livre da face do lado dado a partir do no, no sentido do ramo:
+    /// ate o proximo no onde chega um eixo por esse lado (ou cruza, ou o eixo acaba).
+    /// </summary>
+    private static (double Extent, bool AtNode) SideExtent(Ctx ctx, Leg leg, int side)
+    {
+        var key = (leg.Axis, leg.Dir, (long)Math.Round(leg.S * 1e4), side);
+        if (ctx.SideExtentCache.TryGetValue(key, out (double, bool) cached))
+            return cached;
+
+        GPath path = ctx.Axes[leg.Axis].Path;
+        double length = path.Length;
+        double snap = Math.Max(ctx.Settings.SnapTolerance, 1e-4);
+        (double, bool) result = (leg.Extent, leg.ExtentEndsAtNode);
+
+        if (!path.Closed)
+        {
+            // Nos deste eixo adiante do ramo, na ordem.
+            IEnumerable<(Node Node, double S)> ahead = ctx.Nodes
+                .SelectMany(n => n.Items.Where(it => it.Axis == leg.Axis).Select(it => (n, it.S)))
+                .Where(x => (x.S - leg.S) * leg.Dir > snap)
+                .OrderBy(x => (x.S - leg.S) * leg.Dir);
+
+            result = (leg.Dir > 0 ? length - leg.S : leg.S, false); // ate a ponta, se nada bloquear
+            foreach ((Node node, double sNode) in ahead)
+            {
+                bool axisEnds = sNode <= snap || sNode >= length - snap;
+                V2 t = path.TangentAt(Math.Clamp(sNode, 0, length)) * leg.Dir; // sentido do ramo
+                bool blocks = axisEnds;
+                if (!blocks)
+                {
+                    foreach (Leg other in node.Legs.Where(l => l.Axis != leg.Axis))
+                    {
+                        // Lado do ramo alheio em relacao ao sentido do eixo (nao ao do ramo): side e no eixo.
+                        V2 d = V2.FromAngle(other.Angle);
+                        double cross = V2.Cross(path.TangentAt(Math.Clamp(sNode, 0, length)), d);
+                        int otherSide = cross >= 0 ? 1 : -1;
+                        if (otherSide == side)
+                        {
+                            blocks = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (blocks)
+                {
+                    result = (Math.Abs(sNode - leg.S), true);
+                    break;
+                }
+            }
+        }
+
+        ctx.SideExtentCache[key] = result;
+        return result;
     }
 
     private static void AddRemoval(Ctx ctx, Curve curve, Leg leg, double sT)

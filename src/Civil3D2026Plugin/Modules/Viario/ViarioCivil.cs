@@ -340,6 +340,7 @@ internal static class ViarioCivil
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         CheckDrawnLines(tr, db, result, lines, ref ok, ref fail);
         CheckSignage(tr, db, axes, result, lines, ref ok, ref fail);
+        CheckHatch(tr, db, axes, result, lines, ref ok, ref fail);
         List<Tagged> existing = Scan(tr, db);
         if (existing.Count == 0)
         {
@@ -1128,6 +1129,39 @@ internal static class ViarioCivil
         int refs = block.GetBlockReferenceIds(true, false).Count;
         bool good = count == marks.Count && refs == 1;
         lines.Add($"{(good ? "OK   " : "FALHA")} Sinalizacao: {count} marca(s) no bloco, esperado {marks.Count} ({ViarioSignageSync.Summary(marks)}); {refs} insercao(oes).");
+        if (good) ok++; else fail++;
+    }
+
+    /// <summary>Hachura do pavimento: existe uma so, com o numero de lacos que o contorno pede.</summary>
+    private static void CheckHatch(AcadDb.Transaction tr, AcadDb.Database db, List<AxisInput> axes, ViarioResult result,
+        List<string> lines, ref int ok, ref int fail)
+    {
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        int hatches = 0, loopsTag = -1;
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (!id.ObjectClass.DxfName.Equals("HATCH", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Hatch h && ViarioStore.ReadTag(h, out string loops) == ViarioHatchSync.TagHatch)
+            {
+                hatches++;
+                int.TryParse(loops, out loopsTag);
+            }
+        }
+
+        if (hatches == 0)
+        {
+            lines.Add("Hachura: sem hachura.");
+            return;
+        }
+
+        ViarioHatch.Plan plan = ViarioHatch.Build(axes, result);
+        bool good = hatches == 1 && loopsTag == plan.Loops.Count && plan.Warnings.Count == 0;
+        lines.Add($"{(good ? "OK   " : "FALHA")} Hachura: {hatches} hachura(s), {loopsTag} laco(s), esperado {plan.Loops.Count} " +
+                  $"({plan.Loops.Count(l => l.Outer)} externo(s), {plan.Loops.Count(l => !l.Outer)} furo(s), {plan.Caps} tampa(s)); avisos {plan.Warnings.Count}.");
+        foreach (string w in plan.Warnings.Take(4))
+            lines.Add("  AVISO hachura: " + w);
         if (good) ok++; else fail++;
     }
 

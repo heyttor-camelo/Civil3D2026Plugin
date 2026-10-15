@@ -588,6 +588,16 @@ internal static class ViarioSync
                 doc.Editor.WriteMessage("\n  [AVISO] Sinalizacao nao atualizada: " + ex.Message);
             }
 
+            // Hachura do pavimento acompanha a rede enquanto existir.
+            try
+            {
+                ViarioHatchSync.Sync(doc, axes, result, create: false);
+            }
+            catch (System.Exception ex)
+            {
+                doc.Editor.WriteMessage("\n  [AVISO] Hachura nao atualizada: " + ex.Message);
+            }
+
             ViarioPanel.NotifyChanged(doc);
 
             if (civil is not null)

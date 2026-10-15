@@ -1,3 +1,9 @@
+## 2.32.8 - C3DVIARIO v0.7.8 / hachura do pavimento, raio da alca, contorno nas esquinas obliquas
+
+- **C3DVIARIOHACHURA** (tambem `C3DVIARIO > HAchura` e botao com menu no painel): uma HATCH unica so da regiao de pavimento - contorno pelas faces de meio-fio, tampas nas pontas livres dos eixos, quadras fechadas, canteiros, ilhas e ilha central de rotatoria como furos (estilo par/impar). Padrao (ANSI31...), escala, angulo ou SOLID com transparencia, gravados no desenho (Config); layer VIARIO-PAVIMENTO; [Ocultar/Mostrar/Remover]; acompanha a rede a cada atualizacao; o autoteste confere;
+- **raio da esquina ao lado de uma alca** (caso do DXF enviado): o ramo passou a ser medido por lado - um no em que outro eixo so chega pelo lado oposto nao interrompe a face deste lado, entao o arco pode passar dele. A esquina que ficava em 3,3 m aceita 17 m;
+- **contorno das quadras em cruzamentos obliquos**: quando o bordo da via transversal cruza a face alem do no, as duas tangencias caem do mesmo lado e a regra "do no ate a tangencia" apagava um pedaco do contorno; a remocao passou a ser entre as duas tangencias. Corrige o buraco no contorno interno do anel ao lado da diagonal.
+
 ## 2.32.7 - C3DVIARIO v0.7.7 / busca do centro da esquina mais robusta
 
 - o arco da esquina testa todos os encontros das paralelas (do mais perto ao mais longe da esquina) e fica com o primeiro que tangencia as duas linhas depois da esquina e cabe nos ramos; antes so o mais proximo era considerado, o que em alcas e curvas podia descartar o certo. Os motivos de "nao coube" ficaram mais especificos.

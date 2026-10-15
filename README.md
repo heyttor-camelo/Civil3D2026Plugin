@@ -160,13 +160,14 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Rede viaria (C3DVIARIO v0.7.7)
+## Rede viaria (C3DVIARIO v0.7.8)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Ocultar/Mostrar/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
+C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Ocultar/Mostrar] hachura unica so do pavimento (furos: quadras, canteiros, ilhas); acompanha a rede
 C3DVIARIOCOTAR       -> cadeia de cotas da secao segue o cursor sobre o eixo; clique grava (faixas, canteiro, passeio e largura total); [Detalhe/Estilo/Escala/Remover]
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos como no Vehicle Tracking: [Tangent/Arc/Undo] (T reta na direcao corrente, A arco tangente pelo ponto, U desfaz; clicar no ultimo vertice desfaz); [Free/Chain] alterna lancamento livre; [COncordancia] Manter/Liberar/Selecionar/Vertice (reconcordar dois trechos); [Inverter] inverte o sentido do eixo
@@ -181,7 +182,7 @@ C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/COtar/PAinel/Config]
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/COtar/HAchura/PAinel/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas); sarjeta, meio-fio e calcada podem existir so a esquerda, so a direita ou nos dois lados (no sentido do eixo);

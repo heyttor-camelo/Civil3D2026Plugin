@@ -72,6 +72,13 @@ internal static class ViarioStore
 
         /// <summary>DIMSCALE das cotas do C3DVIARIOCOTAR (0 = o do estilo/desenho).</summary>
         public double CotaEscala { get; set; }
+
+        /// <summary>Hachura do pavimento: padrao (acad.pat), escala, angulo; ou solido com transparencia.</summary>
+        public string HachuraPadrao { get; set; } = "ANSI31";
+        public double HachuraEscala { get; set; } = 20.0;
+        public double HachuraAngulo { get; set; }
+        public bool HachuraSolida { get; set; }
+        public int HachuraTransparencia { get; set; } = 70;
     }
 
     // ------------------------------------------------------------------
@@ -454,6 +461,15 @@ internal static class ViarioStore
             settings.CotaEstilo = v[5].Value as string ?? "";
         if (v.Length >= 7 && v[6].Value is double escala && escala >= 0)
             settings.CotaEscala = escala;
+        if (v.Length >= 12)
+        {
+            settings.HachuraPadrao = v[7].Value as string is { Length: > 0 } pat ? pat : "ANSI31";
+            if (v[8].Value is double hs && hs > 0) settings.HachuraEscala = hs;
+            if (v[9].Value is double ha) settings.HachuraAngulo = ha;
+            settings.HachuraSolida = v[10].Value is int sol ? sol != 0 : v[10].Value is short s16 && s16 != 0;
+            if (v[11].Value is int tp) settings.HachuraTransparencia = tp;
+            else if (v[11].Value is short tp16) settings.HachuraTransparencia = tp16;
+        }
         return settings;
     }
 
@@ -466,7 +482,12 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.Capture),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.MedianSetback),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.CotaEstilo ?? ""),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.CotaEscala)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.CotaEscala),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, s.HachuraPadrao ?? "ANSI31"),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.HachuraEscala),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.HachuraAngulo),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.HachuraSolida ? 1 : 0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.HachuraTransparencia)));
     }
 
     // ------------------------------------------------------------------

@@ -180,6 +180,9 @@ internal sealed class ViarioPanel : SW.Window
             "Alinhamentos do Civil: eixos, bordos LD/LE e curb returns conectados.", new[] { "Gera ou atualiza; depois acompanham a rede." }),
         new("SINAL", "C3DVIARIOSINAL G ", "Sinalizacao horizontal", "Saidas",
             "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "O botao abre o menu: gerar/atualizar, ocultar, mostrar, remover.", "Opcoes na categoria Sinalizacao." }),
+        new("HACHURA", "C3DVIARIOHACHURA G ", "Hachura do pavimento", "Saidas",
+            "Uma hachura so da regiao de pavimento: contorno pelas faces de meio-fio, quadras, canteiros e ilhas como furos; acompanha a rede.",
+            new[] { "O botao abre o menu: gerar/atualizar, padrao, escala, solido com transparencia, ocultar, remover." }),
         new("COTAR", "C3DVIARIOCOTAR ", "Cotar faixas", "Saidas",
             "Cadeia de cotas da secao em planta (faixas, canteiro, passeio) e largura total, na estaca clicada.",
             new[] { "O botao abre o menu: estilo de cota, escala (DIMSCALE), detalhe, cotar e remover.", "Cotar: passe sobre o eixo (a cadeia segue o cursor) e clique." }),
@@ -512,6 +515,19 @@ internal sealed class ViarioPanel : SW.Window
                     };
                     button.Click += (_, _) => OpenSignageMenu(button);
                 }
+                else if (c.Key == "HACHURA")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenHatchMenu(button);
+                }
                 else if (c.Key == "COTAR")
                 {
                     button.Content = new WC.StackPanel
@@ -643,14 +659,94 @@ internal sealed class ViarioPanel : SW.Window
         menu.IsOpen = true;
     }
 
-    private void SaveDimensionSetting(Action<ViarioStore.Settings> change, string what)
+    /// <summary>Menu do botao Hachura: gerar/atualizar, padrao, escala, solido, ocultar/mostrar, remover.</summary>
+    private void OpenHatchMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+        bool exists = false, visible = true;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+            {
+                exists = ViarioHatchSync.Exists(d.Database);
+                visible = ViarioHatchSync.IsVisible(d.Database);
+            }
+        }
+        catch
+        {
+            // Sem desenho ativo.
+        }
+
+        WC.MenuItem gen = new() { Header = exists ? "Atualizar hachura do pavimento" : "Gerar hachura do pavimento", FontWeight = SW.FontWeights.Bold };
+        gen.Click += (_, _) => Send("C3DVIARIOHACHURA G ", "Hachura do pavimento gerada.");
+        menu.Items.Add(gen);
+        menu.Items.Add(new WC.Separator());
+
+        WC.MenuItem pattern = new() { Header = "Padrao: " + (_settings.HachuraSolida ? "SOLID" : _settings.HachuraPadrao) };
+        foreach (string pat in ViarioHatchSync.Patterns)
+        {
+            WC.MenuItem mi = new() { Header = pat, IsCheckable = true, IsChecked = !_settings.HachuraSolida && pat == _settings.HachuraPadrao };
+            string v = pat;
+            mi.Click += (_, _) => SaveDimensionSetting(st => { st.HachuraPadrao = v; st.HachuraSolida = false; }, "Hachura: " + v, regenerateHatch: true);
+            pattern.Items.Add(mi);
+        }
+
+        pattern.Items.Add(new WC.Separator());
+        WC.MenuItem solid = new() { Header = "SOLID com transparencia " + _settings.HachuraTransparencia + "%", IsCheckable = true, IsChecked = _settings.HachuraSolida };
+        solid.Click += (_, _) => SaveDimensionSetting(st => st.HachuraSolida = true, "Hachura: solido", regenerateHatch: true);
+        pattern.Items.Add(solid);
+        menu.Items.Add(pattern);
+
+        WC.MenuItem scale = new() { Header = "Escala do padrao: " + N(_settings.HachuraEscala) };
+        foreach (double sc in ViarioHatchSync.Scales)
+        {
+            WC.MenuItem mi = new() { Header = N(sc), IsCheckable = true, IsChecked = Math.Abs(sc - _settings.HachuraEscala) < 1e-9 };
+            double v = sc;
+            mi.Click += (_, _) => SaveDimensionSetting(st => st.HachuraEscala = v, "Hachura: escala " + N(v), regenerateHatch: true);
+            scale.Items.Add(mi);
+        }
+
+        menu.Items.Add(scale);
+
+        WC.MenuItem transp = new() { Header = "Transparencia do solido: " + _settings.HachuraTransparencia + "%" };
+        foreach (int t in new[] { 30, 50, 70, 80, 90 })
+        {
+            WC.MenuItem mi = new() { Header = t + "%", IsCheckable = true, IsChecked = t == _settings.HachuraTransparencia };
+            int v = t;
+            mi.Click += (_, _) => SaveDimensionSetting(st => { st.HachuraTransparencia = v; st.HachuraSolida = true; }, "Hachura: solido " + v + "%", regenerateHatch: true);
+            transp.Items.Add(mi);
+        }
+
+        menu.Items.Add(transp);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem hide = new() { Header = "Ocultar (desliga a layer VIARIO-PAVIMENTO)", IsEnabled = exists && visible };
+        hide.Click += (_, _) => Send("C3DVIARIOHACHURA O ", "Hachura oculta.");
+        menu.Items.Add(hide);
+        WC.MenuItem show = new() { Header = "Mostrar", IsEnabled = exists && !visible };
+        show.Click += (_, _) => Send("C3DVIARIOHACHURA M ", "Hachura visivel.");
+        menu.Items.Add(show);
+        WC.MenuItem remove = new() { Header = "Remover hachura", IsEnabled = exists };
+        remove.Click += (_, _) => Send("C3DVIARIOHACHURA R ", "Hachura removida.");
+        menu.Items.Add(remove);
+        menu.IsOpen = true;
+    }
+
+    private void SaveDimensionSetting(Action<ViarioStore.Settings> change, string what, bool regenerateHatch = false)
     {
         change(_settings);
         Edit(what, db =>
         {
-            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-            ViarioStore.SaveSettings(tr, db, _settings);
-            tr.Commit();
+            using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                ViarioStore.SaveSettings(tr, db, _settings);
+                tr.Commit();
+            }
+
+            if (regenerateHatch && ViarioHatchSync.Exists(db) && AcApp.DocumentManager.MdiActiveDocument is Document doc)
+            {
+                (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
+                ViarioHatchSync.Sync(doc, axes, result, create: false);
+            }
         }, regenerate: false);
     }
 
@@ -2433,12 +2529,20 @@ internal sealed class ViarioPanel : SW.Window
         ChoiceProp("CotaEstilo", "Estilo de cota", styles, _settings.CotaEstilo);
         EditProp("CotaEscala", "Escala (DIMSCALE, 0 = do estilo)", N(_settings.CotaEscala));
         Prop("Layer", ViarioStore.LayerDims);
+        Category("Hachura do pavimento (C3DVIARIOHACHURA)");
+        ChoiceProp("HachuraPadrao", "Padrao", ViarioHatchSync.Patterns.Select(x => (x, x)), _settings.HachuraPadrao);
+        EditProp("HachuraEscala", "Escala do padrao", N(_settings.HachuraEscala));
+        EditProp("HachuraAngulo", "Angulo (graus)", N(_settings.HachuraAngulo));
+        CheckProp("HachuraSolida", "Solido com transparencia", _settings.HachuraSolida);
+        EditProp("HachuraTransparencia", "Transparencia do solido (%)", _settings.HachuraTransparencia.ToString(CultureInfo.InvariantCulture));
+        Prop("Layer ", ViarioHatchSync.Layer);
         Category("Painel");
         Prop("Tema", (_dark ? "escuro" : "claro") + " (Preferencias...)");
         Act("Salvar", () =>
         {
             double? snap = Number("SnapTolerance", 1e-6), capture = Number("Capture"), setback = Number("MedianSetback"), cotaEscala = Number("CotaEscala");
-            if (snap is null || capture is null || setback is null || cotaEscala is null)
+            double? hEsc = Number("HachuraEscala", 1e-6), hAng = Number("HachuraAngulo", -360), hTr = Number("HachuraTransparencia");
+            if (snap is null || capture is null || setback is null || cotaEscala is null || hEsc is null || hAng is null || hTr is null)
             {
                 Say("Corrija os valores em vermelho.");
                 return;
@@ -2451,6 +2555,11 @@ internal sealed class ViarioPanel : SW.Window
                 _settings.MedianSetback = setback.Value;
                 _settings.CotaEstilo = Text("CotaEstilo");
                 _settings.CotaEscala = cotaEscala.Value;
+                _settings.HachuraPadrao = Text("HachuraPadrao") is { Length: > 0 } hp ? hp : "ANSI31";
+                _settings.HachuraEscala = hEsc.Value;
+                _settings.HachuraAngulo = hAng.Value;
+                _settings.HachuraSolida = Checked("HachuraSolida");
+                _settings.HachuraTransparencia = (int)Math.Round(Math.Clamp(hTr.Value, 0, 90));
                 using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
                 ViarioStore.SaveSettings(tr, db, _settings);
                 tr.Commit();

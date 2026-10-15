@@ -89,6 +89,7 @@ public static class CommandNames
         public const string Painel = "C3DVIARIOPAINEL";
         public const string Sinal = "C3DVIARIOSINAL";
         public const string Cotar = "C3DVIARIOCOTAR";
+        public const string Hachura = "C3DVIARIOHACHURA";
     }
 
     public static class FeatureLines
