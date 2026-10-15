@@ -376,6 +376,9 @@ internal sealed class GPath
         return s < 0 ? s + Length : s;
     }
 
+    /// <summary>Trecho que contem a estaca s (a curva local naquele ponto).</summary>
+    public Seg SegAt(double s) => Segs[Math.Clamp(Locate(s).Index, 0, Segs.Count - 1)];
+
     public (int Index, double T) Locate(double s)
     {
         if (s <= 0)

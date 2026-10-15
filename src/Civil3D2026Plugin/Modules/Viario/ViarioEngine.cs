@@ -221,6 +221,12 @@ internal sealed class CornerInfo
     public Seg? Arc { get; init; }
     public string AxisA { get; init; } = "";
     public string AxisB { get; init; } = "";
+
+    /// <summary>Raio pedido (secao/eixo/especifico) quando o aplicado ficou menor.</summary>
+    public double Requested { get; init; }
+
+    /// <summary>Por que o raio pedido nao coube (vazio quando coube).</summary>
+    public string Limit { get; init; } = "";
 }
 
 internal sealed class EngineSettings
@@ -1353,6 +1359,7 @@ internal static class ViarioEngine
         double t2 = x.Value.S2;
         Seg? arc = null;
         double usedRadius = 0.0;
+        string limitText = "";
 
         if (radius > 1e-6)
         {
@@ -1372,13 +1379,15 @@ internal static class ViarioEngine
                     ctx.Pieces[(int)level].Add(a);
                 if (r < radius - 1e-6 && level == EdgeLevel.FaceMF)
                 {
+                    limitText = _fitReason ?? "nao cabe";
                     ctx.Result.Warnings.Add(
-                        $"Raio de esquina reduzido para {r:0.##} m perto de {node.Point} (nao cabe {radius:0.##} m).");
+                        $"Raio de esquina reduzido para {r:0.##} m perto de {node.Point} (pedido {radius:0.##} m; {limitText}).");
                 }
             }
             else if (level == EdgeLevel.FaceMF)
             {
-                ctx.Result.Warnings.Add($"Esquina em canto vivo perto de {node.Point} (o raio nao coube).");
+                limitText = _fitReason ?? "o raio nao coube";
+                ctx.Result.Warnings.Add($"Esquina em canto vivo perto de {node.Point} ({limitText}).");
             }
         }
 
@@ -1392,7 +1401,9 @@ internal static class ViarioEngine
                 Radius = usedRadius,
                 Arc = arc,
                 AxisA = ctx.Axes[li.Axis].Key,
-                AxisB = ctx.Axes[lj.Axis].Key
+                AxisB = ctx.Axes[lj.Axis].Key,
+                Requested = radius,
+                Limit = limitText
             });
         }
 
@@ -1427,11 +1438,15 @@ internal static class ViarioEngine
         return path;
     }
 
+    /// <summary>Motivo pelo qual o ultimo raio tentado nao coube (para a mensagem ao usuario).</summary>
+    [ThreadStatic] private static string? _fitReason;
+
     private static (bool Ok, double Radius, double S1, double S2, Seg? Arc, V2 Center) Fillet(
         Ctx ctx, Leg li, Leg lj, int sideI, int sideJ, double d1, double d2,
         Curve c1, Curve c2, V2 corner, double sx1, double sx2, double radius, double theta)
     {
         double r = radius;
+        _fitReason = null;
         // Em bico agudo o centro fica longe da esquina (r / sen(theta/2)).
         double sinHalf = Math.Max(Math.Abs(Math.Sin(theta / 2.0)), 0.05);
 
@@ -1458,20 +1473,44 @@ internal static class ViarioEngine
             }
 
             if (center is not V2 o)
+            {
+                Debug?.Invoke($"fillet r={r:0.##}: sem centro (paralelas nao se cruzam perto da esquina)");
+                if (_fitReason is null)
+                {
+                    // Uma das linhas e curva e se afasta da esquina: nao ha circulo tangente as duas com esse raio.
+                    bool curvedI = c1.P.Segs.Count > 0 && c1.P.SegAt(sx1).IsArc;
+                    bool curvedJ = c2.P.Segs.Count > 0 && c2.P.SegAt(sx2).IsArc;
+                    string who = curvedI && curvedJ ? "as curvas dos dois eixos se afastam" :
+                        curvedI ? $"a curva do eixo {ctx.Axes[li.Axis].Key} se afasta" :
+                        curvedJ ? $"a curva do eixo {ctx.Axes[lj.Axis].Key} se afasta" : "os bordos se afastam";
+                    _fitReason = who + " da esquina: nao existe arco tangente aos dois com esse raio (estique a tangente do eixo antes do no ou aumente o raio da curva dele)";
+                }
+
                 continue;
+            }
 
             (double s1, V2 p1, double dist1) = c1.P.Project(o);
             (double s2, V2 p2, double dist2) = c2.P.Project(o);
 
             double tol = Math.Max(1e-3, r * 1e-4);
             if (Math.Abs(dist1 - r) > tol || Math.Abs(dist2 - r) > tol)
+            {
+                Debug?.Invoke($"fillet r={r:0.##}: centro a {dist1:0.###}/{dist2:0.###} das linhas");
                 continue;
+            }
 
             if (SignedAlong(c1, sx1, s1, li.Dir) < -1e-6 || SignedAlong(c2, sx2, s2, lj.Dir) < -1e-6)
+            {
+                Debug?.Invoke($"fillet r={r:0.##}: tangencia antes da esquina ({SignedAlong(c1, sx1, s1, li.Dir):0.##}/{SignedAlong(c2, sx2, s2, lj.Dir):0.##})");
                 continue;
+            }
 
             if (!FitsInLeg(ctx, li, p1, radius) || !FitsInLeg(ctx, lj, p2, radius))
+            {
+                Debug?.Invoke($"fillet r={r:0.##}: nao cabe no ramo");
+                _fitReason ??= "a tangente do arco passaria do no vizinho (ramo curto)";
                 continue;
+            }
 
             double a0 = (p1 - o).Angle;
             double a1 = (p2 - o).Angle;

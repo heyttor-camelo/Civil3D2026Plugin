@@ -2043,6 +2043,8 @@ internal sealed class ViarioPanel : SW.Window
         {
             EditProp("Raio", "Raio na face do meio-fio (m)", N(c.Radius));
             Prop("Origem", _engine.CornerRadius.ContainsKey(c.Key) ? "especifico da esquina" : "secao ou eixo");
+            if (c.Limit.Length > 0)
+                Prop("Limite", $"pedido {N(c.Requested)} m; {c.Limit}");
         }
 
         Category("Referencia (IPR-718 Tab.39)");

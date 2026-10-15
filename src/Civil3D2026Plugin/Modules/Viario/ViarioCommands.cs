@@ -874,7 +874,8 @@ public sealed class ViarioCommands
         }
 
         EngineSettings engine = ViarioSync.EngineSettingsFor(db);
-        ed.WriteMessage($"\n  Esquina: raio atual {Num(corner.Radius)} m.");
+        ed.WriteMessage($"\n  Esquina: raio atual {Num(corner.Radius)} m." +
+                        (corner.Limit.Length > 0 ? $" Pedido {Num(corner.Requested)} m nao coube: {corner.Limit}." : ""));
 
         double? value = DragRadius(ed, axes, engine, keys, corner.Corner, corner.Radius,
             r => (axes, With(engine, new[] { corner.Key }, r)), out bool toDefault);
@@ -889,6 +890,14 @@ public sealed class ViarioCommands
             radii[corner.Key] = value!.Value;
 
         SaveRadiiAndRegenerate(doc, radii);
+
+        // Diz na hora se o raio pedido nao coube e por que.
+        (_, ViarioResult after, _) = ViarioSync.ComputeCurrent(db);
+        CornerInfo? applied = after.Corners.FirstOrDefault(c => c.Key == corner.Key);
+        if (applied is not null && applied.Limit.Length > 0)
+            ed.WriteMessage($"\n  Esquina: aplicado {Num(applied.Radius)} m em vez de {Num(applied.Requested)} m - {applied.Limit}.");
+        else if (applied is not null)
+            ed.WriteMessage($"\n  Esquina: raio {Num(applied.Radius)} m.");
     }
 
     private static void EditIslandRadius(Document doc)

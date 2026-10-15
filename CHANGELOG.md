@@ -1,3 +1,7 @@
+## 2.32.4 - C3DVIARIO v0.7.4 / por que o raio nao coube
+
+- quando o raio pedido numa esquina nao cabe, o aviso (linha de comando, `C3DVIARIORAIO` e painel > Esquina > Limite) diz o motivo: "a curva do eixo X se afasta da esquina: nao existe arco tangente aos dois com esse raio" (alca que ja sai curvando do no - estique a tangente antes do no ou aumente o raio da alca) ou "a tangente do arco passaria do no vizinho (ramo curto)". O `C3DVIARIORAIO` tambem informa, logo apos aplicar, o raio que de fato ficou.
+
 ## 2.32.3 - C3DVIARIO v0.7.3 / inverter eixo, taper nos dois sentidos, reconcordar, cotas interativas, textos e zoom do corte
 
 - **Inverter sentido do eixo** (`C3DVIARIOEIXO > Inverter`, botao no painel): geometria revertida, elementos reancorados (estaca L - s, lado do no trocado) e raios/faixas livres das esquinas reescritos; avisa quando a secao tem lados diferentes (esquerda/direita trocam);
