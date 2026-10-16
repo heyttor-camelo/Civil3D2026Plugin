@@ -715,12 +715,29 @@ internal static class MFRebaixoData
                     firstError ??= ex.Message;
                 }
 
+                // Plano C: o SetTransitions so acrescenta/atualiza. Exporta o CSV das transitions,
+                // tira as linhas deste rebaixo e importa de volta (Baseline.Export/ImportTransitions, 2024.1+).
                 if (baseline.getTransitions().Any(x => IsOwnSet(x, r)))
+                {
+                    string? csvError = RemoveByCsv(baseline, r);
+                    firstError ??= csvError;
+                }
+
+                List<CivilDb.CorridorTransitionSet> after = baseline.getTransitions();
+                if (!after.Any(x => IsOwnSet(x, r)) && after.Count != sets.Count - own)
+                {
+                    // Sumiu o nosso, mas a contagem dos outros mudou (import duplicou?): desfaz tudo.
+                    throw new InvalidOperationException(
+                        $"A remocao mudaria os outros Transition Sets ({sets.Count - own} esperados, {after.Count} depois). Nada foi alterado." +
+                        " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
+                }
+
+                if (after.Any(x => IsOwnSet(x, r)))
                 {
                     throw new InvalidOperationException(
                         "O Civil 3D nao deixou tirar o Transition Set '" + r.SetName + "'" +
                         (firstError is null ? "." : ": " + firstError) +
-                        " Apague pelo Corridor Transitions (Corridor Properties > Transitions).");
+                        " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
                 }
             }
         }
@@ -759,6 +776,62 @@ internal static class MFRebaixoData
             corridor.Rebuild();
         tr.Commit();
         return $"{own} Transition Set(s) e {sections} secao(oes) removidos";
+    }
+
+    /// <summary>
+    /// Remove pelo CSV: ExportTransitions, tira as linhas que citam o set do rebaixo (e o DESTAQUE)
+    /// e ImportTransitions. Chamado por reflexao (os metodos existem a partir do Civil 3D 2024.1).
+    /// Deixa o CSV original e o editado em %TEMP% para conferencia. Devolve o erro, se houver.
+    /// </summary>
+    private static string? RemoveByCsv(CivilDb.Baseline baseline, RebaixoInfo r)
+    {
+        try
+        {
+            System.Reflection.MethodInfo? export = baseline.GetType().GetMethod("ExportTransitions", new[] { typeof(string) });
+            System.Reflection.MethodInfo? import = baseline.GetType().GetMethod("ImportTransitions", new[] { typeof(string) });
+            if (export is null || import is null)
+                return "esta versao do Civil nao tem Export/ImportTransitions";
+
+            string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "MFREBAIXO");
+            System.IO.Directory.CreateDirectory(folder);
+            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+            string original = System.IO.Path.Combine(folder, $"transitions_{stamp}_antes.csv");
+            string edited = System.IO.Path.Combine(folder, $"transitions_{stamp}_depois.csv");
+
+            export.Invoke(baseline, new object[] { original });
+            if (!System.IO.File.Exists(original))
+                return "o ExportTransitions nao gerou o CSV";
+
+            string[] lines = System.IO.File.ReadAllLines(original);
+            bool Own(string line)
+            {
+                foreach (string raw in line.Split(new[] { ',', ';', '\t' }))
+                {
+                    string cell = raw.Trim().Trim('"').Trim();
+                    if (cell.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) ||
+                        cell.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+
+                return false;
+            }
+
+            List<string> kept = lines.Where(l => !Own(l)).ToList();
+            if (kept.Count == lines.Length)
+                return "o set nao aparece no CSV exportado (" + original + ")";
+
+            System.IO.File.WriteAllLines(edited, kept);
+            import.Invoke(baseline, new object[] { edited });
+            return null;
+        }
+        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
+        {
+            return ex.InnerException.Message;
+        }
+        catch (System.Exception ex)
+        {
+            return ex.Message;
+        }
     }
 
     public static void Rebuild(AcadDb.Database db, AcadDb.ObjectId corridorId)

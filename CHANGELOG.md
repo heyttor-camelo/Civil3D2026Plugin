@@ -1,3 +1,9 @@
+## 2.42.1 - MFREBAIXO v1.6.1 / remover rebaixo pelo CSV das transitions
+
+- o `SetTransitions` do Civil so acrescenta/atualiza sets (nao apaga). Para remover, o painel agora exporta as transitions da baseline em CSV, tira as linhas do rebaixo e importa de volta (`Baseline.ExportTransitions/ImportTransitions`, por reflexao). Os CSVs ficam em `%TEMP%\MFREBAIXO`;
+- trava de seguranca: se depois disso a quantidade dos outros Transition Sets mudar, nada e gravado (a transacao e desfeita);
+- se nao der, a mensagem aponta o caminho manual: Edit Corridor Transition.
+
 ## 2.42.0 - MFREBAIXO v1.6.0 / planta geral, cameras e remover rebaixo
 
 - **Planta geral** no painel (`MFREBAIXOPAINEL`): baselines de todos os corredores e todos os rebaixos (vermelho; laranja com aviso; amarelo o selecionado). Clique num rebaixo seleciona, duplo clique abre a planta do rebaixo. Botoes de modo: Planta geral / Planta do rebaixo / 3D;
