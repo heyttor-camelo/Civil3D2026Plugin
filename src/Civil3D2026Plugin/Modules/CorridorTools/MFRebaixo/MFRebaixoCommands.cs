@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.4.0";
+    public const string Versao = "1.4.1";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -45,6 +45,12 @@ public sealed class MFRebaixoCommands
     // qual é o topo NORMAL e gera a rampa da calçada até ele.
     private const string DepthParameterName =
         "REB";
+
+    // Na estaca exata em que uma Transition começa, o Civil 3D usa o valor de antes
+    // (a seção S0 ficava sem o code e a aba de entrada não era hachurada). O DESTAQUE
+    // começa 1 cm antes de S0 para S0 já cair dentro dele.
+    private const double HighlightLead =
+        0.01;
 
     // Usado quando a subassembly não tem iRampa (8,33 %).
     private const double DefaultRampSlope =
@@ -1082,7 +1088,9 @@ public sealed class MFRebaixoCommands
 
             SetTransition(
                 h1,
-                s0,
+                Math.Max(
+                    region.StartStation,
+                    s0 - HighlightLead),
                 1.0,
                 s1,
                 2.0);

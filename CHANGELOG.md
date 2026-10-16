@@ -1,3 +1,7 @@
+## 2.36.1 - MFREBAIXO v1.4.1 / aba de entrada sem hachura
+
+- na estaca exata em que a Transition começa, o Civil 3D usa o valor de antes: a seção S0 ficava com `DESTAQUE` = 0 e o trecho S0-S1 (aba de entrada do MF, sarjeta e rampa da calçada) não recebia o code `REBAIXO`. O `DESTAQUE` agora começa 1 cm antes de S0.
+
 ## 2.36.0 - MFREBAIXO v1.4.0 / calçada com rampa no MFSARJETA
 
 - `subassemblies/MFSARJETA`: PKT v1.15 (a 1.14 não compilava no Composer: IF misturando Grade e Double):
