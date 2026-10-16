@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.11"
+VERSION = "1.12"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -33,7 +33,7 @@ PARAMS = [
     ("EMB",    "double", "0.12",   "Enterrado mínimo"),
     ("ESTICAR", "enumYN", "No",    "Esticar altura"),
     ("QMF_CURVO", "enumYN", "No",  "Marcar MF em curva"),
-    ("DESTAQUE", "double", "0",   "Destaque (codes)"),
+    ("CODE_REB", "string", "",    "Code do rebaixo (texto)"),
     ("iRampa", "grade",  "0.0833", "Declividade da rampa do MF"),
     ("BERCO",  "enumYN", "Yes",   "Berço (camadas sob MF e sarjeta)"),
     ("I_PISTA", "grade", "-0.03", "Berço: declividade da pista"),
@@ -83,12 +83,11 @@ EXPR = {
     "DatumMF":   '[IF(BERCO.Value="Yes","","Datum")]',
     "DatumBase": '[IF(E_SUBBASE<=0.0005,"Datum","")]',
     "DatumSub":  '[IF(E_REF<=0.0005,"Datum","")]',
-    # DESTAQUE: faixas crescentes (o MFREBAIXO grava 1->2, 2->3, 3->4 por Corridor Transition)
-    "DstMF": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "MF_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "MF_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "MF_ABA", "MF_N")))]',
-    "DstSJ": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "SJ_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "SJ_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "SJ_ABA", "SJ_N")))]',
+    # CODE_REB: o texto digitado vira o code extra dos links do topo (MF e sarjeta); vazio = nada
+    "Dst": "[CODE_REB]",
     "MFCurvaCode":  '[IF(SA.IsLayout,"MF_RETO",IF(QMF_CURVO.Value="Yes" AndAlso Baseline.TurnDirection<>0,"MF_CURVO","MF_RETO"))]',
 }
-STRVARS = {"SJ", "DstMF", "DstSJ"}
+STRVARS = {"SJ", "Dst"}
 VARTYPES = {k: ("String" if (k.endswith("Code") or k.startswith("Datum") or k in STRVARS) else "Double") for k in EXPR}
 
 def arcdx(k):  # delta entre ponto k-1 e k do arco convexo do topo (4 segmentos)
@@ -127,17 +126,17 @@ class Switch:
                 global STEPS; steps = STEPS; STEPS = self2._p; sw.cases.append((key, steps))
         return _C()
 
-TOP = ["Curb", "Top", "TOPO", "[DstMF]"]
+TOP = ["Curb", "Top", "TOPO", "[Dst]"]
 for v in ("H", "LT", "LB", "R", "FH", "RC", "KK", "SJ"): var(v)
 pt("P1", None, "0", "0", codes=["Flange"], disp="P1 - borda da pista")
 pt_slope("P2", "P1", "[iSa]", '[IF(SJ="Yes",LS,0)]', "[FLOWLINE_ELEV]", codes=["Flowline_Gutter"],
          disp="P2 - flowline (alvo cota)")
 for v in ("EXP0", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
-          "DatumMF", "DatumBase", "DatumSub", "DstMF", "DstSJ"): var(v)
+          "DatumMF", "DatumBase", "DatumSub", "Dst"): var(v)
 # sarjeta
 with Switch('[SJ]', "Sarjeta?") as swSJ:
   with swSJ.case("Yes"):
-    lk("L1", "P1", "P2", codes=["Sarjeta", "Top", "TOPO", "[DstSJ]"], disp="L1 - topo da sarjeta")
+    lk("L1", "P1", "P2", codes=["Sarjeta", "Top", "TOPO", "[Dst]"], disp="L1 - topo da sarjeta")
     pt("P3", "P2", "[-M*ESar]", "[-ESar]", link="L2", lcodes=["Sarjeta"], disp="P3&L2 - fundo sarjeta na face do MF")
     pt("P4", "P1", "0", "[-ESar]", disp="P4 - fundo sarjeta na borda da pista")
     lk("L3", "P3", "P4", codes=["Sarjeta", "[DatumMF]"], disp="L3 - fundo da sarjeta")

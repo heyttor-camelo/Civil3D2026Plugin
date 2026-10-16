@@ -2,7 +2,7 @@
 
 - no modo AUTO, se a Assembly da Region só tem MF de um lado (caso da baseline de feature line do meio-fio), o comando usa esse lado, mesmo com o clique do outro lado ou em cima da baseline. Antes dava "Não foi encontrada a subassembly MF ... no lado ESQUERDO";
 - quando a MF não é achada, a mensagem lista as subassemblies da Assembly com classe, lado e se foram reconhecidas como MF;
-- `subassemblies/MFSARJETA`: PKT v1.11 (Kassel com dimensões fixas; links do topo sempre com `MF_N`/`MF_ABA`/`MF_REB` e `SJ_N`/`SJ_ABA`/`SJ_REB`).
+- `subassemblies/MFSARJETA`: PKT v1.12 (Kassel com dimensões fixas; o `DESTAQUE` numérico virou o parâmetro de texto `CODE_REB`: o texto digitado é um code único nos links do topo do MF e da sarjeta).
 
 ## 2.35.1 - MFREBAIXO v1.3.1 / baselines de feature line
 
