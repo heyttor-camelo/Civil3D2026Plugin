@@ -144,8 +144,7 @@ internal static class PedFichaBlock
         {
             AcadDb.MLeader ml = (AcadDb.MLeader)tr.GetObject(existing, AcadDb.OpenMode.ForWrite);
             ml.BlockContentId = fichaDefId;
-            foreach (object o in ml.GetLeaderLineIndexes())
-                ml.SetFirstVertex(Convert.ToInt32(o), arrow);
+            MoveArrows(ml, arrow);
             ml.RecordGraphicsModified(true);
             return existing;
         }
@@ -187,8 +186,17 @@ internal static class PedFichaBlock
             return;
         AcadDb.MLeader ml = (AcadDb.MLeader)tr.GetObject(leaderId, AcadDb.OpenMode.ForWrite);
         Point3d arrow = PedBlock.LeaderAnchor.TransformBy(symbol.BlockTransform);
-        foreach (object o in ml.GetLeaderLineIndexes())
-            ml.SetFirstVertex(Convert.ToInt32(o), arrow);
+        MoveArrows(ml, arrow);
+    }
+
+    /// <summary>Seta de todas as linhas de chamada no ponto (leaders -> linhas de cada leader).</summary>
+    private static void MoveArrows(AcadDb.MLeader ml, Point3d arrow)
+    {
+        foreach (object leader in ml.GetLeaderIndexes())
+        {
+            foreach (object line in ml.GetLeaderLineIndexes(Convert.ToInt32(leader)))
+                ml.SetFirstVertex(Convert.ToInt32(line), arrow);
+        }
     }
 
     // ------------------------------------------------------------------
