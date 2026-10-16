@@ -353,7 +353,7 @@ EXPR.update({
     "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
     # no rebaixo o link da rampa perde o code Calcada: senão a hachura da calçada fica por cima da
-    # do REBAIXO (sobreposição L241). O MFREBAIXO põe seções a +-2 cm de S0 e S3 para essa troca
+    # do REBAIXO (sobreposição L241). O MFREBAIXO põe seções a +-1 mm de S0 e S3 para essa troca
     # de code acontecer num trecho de 2 cm.
     "CalcRampCode": '[IF(Dst = "REBAIXO", "", "Calcada")]',
 })
