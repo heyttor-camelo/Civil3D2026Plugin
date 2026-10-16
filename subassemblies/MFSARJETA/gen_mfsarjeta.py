@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.10"
+VERSION = "1.11"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -69,22 +69,23 @@ EXPR = {
     "RC": "[0.08]",
     "KK": f"[IF({T50},1.0,0.0)]",
     "SJ": '[IF(SARJETA.Value="Yes" AndAlso KK<0.5,"Yes","No")]',
-    "EXP0": "[IF(TOPO_ELEV.IsValid, TOPO_ELEV.Elevation - P2.Elevation, IF(KK>0.5, H-FH, AMF_LIVRE))]",
-    "EXP":  ('[IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
-             'IF(KK>0.5, Math.Max(H-FH, Math.Min(EXP0, H-0.001)), Math.Max(0, Math.Min(EXP0, H-0.001))))]'),
-    "HR":   '[Math.Max(0.001, IF(ESTICAR.Value="Yes", EXP+IF(KK>0.5,FH,EMB), H))]',
+    "EXP0": "[IF(TOPO_ELEV.IsValid, TOPO_ELEV.Elevation - P2.Elevation, AMF_LIVRE)]",
+    # Kassel tem dimensões fixas: exposto = H - pé, sem alvo, sem altura livre, sem esticar
+    "EXP":  ('[IF(KK>0.5, H-FH, IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
+             'Math.Max(0, Math.Min(EXP0, H-0.001))))]'),
+    "HR":   '[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes", EXP+EMB, H)))]',
     "ENT":  "[HR-EXP]",
     "M":    "[IF(KK>0.5, 0, (LB-LT)/HR)]",
     "SW":   "[Math.PI/2 - Math.Atan(M)]",
     "TT":   "[Math.Min(R*Math.Tan(SW/2), LT-0.005)]",
-    "MFTipoCode":   f'[IF(ESTICAR.Value="Yes","MF_MOLDADO",IF({T30},"MF_T30",IF({T40},"MF_T40",IF({T50},"MF_KASSEL","MF_PERS"))))]',
+    "MFTipoCode":   f'[IF(ESTICAR.Value="Yes" AndAlso KK<0.5,"MF_MOLDADO",IF({T30},"MF_T30",IF({T40},"MF_T40",IF({T50},"MF_KASSEL","MF_PERS"))))]',
     "MFStatusCode": '[IF(EXP < IF(KK>0.5, H-FH, AMF_LIVRE) - 0.005,"MF_REBAIXADO","MF_NORMAL")]',
     "DatumMF":   '[IF(BERCO.Value="Yes","","Datum")]',
     "DatumBase": '[IF(E_SUBBASE<=0.0005,"Datum","")]',
     "DatumSub":  '[IF(E_REF<=0.0005,"Datum","")]',
     # DESTAQUE: faixas crescentes (o MFREBAIXO grava 1->2, 2->3, 3->4 por Corridor Transition)
-    "DstMF": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "MF_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "MF_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "MF_ABA", "")))]',
-    "DstSJ": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "SJ_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "SJ_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "SJ_ABA", "")))]',
+    "DstMF": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "MF_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "MF_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "MF_ABA", "MF_N")))]',
+    "DstSJ": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 1.9995, "SJ_ABA", IF(DESTAQUE >= 1.9995 AndAlso DESTAQUE < 2.9995, "SJ_REB", IF(DESTAQUE >= 2.9995 AndAlso DESTAQUE < 3.9995, "SJ_ABA", "SJ_N")))]',
     "MFCurvaCode":  '[IF(SA.IsLayout,"MF_RETO",IF(QMF_CURVO.Value="Yes" AndAlso Baseline.TurnDirection<>0,"MF_CURVO","MF_RETO"))]',
 }
 STRVARS = {"SJ", "DstMF", "DstSJ"}
