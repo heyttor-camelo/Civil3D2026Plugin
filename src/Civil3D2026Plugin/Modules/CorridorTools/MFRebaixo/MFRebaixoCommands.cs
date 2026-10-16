@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.3.1";
+    public const string Versao = "1.3.2";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -557,28 +557,14 @@ public sealed class MFRebaixoCommands
         BaselineRegion region =
             hit.Value.Region;
 
-        SubassemblySideType desiredSide =
-            ResolveSide(
-                sideMode,
-                hit.Value.Offset);
-
-        string subassemblyInstanceName;
-
         ObjectId subassemblyId =
-            FindMfSubassemblyId(
+            ResolveMfSubassembly(
                 tr,
                 region,
-                desiredSide,
-                out subassemblyInstanceName);
-
-        if (subassemblyId.IsNull)
-        {
-            throw new InvalidOperationException(
-                "Não foi encontrada a subassembly MF " +
-                $"(classe '{MfMacroOrClassName}') " +
-                $"no lado {GetSideLabel(desiredSide)} " +
-                $"da Assembly da Region '{region.Name}'.");
-        }
+                sideMode,
+                hit.Value.Offset,
+                out SubassemblySideType desiredSide,
+                out string subassemblyInstanceName);
 
         var subassembly =
             (Subassembly)
@@ -730,10 +716,13 @@ public sealed class MFRebaixoCommands
 
         if (sideMode == SideSelectionMode.Auto)
         {
-            SubassemblySideType secondSide =
-                ResolveSide(
-                    SideSelectionMode.Auto,
-                    secondHit.Value.Offset);
+            ResolveMfSubassembly(
+                tr,
+                secondHit.Value.Region,
+                SideSelectionMode.Auto,
+                secondHit.Value.Offset,
+                out SubassemblySideType secondSide,
+                out _);
 
             if (secondSide != firstInfo.Side)
             {
@@ -803,8 +792,10 @@ public sealed class MFRebaixoCommands
         {
             throw new InvalidOperationException(
                 "Não foi encontrada a subassembly MF " +
-                $"(classe '{MfMacroOrClassName}') " +
-                $"no lado {GetSideLabel(firstInfo.Side)}.");
+                $"no lado {GetSideLabel(firstInfo.Side)}." +
+                DescribeAssemblySubassemblies(
+                    tr,
+                    region));
         }
 
         var subassembly =
@@ -2098,6 +2089,161 @@ public sealed class MFRebaixoCommands
         }
 
         return ObjectId.Null;
+    }
+
+    // Escolhe a subassembly MF da Region. No modo AUTO o lado vem do clique,
+    // mas se só existir MF de um lado da Assembly (caso típico de baseline de
+    // feature line do meio-fio), usa esse lado, mesmo com o clique do outro lado
+    // ou em cima da baseline.
+    private static ObjectId
+        ResolveMfSubassembly(
+            Transaction tr,
+            BaselineRegion region,
+            SideSelectionMode sideMode,
+            double signedOffset,
+            out SubassemblySideType side,
+            out string instanceName)
+    {
+        ObjectId leftId =
+            FindMfSubassemblyId(
+                tr,
+                region,
+                SubassemblySideType.Left,
+                out string leftName);
+
+        ObjectId rightId =
+            FindMfSubassemblyId(
+                tr,
+                region,
+                SubassemblySideType.Right,
+                out string rightName);
+
+        if (
+            sideMode == SideSelectionMode.Auto
+            &&
+            leftId.IsNull != rightId.IsNull)
+        {
+            side =
+                leftId.IsNull
+                    ? SubassemblySideType.Right
+                    : SubassemblySideType.Left;
+
+            instanceName =
+                leftId.IsNull
+                    ? rightName
+                    : leftName;
+
+            return
+                leftId.IsNull
+                    ? rightId
+                    : leftId;
+        }
+
+        if (
+            leftId.IsNull
+            &&
+            rightId.IsNull)
+        {
+            throw new InvalidOperationException(
+                "Não foi encontrada subassembly MF/MFSARJETA " +
+                $"na Assembly da Region '{region.Name}'." +
+                DescribeAssemblySubassemblies(
+                    tr,
+                    region));
+        }
+
+        side =
+            ResolveSide(
+                sideMode,
+                signedOffset);
+
+        ObjectId id =
+            side == SubassemblySideType.Left
+                ? leftId
+                : rightId;
+
+        instanceName =
+            side == SubassemblySideType.Left
+                ? leftName
+                : rightName;
+
+        if (id.IsNull)
+        {
+            throw new InvalidOperationException(
+                "Não foi encontrada a subassembly MF " +
+                $"no lado {GetSideLabel(side)} " +
+                $"da Assembly da Region '{region.Name}'." +
+                DescribeAssemblySubassemblies(
+                    tr,
+                    region));
+        }
+
+        return id;
+    }
+
+    // Lista as subassemblies da Assembly para o usuário ver por que a MF não foi achada.
+    private static string
+        DescribeAssemblySubassemblies(
+            Transaction tr,
+            BaselineRegion region)
+    {
+        var text =
+            new System.Text.StringBuilder();
+
+        text.Append(
+            "\n  Subassemblies na Assembly:");
+
+        try
+        {
+            if (tr.GetObject(
+                    region.AssemblyId,
+                    OpenMode.ForRead)
+                is not CivilAssembly assembly)
+            {
+                return string.Empty;
+            }
+
+            foreach (AssemblyGroup group in assembly.Groups)
+            {
+                foreach (ObjectId id in group.GetSubassemblyIds())
+                {
+                    if (tr.GetObject(id, OpenMode.ForRead)
+                        is not Subassembly sa)
+                    {
+                        continue;
+                    }
+
+                    string className;
+
+                    try
+                    {
+                        className =
+                            sa.GeometryGenerator?.MacroOrClassName
+                            ?? "?";
+                    }
+                    catch
+                    {
+                        className = "?";
+                    }
+
+                    string sideText =
+                        IsSubassemblyOnSide(sa, SubassemblySideType.Left)
+                            ? "ESQ"
+                            : IsSubassemblyOnSide(sa, SubassemblySideType.Right)
+                                ? "DIR"
+                                : "sem lado";
+
+                    text.Append(
+                        $"\n    - {sa.Name} | classe '{className}' | {sideText}" +
+                        (IsMfSubassembly(sa) ? " | reconhecida como MF" : ""));
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return text.ToString();
     }
 
     private static bool
