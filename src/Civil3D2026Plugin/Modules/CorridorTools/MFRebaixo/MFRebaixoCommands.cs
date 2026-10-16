@@ -20,10 +20,29 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.2.4";
+    public const string Versao = "1.3.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
+
+    // PKT novo (meio-fio SUDECAP/Kassel + sarjeta + berço).
+    private const string MfSarjetaMacroOrClassName =
+        "Subassembly.MFSARJETA";
+
+    // Saída do MFSARJETA com a altura exposta real (equivale a AMF_LIVRE_EFETIVA).
+    private const string EffectiveOutputAltParameterName =
+        "EXPOSTO";
+
+    // Parâmetro numérico do MFSARJETA que escolhe os codes de destaque (hachura em planta).
+    // Faixas: [1,2) aba de entrada | [2,3) rebaixo pleno | [3,4) aba de saída | 0 ou >=4 normal.
+    // As faixas crescem sempre: na estaca de emenda entre duas Transitions, qualquer uma
+    // das duas já dá o code do trecho que começa.
+    private const string HighlightParameterName =
+        "DESTAQUE";
+
+    // Usado quando a subassembly não tem iRampa (8,33 %).
+    private const double DefaultRampSlope =
+        0.0833;
 
     private const string ParameterName =
         "AMF_LIVRE";
@@ -450,16 +469,24 @@ public sealed class MFRebaixoCommands
             "\nIdentificação da subassembly:");
 
         ed.WriteMessage(
-            $"\n  Classe SAC/.NET: {MfMacroOrClassName}");
+            $"\n  Classe SAC/.NET: {MfMacroOrClassName} ou {MfSarjetaMacroOrClassName}");
 
         ed.WriteMessage(
             $"\n  Parâmetro controlado por Transition: {ParameterName}");
 
         ed.WriteMessage(
-            $"\n  Altura livre nominal: {NormalParameterName}");
+            $"\n  Altura livre nominal: {NormalParameterName} (sem ele: valor de projeto de {ParameterName})");
 
         ed.WriteMessage(
-            $"\n  Altura livre efetiva preferida: {EffectiveOutputParameterName}");
+            $"\n  Altura livre efetiva preferida: {EffectiveOutputParameterName} ou {EffectiveOutputAltParameterName}");
+
+        ed.WriteMessage(
+            $"\n  Rampa do MF: {RampSlopeParameterName} (sem ele: {DefaultRampSlope * 100.0:0.##}%)");
+
+        ed.WriteMessage(
+            $"\n  Destaque em planta: se a subassembly tiver {HighlightParameterName}, " +
+            "um segundo Transition grava 1->2 (aba), 2->3 (pleno), 3->4 (aba); " +
+            "o PKT troca os codes do topo e o Code Set aplica a hachura.");
 
         ed.WriteMessage(
             $"\n  Fallback geométrico: {FlowlinePointCode} -> {BackCurbPointCode}");
@@ -568,14 +595,13 @@ public sealed class MFRebaixoCommands
                 $"o parâmetro '{ParameterName}'.");
         }
 
-        if (!TryGetDoubleParameterValue(
+        if (!TryGetNominalFreeHeight(
                 subassembly,
-                NormalParameterName,
                 out double normalHeight))
         {
             throw new InvalidOperationException(
                 $"A subassembly '{subassemblyInstanceName}' não possui " +
-                $"o parâmetro '{NormalParameterName}'.");
+                $"o parâmetro '{NormalParameterName}' nem '{ParameterName}'.");
         }
 
         double[] stations =
@@ -787,13 +813,12 @@ public sealed class MFRebaixoCommands
                 subassemblyId,
                 OpenMode.ForRead);
 
-        if (!TryGetDoubleParameterValue(
+        if (!TryGetNominalFreeHeight(
                 subassembly,
-                NormalParameterName,
                 out double normalHeight))
         {
             throw new InvalidOperationException(
-                $"Não foi possível ler o parâmetro '{NormalParameterName}'.");
+                $"Não foi possível ler o parâmetro '{NormalParameterName}' nem '{ParameterName}'.");
         }
 
         if (!HasDoubleParameter(
@@ -818,8 +843,12 @@ public sealed class MFRebaixoCommands
                 RampSlopeParameterName,
                 out double rampSlope))
         {
-            throw new InvalidOperationException(
-                $"Não foi possível ler o parâmetro '{RampSlopeParameterName}'.");
+            rampSlope =
+                DefaultRampSlope;
+
+            ed.WriteMessage(
+                $"\n[AVISO] Subassembly sem '{RampSlopeParameterName}'; " +
+                $"usando {DefaultRampSlope * 100.0:0.##}% nas rampas do MF.");
         }
 
         double rampSlopeAbs =
@@ -977,6 +1006,68 @@ public sealed class MFRebaixoCommands
         sets.Add(
             set);
 
+        // DESTAQUE (MFSARJETA): segundo conjunto de Transitions só para os codes
+        // de hachura em planta. Ver faixas em HighlightParameterName.
+        bool highlightApplied =
+            false;
+
+        if (HasDoubleParameter(
+                subassembly,
+                HighlightParameterName))
+        {
+            var highlightSet =
+                new CorridorTransitionSet(
+                    MakeUniqueName(
+                        sets,
+                        setName + "_DESTAQUE"),
+                    region,
+                    subassemblyId,
+                    CorridorTransitionNameType.SubassemblyName);
+
+            highlightSet.Comment =
+                "REBAIXO MF - DESTAQUE";
+
+            CorridorTransition h1 =
+                highlightSet.AddTransition(
+                    HighlightParameterName);
+
+            SetTransition(
+                h1,
+                s0,
+                1.0,
+                s1,
+                2.0);
+
+            CorridorTransition h2 =
+                highlightSet.AddTransition();
+
+            SetTransition(
+                h2,
+                s1,
+                2.0,
+                s2,
+                3.0);
+
+            CorridorTransition h3 =
+                highlightSet.AddTransition();
+
+            SetTransition(
+                h3,
+                s2,
+                3.0,
+                s3,
+                4.0);
+
+            highlightSet.StationLocked =
+                true;
+
+            sets.Add(
+                highlightSet);
+
+            highlightApplied =
+                true;
+        }
+
 
         baseline.SetTransitions(
             sets);
@@ -1058,7 +1149,35 @@ public sealed class MFRebaixoCommands
             $"\n     Rampa saída: {s2:0.000} -> {s3:0.000}");
 
         ed.WriteMessage(
+            highlightApplied
+                ? $"\n     {HighlightParameterName}: aba {s0:0.000}->{s1:0.000} | " +
+                  $"pleno {s1:0.000}->{s2:0.000} | aba {s2:0.000}->{s3:0.000}"
+                : $"\n     {HighlightParameterName}: subassembly sem o parâmetro (sem codes de destaque)");
+
+        ed.WriteMessage(
             $"\n     Corridor Sections adicionadas: {addedSections}\n");
+    }
+
+    // Altura livre nominal: AMF_LIVRE_NORMAL (PKT antigo) ou o valor de
+    // projeto de AMF_LIVRE (MFSARJETA, que não tem AMF_LIVRE_NORMAL).
+    private static bool
+        TryGetNominalFreeHeight(
+            Subassembly subassembly,
+            out double nominalHeight)
+    {
+        if (TryGetDoubleParameterValue(
+                subassembly,
+                NormalParameterName,
+                out nominalHeight))
+        {
+            return true;
+        }
+
+        return
+            TryGetDoubleParameterValue(
+                subassembly,
+                ParameterName,
+                out nominalHeight);
     }
 
     private static bool
@@ -1116,13 +1235,18 @@ public sealed class MFRebaixoCommands
                     string.Equals(
                         parameter.KeyName,
                         EffectiveOutputParameterName,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        parameter.KeyName,
+                        EffectiveOutputAltParameterName,
                         StringComparison.OrdinalIgnoreCase))
                 {
                     effectiveHeight =
                         Math.Abs(value);
 
                     source =
-                        $"output {EffectiveOutputParameterName}";
+                        $"output {parameter.KeyName}";
 
                     return true;
                 }
@@ -1761,16 +1885,44 @@ public sealed class MFRebaixoCommands
             if (
                 generator is not null
                 &&
-                string.Equals(
-                    generator.MacroOrClassName,
-                    MfMacroOrClassName,
-                    StringComparison.OrdinalIgnoreCase))
+                (
+                    string.Equals(
+                        generator.MacroOrClassName,
+                        MfMacroOrClassName,
+                        StringComparison.OrdinalIgnoreCase)
+                    ||
+                    string.Equals(
+                        generator.MacroOrClassName,
+                        MfSarjetaMacroOrClassName,
+                        StringComparison.OrdinalIgnoreCase)
+                ))
             {
                 return true;
             }
         }
         catch
         {
+        }
+
+        // Assinatura do MFSARJETA (quando a classe não é legível).
+        if (
+            HasDoubleParameter(
+                sa,
+                "AMF_LIVRE")
+            &&
+            HasDoubleParameter(
+                sa,
+                "LS")
+            &&
+            HasDoubleParameter(
+                sa,
+                "ESar")
+            &&
+            HasDoubleParameter(
+                sa,
+                "EMB"))
+        {
+            return true;
         }
 
         return

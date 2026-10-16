@@ -1,3 +1,11 @@
+## 2.35.0 - MFREBAIXO v1.3.0 / suporte ao MFSARJETA e destaque do rebaixo em planta
+
+- **MFREBAIXO reconhece o MFSARJETA** (classe `Subassembly.MFSARJETA`, ou pela assinatura AMF_LIVRE/LS/ESar/EMB) além do PKT antigo `Subassembly.MF`;
+- altura livre nominal: `AMF_LIVRE_NORMAL` quando existe; sem ele, o valor de projeto de `AMF_LIVRE`. Altura efetiva também pela saída `EXPOSTO`;
+- sem `iRampa` na subassembly, as rampas do MF usam 8,33% (com aviso);
+- **destaque em planta**: se a subassembly tiver o parâmetro `DESTAQUE`, o comando cria um segundo Corridor Transition (1->2 aba de entrada, 2->3 rebaixo pleno, 3->4 aba de saída) nas mesmas estacas S0..S3. As faixas crescem sempre, então a estaca de emenda já recebe o code do trecho que começa e a hachura não atrasa uma seção;
+- `subassemblies/MFSARJETA`: PKT v1.10 (parâmetros `DESTAQUE` e `iRampa`; codes `MF_ABA`/`MF_REB`/`SJ_ABA`/`SJ_REB` nos links do topo) e o gerador em Python.
+
 ## 2.34.3 - C3DVIARIO v0.7.11 / editar o arco do eixo concordante; botao Concordancia com desvincular
 
 - **arco manda quando e ele que foi editado**: num eixo com concordancia vinculada, arrastar o grip do meio do arco (ou mudar o bulge por PEDIT/propriedades) era desfeito - a cadeia refazia o arco pelas tangentes. Agora, quando so o arco mudou (pontas e demais vertices no lugar), o arco vira a concordancia entre as duas retas vizinhas com o raio que poe o meio do arco onde ele foi solto: as retas mantem a direcao (mesmo PI) e os pontos de tangencia andam sobre elas; o resto do eixo nao muda. Arco no fim do eixo ou seguido de outro arco: mantem o inicio e a tangente de chegada, troca o raio e preserva o angulo central. Mover vertice continua como antes (as tangentes mandam). Vale no preview do grip e na atualizacao;
