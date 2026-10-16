@@ -1,3 +1,8 @@
+## 2.36.3 - MFREBAIXO v1.4.2 / seções a +-2 cm de S0 e S3
+
+- o comando cria seções extras 2 cm antes e depois de S0 e de S3. A troca de code (DESTAQUE e rampa da calçada) fica num trecho de 2 cm, então a hachura em planta começa e termina em S0 e S3, qualquer que seja a seção que o Civil 3D usa para colorir a faixa;
+- `subassemblies/MFSARJETA`: PKT v1.20 (volta a tirar o `Calcada` do link da rampa no rebaixo, para o `REBAIXO` ficar por cima).
+
 ## 2.37.0 - PEDs v1.0.0 / locação de PEDs com ficha ao clicar
 
 Módulo novo `Modules/PEDs` (categoria **PEDs** na Ribbon), para a planilha de proposta de PEDs (BRT) e o KMZ com os pontos:

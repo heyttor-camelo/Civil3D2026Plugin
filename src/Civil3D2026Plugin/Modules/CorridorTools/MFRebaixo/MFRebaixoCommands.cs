@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.4.1";
+    public const string Versao = "1.4.2";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -50,7 +50,13 @@ public sealed class MFRebaixoCommands
     // (a seção S0 ficava sem o code e a aba de entrada não era hachurada). O DESTAQUE
     // começa 1 cm antes de S0 para S0 já cair dentro dele.
     private const double HighlightLead =
-        0.01;
+        0.005;
+
+    // Seções extras a +-2 cm de S0 e S3. Em planta, a faixa entre duas seções usa o estado de uma
+    // delas; com essas seções, qualquer troca de code (DESTAQUE, rampa da calçada) fica num trecho
+    // de 2 cm e a hachura começa e termina exatamente em S0 e S3.
+    private const double EdgeSectionOffset =
+        0.02;
 
     // Usado quando a subassembly não tem iRampa (8,33 %).
     private const double DefaultRampSlope =
@@ -1155,6 +1161,27 @@ public sealed class MFRebaixoCommands
                 region,
                 s3,
                 "REBAIXO MF - FIM RAMPA SAIDA");
+
+        foreach (var (edgeStation, edgeName) in new[]
+                 {
+                     (s0 - EdgeSectionOffset, "REBAIXO MF - ANTES DE S0"),
+                     (s0 + EdgeSectionOffset, "REBAIXO MF - DEPOIS DE S0"),
+                     (s3 - EdgeSectionOffset, "REBAIXO MF - ANTES DE S3"),
+                     (s3 + EdgeSectionOffset, "REBAIXO MF - DEPOIS DE S3")
+                 })
+        {
+            if (edgeStation < region.StartStation + StationTolerance
+                || edgeStation > region.EndStation - StationTolerance)
+            {
+                continue;
+            }
+
+            addedSections +=
+                EnsureStation(
+                    region,
+                    edgeStation,
+                    edgeName);
+        }
 
         corridor.Rebuild();
 
