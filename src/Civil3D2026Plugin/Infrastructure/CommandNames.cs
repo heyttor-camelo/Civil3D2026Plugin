@@ -41,6 +41,7 @@ public static class CommandNames
         public const string MfRebaixo = "MFREBAIXO";
         public const string MfRebaixoCfg = "MFREBAIXOCFG";
         public const string MfRebaixoHelp = "MFREBAIXOHELP";
+        public const string MfRebaixoPainel = "MFREBAIXOPAINEL";
 
         public const string SolidArray = "C3DSOLIDARRAY";
         public const string SolidCfg = "C3DSOLIDCFG";

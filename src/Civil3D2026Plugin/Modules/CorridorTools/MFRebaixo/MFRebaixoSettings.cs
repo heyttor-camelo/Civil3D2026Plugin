@@ -20,6 +20,11 @@ internal sealed class MFRebaixoSettings
     public double UltimaReducao { get; set; } = 0.18;
     public double UltimaAlturaFinal { get; set; } = 0.12;
 
+    // Painel (MFREBAIXOPAINEL).
+    public double PainelMargem { get; set; } = 6.0;
+    public double PainelExagero { get; set; } = 2.0;
+    public bool PainelVista3D { get; set; }
+
     public MFRebaixoPreset Garagem { get; set; } = new()
     {
         Nome = "Garagem",

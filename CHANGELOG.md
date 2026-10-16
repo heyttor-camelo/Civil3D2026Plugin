@@ -1,3 +1,16 @@
+## 2.40.0 - MFREBAIXO v1.5.0 / painel de rebaixos (MFREBAIXOPAINEL)
+
+- **`MFREBAIXOPAINEL`**: explorador dos rebaixos no molde do painel viario (mesmo tema claro/escuro):
+  - categorias **Rebaixos**, **Corredores**, **Avisos (NBR 9050)** e **Configuracao**, com contagem e Localizar;
+  - barra de comandos: novo rebaixo, editar, remover, zoom no desenho, secoes, selecionar corredor, Rebuild, atualizar, ajuda;
+  - vista grafica em **planta** (faixas do corredor entre secoes, coloridas pelos codes como a hachura: REBAIXO, meio-fio, sarjeta, calcada, pista; marcos S0..S3, baseline, escala, zoom/arrasto) ou **3D** (malha do trecho com exagero vertical 1x/2x/5x, girar/arrastar/zoom) com trecho de +3/+6/+15 m;
+  - aba **Propriedades**: dados do rebaixo e edicao de S1, S2 e altura livre final com reaplicacao (o antigo e removido; se a nova falhar, o antigo volta);
+  - aba **Secoes**: REB, DESTAQUE, altura exposta, AMF_LIVRE, Rampa OK e faixa livre em cada secao do trecho;
+  - aba **Avisos**: rampa > 8,33%, rebaixo < 1,50 m, desnivel final, rampa da calcada que nao cabe, faixa livre < 1,20 m, rebaixos sobrepostos, falta do destaque, rebaixo antigo por AMF_LIVRE;
+  - atualiza sozinho quando MFREBAIXO, UNDO/REDO ou comandos de corredor terminam;
+- remover rebaixo tira os dois Transition Sets e as secoes que o comando criou;
+- o calculo do rebaixo foi separado num nucleo (`ApplyRebaixoCore`) usado pelo comando e pelo painel.
+
 ## 2.39.0 - PEDs v1.2.0 / ficha em tabela no bloco, foto e mapa, PEDVISTA e PEDMODELO
 
 - o bloco `PED` gerado passa a ter a **ficha em tabela** ao lado do símbolo, no arranjo da aba "Ficha para desenhos" (cabeçalho, larguras atual x proposta com total, informações complementares, embarques, distâncias, obs). Linhas e textos na layer `PED-FICHA`; os valores são atributos (continuam legíveis sem o plugin). Blocos `PED` da 1.0/1.1 são redesenhados e os inseridos ressincronizados no próximo `PEDIMPORTAR`/`PEDATUALIZAR`;

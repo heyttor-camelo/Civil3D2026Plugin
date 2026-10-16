@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.4.3";
+    public const string Versao = "1.5.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -30,20 +30,20 @@ public sealed class MFRebaixoCommands
         "Subassembly.MFSARJETA";
 
     // Saída do MFSARJETA com a altura exposta real (equivale a AMF_LIVRE_EFETIVA).
-    private const string EffectiveOutputAltParameterName =
+    internal const string EffectiveOutputAltParameterName =
         "EXPOSTO";
 
     // Parâmetro numérico do MFSARJETA que liga o code REBAIXO (hachura em planta).
     // Gravado nas MESMAS estacas da geometria: 1->2 (S0-S1), 2->3 (S1-S2), 3->4 (S2-S3).
     // No PKT, [1,4) = REBAIXO; fora (0) e em S3 (4) = sem code. Como a hachura entre duas
     // seções usa o code da primeira, ela vai exatamente de S0 a S3.
-    private const string HighlightParameterName =
+    internal const string HighlightParameterName =
         "DESTAQUE";
 
     // MFSARJETA >= 1.14: profundidade do rebaixo. Quando existe, o comando grava a
     // Transition nele (0 -> d -> d -> 0) e não mexe na altura livre. Assim o PKT sabe
     // qual é o topo NORMAL e gera a rampa da calçada até ele.
-    private const string DepthParameterName =
+    internal const string DepthParameterName =
         "REB";
 
     // Na estaca exata em que uma Transition começa, o Civil 3D usa o valor de antes
@@ -62,7 +62,7 @@ public sealed class MFRebaixoCommands
     private const double DefaultRampSlope =
         0.0833;
 
-    private const string ParameterName =
+    internal const string ParameterName =
         "AMF_LIVRE";
 
     private const string NormalParameterName =
@@ -80,7 +80,7 @@ public sealed class MFRebaixoCommands
     private const string GutterWidthParameterName =
         "LS";
 
-    private const string RampSlopeParameterName =
+    internal const string RampSlopeParameterName =
         "iRampa";
 
     private const string FlowlinePointCode =
@@ -383,6 +383,95 @@ public sealed class MFRebaixoCommands
 
         MFRebaixoSettingsStore.Save(
             settings);
+    }
+
+    [CommandMethod(
+        C3DCommands.Corridor.MfRebaixoPainel,
+        CommandFlags.Modal)]
+    public void Painel() =>
+        MFRebaixoPanel.ShowPanel();
+
+    /// <summary>
+    /// Aplica um rebaixo a partir do painel: mesmo núcleo do comando, com S1/S2 e a
+    /// altura final já conhecidos (sem cliques). O chamador trava o documento.
+    /// </summary>
+    internal static void ApplyFromPanel(
+        Database db,
+        Editor ed,
+        ObjectId corridorId,
+        string baselineKey,
+        string regionName,
+        bool leftSide,
+        double s1,
+        double s2,
+        double finalHeight)
+    {
+        using var tr =
+            db.TransactionManager
+              .StartTransaction();
+
+        var corridor =
+            (CivilCorridor)
+            tr.GetObject(
+                corridorId,
+                OpenMode.ForWrite);
+
+        Baseline? baseline = null;
+
+        foreach (Baseline candidate in corridor.Baselines)
+        {
+            if (GetBaselineKey(candidate) == baselineKey)
+            {
+                baseline = candidate;
+                break;
+            }
+        }
+
+        if (baseline is null)
+        {
+            throw new InvalidOperationException(
+                "A Baseline do rebaixo não existe mais no Corridor.");
+        }
+
+        BaselineRegion? region =
+            FindRegion(
+                baseline,
+                s1,
+                s2);
+
+        if (region is null)
+        {
+            foreach (BaselineRegion candidate in baseline.BaselineRegions)
+            {
+                if (candidate.Name.Equals(regionName, StringComparison.OrdinalIgnoreCase))
+                {
+                    region = candidate;
+                    break;
+                }
+            }
+        }
+
+        if (region is null)
+        {
+            throw new InvalidOperationException(
+                $"O trecho {s1:0.000} - {s2:0.000} não cabe numa Region da Baseline '{baseline.Name}'.");
+        }
+
+        ApplyRebaixoCore(
+            tr,
+            ed,
+            corridor,
+            baseline,
+            region,
+            leftSide
+                ? SubassemblySideType.Left
+                : SubassemblySideType.Right,
+            s1,
+            s2,
+            finalHeight,
+            "painel",
+            null,
+            null);
     }
 
     [CommandMethod(
@@ -762,6 +851,47 @@ public sealed class MFRebaixoCommands
                 "no sentido crescente da Baseline.");
         }
 
+        ApplyRebaixoCore(
+            tr,
+            ed,
+            corridor,
+            baseline,
+            region,
+            firstInfo.Side,
+            s1,
+            s2,
+            finalHeight,
+            GetSideOriginLabel(sideMode),
+            firstInfo.NominalNormalHeight,
+            firstInfo.NormalHeight);
+    }
+
+    /// <summary>
+    /// Núcleo do rebaixo: com S1/S2 (trecho rebaixado) já definidos, lê as alturas
+    /// efetivas nas seções vizinhas, calcula S0/S3, grava as Transitions, cria as
+    /// seções e faz Rebuild + Commit. Usado pelo comando (cliques) e pelo painel.
+    /// expectedNominal/expectedStart: conferência do contexto dos cliques (null = não confere).
+    /// </summary>
+    private static void ApplyRebaixoCore(
+        Transaction tr,
+        Editor ed,
+        CivilCorridor corridor,
+        Baseline baseline,
+        BaselineRegion region,
+        SubassemblySideType side,
+        double s1,
+        double s2,
+        double finalHeight,
+        string sideOrigin,
+        double? expectedNominal,
+        double? expectedStart)
+    {
+        if (s2 <= s1 + StationTolerance)
+        {
+            throw new InvalidOperationException(
+                "O fim do trecho rebaixado deve estar depois do início.");
+        }
+
         double[] existingStations =
             GetExistingStations(
                 region);
@@ -803,14 +933,14 @@ public sealed class MFRebaixoCommands
             FindMfSubassemblyId(
                 tr,
                 region,
-                firstInfo.Side,
+                side,
                 out subassemblyInstanceName);
 
         if (subassemblyId.IsNull)
         {
             throw new InvalidOperationException(
                 "Não foi encontrada a subassembly MF " +
-                $"no lado {GetSideLabel(firstInfo.Side)}." +
+                $"no lado {GetSideLabel(side)}." +
                 DescribeAssemblySubassemblies(
                     tr,
                     region));
@@ -838,8 +968,10 @@ public sealed class MFRebaixoCommands
                 $"A subassembly selecionada não possui o parâmetro '{ParameterName}'.");
         }
 
-        if (Math.Abs(
-                normalHeight - firstInfo.NominalNormalHeight)
+        if (expectedNominal.HasValue
+            &&
+            Math.Abs(
+                normalHeight - expectedNominal.Value)
             > 1e-4)
         {
             throw new InvalidOperationException(
@@ -882,8 +1014,10 @@ public sealed class MFRebaixoCommands
                 $"SrefEntrada={referenceStartStation:0.000}.");
         }
 
-        if (Math.Abs(
-                startEffectiveHeight - firstInfo.NormalHeight)
+        if (expectedStart.HasValue
+            &&
+            Math.Abs(
+                startEffectiveHeight - expectedStart.Value)
             > 1e-4)
         {
             throw new InvalidOperationException(
@@ -966,7 +1100,7 @@ public sealed class MFRebaixoCommands
                 sets,
                 s1,
                 s2,
-                firstInfo.Side);
+                side);
 
         var set =
             new CorridorTransitionSet(
@@ -1199,8 +1333,8 @@ public sealed class MFRebaixoCommands
             $" | Region: {region.Name}");
 
         ed.WriteMessage(
-            $"\n     Lado: {GetSideLabel(firstInfo.Side)} " +
-            $"({GetSideOriginLabel(sideMode)})");
+            $"\n     Lado: {GetSideLabel(side)} " +
+            $"({sideOrigin})");
 
         ed.WriteMessage(
             $"\n     Subassembly: {subassemblyInstanceName}");
@@ -2078,7 +2212,7 @@ public sealed class MFRebaixoCommands
 
     // Identidade da Baseline que não depende de alinhamento
     // (baselines de feature line não têm AlignmentId).
-    private static string
+    internal static string
         GetBaselineKey(
             Baseline baseline)
     {
@@ -2342,6 +2476,9 @@ public sealed class MFRebaixoCommands
 
         return text.ToString();
     }
+
+    internal static bool IsMfSubassemblyPublic(Subassembly sa) =>
+        IsMfSubassembly(sa);
 
     private static bool
         IsMfSubassembly(

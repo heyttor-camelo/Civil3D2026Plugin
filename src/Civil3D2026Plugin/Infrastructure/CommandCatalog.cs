@@ -111,6 +111,7 @@ public static class CommandCatalog
                 C3DVersions.MfRebaixo,
                 new[]
                 {
+                    new CommandDefinition(C3DCommands.Corridor.MfRebaixoPainel, "Painel de rebaixos", "Explorador dos rebaixos: lista, planta, vista 3D, edicao, avisos da NBR 9050 e secoes do corredor."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixo, "Rebaixo de meio-fio", "Cria Transition Sets de rebaixo no Corridor."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoCfg, "Configurar rebaixo", "Configura presets do MFREBAIXO."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoHelp, "Ajuda rebaixo", "Mostra a ajuda do MFREBAIXO.")
