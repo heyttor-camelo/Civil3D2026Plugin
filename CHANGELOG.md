@@ -1,5 +1,6 @@
 ## 2.36.2 - MFSARJETA v1.16/v1.17 / hachura do rebaixo nas abas e na rampa da calçada
 
+- v1.19: desfaz a v1.17 (o link da rampa volta a ter sempre `Calcada`). Trocar o code de um link entre seções muda a ordem dos links com aquele code e a planta liga links diferentes (gravata). Só os links de sobreposição variam de code;
 - v1.18: a rampa da calçada (e o resto dela) nunca fica com menos de 5 cm. Com 1 mm fora do rebaixo, o link sumia na planta e a ligação entre S0/S3 e a seção vizinha saía trocada (gravata na hachura);
 - v1.17: no rebaixo, o link da rampa da calçada perde o code `Calcada` (a hachura da calçada era desenhada por cima da do `REBAIXO`); continua com `Top`/`TOPO`.
 
