@@ -169,10 +169,13 @@ public sealed class PedCommands
                 PedStore.EnsureRegApp(tr, db);
                 PedBlock.EnsureLayer(tr, db);
                 Dictionary<string, List<AcadDb.ObjectId>> blocks = PedStore.FindBlocks(tr, db);
+                Dictionary<string, AcadDb.ObjectId> leaders = PedFichaBlock.FindLeaders(tr, db);
                 if (blocks.TryGetValue(ped.Code, out List<AcadDb.ObjectId>? ids))
                 {
                     brId = ids[0];
-                    PedBlock.MoveTo((AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite), pt);
+                    AcadDb.BlockReference br = (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite);
+                    PedBlock.MoveTo(br, pt);
+                    PedFichaBlock.FollowSymbol(tr, leaders.GetValueOrDefault(ped.Code), br);
                 }
                 else
                 {
@@ -183,17 +186,10 @@ public sealed class PedCommands
                     string foto = ImageRef(folder, dwgDir, ped.Images, PedFicha.ColFoto);
                     List<PedFicha.Attr> fields = PedFicha.Attributes(ped.Get, foto, ImageRef(folder, dwgDir, ped.Images, PedFicha.ColMapa));
                     PedBlock.EnsureDataDefinitions(tr, db, blockId, fields);
-                    PedBlock.ApplyData(tr, db, (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite), fields, foto, "Foto do PED " + ped.Code);
+                    AcadDb.BlockReference nbr = (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite);
+                    PedBlock.ApplyData(tr, db, nbr, fields, foto, "Foto do PED " + ped.Code);
+                    Ficha(tr, db, nbr, ped.Code, fields, ped.Images, folder, dwgDir, leaders.GetValueOrDefault(ped.Code));
                 }
-                tr.Commit();
-            }
-
-            // Foto e mapa acompanham o bloco (refeitos na posicao nova, mantendo ligados/desligados).
-            using (doc.LockDocument())
-            using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
-            {
-                PlaceImages(tr, db, (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForRead), ped.Code, ped.Images,
-                    meta?.ImageFolder ?? string.Empty, PedStore.DwgFolder(db), PedPhotos.FindImages(tr, db).GetValueOrDefault(ped.Code), visible: null);
                 tr.Commit();
             }
 
@@ -205,8 +201,7 @@ public sealed class PedCommands
                 AcadDb.BlockReference br = (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite);
                 double target = aRes.Value + UcsAngle(ed);
                 br.TransformBy(Matrix3d.Rotation(target - br.Rotation, br.Normal, br.Position));
-                PlaceImages(tr, db, br, ped.Code, ped.Images, meta?.ImageFolder ?? string.Empty, PedStore.DwgFolder(db),
-                    PedPhotos.FindImages(tr, db).GetValueOrDefault(ped.Code), visible: null);
+                PedFichaBlock.FollowSymbol(tr, PedFichaBlock.FindLeaders(tr, db).GetValueOrDefault(ped.Code), br);
                 tr.Commit();
             }
             else if (aRes.Status == PromptStatus.Cancel)
@@ -219,9 +214,9 @@ public sealed class PedCommands
     }
 
     /// <summary>
-    /// Troca a vista dos PEDs: Ponto (so o simbolo), Ficha (simbolo + tabela) ou Foto
-    /// (ficha + foto e mapa). A tabela troca pelo estado de visibilidade do bloco dinamico;
-    /// as imagens ligam/desligam por objeto.
+    /// Troca a vista dos PEDs: Ponto (so o simbolo), Ficha (multileader com a tabela) ou Foto
+    /// (ficha + foto e mapa). Liga/desliga as layers de cada PED (PED-FICHA-codigo / PED-FOTO-codigo),
+    /// o mesmo que qualquer um faz sem o plugin.
     /// </summary>
     [CommandMethod(C3DCommands.Peds.Vista, CommandFlags.Modal | CommandFlags.UsePickSet)]
     public void Vista()
@@ -266,94 +261,22 @@ public sealed class PedCommands
         bool ficha = mode != "Ponto";
         bool foto = mode == "Foto";
 
-        int blocks = 0, dynamic = 0, images = 0;
+        int count = 0;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            foreach ((string code, List<AcadDb.ObjectId> ids) in PedStore.FindBlocks(tr, db))
+            foreach (string code in PedFichaBlock.FindLeaders(tr, db).Keys)
             {
                 if (only is not null && !only.Contains(code))
                     continue;
-                foreach (AcadDb.ObjectId id in ids)
-                {
-                    blocks++;
-                    if (PedBlock.SetVisibility((AcadDb.BlockReference)tr.GetObject(id, AcadDb.OpenMode.ForWrite), ficha))
-                        dynamic++;
-                }
+                PedFichaBlock.SetVisible(tr, db, code, ficha, foto);
+                count++;
             }
-
-            foreach ((string code, List<AcadDb.ObjectId> ids) in PedPhotos.FindImages(tr, db))
-            {
-                if (only is not null && !only.Contains(code))
-                    continue;
-                foreach (AcadDb.ObjectId id in ids)
-                {
-                    AcadDb.Entity e = (AcadDb.Entity)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                    e.Visible = foto;
-                    images++;
-                }
-            }
-
             tr.Commit();
         }
 
-        ed.WriteMessage($"\n{blocks} PED(s) em \"{mode}\"; {images} imagem(ns) {(foto ? "ligada(s)" : "desligada(s)")}.");
-        if (blocks > dynamic)
-        {
-            ed.WriteMessage($"\n{blocks - dynamic} bloco(s) sem estado de visibilidade: a tabela continua aparecendo." +
-                            $"\nPara trocar por bloco, crie a visibilidade no BEDIT (Ponto/Ficha) e rode {C3DCommands.Peds.Modelo}." +
-                            $"\nPara esconder todas as tabelas de uma vez, desligue a layer {PedBlock.LayerFicha}.");
-        }
+        ed.WriteMessage($"\n{count} PED(s) em \"{mode}\" (layers {PedFichaBlock.LayerFichaPrefix}codigo e {PedFichaBlock.LayerFotoPrefix}codigo)." +
+                        "\nSem o plugin: LAYOFF/LAYFRZ clicando na ficha, ou os filtros \"" + PedFichaBlock.FilterFichas + "\" e \"" + PedFichaBlock.FilterFotos + "\" no gerenciador de layers.");
         ed.Regen();
-    }
-
-    /// <summary>
-    /// Guarda o bloco PED do desenho (depois de criar a visibilidade no BEDIT) como modelo:
-    /// os proximos PEDIMPORTAR em desenhos sem o bloco usam esse modelo.
-    /// </summary>
-    [CommandMethod(C3DCommands.Peds.Modelo, CommandFlags.Modal)]
-    public void Modelo()
-    {
-        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null)
-            return;
-        Editor ed = doc.Editor;
-
-        bool exists = File.Exists(PedBlock.TemplatePath);
-        PromptKeywordOptions kOpt = new($"\nModelo do bloco PED{(exists ? " (ja existe)" : string.Empty)} [Salvar/Remover] <Salvar>: ", "Salvar Remover") { AllowNone = true };
-        PromptResult kRes = ed.GetKeywords(kOpt);
-        if (kRes.Status == PromptStatus.Cancel)
-            return;
-
-        if (kRes.Status == PromptStatus.OK && kRes.StringResult == "Remover")
-        {
-            try
-            {
-                if (exists)
-                    File.Delete(PedBlock.TemplatePath);
-                ed.WriteMessage("\nModelo removido: os proximos desenhos recebem o bloco gerado pelo plugin.");
-            }
-            catch (System.Exception ex)
-            {
-                ed.WriteMessage("\nNao foi possivel remover: " + ex.Message);
-            }
-            return;
-        }
-
-        try
-        {
-            string path = PedBlock.SaveTemplate(doc.Database);
-            bool dyn;
-            using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction())
-            {
-                AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(doc.Database.BlockTableId, AcadDb.OpenMode.ForRead);
-                dyn = ((AcadDb.BlockTableRecord)tr.GetObject(bt[PedBlock.BlockName], AcadDb.OpenMode.ForRead)).IsDynamicBlock;
-            }
-            ed.WriteMessage($"\nModelo salvo em {path}" + (dyn ? " (bloco dinamico)." : " (o bloco ainda NAO tem visibilidade; crie no BEDIT e salve de novo)."));
-        }
-        catch (System.Exception ex)
-        {
-            ed.WriteMessage("\nNao foi possivel salvar o modelo: " + ex.Message);
-        }
     }
 
     // ------------------------------------------------------------------
@@ -465,16 +388,6 @@ public sealed class PedCommands
             ed.WriteMessage("\n  Erro: " + e);
 
         // ---------- DWG ----------
-        try
-        {
-            if (PedBlock.ImportTemplateIfMissing(db))
-                ed.WriteMessage($"\nBloco {PedBlock.BlockName} copiado do modelo ({PedBlock.TemplatePath}).");
-        }
-        catch (System.Exception ex)
-        {
-            ed.WriteMessage($"\nNao foi possivel usar o modelo do bloco: {ex.Message}");
-        }
-
         int inserted = 0, moved = 0, updated = 0, removed;
         List<string> withoutBlock = new();
 
@@ -517,13 +430,16 @@ public sealed class PedCommands
             PedBlock.EnsureLayer(tr, db);
             AcadDb.ObjectId blockId = PedBlock.EnsureBlock(tr, db, out bool created, out bool regenerated);
             if (created)
-                ed.WriteMessage($"\nBloco {PedBlock.BlockName} criado: simbolo (layer {PedBlock.LayerName}) + ficha em tabela (layer {PedBlock.LayerFicha}).");
+                ed.WriteMessage($"\nBloco {PedBlock.BlockName} criado (layer {PedBlock.LayerName}).");
             if (regenerated)
-                ed.WriteMessage($"\nBloco {PedBlock.BlockName} da versao anterior redesenhado com a ficha em tabela.");
+                ed.WriteMessage($"\nBloco {PedBlock.BlockName} da versao anterior redesenhado (so o simbolo; a ficha agora e um multileader).");
 
             Dictionary<string, List<AcadDb.ObjectId>> blocks = PedStore.FindBlocks(tr, db);
-            Dictionary<string, List<AcadDb.ObjectId>> oldImages = PedPhotos.FindImages(tr, db);
-            int placedImages = 0;
+            Dictionary<string, AcadDb.ObjectId> leaders = PedFichaBlock.FindLeaders(tr, db);
+            int legacy = PedPhotos.CleanupLegacy(tr, db);
+            if (legacy > 0)
+                ed.WriteMessage($"\n{legacy} imagem(ns) soltas da versao anterior removidas (agora ficam dentro da ficha).");
+            int fichas = 0;
 
             // Dados da ficha como atributos invisiveis no bloco (para quem nao tem o plugin).
             string dwgDir = PedStore.DwgFolder(db);
@@ -560,8 +476,8 @@ public sealed class PedCommands
                         PedBlock.UpdateAttributes(tr, db, br, rec.Code);
                         PedBlock.ApplyData(tr, db, br, fields, foto, "Foto do PED " + rec.Code);
                     }
-                    placedImages += PlaceImages(tr, db, (AcadDb.BlockReference)tr.GetObject(ids[0], AcadDb.OpenMode.ForRead), rec.Code,
-                        images.GetValueOrDefault(rec.Code), imgFolder, dwgDir, oldImages.GetValueOrDefault(rec.Code), visible: null);
+                    fichas += Ficha(tr, db, (AcadDb.BlockReference)tr.GetObject(ids[0], AcadDb.OpenMode.ForRead), rec.Code, fields,
+                        images.GetValueOrDefault(rec.Code), imgFolder, dwgDir, leaders.GetValueOrDefault(rec.Code));
                     updated++;
                 }
                 else if (hasPoint)
@@ -569,8 +485,8 @@ public sealed class PedCommands
                     AcadDb.ObjectId newId = PedBlock.Insert(tr, db, blockId, pos, scale, rec.Code);
                     AcadDb.BlockReference nbr = (AcadDb.BlockReference)tr.GetObject(newId, AcadDb.OpenMode.ForWrite);
                     PedBlock.ApplyData(tr, db, nbr, fields, foto, "Foto do PED " + rec.Code);
-                    placedImages += PlaceImages(tr, db, nbr, rec.Code, images.GetValueOrDefault(rec.Code), imgFolder, dwgDir,
-                        oldImages.GetValueOrDefault(rec.Code), visible: null);
+                    fichas += Ficha(tr, db, nbr, rec.Code, fields, images.GetValueOrDefault(rec.Code), imgFolder, dwgDir,
+                        leaders.GetValueOrDefault(rec.Code));
                     inserted++;
                 }
                 else
@@ -580,9 +496,10 @@ public sealed class PedCommands
             }
 
             tr.Commit();
-            if (placedImages > 0)
-                ed.WriteMessage($"\n{placedImages} imagem(ns) ao lado das fichas (layer {PedBlock.LayerFoto}).");
+            if (fichas > 0)
+                ed.WriteMessage($"\n{fichas} ficha(s) em multileader (arraste o grip para mover; layers {PedFichaBlock.LayerFichaPrefix}codigo / {PedFichaBlock.LayerFotoPrefix}codigo).");
         }
+        PedFichaBlock.EnsureLayerFilters(db);
 
         ed.WriteMessage($"\nPEDs: {inserted} inserido(s), {updated} ja existente(s) atualizado(s)" +
                         (moved > 0 ? $", {moved} reposicionado(s)" : string.Empty) +
@@ -596,10 +513,9 @@ public sealed class PedCommands
         return true;
     }
 
-    /// <summary>Recoloca foto e mapa do PED ao lado da ficha e refaz o grupo bloco+imagens. Retorna quantas imagens.</summary>
-    private static int PlaceImages(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockReference br, string code,
-                                   IReadOnlyDictionary<string, string>? files, string imgFolder, string dwgDir,
-                                   List<AcadDb.ObjectId>? old, bool? visible)
+    /// <summary>Cria/atualiza o bloco da ficha do PED (tabela + foto + mapa) e o multileader preso ao simbolo. 1 se deu certo.</summary>
+    private static int Ficha(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockReference br, string code, List<PedFicha.Attr> fields,
+                             IReadOnlyDictionary<string, string>? files, string imgFolder, string dwgDir, AcadDb.ObjectId existingLeader)
     {
         PedPhotos.ImageFile? Img(string letter)
         {
@@ -608,17 +524,9 @@ public sealed class PedCommands
             return new PedPhotos.ImageFile(ImageRef(imgFolder, dwgDir, files, letter), Path.Combine(imgFolder, f));
         }
 
-        try
-        {
-            List<AcadDb.ObjectId> ids = PedPhotos.Place(tr, db, br, code, Img(PedFicha.ColFoto), Img(PedFicha.ColMapa),
-                old ?? new List<AcadDb.ObjectId>(), visible);
-            PedPhotos.Group(tr, db, code, ids.Prepend(br.ObjectId));
-            return ids.Count;
-        }
-        catch
-        {
-            return 0;
-        }
+        AcadDb.ObjectId defId = PedFichaBlock.EnsureDefinition(tr, db, code, fields, Img(PedFicha.ColFoto), Img(PedFicha.ColMapa));
+        PedFichaBlock.EnsureLeader(tr, db, code, br, defId, existingLeader);
+        return 1;
     }
 
     /// <summary>

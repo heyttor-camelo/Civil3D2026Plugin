@@ -1,3 +1,11 @@
+## 2.41.0 - PEDs v1.3.0 / ficha em multileader, tudo nativo do AutoCAD
+
+- a ficha (tabela) com a **foto e o mapa** passa a ser um bloco por PED (`PED_FICHA_código`) usado como conteúdo de um **multileader** com a seta na borda do símbolo: arrastar o grip move a ficha e a linha de chamada acompanha. Reimportar refaz o conteúdo mas mantém onde a ficha foi deixada;
+- **layers por PED**: `PED-FICHA-código` (multileader + tabela) e `PED-FOTO-código` (imagens). Esconder um PED: LAYOFF/LAYFRZ clicando na ficha; todos: filtros de layer "PED - fichas" e "PED - fotos" (criados pelo plugin). Nada disso precisa do plugin;
+- o bloco `PED` volta a ser só o símbolo (com os dados em atributos invisíveis); o da 1.2 (tabela dentro) é redesenhado e as imagens soltas/grupos da 1.2 são removidos no próximo `PEDIMPORTAR`/`PEDATUALIZAR`;
+- `PEDVISTA` agora liga/desliga as layers de cada PED; `PEDLOCAR` leva a seta da ficha junto ao mover/girar o símbolo;
+- sai o `PEDMODELO` (não há mais bloco dinâmico).
+
 ## 2.40.0 - MFREBAIXO v1.5.0 / painel de rebaixos (MFREBAIXOPAINEL)
 
 - **`MFREBAIXOPAINEL`**: explorador dos rebaixos no molde do painel viario (mesmo tema claro/escuro):

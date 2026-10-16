@@ -279,15 +279,13 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Peds.Ficha, "Ficha do PED",
                         "Janela que acompanha a selecao: clique num bloco PED e veja a ficha (larguras atual x proposta, abrigo, embarques, distancias, obs, foto do local e mapa)."),
                     new CommandDefinition(C3DCommands.Peds.Importar, "Importar PEDs",
-                        "Le a planilha de proposta (.xlsx) e o KMZ com os pontos: grava os dados no DWG, extrai as fotos para PEDs_img e insere o bloco PED em cada ponto (UTM do sistema do Civil ou geolocalizacao)."),
+                        "Le a planilha de proposta (.xlsx) e o KMZ: insere o bloco PED em cada ponto (dados em atributos) e a ficha em tabela com foto e mapa num multileader preso ao simbolo (arrasta pelo grip, layers por PED)."),
                     new CommandDefinition(C3DCommands.Peds.Atualizar, "Atualizar da planilha",
                         "Rele a planilha gravada (nova revisao) e as imagens, sem mexer na posicao dos blocos ja inseridos."),
                     new CommandDefinition(C3DCommands.Peds.Locar, "Locar / mover PED",
                         "Insere ou move um PED clicando no ponto (para os que nao estao no KMZ), com rotacao opcional."),
                     new CommandDefinition(C3DCommands.Peds.Vista, "Ponto / ficha / foto",
-                        "Troca a vista dos PEDs (todos ou selecionados): so o simbolo, simbolo + ficha em tabela, ou ficha + foto e mapa. A tabela usa o estado de visibilidade do bloco dinamico."),
-                    new CommandDefinition(C3DCommands.Peds.Modelo, "Salvar bloco modelo",
-                        "Guarda o bloco PED do desenho (com a visibilidade criada no BEDIT) como modelo para os proximos desenhos.")
+                        "Troca a vista dos PEDs (todos ou selecionados): so o simbolo, simbolo + ficha, ou ficha + foto e mapa, ligando/desligando as layers de cada PED (o mesmo que se faz sem o plugin).")
                 }),
 
             new(

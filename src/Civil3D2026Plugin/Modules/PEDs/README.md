@@ -10,29 +10,23 @@ para a planta: um bloco `PED` em cada ponto e uma ficha que abre ao clicar.
 3. `PEDFICHA` → deixe a janela aberta e clique nos blocos PED no desenho.
 4. Planilha revisada? `PEDATUALIZAR` (não mexe na posição dos blocos).
 5. PED sem ponto no KMZ, ou para ajustar posição/rotação: `PEDLOCAR`.
-6. Trocar a vista: `PEDVISTA` → Ponto / Ficha / Foto (todos ou selecionados).
+6. Trocar a vista: `PEDVISTA` → Ponto / Ficha / Foto (todos ou selecionados), ou pelas layers.
 
-## Bloco dinâmico (uma vez só)
+## Na planta (sem precisar do plugin)
 
-A API .NET do AutoCAD não cria parâmetros de bloco dinâmico, então a visibilidade é feita à mão uma vez:
-
-1. `BEDIT` → bloco `PED`.
-2. Paleta Block Authoring → **Parameters → Visibility**: clique perto do símbolo.
-3. **Visibility States** (botão na barra do editor): renomeie o estado para `Ficha`, crie um novo `Ponto` (opção *Leave visibility of existing objects unchanged*).
-4. Com o estado `Ponto` ativo, selecione a tabela inteira (linhas, textos e atributos da ficha, tudo menos o retângulo, a hachura e o "PED XX") e clique em **Make Invisible** (BVHIDE).
-5. `BCLOSE` salvando.
-6. `PEDMODELO` → `Salvar`: os próximos desenhos já recebem o bloco dinâmico.
-
-Depois disso: grip de visibilidade em cada PED (funciona sem o plugin) e `PEDVISTA` para trocar em lote.
-O plugin nunca redesenha um bloco dinâmico; ele só preenche os atributos.
+- **Símbolo** `PED` (layer `PED`): dados da ficha em atributos invisíveis (Properties, duplo clique, Data Extraction) e hyperlink para a foto (Ctrl+clique).
+- **Ficha**: multileader com seta no símbolo; o conteúdo é o bloco `PED_FICHA_código` (tabela + foto + mapa). Arraste o grip do multileader para mover a ficha: a linha de chamada acompanha.
+- **Esconder um PED**: `LAYOFF` (ou `LAYFRZ`) clicando na ficha → desliga `PED-FICHA-código`; clicando na foto → só `PED-FOTO-código`.
+- **Esconder todos**: gerenciador de layers → filtro **PED - fichas** (ou **PED - fotos**) → selecionar tudo → desligar.
+- Com o plugin, `PEDVISTA` faz o mesmo (Ponto / Ficha / Foto, todos ou selecionados).
 
 ## Layers
 
 | Layer | Conteúdo |
 |---|---|
-| `PED` | bloco inserido (símbolo em layer 0 dentro do bloco, assume esta) |
-| `PED-FICHA` | tabela da ficha dentro do bloco (desligar esconde todas as fichas) |
-| `PED-FOTO` | fotos e mapas (raster) |
+| `PED` | símbolo |
+| `PED-FICHA-código` | multileader e tabela daquele PED |
+| `PED-FOTO-código` | foto e mapa daquele PED |
 
 ## Arquivos
 
@@ -42,8 +36,9 @@ O plugin nunca redesenha um bloco dinâmico; ele só preenche os atributos.
 | `PedKml.cs` | Pontos do .kmz/.kml (nome + lon/lat), ignora placemarks repetidos. |
 | `PedFicha.cs` | **Mapa de colunas da ficha** (letras da aba de dados). Se a planilha mudar de layout, ajuste aqui. |
 | `PedStore.cs` | Dados no DWG: NOD `C3D_PED_V1` (META, COLS, P_código) e XData `C3DPED` no bloco. |
-| `PedBlock.cs` | Bloco `PED` (símbolo + ficha em tabela), atributos, visibilidade, modelo. |
-| `PedPhotos.cs` | Foto e mapa como raster ao lado da ficha, grupo com o bloco. |
+| `PedBlock.cs` | Bloco `PED` (símbolo) e atributos com os dados. |
+| `PedFichaBlock.cs` | Bloco da ficha por PED (tabela + raster) e multileader; layers e filtros. |
+| `PedPhotos.cs` | Definições das imagens; limpeza do que a 1.2 criava. |
 | `PedGeo.cs` | lon/lat → desenho (geolocalização, sistema do Civil ou fuso UTM). |
 | `PedImages.cs` | Extrai as imagens para JPEG (máx. 1600 px). |
 | `PedPanel.cs` | Janela da ficha (segue a seleção do desenho). |

@@ -6,12 +6,8 @@ using Autodesk.AutoCAD.Geometry;
 namespace Civil3D2026Plugin.Modules.PEDs;
 
 /// <summary>
-/// Foto do local e mapa de localizacao como imagens raster ao lado da ficha do bloco
-/// (layer PED-FOTO). Cada imagem leva XData C3DPED = (codigo, FOTO/MAPA) e fica num
-/// grupo com o bloco (PED_codigo) para andar junto ao mover.
-///
-/// Imagem nao pode ficar dentro da definicao do bloco (seria a mesma em todos os PEDs),
-/// por isso fica fora: liga/desliga pela layer PED-FOTO ou pelo PEDVISTA.
+/// Definicoes das imagens (foto do local e mapa) usadas dentro dos blocos de ficha
+/// (PedFichaBlock), e limpeza das imagens soltas da versao 1.2.
 /// </summary>
 internal static class PedPhotos
 {
@@ -43,72 +39,8 @@ internal static class PedPhotos
         return map;
     }
 
-    /// <summary>
-    /// Recoloca foto e mapa ao lado da ficha do bloco (apaga as imagens antigas do PED).
-    /// <paramref name="visible"/> null = mantem a visibilidade das imagens antigas (ou visivel se nao havia).
-    /// Retorna os ids das imagens criadas.
-    /// </summary>
-    public static List<AcadDb.ObjectId> Place(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockReference br, string code,
-                                              ImageFile? foto, ImageFile? mapa, IEnumerable<AcadDb.ObjectId> old, bool? visible)
-    {
-        bool show = visible ?? true;
-        foreach (AcadDb.ObjectId id in old)
-        {
-            if (id.IsErased)
-                continue;
-            AcadDb.Entity e = (AcadDb.Entity)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-            if (visible is null)
-                show = e.Visible;
-            e.Erase();
-        }
-
-        List<AcadDb.ObjectId> created = new();
-        (double x, double y, double w) = PedBlock.PhotoSlot;
-        double top = y;
-        foreach ((ImageFile? file, string kind) in new[] { (foto, KindFoto), (mapa, KindMapa) })
-        {
-            if (file is not ImageFile f || f.Saved.Length == 0)
-                continue;
-            AcadDb.RasterImageDef? def = Definition(tr, db, code, kind, f);
-            if (def is null)
-                continue;
-
-            double aspect = def.Size.X > 0 ? def.Size.Y / def.Size.X : 0.6;
-            double h = w * aspect;
-
-            Matrix3d xf = br.BlockTransform;
-            Point3d origin = new Point3d(x, top - h, 0).TransformBy(xf);
-            Vector3d u = new Vector3d(w, 0, 0).TransformBy(xf);
-            Vector3d v = new Vector3d(0, h, 0).TransformBy(xf);
-
-            AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
-            AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
-
-            AcadDb.RasterImage img = new();
-            img.SetDatabaseDefaults(db);
-            img.Layer = PedBlock.LayerFoto;
-            img.ImageDefId = def.ObjectId;
-            img.Orientation = new CoordinateSystem3d(origin, u, v);
-            img.ShowImage = true;
-            AcadDb.ObjectId id = ms.AppendEntity(img);
-            tr.AddNewlyCreatedDBObject(img, true);
-            AcadDb.RasterImage.EnableReactors(true);
-            img.AssociateRasterDef(def);
-            img.XData = new AcadDb.ResultBuffer(
-                new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, PedStore.RegApp),
-                new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, code),
-                new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, kind));
-            img.Visible = show;
-
-            created.Add(id);
-            top -= h + 1.0;
-        }
-
-        return created;
-    }
-
     /// <summary>Definicao da imagem (dicionario ACAD_IMAGE_DICT), reaproveitada entre importacoes.</summary>
-    private static AcadDb.RasterImageDef? Definition(AcadDb.Transaction tr, AcadDb.Database db, string code, string kind, ImageFile f)
+    internal static AcadDb.RasterImageDef? Definition(AcadDb.Transaction tr, AcadDb.Database db, string code, string kind, ImageFile f)
     {
         AcadDb.ObjectId dictId = AcadDb.RasterImageDef.GetImageDictionary(db);
         if (dictId.IsNull)
@@ -150,25 +82,39 @@ internal static class PedPhotos
         return def;
     }
 
-    /// <summary>Grupo PED_codigo com o bloco e as imagens (mover o bloco leva as imagens).</summary>
-    public static void Group(AcadDb.Transaction tr, AcadDb.Database db, string code, IEnumerable<AcadDb.ObjectId> ids)
+    /// <summary>
+    /// Remove o que a versao 1.2 criava no espaco modelo (imagens soltas e grupos PED_codigo):
+    /// agora foto e mapa ficam dentro do bloco da ficha (multileader).
+    /// </summary>
+    public static int CleanupLegacy(AcadDb.Transaction tr, AcadDb.Database db)
     {
-        string name = "PED_" + PedStore.KeyOf(code);
-        AcadDb.DBDictionary groups = (AcadDb.DBDictionary)tr.GetObject(db.GroupDictionaryId, AcadDb.OpenMode.ForWrite);
-        if (groups.Contains(name))
+        int n = 0;
+        foreach (List<AcadDb.ObjectId> ids in FindImages(tr, db).Values)
         {
-            AcadDb.ObjectId oldId = groups.GetAt(name);
-            groups.Remove(name);
-            tr.GetObject(oldId, AcadDb.OpenMode.ForWrite).Erase();
+            foreach (AcadDb.ObjectId id in ids.Where(i => !i.IsErased))
+            {
+                tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+                n++;
+            }
         }
 
-        List<AcadDb.ObjectId> list = ids.Where(i => !i.IsNull && !i.IsErased).ToList();
-        if (list.Count < 2)
-            return;
-
-        AcadDb.Group g = new("PED " + code + " (bloco + foto + mapa)", true);
-        groups.SetAt(name, g);
-        tr.AddNewlyCreatedDBObject(g, true);
-        g.Append(new AcadDb.ObjectIdCollection(list.ToArray()));
+        AcadDb.DBDictionary groups = (AcadDb.DBDictionary)tr.GetObject(db.GroupDictionaryId, AcadDb.OpenMode.ForRead);
+        List<(string Key, AcadDb.ObjectId Id)> old = new();
+        foreach (AcadDb.DBDictionaryEntry e in groups)
+        {
+            if (e.Key.StartsWith("PED_", StringComparison.OrdinalIgnoreCase) &&
+                tr.GetObject(e.Value, AcadDb.OpenMode.ForRead) is AcadDb.Group g && g.Description.Contains("bloco + foto + mapa", StringComparison.Ordinal))
+                old.Add((e.Key, e.Value));
+        }
+        if (old.Count > 0)
+        {
+            groups.UpgradeOpen();
+            foreach ((string key, AcadDb.ObjectId id) in old)
+            {
+                groups.Remove(key);
+                tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+            }
+        }
+        return n;
     }
 }
