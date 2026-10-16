@@ -64,6 +64,10 @@ internal sealed class MFRebaixoView3D : WC.Grid
     private SW.Point? _last;
     private bool _pan;
 
+    // Transformacao mundo -> local da ultima malha (para as cameras).
+    private double _cx, _cy, _z0, _ex = 1;
+    private bool _hasModel;
+
     public MFRebaixoView3D()
     {
         Background = ToolTheme.GraphicBack;
@@ -128,6 +132,11 @@ internal sealed class MFRebaixoView3D : WC.Grid
         double z0 = all.Min(p => p.Z);
         double z1 = all.Max(p => p.Z);
         double ex = Math.Max(exaggeration, 0.1);
+        _cx = cx;
+        _cy = cy;
+        _z0 = z0;
+        _ex = ex;
+        _hasModel = true;
         W3.Point3D L(Point3d p, double lift = 0) => new(p.X - cx, p.Y - cy, ((p.Z - z0) * ex) + lift);
 
         Dictionary<WM.Color, W3.MeshGeometry3D> meshes = new();
@@ -233,6 +242,24 @@ internal sealed class MFRebaixoView3D : WC.Grid
             UpdateCamera();
     }
 
+    /// <summary>Camera parada em eye (mundo) olhando target (mundo); continua girando em volta do alvo.</summary>
+    public void LookFrom(Point3d eye, Point3d target)
+    {
+        if (!_hasModel)
+            return;
+        W3.Point3D e = new(eye.X - _cx, eye.Y - _cy, (eye.Z - _z0) * _ex);
+        W3.Point3D t = new(target.X - _cx, target.Y - _cy, (target.Z - _z0) * _ex);
+        W3.Vector3D d = e - t;
+        double len = d.Length;
+        if (len < 1e-6)
+            return;
+        _target = t;
+        _distance = len;
+        _azimuth = Math.Atan2(d.Y, d.X) * 180.0 / Math.PI;
+        _elevation = Math.Clamp(Math.Asin(d.Z / len) * 180.0 / Math.PI, 1, 89);
+        UpdateCamera();
+    }
+
     public void Home()
     {
         _target = _homeTarget;
@@ -283,7 +310,7 @@ internal sealed class MFRebaixoView3D : WC.Grid
         else
         {
             _azimuth -= dx * 0.4;
-            _elevation = Math.Clamp(_elevation + (dy * 0.3), 3, 89);
+            _elevation = Math.Clamp(_elevation + (dy * 0.3), 1, 89);
         }
 
         UpdateCamera();

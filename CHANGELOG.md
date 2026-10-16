@@ -1,3 +1,9 @@
+## 2.42.0 - MFREBAIXO v1.6.0 / planta geral, cameras e remover rebaixo
+
+- **Planta geral** no painel (`MFREBAIXOPAINEL`): baselines de todos os corredores e todos os rebaixos (vermelho; laranja com aviso; amarelo o selecionado). Clique num rebaixo seleciona, duplo clique abre a planta do rebaixo. Botoes de modo: Planta geral / Planta do rebaixo / 3D;
+- **Cameras**: no 3D do painel, "da rua" e "da calcada" (olho a 1,6 m olhando o rebaixo) e "orbita"; no desenho, **Camera 3D no desenho** poe a vista em perspectiva (estilo Realistic) olhando o rebaixo, e **Vista de cima** volta a vista anterior;
+- **Remover rebaixo**: se o Civil mantiver o Transition Set depois do `SetTransitions`, o painel refaz a lista com copias dos sets que ficam (como o CORRSPLIT). A mensagem diz quantos sets e secoes sairam; se ainda assim nao sair, explica e aponta o Corridor Transitions.
+
 ## 2.41.0 - PEDs v1.3.0 / ficha em multileader, tudo nativo do AutoCAD
 
 - a ficha (tabela) com a **foto e o mapa** passa a ser um bloco por PED (`PED_FICHA_código`) usado como conteúdo de um **multileader** com a seta na borda do símbolo: arrastar o grip move a ficha e a linha de chamada acompanha. Reimportar refaz o conteúdo mas mantém onde a ficha foi deixada;

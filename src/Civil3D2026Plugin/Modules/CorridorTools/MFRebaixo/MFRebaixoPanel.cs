@@ -44,6 +44,13 @@ internal sealed class MFRebaixoPanel : SW.Window
     private RebaixoInfo? _current;
     private CorridorSummary? _currentCorridor;
     private RebaixoModel? _model;
+    private List<(AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> _overview = new();
+    private SavedView? _savedView;
+
+    private sealed record SavedView(Point2d Center, double Height, double Width, Point3d Target, Vector3d Direction,
+        double Twist, bool Perspective, double Lens, AcadDb.ObjectId VisualStyle);
+
+    private string Mode => _settings.PainelModo is "PLANTA" or "3D" ? _settings.PainelModo : "GERAL";
     private string? _modelKey;
     private bool _refreshQueued;
     private Document? _watched;
@@ -104,6 +111,12 @@ internal sealed class MFRebaixoPanel : SW.Window
         new("SECOES", "secoes", "Secoes do rebaixo", "Rebaixo",
             "Valores do meio-fio em cada secao do corredor no trecho: REB, DESTAQUE, altura exposta, rampa e faixa livre da calcada.",
             new[] { "Selecione o rebaixo." }, p => p.SelectTab("Secoes")),
+        new("CAMERA", "solido3d", "Camera 3D no desenho", "Rebaixo",
+            "Poe a vista do desenho em perspectiva (estilo Realistic) olhando o rebaixo selecionado, como uma camera na rua. Orbite com Shift+roda.",
+            new[] { "Selecione o rebaixo.", "Clique; use Vista de cima para voltar." }, p => p.CameraView()),
+        new("TOPO", "planta", "Vista de cima no desenho", "Rebaixo",
+            "Volta a vista do desenho para como estava antes da camera (ou planta de cima, 2D Wireframe).",
+            new[] { "Clique." }, p => p.RestoreView()),
         new("SELECIONAR", "corredor", "Selecionar corredor", "Corredor",
             "Seleciona no desenho o corredor do item escolhido (para Propriedades, Corridor Transitions, Section Editor).",
             new[] { "Selecione um rebaixo ou corredor." }, p => p.SelectCorridor()),
@@ -554,6 +567,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             {
                 _items = MFRebaixoData.ReadAll(doc.Database);
                 _corridors = MFRebaixoData.Corridors(doc.Database);
+                _overview = MFRebaixoData.Overview(doc.Database);
             }
         }
         catch (System.Exception ex)
@@ -823,44 +837,80 @@ internal sealed class MFRebaixoPanel : SW.Window
     // Vista grafica: planta ou 3D
     // ------------------------------------------------------------------
 
+    private WC.Button ModeButton(string mode, string icon, string text, string tip)
+    {
+        bool active = Mode == mode;
+        WC.StackPanel content = new() { Orientation = WC.Orientation.Horizontal };
+        content.Children.Add(new WC.Image { Source = IconOf(icon), Width = 14, Height = 14 });
+        content.Children.Add(new WC.TextBlock { Text = " " + text, Foreground = T.Text, FontSize = 11, VerticalAlignment = SW.VerticalAlignment.Center });
+        WC.Button b = new()
+        {
+            Content = content,
+            ToolTip = tip,
+            Padding = new SW.Thickness(6, 1, 8, 1),
+            Margin = new SW.Thickness(2, 1, 0, 1),
+            Background = active ? T.Selected : WM.Brushes.Transparent,
+            BorderBrush = active ? T.Accent : WM.Brushes.Transparent,
+            BorderThickness = new SW.Thickness(0, 0, 0, 2)
+        };
+        b.Click += (_, _) => SetMode(mode);
+        return b;
+    }
+
     private void BuildViewToggles()
     {
         _viewToggles.Children.Clear();
-        bool v3 = _settings.PainelVista3D;
-        _viewToggles.Children.Add(Link("Planta", () => SetView(false), "Planta do corredor, colorida pelos codes", !v3));
-        _viewToggles.Children.Add(Link("3D", () => SetView(true), "Vista 3D do trecho do corredor", v3));
-        _viewToggles.Children.Add(Sep());
-        foreach (double ex in new[] { 1.0, 2.0, 5.0 })
+        _viewToggles.Children.Add(ModeButton("GERAL", "mapa", "Planta geral", "Todos os corredores e rebaixos do desenho; clique num rebaixo para selecionar, duplo clique para abrir"));
+        _viewToggles.Children.Add(ModeButton("PLANTA", "planta", "Planta do rebaixo", "Trecho do corredor do rebaixo selecionado, colorido pelos codes"));
+        _viewToggles.Children.Add(ModeButton("3D", "solido3d", "3D", "Vista 3D do trecho: girar, arrastar e zoom com o mouse"));
+
+        if (Mode == "3D")
         {
-            double e = ex;
-            _viewToggles.Children.Add(Link($"{ex:0}x", () =>
+            _viewToggles.Children.Add(Sep());
+            _viewToggles.Children.Add(Link("orbita", () => _view3d.Home(), "Vista de cima, girando em volta do rebaixo"));
+            _viewToggles.Children.Add(Link("da rua", () => PanelCamera(fromStreet: true), "Camera na pista, a 1,6 m de altura, olhando o rebaixo"));
+            _viewToggles.Children.Add(Link("da calcada", () => PanelCamera(fromStreet: false), "Camera na calcada, a 1,6 m de altura, olhando o rebaixo"));
+            _viewToggles.Children.Add(Sep());
+            foreach (double ex in new[] { 1.0, 2.0, 5.0 })
             {
-                _settings.PainelExagero = e;
-                SaveSettings();
-                BuildViewToggles();
-                RenderGraphic(keepCamera: true);
-            }, "Exagero vertical da vista 3D", Math.Abs(_settings.PainelExagero - ex) < 1e-6));
+                double e = ex;
+                _viewToggles.Children.Add(Link($"{ex:0}x", () =>
+                {
+                    _settings.PainelExagero = e;
+                    SaveSettings();
+                    BuildViewToggles();
+                    RenderGraphic(keepCamera: true);
+                }, "Exagero vertical da vista 3D", Math.Abs(_settings.PainelExagero - ex) < 1e-6));
+            }
+        }
+
+        if (Mode != "GERAL")
+        {
+            _viewToggles.Children.Add(Sep());
+            foreach (double m in new[] { 3.0, 6.0, 15.0 })
+            {
+                double mm = m;
+                _viewToggles.Children.Add(Link($"+{m:0} m", () =>
+                {
+                    _settings.PainelMargem = mm;
+                    SaveSettings();
+                    _modelKey = null;
+                    BuildViewToggles();
+                    RenderGraphic();
+                }, "Trecho mostrado antes e depois do rebaixo", Math.Abs(_settings.PainelMargem - m) < 1e-6));
+            }
         }
 
         _viewToggles.Children.Add(Sep());
-        foreach (double m in new[] { 3.0, 6.0, 15.0 })
-        {
-            double mm = m;
-            _viewToggles.Children.Add(Link($"+{m:0} m", () =>
-            {
-                _settings.PainelMargem = mm;
-                SaveSettings();
-                _modelKey = null;
-                BuildViewToggles();
-                RenderGraphic();
-            }, "Trecho mostrado antes e depois do rebaixo", Math.Abs(_settings.PainelMargem - m) < 1e-6));
-        }
+        _viewToggles.Children.Add(Link("camera no desenho", CameraView, "Vista em perspectiva do rebaixo no proprio desenho"));
     }
 
-    private void SetView(bool v3)
+    private void SetMode(string mode)
     {
-        _settings.PainelVista3D = v3;
+        _settings.PainelModo = mode;
         SaveSettings();
+        _zoom = 1;
+        _panX = _panY = 0;
         BuildViewToggles();
         ShowView();
         RenderGraphic();
@@ -868,7 +918,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void ShowView()
     {
-        bool v3 = _settings.PainelVista3D;
+        bool v3 = Mode == "3D";
         _view3d.Visibility = v3 ? SW.Visibility.Visible : SW.Visibility.Collapsed;
         _plan.Visibility = v3 ? SW.Visibility.Collapsed : SW.Visibility.Visible;
         _coords.Text = "";
@@ -914,8 +964,8 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void RenderGraphic(bool keepCamera = false)
     {
-        RebaixoModel? model = CurrentModel();
-        if (_settings.PainelVista3D)
+        RebaixoModel? model = Mode == "GERAL" ? null : CurrentModel();
+        if (Mode == "3D")
             _view3d.SetModel(model, _settings.PainelExagero, keepCamera);
         else
             RenderPlan();
@@ -927,11 +977,330 @@ internal sealed class MFRebaixoPanel : SW.Window
               (model is null ? "" : $"   ({model.Sections.Count} secoes)");
     }
 
+    // ------------------------------------------------------------------
+    // Cameras (no painel e no desenho)
+    // ------------------------------------------------------------------
+
+    /// <summary>Cota do topo perto de (x, y): maior Z dos pontos do corredor num raio de 0,6 m.</summary>
+    private static double? GroundZ(RebaixoModel model, double x, double y)
+    {
+        double? best = null, nearestZ = null, nearestD = double.MaxValue;
+        foreach (ModelSection s in model.Sections)
+        {
+            foreach ((long _, List<ModelLink> links) in s.Subassemblies)
+            {
+                foreach (ModelLink l in links)
+                {
+                    foreach (Point3d p in l.Points)
+                    {
+                        double d = Math.Sqrt(((p.X - x) * (p.X - x)) + ((p.Y - y) * (p.Y - y)));
+                        if (d < 0.6 && (best is null || p.Z > best))
+                            best = p.Z;
+                        if (d < nearestD)
+                        {
+                            nearestD = d;
+                            nearestZ = p.Z;
+                        }
+                    }
+                }
+            }
+        }
+
+        return best ?? nearestZ;
+    }
+
+    /// <summary>Olho e alvo de uma camera a 1,6 m de altura, da pista ou da calcada, olhando o meio do rebaixo.</summary>
+    private (Point3d Eye, Point3d Target)? CameraFrame(RebaixoInfo r, RebaixoModel model, bool fromStreet)
+    {
+        Point3d a = r.P1, b = r.P2;
+        if (a.DistanceTo(b) < 0.05)
+        {
+            a = r.P0;
+            b = r.P3;
+        }
+
+        Vector3d t = new(b.X - a.X, b.Y - a.Y, 0);
+        if (t.Length < 1e-6 || a == Point3d.Origin)
+            return null;
+        t = t.GetNormal();
+        Vector3d right = new(t.Y, -t.X, 0);
+        double side = r.Left ? -1 : 1; // lado do meio-fio/calcada em relacao a baseline
+        Point3d mid = new((a.X + b.X) / 2, (a.Y + b.Y) / 2, 0);
+
+        Point3d targetXY = mid + (right * side * 0.6);
+        Point3d eyeXY = fromStreet
+            ? mid - (right * side * 9.0) - (t * 6.0)
+            : mid + (right * side * 4.5) + (t * 5.0);
+
+        double tz = GroundZ(model, targetXY.X, targetXY.Y) ?? 0;
+        double ez = (GroundZ(model, eyeXY.X, eyeXY.Y) ?? tz) + 1.6;
+        return (new Point3d(eyeXY.X, eyeXY.Y, ez), new Point3d(targetXY.X, targetXY.Y, tz));
+    }
+
+    private void PanelCamera(bool fromStreet)
+    {
+        RebaixoInfo? r = _current;
+        RebaixoModel? model = CurrentModel();
+        if (r is null || model is null)
+        {
+            Say("Selecione um rebaixo.");
+            return;
+        }
+
+        if (CameraFrame(r, model, fromStreet) is not { } cam)
+        {
+            Say("Sem coordenadas para a camera.");
+            return;
+        }
+
+        // Com exagero vertical a altura do olho tambem e exagerada; para a camera, 1x fica natural.
+        if (Math.Abs(_settings.PainelExagero - 1) > 1e-6)
+        {
+            _settings.PainelExagero = 1;
+            SaveSettings();
+            BuildViewToggles();
+            RenderGraphic(keepCamera: true);
+        }
+
+        _view3d.LookFrom(cam.Eye, cam.Target);
+        Say(fromStreet ? "Camera na pista olhando o rebaixo." : "Camera na calcada olhando o rebaixo.");
+    }
+
+    /// <summary>Poe a vista do desenho em perspectiva olhando o rebaixo, da pista, com estilo Realistic.</summary>
+    private void CameraView()
+    {
+        RebaixoInfo? r = _current;
+        RebaixoModel? model = CurrentModel();
+        if (r is null || model is null || Doc is not Document doc)
+        {
+            Say("Selecione um rebaixo.");
+            return;
+        }
+
+        if (CameraFrame(r, model, fromStreet: true) is not { } cam)
+        {
+            Say("Sem coordenadas para a camera.");
+            return;
+        }
+
+        try
+        {
+            using (doc.LockDocument())
+            {
+                using AcadDb.ViewTableRecord view = doc.Editor.GetCurrentView();
+                _savedView ??= new SavedView(view.CenterPoint, view.Height, view.Width, view.Target, view.ViewDirection,
+                    view.ViewTwist, view.PerspectiveEnabled, view.LensLength, view.VisualStyleId);
+
+                Vector3d dir = cam.Eye - cam.Target;
+                view.Target = cam.Target;
+                view.ViewDirection = dir;
+                view.ViewTwist = 0;
+                view.PerspectiveEnabled = true;
+                view.LensLength = 28;
+                view.CenterPoint = new Point2d(0, 0);
+                double height = dir.Length * 0.9;
+                double ratio = _savedView.Width / Math.Max(_savedView.Height, 1e-9);
+                view.Height = height;
+                view.Width = height * ratio;
+                AcadDb.ObjectId style = VisualStyle(doc.Database, "Realistic");
+                if (!style.IsNull)
+                    view.VisualStyleId = style;
+                doc.Editor.SetCurrentView(view);
+                AcApp.UpdateScreen();
+            }
+
+            Say("Camera no desenho (perspectiva). Shift+roda do mouse orbita; Vista de cima volta.");
+        }
+        catch (System.Exception ex)
+        {
+            Say("Camera falhou: " + ex.Message);
+        }
+    }
+
+    /// <summary>Volta a vista do desenho para antes da camera (ou planta de cima em 2D Wireframe).</summary>
+    private void RestoreView()
+    {
+        if (Doc is not Document doc)
+            return;
+
+        try
+        {
+            using (doc.LockDocument())
+            {
+                using AcadDb.ViewTableRecord view = doc.Editor.GetCurrentView();
+                if (_savedView is { } v)
+                {
+                    view.Target = v.Target;
+                    view.ViewDirection = v.Direction;
+                    view.ViewTwist = v.Twist;
+                    view.PerspectiveEnabled = v.Perspective;
+                    view.LensLength = v.Lens;
+                    view.CenterPoint = v.Center;
+                    view.Height = v.Height;
+                    view.Width = v.Width;
+                    if (!v.VisualStyle.IsNull)
+                        view.VisualStyleId = v.VisualStyle;
+                    _savedView = null;
+                }
+                else
+                {
+                    view.ViewDirection = Vector3d.ZAxis;
+                    view.ViewTwist = 0;
+                    view.PerspectiveEnabled = false;
+                    AcadDb.ObjectId style = VisualStyle(doc.Database, "2dWireframe");
+                    if (!style.IsNull)
+                        view.VisualStyleId = style;
+                }
+
+                doc.Editor.SetCurrentView(view);
+                AcApp.UpdateScreen();
+            }
+
+            if (_current is not null)
+                ZoomCurrent();
+            Say("Vista de cima no desenho.");
+        }
+        catch (System.Exception ex)
+        {
+            Say("Nao deu para voltar a vista: " + ex.Message);
+        }
+    }
+
+    private static AcadDb.ObjectId VisualStyle(AcadDb.Database db, string name)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        if (tr.GetObject(db.VisualStyleDictionaryId, AcadDb.OpenMode.ForRead) is AcadDb.DBDictionary dict && dict.Contains(name))
+            return dict.GetAt(name);
+        return AcadDb.ObjectId.Null;
+    }
+
     private SW.Point ToScreen(double x, double y) => new(_ox + ((x - _cx) * _scale), _oy - ((y - _cy) * _scale));
 
     private (double X, double Y) ToWorld(SW.Point p) => (_cx + ((p.X - _ox) / _scale), _cy - ((p.Y - _oy) / _scale));
 
     private void RenderPlan()
+    {
+        if (Mode == "GERAL")
+            RenderOverview();
+        else
+            RenderDetail();
+    }
+
+    /// <summary>Planta geral: baselines de todos os corredores e os rebaixos clicaveis.</summary>
+    private void RenderOverview()
+    {
+        _plan.Children.Clear();
+        double w = _plan.ActualWidth, h = _plan.ActualHeight;
+        if (w < 20 || h < 20 || !_plan.IsVisible)
+            return;
+
+        List<Point3d> all = _overview.SelectMany(o => o.Points).Concat(_items.SelectMany(r => r.Path)).ToList();
+        if (all.Count == 0)
+        {
+            _scale = 0;
+            PlanLabel("Nenhum corredor no desenho.", 10, 10, 12);
+            return;
+        }
+
+        double minX = all.Min(p => p.X), maxX = all.Max(p => p.X), minY = all.Min(p => p.Y), maxY = all.Max(p => p.Y);
+        _scale = 0.9 * Math.Min(w / Math.Max(maxX - minX, 1e-6), h / Math.Max(maxY - minY, 1e-6)) * _zoom;
+        _cx = ((minX + maxX) / 2.0) + _panX;
+        _cy = ((minY + maxY) / 2.0) + _panY;
+        _ox = w / 2.0;
+        _oy = h / 2.0;
+
+        WM.Brush baseBrush = ToolTheme.Brush(150, 152, 156);
+        foreach ((AcadDb.ObjectId _, string name, List<Point3d> pts) in _overview)
+        {
+            var line = new WS.Polyline { Stroke = baseBrush, StrokeThickness = 1.2, IsHitTestVisible = false };
+            foreach (Point3d p in pts)
+                line.Points.Add(ToScreen(p.X, p.Y));
+            _plan.Children.Add(line);
+            if (_zoom >= 2.5)
+            {
+                Point3d m = pts[pts.Count / 2];
+                SW.Point s = ToScreen(m.X, m.Y);
+                PlanLabel(name, s.X + 4, s.Y + 2, 9, ToolTheme.GraphicLine);
+            }
+        }
+
+        WM.Brush red = ToolTheme.Brush(225, 45, 60), orange = ToolTheme.Brush(240, 150, 30), yellow = ToolTheme.Brush(255, 205, 60);
+        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
+        {
+            if (r.Path.Count == 0)
+                continue;
+            bool selected = ReferenceEquals(r, _current);
+            bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
+            WM.Brush brush = selected ? yellow : serious ? orange : red;
+
+            var path = new WS.Polyline { Stroke = brush, StrokeThickness = selected ? 6 : 4, StrokeStartLineCap = WM.PenLineCap.Round, StrokeEndLineCap = WM.PenLineCap.Round, IsHitTestVisible = false };
+            foreach (Point3d p in r.Path)
+                path.Points.Add(ToScreen(p.X, p.Y));
+            _plan.Children.Add(path);
+
+            Point3d mid = r.Path[r.Path.Count / 2];
+            SW.Point c = ToScreen(mid.X, mid.Y);
+            double size = selected ? 13 : 10;
+            var marker = new WS.Ellipse
+            {
+                Width = size,
+                Height = size,
+                Fill = brush,
+                Stroke = ToolTheme.Brush(30, 30, 30),
+                StrokeThickness = 1,
+                Cursor = WI.Cursors.Hand,
+                ToolTip = $"{r.CorridorName} / {r.BaselineName}\nRebaixo {r.Label} ({r.SideLabel.ToLowerInvariant()})\n" +
+                          $"rebaixado {N(r.LoweredLength, "0.00")} m, total {N(r.TotalLength, "0.00")} m, altura final {Cm(r.FinalHeight)}\n" +
+                          "clique: selecionar   duplo clique: abrir a planta do rebaixo"
+            };
+            RebaixoInfo item = r;
+            marker.MouseLeftButtonDown += (_, e) =>
+            {
+                e.Handled = true;
+                SelectRebaixo(item);
+                if (e.ClickCount == 2)
+                    SetMode("PLANTA");
+            };
+            WC.Canvas.SetLeft(marker, c.X - (size / 2));
+            WC.Canvas.SetTop(marker, c.Y - (size / 2));
+            _plan.Children.Add(marker);
+
+            if (selected || _zoom >= 4)
+                PlanLabel(r.Label, c.X + 8, c.Y - 7, selected ? 11 : 9, selected ? yellow : ToolTheme.GraphicText);
+        }
+
+        double ly = 8;
+        foreach ((string text, WM.Brush b) in new[] { ("rebaixo", red), ("com aviso", orange), ("selecionado", yellow) })
+        {
+            var sw = new WS.Rectangle { Width = 14, Height = 5, Fill = b, IsHitTestVisible = false };
+            WC.Canvas.SetLeft(sw, 8);
+            WC.Canvas.SetTop(sw, ly + 5);
+            _plan.Children.Add(sw);
+            PlanLabel(text, 26, ly, 11);
+            ly += 15;
+        }
+
+        double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
+        double len = step * _scale;
+        _plan.Children.Add(new WS.Line { X1 = w - len - 14, Y1 = h - 12, X2 = w - 14, Y2 = h - 12, Stroke = ToolTheme.GraphicText, StrokeThickness = 2, IsHitTestVisible = false });
+        PlanLabel($"{step:0.##} m", w - len - 14, h - 28, 10);
+    }
+
+    private void SelectRebaixo(RebaixoInfo r)
+    {
+        _current = r;
+        if (_category != "REBAIXOS")
+        {
+            _category = "REBAIXOS";
+            FillCategories();
+        }
+
+        FillList();
+        BuildTabs();
+        RenderGraphic();
+    }
+
+    private void RenderDetail()
     {
         _plan.Children.Clear();
         double w = _plan.ActualWidth, h = _plan.ActualHeight;
@@ -1499,7 +1868,10 @@ internal sealed class MFRebaixoPanel : SW.Window
         if (answer != SW.MessageBoxResult.Yes)
             return;
 
-        Edit($"Rebaixo {r.Label} removido.", (db, _) => MFRebaixoData.Remove(db, r));
+        string summary = "";
+        Edit($"Rebaixo {r.Label} removido.", (db, _) => summary = MFRebaixoData.Remove(db, r));
+        if (summary.Length > 0)
+            Say($"Rebaixo {r.Label} removido: {summary}.");
     }
 
     private void RebuildCurrent()

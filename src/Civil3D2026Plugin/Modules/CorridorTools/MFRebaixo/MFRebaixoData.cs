@@ -50,6 +50,9 @@ internal sealed class RebaixoInfo
     public Point3d P2 { get; set; }
     public Point3d P3 { get; set; }
 
+    /// <summary>Baseline de S0 a S3 (planta geral).</summary>
+    public List<Point3d> Path { get; } = new();
+
     public double EntryLength => S1 - S0;
     public double LoweredLength => S2 - S1;
     public double ExitLength => S3 - S2;
@@ -289,6 +292,13 @@ internal static class MFRebaixoData
             info.P1 = Xyz(baseline, s1, 0, 0);
             info.P2 = Xyz(baseline, s2, 0, 0);
             info.P3 = Xyz(baseline, s3, 0, 0);
+            double step = Math.Max(0.25, (s3 - s0) / 40.0);
+            for (double st = s0; st < s3 + (step / 2); st += step)
+            {
+                Point3d p = Xyz(baseline, Math.Min(st, s3), 0, 0);
+                if (p != Point3d.Origin)
+                    info.Path.Add(p);
+            }
 
             if (region is not null)
                 ReadCorridorValues(tr, region, info);
@@ -453,6 +463,43 @@ internal static class MFRebaixoData
         return null;
     }
 
+    /// <summary>Baselines dos corredores amostradas (planta geral).</summary>
+    public static List<(AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> Overview(AcadDb.Database db)
+    {
+        List<(AcadDb.ObjectId, string, List<Point3d>)> list = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not CivilCorridor corridor)
+                continue;
+            foreach (CivilDb.Baseline b in corridor.Baselines)
+            {
+                List<Point3d> pts = new();
+                try
+                {
+                    double a = Math.Min(b.StartStation, b.EndStation), z = Math.Max(b.StartStation, b.EndStation);
+                    double step = Math.Max(1.0, (z - a) / 400.0);
+                    for (double st = a; st < z + (step / 2); st += step)
+                    {
+                        Point3d p = Xyz(b, Math.Min(st, z), 0, 0);
+                        if (p != Point3d.Origin)
+                            pts.Add(p);
+                    }
+                }
+                catch
+                {
+                    // Baseline sem geometria.
+                }
+
+                if (pts.Count > 1)
+                    list.Add((id, $"{corridor.Name} / {b.Name}", pts));
+            }
+        }
+
+        tr.Commit();
+        return list;
+    }
+
     // ------------------------------------------------------------------
     // Seções (aba Seções) e modelo (planta / 3D)
     // ------------------------------------------------------------------
@@ -592,8 +639,19 @@ internal static class MFRebaixoData
     // Remover
     // ------------------------------------------------------------------
 
-    /// <summary>Tira os dois Transition Sets do rebaixo e as seções que o comando criou.</summary>
-    public static void Remove(AcadDb.Database db, RebaixoInfo r, bool rebuild = true)
+    private static bool IsOwnSet(CivilDb.CorridorTransitionSet x, RebaixoInfo r)
+    {
+        string n = x.Name ?? "";
+        return n.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) ||
+               n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Tira os dois Transition Sets do rebaixo e as seções que o comando criou. Devolve um resumo.
+    /// 1º tenta SetTransitions com os demais sets; se o Civil mantiver o set, refaz a lista com
+    /// cópias dos sets que ficam (como o CORRSPLIT faz ao mover regions).
+    /// </summary>
+    public static string Remove(AcadDb.Database db, RebaixoInfo r, bool rebuild = true)
     {
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         if (tr.GetObject(r.CorridorId, AcadDb.OpenMode.ForWrite) is not CivilCorridor corridor)
@@ -602,16 +660,73 @@ internal static class MFRebaixoData
             ?? throw new InvalidOperationException("A baseline do rebaixo nao existe mais.");
 
         List<CivilDb.CorridorTransitionSet> sets = baseline.getTransitions();
-        List<CivilDb.CorridorTransitionSet> keep = sets.Where(x =>
-        {
-            string n = x.Name ?? "";
-            return !n.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) &&
-                   !n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase);
-        }).ToList();
-        if (keep.Count != sets.Count)
-            baseline.SetTransitions(keep);
+        int own = sets.Count(x => IsOwnSet(x, r));
+        string? firstError = null;
 
-        double[] own = { r.S0 - 0.001, r.S0, r.S0 + 0.001, r.S1, r.S2, r.S3 - 0.001, r.S3, r.S3 + 0.001 };
+        if (own > 0)
+        {
+            List<CivilDb.CorridorTransitionSet> keep = sets.Where(x => !IsOwnSet(x, r)).ToList();
+            try
+            {
+                baseline.SetTransitions(keep);
+            }
+            catch (System.Exception ex)
+            {
+                firstError = ex.Message;
+            }
+
+            if (baseline.getTransitions().Any(x => IsOwnSet(x, r)))
+            {
+                // Plano B: lista nova com cópias dos sets que ficam.
+                List<CivilDb.CorridorTransitionSet> copies = new();
+                foreach (CivilDb.CorridorTransitionSet original in baseline.getTransitions().Where(x => !IsOwnSet(x, r)))
+                {
+                    if (original.TransitionCount == 0)
+                        continue;
+                    var first = original.GetTransitionAt(0);
+                    CivilDb.BaselineRegion seed = RegionAt(baseline, first.StartStation)
+                        ?? throw new InvalidOperationException($"Sem region para copiar o Transition Set '{original.Name}'.");
+                    CivilDb.CorridorTransitionSet copy = first.HasSide
+                        ? new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType, first.Side)
+                        : new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType);
+                    copy.Comment = original.Comment;
+                    for (int i = 0; i < original.TransitionCount; i++)
+                    {
+                        var data = original.GetTransitionAt(i);
+                        var created = i == 0 ? copy.AddTransition(data.ParameterName) : copy.AddTransition();
+                        created.StartStation = data.StartStation;
+                        created.EndStation = data.EndStation;
+                        created.StartValue = data.StartValue;
+                        created.EndValue = data.EndValue;
+                        created.TransitionType = data.TransitionType;
+                    }
+
+                    copy.StationLocked = original.StationLocked;
+                    copies.Add(copy);
+                }
+
+                try
+                {
+                    baseline.SetTransitions(new List<CivilDb.CorridorTransitionSet>());
+                    baseline.SetTransitions(copies);
+                }
+                catch (System.Exception ex)
+                {
+                    firstError ??= ex.Message;
+                }
+
+                if (baseline.getTransitions().Any(x => IsOwnSet(x, r)))
+                {
+                    throw new InvalidOperationException(
+                        "O Civil 3D nao deixou tirar o Transition Set '" + r.SetName + "'" +
+                        (firstError is null ? "." : ": " + firstError) +
+                        " Apague pelo Corridor Transitions (Corridor Properties > Transitions).");
+                }
+            }
+        }
+
+        int sections = 0;
+        double[] ownStations = { r.S0 - 0.001, r.S0, r.S0 + 0.001, r.S1, r.S2, r.S3 - 0.001, r.S3, r.S3 + 0.001 };
         foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
         {
             double[] extra;
@@ -626,11 +741,12 @@ internal static class MFRebaixoData
 
             foreach (double st in extra)
             {
-                if (!own.Any(o => Math.Abs(o - st) < 0.0002))
+                if (!ownStations.Any(o => Math.Abs(o - st) < 0.0002))
                     continue;
                 try
                 {
                     region.DeleteStation(st);
+                    sections++;
                 }
                 catch
                 {
@@ -642,6 +758,7 @@ internal static class MFRebaixoData
         if (rebuild)
             corridor.Rebuild();
         tr.Commit();
+        return $"{own} Transition Set(s) e {sections} secao(oes) removidos";
     }
 
     public static void Rebuild(AcadDb.Database db, AcadDb.ObjectId corridorId)
