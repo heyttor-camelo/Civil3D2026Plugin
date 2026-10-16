@@ -1,3 +1,8 @@
+## 2.35.3 - MFREBAIXO v1.3.3 / um code só para o rebaixo
+
+- `subassemblies/MFSARJETA`: PKT v1.13. Volta o `DESTAQUE` numérico (o `CODE_REB` de texto da v1.12 saiu) e agora há **um code só**, `REBAIXO`, no topo do MF e da sarjeta, de S0 a S3: exatamente o mesmo intervalo da geometria (rampa de entrada + trecho rebaixado + rampa de saída);
+- MFREBAIXO: mensagens atualizadas (as Transitions continuam as mesmas).
+
 ## 2.35.2 - MFREBAIXO v1.3.2 / lado da MF automático em assembly de um lado só
 
 - no modo AUTO, se a Assembly da Region só tem MF de um lado (caso da baseline de feature line do meio-fio), o comando usa esse lado, mesmo com o clique do outro lado ou em cima da baseline. Antes dava "Não foi encontrada a subassembly MF ... no lado ESQUERDO";

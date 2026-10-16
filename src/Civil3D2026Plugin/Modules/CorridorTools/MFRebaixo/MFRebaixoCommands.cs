@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.3.2";
+    public const string Versao = "1.3.3";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -33,10 +33,10 @@ public sealed class MFRebaixoCommands
     private const string EffectiveOutputAltParameterName =
         "EXPOSTO";
 
-    // Parâmetro numérico do MFSARJETA que escolhe os codes de destaque (hachura em planta).
-    // Faixas: [1,2) aba de entrada | [2,3) rebaixo pleno | [3,4) aba de saída | 0 ou >=4 normal.
-    // As faixas crescem sempre: na estaca de emenda entre duas Transitions, qualquer uma
-    // das duas já dá o code do trecho que começa.
+    // Parâmetro numérico do MFSARJETA que liga o code REBAIXO (hachura em planta).
+    // Gravado nas MESMAS estacas da geometria: 1->2 (S0-S1), 2->3 (S1-S2), 3->4 (S2-S3).
+    // No PKT, [1,4) = REBAIXO; fora (0) e em S3 (4) = sem code. Como a hachura entre duas
+    // seções usa o code da primeira, ela vai exatamente de S0 a S3.
     private const string HighlightParameterName =
         "DESTAQUE";
 
@@ -485,8 +485,8 @@ public sealed class MFRebaixoCommands
 
         ed.WriteMessage(
             $"\n  Destaque em planta: se a subassembly tiver {HighlightParameterName}, " +
-            "um segundo Transition grava 1->2 (aba), 2->3 (pleno), 3->4 (aba); " +
-            "o PKT troca os codes do topo e o Code Set aplica a hachura.");
+            "um segundo Transition grava 1->4 de S0 a S3 (mesmo intervalo da geometria); " +
+            "o PKT põe o code REBAIXO no topo do MF e da sarjeta.");
 
         ed.WriteMessage(
             $"\n  Fallback geométrico: {FlowlinePointCode} -> {BackCurbPointCode}");
@@ -1141,8 +1141,7 @@ public sealed class MFRebaixoCommands
 
         ed.WriteMessage(
             highlightApplied
-                ? $"\n     {HighlightParameterName}: aba {s0:0.000}->{s1:0.000} | " +
-                  $"pleno {s1:0.000}->{s2:0.000} | aba {s2:0.000}->{s3:0.000}"
+                ? $"\n     Code REBAIXO: {s0:0.000} -> {s3:0.000}"
                 : $"\n     {HighlightParameterName}: subassembly sem o parâmetro (sem codes de destaque)");
 
         ed.WriteMessage(

@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.12"
+VERSION = "1.13"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -33,7 +33,7 @@ PARAMS = [
     ("EMB",    "double", "0.12",   "Enterrado mínimo"),
     ("ESTICAR", "enumYN", "No",    "Esticar altura"),
     ("QMF_CURVO", "enumYN", "No",  "Marcar MF em curva"),
-    ("CODE_REB", "string", "",    "Code do rebaixo (texto)"),
+    ("DESTAQUE", "double", "0",   "Destaque (codes)"),
     ("iRampa", "grade",  "0.0833", "Declividade da rampa do MF"),
     ("BERCO",  "enumYN", "Yes",   "Berço (camadas sob MF e sarjeta)"),
     ("I_PISTA", "grade", "-0.03", "Berço: declividade da pista"),
@@ -83,8 +83,10 @@ EXPR = {
     "DatumMF":   '[IF(BERCO.Value="Yes","","Datum")]',
     "DatumBase": '[IF(E_SUBBASE<=0.0005,"Datum","")]',
     "DatumSub":  '[IF(E_REF<=0.0005,"Datum","")]',
-    # CODE_REB: o texto digitado vira o code extra dos links do topo (MF e sarjeta); vazio = nada
-    "Dst": "[CODE_REB]",
+    # DESTAQUE: o MFREBAIXO grava 1->2 (S0-S1), 2->3 (S1-S2), 3->4 (S2-S3) por Corridor Transition,
+    # nas mesmas estacas da geometria. [1,4) = REBAIXO; 0 (fora) e 4 (em S3) = sem code.
+    # Assim a hachura vai exatamente de S0 a S3.
+    "Dst": '[IF(DESTAQUE >= 0.9995 AndAlso DESTAQUE < 3.9995, "REBAIXO", "")]',
     "MFCurvaCode":  '[IF(SA.IsLayout,"MF_RETO",IF(QMF_CURVO.Value="Yes" AndAlso Baseline.TurnDirection<>0,"MF_CURVO","MF_RETO"))]',
 }
 STRVARS = {"SJ", "Dst"}
