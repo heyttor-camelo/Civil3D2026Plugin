@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.14"
+VERSION = "1.15"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -331,21 +331,24 @@ with Switch('[IF(BERCO.Value="Yes","Yes","No")]', "BERCO?") as swB:
 # declividade), ou nos alvos; no rebaixo, rampa a partir do topo rebaixado com a declividade máxima
 # (iRampa) até encontrar a calçada normal (lógica do pkt MF_TIPO10_RAMPA_ACESSIVEL).
 EXPR.update({
+    # Grade -> Double (IF misturando Grade e Double não compila)
+    "IRD":  "[iRampa + 0.0]",
+    "ICD":  "[iC + 0.0]",
     "W0":   "[IF(CALC_OFFSET.IsValid, Math.Max(0.05, Math.Abs(CALC_OFFSET.Offset - P7.Offset)), Math.Max(0.05, LC))]",
-    "FIT0": "[IF(DREB <= 0.0005, 1, IF(iRampa > iC + 0.000001 AndAlso DREB/Math.Max(iRampa - iC, 0.000001) <= W0, 1, 0))]",
-    "SLC":  "[IF(FIT0 > 0.5, iC + DREB/W0, iRampa)]",
+    "FIT0": "[IF(DREB <= 0.0005, 1, IF(IRD > ICD + 0.000001 AndAlso DREB/Math.Max(IRD - ICD, 0.000001) <= W0, 1, 0))]",
+    "SLC":  "[IF(FIT0 > 0.5, ICD + DREB/W0, IRD)]",
     "WC":   "[Math.Max(0.05, Math.Abs(P102.Offset - P7.Offset))]",
     "SN":   "[(P102.Elevation - P7.Elevation - DREB)/WC]",
-    "FIT":  "[IF(DREB <= 0.0005, 1, IF(iRampa > SN + 0.000001 AndAlso DREB/Math.Max(iRampa - SN, 0.000001) <= WC - 0.001, 1, 0))]",
-    "XR":   "[IF(DREB <= 0.0005, 0.001, IF(FIT > 0.5, Math.Max(0.001, DREB/(iRampa - SN)), WC - 0.001))]",
-    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, iRampa*XR, (P102.Elevation - P7.Elevation)*XR/WC)]",
+    "FIT":  "[IF(DREB <= 0.0005, 1, IF(IRD > SN + 0.000001 AndAlso DREB/Math.Max(IRD - SN, 0.000001) <= WC - 0.001, 1, 0))]",
+    "XR":   "[IF(DREB <= 0.0005, 0.001, IF(FIT > 0.5, Math.Max(0.001, DREB/(IRD - SN)), WC - 0.001))]",
+    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, IRD*XR, (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
 })
-VARTYPES.update({k: "Double" for k in ("W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
+VARTYPES.update({k: "Double" for k in ("IRD", "ICD", "W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
 VARTYPES["DatumCP"] = "String"
 with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
   with swC.case("Yes"):
-    for v in ("W0", "FIT0", "SLC"): var(v)
+    for v in ("IRD", "ICD", "W0", "FIT0", "SLC"): var(v)
     pt_slope("P102", "P7", "[SLC]", "[W0]", "[CALC_ELEV]", codes=["Calcada_Ext"], ot="[CALC_OFFSET]",
              disp="P102 - borda externa da calçada (alvos)")
     for v in ("WC", "SN", "FIT", "XR", "YR", "DatumCP"): var(v)
