@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.3.3";
+    public const string Versao = "1.4.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -39,6 +39,12 @@ public sealed class MFRebaixoCommands
     // seções usa o code da primeira, ela vai exatamente de S0 a S3.
     private const string HighlightParameterName =
         "DESTAQUE";
+
+    // MFSARJETA >= 1.14: profundidade do rebaixo. Quando existe, o comando grava a
+    // Transition nele (0 -> d -> d -> 0) e não mexe na altura livre. Assim o PKT sabe
+    // qual é o topo NORMAL e gera a rampa da calçada até ele.
+    private const string DepthParameterName =
+        "REB";
 
     // Usado quando a subassembly não tem iRampa (8,33 %).
     private const double DefaultRampSlope =
@@ -472,7 +478,7 @@ public sealed class MFRebaixoCommands
             $"\n  Classe SAC/.NET: {MfMacroOrClassName} ou {MfSarjetaMacroOrClassName}");
 
         ed.WriteMessage(
-            $"\n  Parâmetro controlado por Transition: {ParameterName}");
+            $"\n  Parâmetro controlado por Transition: {DepthParameterName} (profundidade, MFSARJETA 1.14+) ou {ParameterName}");
 
         ed.WriteMessage(
             $"\n  Altura livre nominal: {NormalParameterName} (sem ele: valor de projeto de {ParameterName})");
@@ -960,36 +966,88 @@ public sealed class MFRebaixoCommands
         set.Comment =
             "REBAIXO MF";
 
-        CorridorTransition t1 =
-            set.AddTransition(
-                ParameterName);
+        bool useDepth =
+            HasDoubleParameter(
+                subassembly,
+                DepthParameterName);
 
-        SetTransition(
-            t1,
-            s0,
-            startEffectiveHeight,
-            s1,
-            finalHeight);
+        if (useDepth)
+        {
+            // Profundidade do rebaixo em relação ao topo normal de cada lado.
+            double depthIn =
+                Math.Max(
+                    0.0,
+                    startEffectiveHeight - finalHeight);
 
-        CorridorTransition t2 =
-            set.AddTransition();
+            double depthOut =
+                Math.Max(
+                    0.0,
+                    endEffectiveHeight - finalHeight);
 
-        SetTransition(
-            t2,
-            s1,
-            finalHeight,
-            s2,
-            finalHeight);
+            CorridorTransition d1 =
+                set.AddTransition(
+                    DepthParameterName);
 
-        CorridorTransition t3 =
-            set.AddTransition();
+            SetTransition(
+                d1,
+                s0,
+                0.0,
+                s1,
+                depthIn);
 
-        SetTransition(
-            t3,
-            s2,
-            finalHeight,
-            s3,
-            endEffectiveHeight);
+            CorridorTransition d2 =
+                set.AddTransition();
+
+            SetTransition(
+                d2,
+                s1,
+                depthIn,
+                s2,
+                depthOut);
+
+            CorridorTransition d3 =
+                set.AddTransition();
+
+            SetTransition(
+                d3,
+                s2,
+                depthOut,
+                s3,
+                0.0);
+        }
+        else
+        {
+            CorridorTransition t1 =
+                set.AddTransition(
+                    ParameterName);
+
+            SetTransition(
+                t1,
+                s0,
+                startEffectiveHeight,
+                s1,
+                finalHeight);
+
+            CorridorTransition t2 =
+                set.AddTransition();
+
+            SetTransition(
+                t2,
+                s1,
+                finalHeight,
+                s2,
+                finalHeight);
+
+            CorridorTransition t3 =
+                set.AddTransition();
+
+            SetTransition(
+                t3,
+                s2,
+                finalHeight,
+                s3,
+                endEffectiveHeight);
+        }
 
         set.StationLocked =
             true;
@@ -1143,6 +1201,11 @@ public sealed class MFRebaixoCommands
             highlightApplied
                 ? $"\n     Code REBAIXO: {s0:0.000} -> {s3:0.000}"
                 : $"\n     {HighlightParameterName}: subassembly sem o parâmetro (sem codes de destaque)");
+
+        ed.WriteMessage(
+            useDepth
+                ? $"\n     Transition em {DepthParameterName} (profundidade): a calçada do PKT gera a rampa"
+                : $"\n     Transition em {ParameterName} (altura livre)");
 
         ed.WriteMessage(
             $"\n     Corridor Sections adicionadas: {addedSections}\n");

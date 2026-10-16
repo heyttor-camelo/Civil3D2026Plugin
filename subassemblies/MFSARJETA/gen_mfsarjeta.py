@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.13"
+VERSION = "1.14"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -34,7 +34,13 @@ PARAMS = [
     ("ESTICAR", "enumYN", "No",    "Esticar altura"),
     ("QMF_CURVO", "enumYN", "No",  "Marcar MF em curva"),
     ("DESTAQUE", "double", "0",   "Destaque (codes)"),
-    ("iRampa", "grade",  "0.0833", "Declividade da rampa do MF"),
+    ("iRampa", "grade",  "0.0833", "Declividade máx. das rampas"),
+    ("REB",    "double", "0",      "Rebaixo (profundidade)"),
+    ("CALCADA", "enumYN", "No",    "Calçada"),
+    ("LC",     "double", "1.5",    "Calçada: largura"),
+    ("iC",     "grade",  "0.02",   "Calçada: declividade"),
+    ("E_CALC", "double", "0.07",   "Calçada: espessura do piso"),
+    ("E_CALC_BASE", "double", "0.05", "Calçada: espessura da base"),
     ("BERCO",  "enumYN", "Yes",   "Berço (camadas sob MF e sarjeta)"),
     ("I_PISTA", "grade", "-0.03", "Berço: declividade da pista"),
     ("E_REV",  "double", "0.3",    "Berço: espessura do revestimento"),
@@ -42,9 +48,11 @@ PARAMS = [
     ("E_SUBBASE", "double", "0.2", "Berço: espessura da sub-base"),
     ("E_REF",  "double", "0.1",    "Berço: espessura do reforço"),
 ]
-TARGETS = [  # (nome, display, preview elev, ativo no preview)
-    ("FLOWLINE_ELEV", "Flowline",       "-0.05", True),
-    ("TOPO_ELEV",     "Topo do meio-fio", "0.13", True),
+TARGETS = [  # (nome, display, preview, ativo no preview, tipo)
+    ("FLOWLINE_ELEV", "Flowline",       "-0.05", True, "elev"),
+    ("TOPO_ELEV",     "Topo do meio-fio", "0.13", True, "elev"),
+    ("CALC_OFFSET",   "Calçada: borda externa (offset)", "2.5", False, "offset"),
+    ("CALC_ELEV",     "Calçada: borda externa (cota)",   "0.2", False, "elev"),
 ]
 OUTPUTS = [
     ("EXPOSTO",    "Altura exposta"),
@@ -54,6 +62,8 @@ OUTPUTS = [
     ("EMB_OK",     "Enterrado OK"),
     ("SARJETA_OK", "Sarjeta OK"),
     ("BERCO_OK",   "Berço OK (1 = MF não atravessa a base)"),
+    ("RAMPA_OK",   "Rampa OK (1 = cabe na calçada com a decl. máx.)"),
+    ("FAIXA_LIVRE", "Calçada: faixa livre após a rampa"),
 ]
 
 # ----------------------------------------------------------------- expressoes
@@ -71,15 +81,18 @@ EXPR = {
     "SJ": '[IF(SARJETA.Value="Yes" AndAlso KK<0.5,"Yes","No")]',
     "EXP0": "[IF(TOPO_ELEV.IsValid, TOPO_ELEV.Elevation - P2.Elevation, AMF_LIVRE)]",
     # Kassel tem dimensões fixas: exposto = H - pé, sem alvo, sem altura livre, sem esticar
-    "EXP":  ('[IF(KK>0.5, H-FH, IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
+    "EXPN": ('[IF(KK>0.5, H-FH, IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
              'Math.Max(0, Math.Min(EXP0, H-0.001))))]'),
+    # REB: profundidade do rebaixo (o MFREBAIXO grava por Corridor Transition). Kassel não rebaixa.
+    "DREB": "[IF(KK>0.5, 0, Math.Max(0, Math.Min(REB, EXPN)))]",
+    "EXP":  "[EXPN - DREB]",
     "HR":   '[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes", EXP+EMB, H)))]',
     "ENT":  "[HR-EXP]",
     "M":    "[IF(KK>0.5, 0, (LB-LT)/HR)]",
     "SW":   "[Math.PI/2 - Math.Atan(M)]",
     "TT":   "[Math.Min(R*Math.Tan(SW/2), LT-0.005)]",
     "MFTipoCode":   f'[IF(ESTICAR.Value="Yes" AndAlso KK<0.5,"MF_MOLDADO",IF({T30},"MF_T30",IF({T40},"MF_T40",IF({T50},"MF_KASSEL","MF_PERS"))))]',
-    "MFStatusCode": '[IF(EXP < IF(KK>0.5, H-FH, AMF_LIVRE) - 0.005,"MF_REBAIXADO","MF_NORMAL")]',
+    "MFStatusCode": '[IF(DREB > 0.005 OrElse EXP < IF(KK>0.5, H-FH, AMF_LIVRE) - 0.005,"MF_REBAIXADO","MF_NORMAL")]',
     "DatumMF":   '[IF(BERCO.Value="Yes","","Datum")]',
     "DatumBase": '[IF(E_SUBBASE<=0.0005,"Datum","")]',
     "DatumSub":  '[IF(E_REF<=0.0005,"Datum","")]',
@@ -107,8 +120,8 @@ def var(name):            STEPS.append(dict(kind="var", name=name))
 def pt(num, frm, dx, dy, codes=(), link=None, lcodes=(), disp=None):
     STEPS.append(dict(kind="pt", num=num, frm=frm, dx=dx, dy=dy, codes=list(codes),
                       link=link, lcodes=list(lcodes), disp=disp))
-def pt_slope(num, frm, slope, dx, elevtarget, codes=(), link=None, lcodes=(), disp=None):
-    STEPS.append(dict(kind="ptslope", num=num, frm=frm, slope=slope, dx=dx, et=elevtarget,
+def pt_slope(num, frm, slope, dx, elevtarget, codes=(), link=None, lcodes=(), disp=None, ot=""):
+    STEPS.append(dict(kind="ptslope", num=num, frm=frm, slope=slope, dx=dx, et=elevtarget, ot=ot,
                       codes=list(codes), link=link, lcodes=list(lcodes), disp=disp))
 def lk(num, a, b, codes=(), disp=None): STEPS.append(dict(kind="lk", num=num, a=a, b=b, codes=list(codes), disp=disp))
 def sh(num, links, codes=(), disp=None): STEPS.append(dict(kind="sh", num=num, links=links, codes=list(codes), disp=disp))
@@ -128,22 +141,22 @@ class Switch:
                 global STEPS; steps = STEPS; STEPS = self2._p; sw.cases.append((key, steps))
         return _C()
 
-TOP = ["Curb", "Top", "TOPO", "[Dst]"]
+TOP = ["Curb", "Top", "TOPO"]
 for v in ("H", "LT", "LB", "R", "FH", "RC", "KK", "SJ"): var(v)
 pt("P1", None, "0", "0", codes=["Flange"], disp="P1 - borda da pista")
 pt_slope("P2", "P1", "[iSa]", '[IF(SJ="Yes",LS,0)]', "[FLOWLINE_ELEV]", codes=["Flowline_Gutter"],
          disp="P2 - flowline (alvo cota)")
-for v in ("EXP0", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
+for v in ("EXP0", "EXPN", "DREB", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
           "DatumMF", "DatumBase", "DatumSub", "Dst"): var(v)
 # sarjeta
 with Switch('[SJ]', "Sarjeta?") as swSJ:
   with swSJ.case("Yes"):
-    lk("L1", "P1", "P2", codes=["Sarjeta", "Top", "TOPO", "[Dst]"], disp="L1 - topo da sarjeta")
+    lk("L1", "P1", "P2", codes=["Sarjeta", "Top", "TOPO"], disp="L1 - topo da sarjeta")
     pt("P3", "P2", "[-M*ESar]", "[-ESar]", link="L2", lcodes=["Sarjeta"], disp="P3&L2 - fundo sarjeta na face do MF")
     pt("P4", "P1", "0", "[-ESar]", disp="P4 - fundo sarjeta na borda da pista")
     lk("L3", "P3", "P4", codes=["Sarjeta", "[DatumMF]"], disp="L3 - fundo da sarjeta")
     lk("L4", "P4", "P1", codes=["Sarjeta"], disp="L4 - lado da sarjeta (pista)")
-    sh("S1", ["L1", "L2", "L3", "L4"], codes=["Sarjeta", "SARJETA"], disp="S1 - SARJETA")
+    sh("S1", ["L1", "L2", "L3", "L4"], codes=["Sarjeta", "SARJETA", "[Dst]"], disp="S1 - SARJETA")
 # meio-fio: parte comum (pé da face, fundo, face de trás)
 pt("P5", "P2", "[-M*ENT]", "[-ENT]", disp="P5 - pé da face (fundo da frente)")
 pt("P6", "P5", "[LB]", "0", link="L6", lcodes=["Curb", "[DatumMF]"], disp="P6&L6 - fundo de trás")
@@ -162,7 +175,7 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
         prev = n
     lk("L13", "P12", "P2", codes=TOP, disp="L13 - face exposta")
     sh("S2", ["L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13"],
-       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]"], disp="S2 - MEIO-FIO (trapézio)")
+       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]", "[Dst]"], disp="S2 - MEIO-FIO (trapézio)")
   with swF.case("KASSEL"):
     pt("P13", "P7", "[-(LT-TT)]", "0", codes=["Top_Curb"], link="L14", lcodes=TOP,
        disp="P13&L14 - início do arco do topo (Top_Curb)")
@@ -182,7 +195,7 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
        disp="P22&L23 - topo do pé")
     lk("L24", "P22", "P5", codes=["Curb"], disp="L24 - frente do pé")
     sh("S3", ["L6", "L7", "L14", "L15", "L16", "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24"],
-       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]"], disp="S3 - MEIO-FIO (Kassel)")
+       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]", "[Dst]"], disp="S3 - MEIO-FIO (Kassel)")
 
 # berço: camadas sob sarjeta + meio-fio, até a face de trás, RECORTADAS pelo meio-fio.
 # Linhas das camadas: elev(d) = P1.Elevation - D + I_PISTA*d  (d = distância horizontal a partir de P1)
@@ -314,6 +327,68 @@ with Switch('[IF(BERCO.Value="Yes","Yes","No")]', "BERCO?") as swB:
             layer_sob_mf("SubGrade", "Datum", D3, "REFORÇO")
         out("BERCO_OK", f"[IF({cond(D1)},1,0)]")
 
+# calçada: começa no topo de trás do MF (P7). Borda externa na cota NORMAL (topo normal do MF +
+# declividade), ou nos alvos; no rebaixo, rampa a partir do topo rebaixado com a declividade máxima
+# (iRampa) até encontrar a calçada normal (lógica do pkt MF_TIPO10_RAMPA_ACESSIVEL).
+EXPR.update({
+    "W0":   "[IF(CALC_OFFSET.IsValid, Math.Max(0.05, Math.Abs(CALC_OFFSET.Offset - P7.Offset)), Math.Max(0.05, LC))]",
+    "FIT0": "[IF(DREB <= 0.0005, 1, IF(iRampa > iC + 0.000001 AndAlso DREB/Math.Max(iRampa - iC, 0.000001) <= W0, 1, 0))]",
+    "SLC":  "[IF(FIT0 > 0.5, iC + DREB/W0, iRampa)]",
+    "WC":   "[Math.Max(0.05, Math.Abs(P102.Offset - P7.Offset))]",
+    "SN":   "[(P102.Elevation - P7.Elevation - DREB)/WC]",
+    "FIT":  "[IF(DREB <= 0.0005, 1, IF(iRampa > SN + 0.000001 AndAlso DREB/Math.Max(iRampa - SN, 0.000001) <= WC - 0.001, 1, 0))]",
+    "XR":   "[IF(DREB <= 0.0005, 0.001, IF(FIT > 0.5, Math.Max(0.001, DREB/(iRampa - SN)), WC - 0.001))]",
+    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, iRampa*XR, (P102.Elevation - P7.Elevation)*XR/WC)]",
+    "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
+})
+VARTYPES.update({k: "Double" for k in ("W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
+VARTYPES["DatumCP"] = "String"
+with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
+  with swC.case("Yes"):
+    for v in ("W0", "FIT0", "SLC"): var(v)
+    pt_slope("P102", "P7", "[SLC]", "[W0]", "[CALC_ELEV]", codes=["Calcada_Ext"], ot="[CALC_OFFSET]",
+             disp="P102 - borda externa da calçada (alvos)")
+    for v in ("WC", "SN", "FIT", "XR", "YR", "DatumCP"): var(v)
+    pt("P101", "P7", "[XR]", "[YR]", codes=["Rampa_Fim"], link="L101", lcodes=["Calcada", "Top", "TOPO"],
+       disp="P101&L101 - fim da rampa (topo)")
+    lk("L102", "P101", "P102", codes=["Calcada", "Top", "TOPO"], disp="L102 - topo da calçada")
+    pt("P103", "P102", "0", "[-E_CALC]", link="L103", lcodes=["Calcada"], disp="P103&L103 - borda externa (piso)")
+    pt("P104", "P101", "0", "[-E_CALC]", disp="P104 - fundo do piso no fim da rampa")
+    pt("P105", "P7", "0", "[-E_CALC]", disp="P105 - fundo do piso no MF")
+    lk("L104", "P103", "P104", codes=["Calcada", "[DatumCP]"], disp="L104 - fundo do piso")
+    lk("L105", "P104", "P101", codes=["Calcada"], disp="L105 - divisa rampa/calçada")
+    lk("L106", "P104", "P105", codes=["Calcada", "[DatumCP]"], disp="L106 - fundo do piso (rampa)")
+    lk("L107", "P105", "P7", codes=["Calcada"], disp="L107 - encosto no MF")
+    sh("S31", ["L101", "L105", "L106", "L107"], codes=["Calcada", "CALCADA", "[Dst]"], disp="S31 - CALÇADA (rampa)")
+    sh("S32", ["L102", "L103", "L104", "L105"], codes=["Calcada", "CALCADA"], disp="S32 - CALÇADA")
+    with Switch('[IF(E_CALC_BASE > 0.0005, "Yes", "No")]', "Base da calçada?") as swCB:
+      with swCB.case("Yes"):
+        pt("P106", "P103", "0", "[-E_CALC_BASE]", link="L108", lcodes=["CalcadaBase"], disp="P106&L108 - borda externa (base)")
+        pt("P107", "P105", "0", "[-E_CALC_BASE]", disp="P107 - fundo da base no MF")
+        lk("L109", "P106", "P107", codes=["CalcadaBase", "Datum"], disp="L109 - fundo da base")
+        lk("L110", "P107", "P105", codes=["CalcadaBase"], disp="L110 - encosto da base no MF")
+        sh("S33", ["L104", "L106", "L108", "L109", "L110"], codes=["CalcadaBase"], disp="S33 - BASE DA CALÇADA")
+    out("RAMPA_OK", "[FIT]")
+    out("FAIXA_LIVRE", "[Math.Max(0, WC - IF(DREB > 0.0005, XR, 0))]")
+
+# sobreposição: links só com o code do rebaixo, criados por último (desenham por cima) e sempre
+# presentes (sem code fora do rebaixo), para a faixa entre seções fechar exatamente em S0..S3.
+with Switch('[SJ]', "Sobreposição: sarjeta") as swOS:
+  with swOS.case("Yes"):
+    lk("L201", "P1", "P2", codes=["[Dst]"], disp="L201 - sobreposição: topo da sarjeta")
+with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Sobreposição: MF") as swOF:
+  with swOF.case("TRAPEZIO"):
+    chainT = ["P7", "P8", "P9", "P10", "P11", "P12", "P2"]
+    for i in range(len(chainT) - 1):
+        lk(f"L{211+i}", chainT[i], chainT[i+1], codes=["[Dst]"], disp=f"L{211+i} - sobreposição: topo do MF")
+  with swOF.case("KASSEL"):
+    chainK = ["P7", "P13", "P14", "P15", "P16", "P17", "P18", "P19", "P20", "P21", "P22"]
+    for i in range(len(chainK) - 1):
+        lk(f"L{221+i}", chainK[i], chainK[i+1], codes=["[Dst]"], disp=f"L{221+i} - sobreposição: topo do MF")
+with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Sobreposição: calçada") as swOC:
+  with swOC.case("Yes"):
+    lk("L241", "P7", "P101", codes=["[Dst]"], disp="L241 - sobreposição: rampa da calçada")
+
 # saidas
 out("EXPOSTO", "[EXP]")
 out("ENTERRADO", "[ENT]")
@@ -360,9 +435,11 @@ def activity(st):
             args = (f'<InArgument x:TypeArguments="x:Double" x:Key="DeltaX1">{escape(st["dx"])}</InArgument>'
                     f'<InArgument x:TypeArguments="x:Double" x:Key="DeltaY1">{escape(st["dy"])}</InArgument>')
         else:
+            OTX = (f'<InArgument x:TypeArguments="asw:OffsetTarget" x:Key="OffsetTarget2">{escape(st["ot"])}</InArgument>'
+                   if st["ot"] else '<InArgument x:TypeArguments="asw:OffsetTarget" x:Key="OffsetTarget2" />')
             args = (f'<InArgument x:TypeArguments="x:Double" x:Key="Slope2">{escape(st["slope"])}</InArgument>'
                     f'<InArgument x:TypeArguments="x:Double" x:Key="DeltaX2">{escape(st["dx"])}</InArgument>'
-                    f'<InArgument x:TypeArguments="asw:OffsetTarget" x:Key="OffsetTarget2" />'
+                    + OTX +
                     f'<InArgument x:TypeArguments="asw:ElevationTarget" x:Key="ElevationTarget2">{escape(st["et"])}</InArgument>'
                     f'<InArgument x:TypeArguments="asw:CrossSegmentType" x:Key="Superelevation2" />')
         body = f'<asa1:CreatePoint.Arguments>{args}</asa1:CreatePoint.Arguments>'
@@ -440,8 +517,9 @@ refs = "".join(f"<x:Reference>{n}</x:Reference>" for n in NAMES)
 
 # atributos raiz (defaults)
 rootattrs = []
-for n, d, pv, on in TARGETS:
-    rootattrs.append(f'this:Subassembly.{n}="[new PreviewElevationTarget(&quot;{n}&quot;, {on}, {pv})]"')
+for n, d, pv, on, tk in TARGETS:
+    cls = "PreviewOffsetTarget" if tk == "offset" else "PreviewElevationTarget"
+    rootattrs.append(f'this:Subassembly.{n}="[new {cls}(&quot;{n}&quot;, {on}, {pv})]"')
 rootattrs.append('this:Subassembly.Side="[new EnumType(0, &quot;Right&quot;, &quot;Side&quot;)]"')
 for n, t, d, disp in PARAMS:
     if t in ("double", "string"): rootattrs.append(f'this:Subassembly.{n}="{q(d)}"')
@@ -454,8 +532,8 @@ for n, t, d, disp in PARAMS:
 members = ['<x:Property Name="Geometry" Type="InOutArgument(asw:Geometry)" />',
            '<x:Property Name="SubassemblyErrorCenter" Type="InOutArgument(asw:SubassemblyErrorCenter)" />',
            '<x:Property Name="SubassemblyRunMode" Type="InOutArgument(asw:SubassemblyRunMode)" />']
-for n, disp, pv, on in TARGETS:
-    members.append(f'<x:Property Name="{n}" Type="InArgument(asw:ElevationTarget)"><x:Property.Attributes>'
+for n, disp, pv, on, tk in TARGETS:
+    members.append(f'<x:Property Name="{n}" Type="InArgument(asw:{"OffsetTarget" if tk == "offset" else "ElevationTarget"})"><x:Property.Attributes>'
                    f'<asw:DisplayName2Attribute DisplayName="{q(disp)}" /><asw:EnabledFlag2Attribute EnabledFlag="True" />'
                    f'</x:Property.Attributes></x:Property>')
 members.append('<x:Property Name="Side" Type="InArgument(asw:EnumType)"><x:Property.Attributes><asw:EnabledFlag2Attribute EnabledFlag="True" /></x:Property.Attributes></x:Property>')

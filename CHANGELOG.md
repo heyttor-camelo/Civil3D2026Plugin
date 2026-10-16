@@ -1,3 +1,11 @@
+## 2.36.0 - MFREBAIXO v1.4.0 / calçada com rampa no MFSARJETA
+
+- `subassemblies/MFSARJETA`: PKT v1.14:
+  - **calçada** no mesmo PKT (`Calçada` = Yes): largura, declividade, espessura do piso e da base, alvos opcionais de offset e cota na borda externa. A borda externa fica na cota normal; no rebaixo, a rampa sai do topo rebaixado do MF com a declividade máxima (`iRampa`) até encontrar a calçada normal. Saídas `Rampa OK` e `Faixa livre`;
+  - parâmetro **`REB`** (profundidade do rebaixo): o MF desce `REB` a partir da altura normal, e a calçada sabe onde fica o topo normal;
+  - code `REBAIXO` agora vai em **links de sobreposição** (criados por último, por cima do topo da sarjeta, do MF e da rampa da calçada) e nos **shapes** da sarjeta, do MF e da rampa da calçada. Os links originais não levam mais o `REBAIXO`;
+- MFREBAIXO: com o PKT 1.14+ (parâmetro `REB`) grava a Transition na profundidade (0 -> d -> d -> 0) em vez da altura livre. PKTs antigos continuam pela altura livre.
+
 ## 2.35.3 - MFREBAIXO v1.3.3 / um code só para o rebaixo
 
 - `subassemblies/MFSARJETA`: PKT v1.13. Volta o `DESTAQUE` numérico (o `CODE_REB` de texto da v1.12 saiu) e agora há **um code só**, `REBAIXO`, no topo do MF e da sarjeta, de S0 a S3: exatamente o mesmo intervalo da geometria (rampa de entrada + trecho rebaixado + rampa de saída);
