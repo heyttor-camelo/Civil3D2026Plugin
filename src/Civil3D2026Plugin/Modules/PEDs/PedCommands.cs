@@ -128,7 +128,8 @@ public sealed class PedCommands
             ed.WriteMessage($"\nEste desenho ainda nao tem PEDs importados. Use {C3DCommands.Peds.Importar}.");
             return;
         }
-        double scale = PedStore.LoadMeta(db)?.BlockScale ?? 1.0;
+        PedMeta? meta = PedStore.LoadMeta(db);
+        double scale = meta?.BlockScale ?? 1.0;
 
         while (true)
         {
@@ -177,6 +178,12 @@ public sealed class PedCommands
                 {
                     AcadDb.ObjectId blockId = PedBlock.EnsureBlock(tr, db, out _);
                     brId = PedBlock.Insert(tr, db, blockId, pt, scale, ped.Code);
+                    string dwgDir = PedStore.DwgFolder(db);
+                    string folder = meta?.ImageFolder ?? string.Empty;
+                    string foto = ImageRef(folder, dwgDir, ped.Images, PedFicha.ColFoto);
+                    List<PedFicha.Attr> fields = PedFicha.Attributes(ped.Get, foto, ImageRef(folder, dwgDir, ped.Images, PedFicha.ColMapa));
+                    PedBlock.EnsureDataDefinitions(tr, db, blockId, fields);
+                    PedBlock.ApplyData(tr, db, (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite), fields, foto, "Foto do PED " + ped.Code);
                 }
                 tr.Commit();
             }
@@ -355,8 +362,23 @@ public sealed class PedCommands
 
             Dictionary<string, List<AcadDb.ObjectId>> blocks = PedStore.FindBlocks(tr, db);
 
+            // Dados da ficha como atributos invisiveis no bloco (para quem nao tem o plugin).
+            string dwgDir = PedStore.DwgFolder(db);
+            List<PedFicha.Attr> Fields(PedRecord rec)
+            {
+                images.TryGetValue(rec.Code, out Dictionary<string, string>? files);
+                return PedFicha.Attributes(rec.Get,
+                    ImageRef(imgFolder, dwgDir, files, PedFicha.ColFoto),
+                    ImageRef(imgFolder, dwgDir, files, PedFicha.ColMapa));
+            }
+            int newDefs = PedBlock.EnsureDataDefinitions(tr, db, blockId, Fields(sheet.Records[0]));
+            if (newDefs > 0)
+                ed.WriteMessage($"\nBloco {PedBlock.BlockName}: {newDefs} atributo(s) invisivel(is) com os dados da ficha.");
+
             foreach (PedRecord rec in sheet.Records)
             {
+                List<PedFicha.Attr> fields = Fields(rec);
+                string foto = fields.First(a => a.Tag == "FOTO").Value;
                 bool hasPoint = points.TryGetValue(rec.Code, out PedPoint? pt) && geo is not null;
                 Point3d pos = hasPoint ? geo!.ToDrawing(pt!.Longitude, pt.Latitude) : Point3d.Origin;
 
@@ -371,12 +393,14 @@ public sealed class PedCommands
                             moved++;
                         }
                         PedBlock.UpdateAttributes(tr, db, br, rec.Code);
+                        PedBlock.ApplyData(tr, db, br, fields, foto, "Foto do PED " + rec.Code);
                     }
                     updated++;
                 }
                 else if (hasPoint)
                 {
-                    PedBlock.Insert(tr, db, blockId, pos, scale, rec.Code);
+                    AcadDb.ObjectId newId = PedBlock.Insert(tr, db, blockId, pos, scale, rec.Code);
+                    PedBlock.ApplyData(tr, db, (AcadDb.BlockReference)tr.GetObject(newId, AcadDb.OpenMode.ForWrite), fields, foto, "Foto do PED " + rec.Code);
                     inserted++;
                 }
                 else
@@ -398,6 +422,24 @@ public sealed class PedCommands
         if (inserted > 0)
             ZoomToPeds(doc);
         return true;
+    }
+
+    /// <summary>
+    /// Caminho da imagem para atributo/hyperlink: relativo ao DWG (PEDs_img\arquivo.jpg)
+    /// quando a pasta esta ao lado dele, para continuar valendo ao copiar o projeto; senao absoluto.
+    /// </summary>
+    private static string ImageRef(string imgFolder, string dwgDir, IReadOnlyDictionary<string, string>? files, string letter)
+    {
+        if (files is null || !files.TryGetValue(letter, out string? file) || string.IsNullOrEmpty(file))
+            return string.Empty;
+        if (imgFolder.Length == 0)
+            return file;
+        if (dwgDir.Length > 0 && string.Equals(
+                Path.GetFullPath(imgFolder).TrimEnd('\\', '/'),
+                Path.GetFullPath(Path.Combine(dwgDir, PedImages.FolderName)).TrimEnd('\\', '/'),
+                StringComparison.OrdinalIgnoreCase))
+            return Path.Combine(PedImages.FolderName, file);
+        return Path.Combine(imgFolder, file);
     }
 
     private static string? AskFile(Editor ed, string message, string filter, string? previous)

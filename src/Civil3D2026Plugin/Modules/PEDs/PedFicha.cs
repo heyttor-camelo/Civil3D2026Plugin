@@ -143,6 +143,70 @@ internal static class PedFicha
         return f;
     }
 
+    /// <summary>Um atributo do bloco: tag (sem espacos), prompt (rotulo) e valor.</summary>
+    public sealed record Attr(string Tag, string Prompt, string Value);
+
+    /// <summary>
+    /// Os campos da ficha como atributos do bloco PED (invisiveis), para quem abrir o DWG
+    /// sem o plugin: Properties, duplo clique (EATTEDIT), ATTOUT e Data Extraction.
+    /// Mesmos valores da ficha (<see cref="Build"/>). <paramref name="foto"/> e <paramref name="mapa"/>
+    /// sao os caminhos das imagens (relativos ao DWG quando possivel).
+    /// </summary>
+    public static List<Attr> Attributes(Func<string, string> get, string foto, string mapa)
+    {
+        Sheet f = Build(get);
+        string W(int i, bool proposta) => proposta ? f.Widths[i].Proposta : f.Widths[i].Atual;
+        string C(int i) => f.Complement[i].Value;
+
+        return new List<Attr>
+        {
+            new("VIA", "Via", get("B")),
+            new("REFERENCIA", "Referencia", get("K")),
+            new("QUADRA", "Quadra", get("C")),
+            new("SENTIDO", "Sentido", get("D")),
+            new("CALCADA_ATUAL", "Calcada junto ao PED - atual (m)", W(0, false)),
+            new("CALCADA_PROP", "Calcada junto ao PED - proposta (m)", W(0, true)),
+            new("FX_EXCL_ATUAL", "Faixa exclusiva de onibus - atual (m)", W(1, false)),
+            new("FX_EXCL_PROP", "Faixa exclusiva de onibus - proposta (m)", W(1, true)),
+            new("TRAFEGO_ATUAL", "Faixas do trafego geral - atual (m)", W(2, false)),
+            new("TRAFEGO_PROP", "Faixas do trafego geral - proposta (m)", W(2, true)),
+            new("CICLO_PED_PROP", "Ciclovia junto ao PED - proposta (m)", W(3, true)),
+            new("CANTEIRO_ATUAL", "Canteiro central - atual (m)", W(4, false)),
+            new("CANTEIRO_PROP", "Canteiro central - proposta (m)", W(4, true)),
+            new("PISTA_OPOSTA_ATUAL", "Pista oposta - atual (m)", W(5, false)),
+            new("PISTA_OPOSTA_PROP", "Pista oposta - proposta (m)", W(5, true)),
+            new("CALCADA_OPOSTA_ATUAL", "Calcada oposta - atual (m)", W(6, false)),
+            new("CALCADA_OPOSTA_PROP", "Calcada oposta - proposta (m)", W(6, true)),
+            new("CICLO_OPOSTA_ATUAL", "Ciclovia oposta - atual (m)", W(7, false)),
+            new("CICLO_OPOSTA_PROP", "Ciclovia oposta - proposta (m)", W(7, true)),
+            new("SECAO_TOTAL_ATUAL", "Secao viaria total - atual (m)", f.TotalAtual),
+            new("SECAO_TOTAL_PROP", "Secao viaria total - proposta (m)", f.TotalProposta),
+            new("ABRIGO", "Modelo de abrigo proposto", C(0)),
+            new("FAIXA_EXCLUSIVA", "Faixa exclusiva", C(1)),
+            new("CICLOVIA", "Ciclovia ou ciclofaixa", C(2)),
+            new("ALT_CALCADA_PED", "Alteracao calcada PED", C(3)),
+            new("ALT_CANTEIRO", "Alteracao do canteiro central", C(4)),
+            new("ALT_CALCADA_OPOSTA", "Alteracao calcada oposta PED", C(5)),
+            new("EMBARQUES_PM", "Embarques PM (passag.)", f.Boardings[0].Value),
+            new("EMBARQUES_PT", "Embarques PT (passag.)", f.Boardings[1].Value),
+            new("PED_ANTERIOR", "PED anterior", f.Distances[0].Ped),
+            new("DIST_ANTERIOR", "Distancia do PED anterior (m)", f.Distances[0].Meters),
+            new("PED_POSTERIOR", "PED posterior", f.Distances[1].Ped),
+            new("DIST_POSTERIOR", "Distancia do PED posterior (m)", f.Distances[1].Meters),
+            new("OBS", "Obs.", OneLine(f.Obs)),
+            new("AVALIACAO", "Avaliacao faixa de trafego", get("AP")),
+            new("TRECHO", "Trecho", get("AW")),
+            new("ESCALONADO", "Ponto escalonado", get("BF")),
+            new("REMANEJAMENTO", "Remanejamento", OneLine(get("AR"))),
+            new("FOTO", "Foto do local (arquivo)", foto),
+            new("MAPA", "Mapa de localizacao (arquivo)", mapa)
+        };
+    }
+
+    /// <summary>Atributo de linha unica: quebras viram " / ".</summary>
+    private static string OneLine(string s) =>
+        string.Join(" / ", s.Replace("\r", string.Empty).Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+
     private static bool IsZero(string s) => !PedFormat.TryNumber(s, out double v) || Math.Abs(v) < 1e-9;
 
     private static string BlankZero(string s) =>

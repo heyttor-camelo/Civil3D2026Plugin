@@ -160,6 +160,121 @@ internal static class PedBlock
         }
     }
 
+    /// <summary>
+    /// Garante na definicao do bloco um atributo INVISIVEL para cada campo da ficha
+    /// (tags que ja existirem ficam como estao). Assim os dados viajam no proprio bloco:
+    /// quem abrir o DWG sem o plugin ve tudo no Properties, no duplo clique (EATTEDIT),
+    /// no ATTOUT e na Data Extraction.
+    /// </summary>
+    public static int EnsureDataDefinitions(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.ObjectId blockId, IEnumerable<PedFicha.Attr> fields)
+    {
+        AcadDb.BlockTableRecord def = (AcadDb.BlockTableRecord)tr.GetObject(blockId, AcadDb.OpenMode.ForRead);
+        HashSet<string> tags = new(StringComparer.OrdinalIgnoreCase);
+        foreach (AcadDb.ObjectId entId in def)
+        {
+            if (tr.GetObject(entId, AcadDb.OpenMode.ForRead) is AcadDb.AttributeDefinition ad)
+                tags.Add(ad.Tag);
+        }
+
+        int added = 0;
+        double y = -Height / 2.0 - TextHeight;
+        foreach (PedFicha.Attr f in fields)
+        {
+            if (tags.Contains(f.Tag))
+                continue;
+
+            if (!def.IsWriteEnabled)
+                def.UpgradeOpen();
+
+            AcadDb.AttributeDefinition ad = new();
+            ad.SetDatabaseDefaults(db);
+            ad.Layer = "0";
+            ad.Color = AcadColor.FromColorIndex(ColorMethod.ByLayer, 256);
+            ad.Tag = f.Tag;
+            ad.Prompt = f.Prompt;
+            ad.TextString = string.Empty;
+            ad.Invisible = true;
+            ad.Height = TextHeight * 0.5;
+            ad.TextStyleId = db.Textstyle;
+            ad.Position = new Point3d(-Width / 2.0, y, 0);
+            def.AppendEntity(ad);
+            tr.AddNewlyCreatedDBObject(ad, true);
+
+            tags.Add(f.Tag);
+            y -= TextHeight * 0.75;
+            added++;
+        }
+
+        return added;
+    }
+
+    /// <summary>
+    /// Escreve os campos da ficha nos atributos do bloco inserido (cria os que faltarem,
+    /// em blocos inseridos antes de os atributos existirem) e o hyperlink para a foto.
+    /// </summary>
+    public static void ApplyData(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockReference br,
+                                 IEnumerable<PedFicha.Attr> fields, string? hyperlink, string hyperlinkDescription)
+    {
+        Dictionary<string, AcadDb.AttributeReference> refs = new(StringComparer.OrdinalIgnoreCase);
+        foreach (AcadDb.ObjectId attId in br.AttributeCollection)
+        {
+            if (tr.GetObject(attId, AcadDb.OpenMode.ForRead) is AcadDb.AttributeReference ar)
+                refs[ar.Tag] = ar;
+        }
+
+        Dictionary<string, AcadDb.AttributeDefinition> defs = new(StringComparer.OrdinalIgnoreCase);
+        AcadDb.BlockTableRecord def = (AcadDb.BlockTableRecord)tr.GetObject(br.BlockTableRecord, AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId entId in def)
+        {
+            if (tr.GetObject(entId, AcadDb.OpenMode.ForRead) is AcadDb.AttributeDefinition ad && !ad.Constant)
+                defs[ad.Tag] = ad;
+        }
+
+        if (!br.IsWriteEnabled)
+            br.UpgradeOpen();
+
+        foreach (PedFicha.Attr f in fields)
+        {
+            string value = f.Value.Length > 1000 ? f.Value[..1000] : f.Value;
+
+            if (refs.TryGetValue(f.Tag, out AcadDb.AttributeReference? ar))
+            {
+                if (ar.TextString == value)
+                    continue;
+                ar.UpgradeOpen();
+                ar.TextString = value;
+                continue;
+            }
+
+            if (!defs.TryGetValue(f.Tag, out AcadDb.AttributeDefinition? ad))
+                continue;
+
+            AcadDb.AttributeReference nar = new();
+            nar.SetAttributeFromBlock(ad, br.BlockTransform);
+            nar.TextString = value;
+            br.AttributeCollection.AppendAttribute(nar);
+            tr.AddNewlyCreatedDBObject(nar, true);
+        }
+
+        try
+        {
+            br.Hyperlinks.Clear();
+            if (!string.IsNullOrEmpty(hyperlink))
+            {
+                br.Hyperlinks.Add(new AcadDb.HyperLink
+                {
+                    Name = hyperlink,
+                    Description = hyperlinkDescription,
+                    SubLocation = string.Empty
+                });
+            }
+        }
+        catch
+        {
+            // Hyperlink e conveniencia.
+        }
+    }
+
     /// <summary>Move o bloco (com os atributos) para o ponto.</summary>
     public static void MoveTo(AcadDb.BlockReference br, Point3d position)
     {

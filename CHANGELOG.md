@@ -1,3 +1,9 @@
+## 2.38.0 - PEDs v1.1.0 / dados da ficha dentro do bloco
+
+- o bloco `PED` ganha **atributos invisíveis** com os campos da ficha (via, referência, quadra, sentido, larguras atual/proposta de cada componente e total, abrigo, faixa exclusiva, ciclovia, alterações, embarques PM/PT, PED anterior/posterior e distâncias, obs, avaliação, trecho, escalonado, remanejamento, arquivos da foto e do mapa). Quem abrir o DWG **sem o plugin** vê tudo no Properties, no duplo clique (EATTEDIT), no ATTOUT e na Data Extraction;
+- **hyperlink** no bloco para a foto do local (Ctrl+clique abre). O caminho é relativo ao DWG (`PEDs_img\...`) quando a pasta está ao lado dele: copiar o DWG junto com a pasta `PEDs_img` mantém o link;
+- `PEDIMPORTAR`/`PEDATUALIZAR` criam os atributos que faltarem na definição do bloco (inclusive num bloco `PED` próprio do desenho) e completam os blocos já inseridos; `PEDLOCAR` preenche o bloco novo.
+
 ## 2.37.2 - MFREBAIXO v1.4.3
 
 - seções extras a +-1 mm de S0 e S3 (antes 2 cm); `DESTAQUE` começa 0,5 mm antes de S0.

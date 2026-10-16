@@ -27,6 +27,8 @@ para a planta: um bloco `PED` em cada ponto e uma ficha que abre ao clicar.
 
 ## Notas
 
+- Os dados da ficha ficam também em **atributos invisíveis** do bloco (tags `VIA`, `CALCADA_ATUAL`, `CALCADA_PROP`, ..., `FOTO`, `MAPA`) e há um hyperlink para a foto: quem não tem o plugin vê no Properties / duplo clique / Data Extraction. Para levar o projeto, copie o DWG **junto com a pasta `PEDs_img`**.
+
 - A importação confere os cabeçalhos das colunas usadas pela ficha e avisa se o layout mudou.
 - O vínculo bloco → PED é o XData `C3DPED` com o código: copiar o bloco copia o vínculo.
 - PEDs que saem da planilha são removidos da base no `PEDATUALIZAR`; os blocos ficam (sem ficha).
