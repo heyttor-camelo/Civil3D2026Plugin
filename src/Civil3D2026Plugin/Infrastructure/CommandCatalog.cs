@@ -282,7 +282,11 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Peds.Atualizar, "Atualizar da planilha",
                         "Rele a planilha gravada (nova revisao) e as imagens, sem mexer na posicao dos blocos ja inseridos."),
                     new CommandDefinition(C3DCommands.Peds.Locar, "Locar / mover PED",
-                        "Insere ou move um PED clicando no ponto (para os que nao estao no KMZ), com rotacao opcional.")
+                        "Insere ou move um PED clicando no ponto (para os que nao estao no KMZ), com rotacao opcional."),
+                    new CommandDefinition(C3DCommands.Peds.Vista, "Ponto / ficha / foto",
+                        "Troca a vista dos PEDs (todos ou selecionados): so o simbolo, simbolo + ficha em tabela, ou ficha + foto e mapa. A tabela usa o estado de visibilidade do bloco dinamico."),
+                    new CommandDefinition(C3DCommands.Peds.Modelo, "Salvar bloco modelo",
+                        "Guarda o bloco PED do desenho (com a visibilidade criada no BEDIT) como modelo para os proximos desenhos.")
                 }),
 
             new(

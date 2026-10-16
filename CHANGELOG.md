@@ -1,3 +1,10 @@
+## 2.39.0 - PEDs v1.2.0 / ficha em tabela no bloco, foto e mapa, PEDVISTA e PEDMODELO
+
+- o bloco `PED` gerado passa a ter a **ficha em tabela** ao lado do símbolo, no arranjo da aba "Ficha para desenhos" (cabeçalho, larguras atual x proposta com total, informações complementares, embarques, distâncias, obs). Linhas e textos na layer `PED-FICHA`; os valores são atributos (continuam legíveis sem o plugin). Blocos `PED` da 1.0/1.1 são redesenhados e os inseridos ressincronizados no próximo `PEDIMPORTAR`/`PEDATUALIZAR`;
+- **foto do local e mapa** como imagens raster ao lado da ficha (layer `PED-FOTO`), com XData do PED e num grupo `PED_código` junto com o bloco (mover o bloco leva as imagens). `PEDLOCAR` recoloca as imagens ao mover/girar;
+- `PEDVISTA`: Ponto / Ficha / Foto para todos ou os selecionados. A tabela troca pelo estado de visibilidade do bloco dinâmico (a API .NET não cria parâmetros dinâmicos: a visibilidade é criada uma vez no BEDIT); as imagens ligam/desligam por objeto;
+- `PEDMODELO`: guarda o bloco `PED` do desenho (já com a visibilidade) em `%APPDATA%\Civil3D2026Plugin\PED_modelo.dwg`; desenhos sem o bloco recebem o modelo no `PEDIMPORTAR`/`PEDLOCAR`. Bloco dinâmico nunca é redesenhado pelo plugin.
+
 ## 2.38.0 - PEDs v1.1.0 / dados da ficha dentro do bloco
 
 - o bloco `PED` ganha **atributos invisíveis** com os campos da ficha (via, referência, quadra, sentido, larguras atual/proposta de cada componente e total, abrigo, faixa exclusiva, ciclovia, alterações, embarques PM/PT, PED anterior/posterior e distâncias, obs, avaliação, trecho, escalonado, remanejamento, arquivos da foto e do mapa). Quem abrir o DWG **sem o plugin** vê tudo no Properties, no duplo clique (EATTEDIT), no ATTOUT e na Data Extraction;

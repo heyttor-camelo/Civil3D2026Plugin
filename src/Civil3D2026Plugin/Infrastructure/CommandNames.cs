@@ -145,6 +145,8 @@ public static class CommandNames
         public const string Atualizar = "PEDATUALIZAR";
         public const string Locar = "PEDLOCAR";
         public const string Ficha = "PEDFICHA";
+        public const string Vista = "PEDVISTA";
+        public const string Modelo = "PEDMODELO";
     }
 
     public static class LispTools

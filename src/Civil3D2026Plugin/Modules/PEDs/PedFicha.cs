@@ -160,6 +160,7 @@ internal static class PedFicha
 
         return new List<Attr>
         {
+            new("CODIGO", "Codigo do PED", get("A")),
             new("VIA", "Via", get("B")),
             new("REFERENCIA", "Referencia", get("K")),
             new("QUADRA", "Quadra", get("C")),
