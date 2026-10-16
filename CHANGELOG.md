@@ -1,3 +1,8 @@
+## 2.35.1 - MFREBAIXO v1.3.1 / baselines de feature line
+
+- o clique passa a achar estaca e offset também em **baselines de feature line** (antes eram ignoradas e o comando dizia "Não foi encontrada Baseline/Region válida"). A estaca vem da inversão numérica de `Baseline.StationOffsetElevationToXYZ` (varredura de ~0,5 m + refino), a mesma função que o CorridorSplit já usa nesse tipo de baseline; offset positivo à direita do sentido da baseline;
+- a identidade da baseline entre o 1º e o 2º clique deixou de depender do `AlignmentId` (que feature line não tem).
+
 ## 2.35.0 - MFREBAIXO v1.3.0 / suporte ao MFSARJETA e destaque do rebaixo em planta
 
 - **MFREBAIXO reconhece o MFSARJETA** (classe `Subassembly.MFSARJETA`, ou pela assinatura AMF_LIVRE/LS/ESar/EMB) além do PKT antigo `Subassembly.MF`;

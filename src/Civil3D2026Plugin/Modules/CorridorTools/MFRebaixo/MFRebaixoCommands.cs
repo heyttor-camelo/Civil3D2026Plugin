@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.3.0";
+    public const string Versao = "1.3.1";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -500,7 +500,7 @@ public sealed class MFRebaixoCommands
 
     private sealed class FirstPointInfo
     {
-        public ObjectId AlignmentId { get; init; }
+        public string BaselineKey { get; init; } = "";
         public string BaselineName { get; init; } = "";
         public string RegionName { get; init; } = "";
         public double RegionStart { get; init; }
@@ -638,7 +638,7 @@ public sealed class MFRebaixoCommands
 
         return new FirstPointInfo
         {
-            AlignmentId = baseline.AlignmentId,
+            BaselineKey = GetBaselineKey(baseline),
             BaselineName = baseline.Name,
             RegionName = region.Name,
             RegionStart = region.StartStation,
@@ -694,7 +694,7 @@ public sealed class MFRebaixoCommands
             firstHit.Value.Region;
 
         if (
-            baseline.AlignmentId != firstInfo.AlignmentId
+            GetBaselineKey(baseline) != firstInfo.BaselineKey
             ||
             !region.Name.Equals(
                 firstInfo.RegionName,
@@ -718,7 +718,7 @@ public sealed class MFRebaixoCommands
         }
 
         if (
-            secondHit.Value.Baseline.AlignmentId != firstInfo.AlignmentId
+            GetBaselineKey(secondHit.Value.Baseline) != firstInfo.BaselineKey
             ||
             !secondHit.Value.Region.Name.Equals(
                 firstInfo.RegionName,
@@ -1679,58 +1679,12 @@ public sealed class MFRebaixoCommands
             Baseline baseline
             in corridor.Baselines)
         {
-            ObjectId alignmentId;
-
-            try
-            {
-                if (
-                    baseline
-                    .IsFeatureLineBased())
-                {
-                    continue;
-                }
-
-                alignmentId =
-                    baseline.AlignmentId;
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (
-                alignmentId.IsNull)
-            {
-                continue;
-            }
-
-            var alignment =
-                tr.GetObject(
-                    alignmentId,
-                    OpenMode.ForRead)
-                as Alignment;
-
-            if (
-                alignment is null)
-            {
-                continue;
-            }
-
-            double station =
-                0.0;
-
-            double offset =
-                0.0;
-
-            try
-            {
-                alignment.StationOffset(
-                    point.X,
-                    point.Y,
-                    ref station,
-                    ref offset);
-            }
-            catch
+            if (!TryGetBaselineStationOffset(
+                    tr,
+                    baseline,
+                    point,
+                    out double station,
+                    out double offset))
             {
                 continue;
             }
@@ -1778,6 +1732,279 @@ public sealed class MFRebaixoCommands
         }
 
         return best;
+    }
+
+    // Estaca/offset de um ponto em planta em qualquer Baseline.
+    // Alinhamento: Alignment.StationOffset. Feature line: inversão numérica de
+    // Baseline.StationOffsetElevationToXYZ (varredura + refino), a mesma função
+    // que o CorridorSplit já usa em baselines de feature line.
+    private static bool
+        TryGetBaselineStationOffset(
+            Transaction tr,
+            Baseline baseline,
+            Point3d point,
+            out double station,
+            out double offset)
+    {
+        station =
+            0.0;
+
+        offset =
+            0.0;
+
+        bool featureLineBased;
+
+        try
+        {
+            featureLineBased =
+                baseline.IsFeatureLineBased();
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (!featureLineBased)
+        {
+            try
+            {
+                ObjectId alignmentId =
+                    baseline.AlignmentId;
+
+                if (alignmentId.IsNull)
+                    return false;
+
+                if (tr.GetObject(
+                        alignmentId,
+                        OpenMode.ForRead)
+                    is not Alignment alignment)
+                {
+                    return false;
+                }
+
+                alignment.StationOffset(
+                    point.X,
+                    point.Y,
+                    ref station,
+                    ref offset);
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        double start;
+        double end;
+
+        try
+        {
+            start =
+                Math.Min(
+                    baseline.StartStation,
+                    baseline.EndStation);
+
+            end =
+                Math.Max(
+                    baseline.StartStation,
+                    baseline.EndStation);
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (end - start <= StationTolerance)
+            return false;
+
+        var target =
+            new Point2d(
+                point.X,
+                point.Y);
+
+        double DistanceAt(double s)
+        {
+            Point3d xyz =
+                baseline.StationOffsetElevationToXYZ(
+                    new Point3d(
+                        s,
+                        0.0,
+                        0.0));
+
+            return
+                new Point2d(
+                    xyz.X,
+                    xyz.Y)
+                .GetDistanceTo(
+                    target);
+        }
+
+        // 1) varredura grossa (passo de ~0,5 m, no máximo 4000 amostras)
+        int samples =
+            (int)Math.Clamp(
+                Math.Ceiling(
+                    (end - start) / 0.5),
+                50,
+                4000);
+
+        double step =
+            (end - start) / samples;
+
+        double bestS =
+            start;
+
+        double bestD =
+            double.MaxValue;
+
+        try
+        {
+            for (int i = 0; i <= samples; i++)
+            {
+                double s =
+                    start + i * step;
+
+                double d =
+                    DistanceAt(s);
+
+                if (d < bestD)
+                {
+                    bestD =
+                        d;
+
+                    bestS =
+                        s;
+                }
+            }
+
+            // 2) refino por seção áurea em torno da melhor amostra
+            double a =
+                Math.Max(
+                    start,
+                    bestS - step);
+
+            double b =
+                Math.Min(
+                    end,
+                    bestS + step);
+
+            const double phi =
+                0.6180339887498949;
+
+            double c =
+                b - phi * (b - a);
+
+            double e =
+                a + phi * (b - a);
+
+            double fc =
+                DistanceAt(c);
+
+            double fe =
+                DistanceAt(e);
+
+            for (int it = 0; it < 60 && b - a > 1e-5; it++)
+            {
+                if (fc < fe)
+                {
+                    b = e;
+                    e = c;
+                    fe = fc;
+                    c = b - phi * (b - a);
+                    fc = DistanceAt(c);
+                }
+                else
+                {
+                    a = c;
+                    c = e;
+                    fc = fe;
+                    e = a + phi * (b - a);
+                    fe = DistanceAt(e);
+                }
+            }
+
+            station =
+                0.5 * (a + b);
+
+            // 3) offset com sinal: positivo à direita do sentido da baseline
+            double ds =
+                Math.Min(
+                    0.05,
+                    0.25 * (end - start));
+
+            double s0 =
+                Math.Max(
+                    start,
+                    station - ds);
+
+            double s1 =
+                Math.Min(
+                    end,
+                    station + ds);
+
+            Point3d p0 =
+                baseline.StationOffsetElevationToXYZ(
+                    new Point3d(s0, 0.0, 0.0));
+
+            Point3d p1 =
+                baseline.StationOffsetElevationToXYZ(
+                    new Point3d(s1, 0.0, 0.0));
+
+            Point3d pc =
+                baseline.StationOffsetElevationToXYZ(
+                    new Point3d(station, 0.0, 0.0));
+
+            var tangent =
+                new Vector2d(
+                    p1.X - p0.X,
+                    p1.Y - p0.Y);
+
+            if (tangent.Length <= 1e-9)
+                return false;
+
+            tangent =
+                tangent.GetNormal();
+
+            var rightNormal =
+                new Vector2d(
+                    tangent.Y,
+                    -tangent.X);
+
+            var toPoint =
+                new Vector2d(
+                    point.X - pc.X,
+                    point.Y - pc.Y);
+
+            offset =
+                toPoint.DotProduct(
+                    rightNormal);
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    // Identidade da Baseline que não depende de alinhamento
+    // (baselines de feature line não têm AlignmentId).
+    private static string
+        GetBaselineKey(
+            Baseline baseline)
+    {
+        try
+        {
+            if (baseline.IsFeatureLineBased())
+                return "FL:" + baseline.FeatureLineId.Handle;
+
+            return "AL:" + baseline.AlignmentId.Handle;
+        }
+        catch
+        {
+            return "NM:" + baseline.Name;
+        }
     }
 
     private static BaselineRegion?
