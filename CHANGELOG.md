@@ -1,3 +1,7 @@
+## 2.36.4 - MFREBAIXO v1.4.3
+
+- seções extras a +-1 mm de S0 e S3 (antes 2 cm); `DESTAQUE` começa 0,5 mm antes de S0.
+
 ## 2.36.3 - MFREBAIXO v1.4.2 / seções a +-2 cm de S0 e S3
 
 - o comando cria seções extras 2 cm antes e depois de S0 e de S3. A troca de code (DESTAQUE e rampa da calçada) fica num trecho de 2 cm, então a hachura em planta começa e termina em S0 e S3, qualquer que seja a seção que o Civil 3D usa para colorir a faixa;
