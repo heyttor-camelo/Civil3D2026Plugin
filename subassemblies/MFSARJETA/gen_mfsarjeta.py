@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.17"
+VERSION = "1.18"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -341,14 +341,16 @@ EXPR.update({
     # Grade -> Double (IF misturando Grade e Double não compila)
     "IRD":  "[iRampa + 0.0]",
     "ICD":  "[iC + 0.0]",
-    "W0":   "[IF(CALC_OFFSET.IsValid, Math.Max(0.05, Math.Abs(CALC_OFFSET.Offset - P7.Offset)), Math.Max(0.05, LC))]",
+    "W0":   "[IF(CALC_OFFSET.IsValid, Math.Max(0.2, Math.Abs(CALC_OFFSET.Offset - P7.Offset)), Math.Max(0.2, LC))]",
     "FIT0": "[IF(DREB <= 0.0005, 1, IF(IRD > ICD + 0.000001 AndAlso DREB/Math.Max(IRD - ICD, 0.000001) <= W0, 1, 0))]",
     "SLC":  "[IF(FIT0 > 0.5, ICD + DREB/W0, IRD)]",
-    "WC":   "[Math.Max(0.05, Math.Abs(P102.Offset - P7.Offset))]",
+    "WC":   "[Math.Max(0.2, Math.Abs(P102.Offset - P7.Offset))]",
     "SN":   "[(P102.Elevation - P7.Elevation - DREB)/WC]",
-    "FIT":  "[IF(DREB <= 0.0005, 1, IF(IRD > SN + 0.000001 AndAlso DREB/Math.Max(IRD - SN, 0.000001) <= WC - 0.001, 1, 0))]",
-    "XR":   "[IF(DREB <= 0.0005, 0.001, IF(FIT > 0.5, Math.Max(0.001, DREB/(IRD - SN)), WC - 0.001))]",
-    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, IRD*XR, (P102.Elevation - P7.Elevation)*XR/WC)]",
+    "FIT":  "[IF(DREB <= 0.0005, 1, IF(IRD > SN + 0.000001 AndAlso DREB/Math.Max(IRD - SN, 0.000001) <= WC - 0.05, 1, 0))]",
+    # rampa e resto da calçada nunca com menos de 5 cm: link de 1 mm some na planta e a ligação
+    # entre seções (S0/S3) sai trocada (gravata/triângulo errado na hachura)
+    "XR":   "[Math.Min(WC - 0.05, Math.Max(0.05, IF(DREB <= 0.0005, 0, IF(FIT > 0.5, DREB/(IRD - SN), WC))))]",
+    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
     # no rebaixo o link da rampa perde o code Calcada: a hachura da calçada era desenhada por cima
     # da do REBAIXO (sobreposição L241). Fora do rebaixo a rampa tem 1 mm, então não faz falta.
