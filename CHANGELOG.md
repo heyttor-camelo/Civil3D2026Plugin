@@ -1,4 +1,6 @@
-## 2.36.2 - MFSARJETA v1.16 / hachura do rebaixo nas abas
+## 2.36.2 - MFSARJETA v1.16/v1.17 / hachura do rebaixo nas abas e na rampa da calçada
+
+- v1.17: no rebaixo, o link da rampa da calçada perde o code `Calcada` (a hachura da calçada era desenhada por cima da do `REBAIXO`); continua com `Top`/`TOPO`.
 
 - o berço passa a ser gerado por último no PKT. Ele muda a quantidade de links quando o MF desce (camada dentro/abaixo do MF); vindo antes, os links da calçada e de sobreposição mudavam de posição entre S0 e S1, e em planta o Civil 3D ligava links diferentes entre as duas seções (hachura errada nas abas, mesmo com o 3D certo).
 

@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.16"
+VERSION = "1.17"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -350,16 +350,19 @@ EXPR.update({
     "XR":   "[IF(DREB <= 0.0005, 0.001, IF(FIT > 0.5, Math.Max(0.001, DREB/(IRD - SN)), WC - 0.001))]",
     "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, IRD*XR, (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
+    # no rebaixo o link da rampa perde o code Calcada: a hachura da calçada era desenhada por cima
+    # da do REBAIXO (sobreposição L241). Fora do rebaixo a rampa tem 1 mm, então não faz falta.
+    "CalcRampCode": '[IF(Dst = "REBAIXO", "", "Calcada")]',
 })
 VARTYPES.update({k: "Double" for k in ("IRD", "ICD", "W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
-VARTYPES["DatumCP"] = "String"
+VARTYPES["DatumCP"] = "String"; VARTYPES["CalcRampCode"] = "String"
 with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
   with swC.case("Yes"):
     for v in ("IRD", "ICD", "W0", "FIT0", "SLC"): var(v)
     pt_slope("P102", "P7", "[SLC]", "[W0]", "[CALC_ELEV]", codes=["Calcada_Ext"], ot="[CALC_OFFSET]",
              disp="P102 - borda externa da calçada (alvos)")
-    for v in ("WC", "SN", "FIT", "XR", "YR", "DatumCP"): var(v)
-    pt("P101", "P7", "[XR]", "[YR]", codes=["Rampa_Fim"], link="L101", lcodes=["Calcada", "Top", "TOPO"],
+    for v in ("WC", "SN", "FIT", "XR", "YR", "DatumCP", "CalcRampCode"): var(v)
+    pt("P101", "P7", "[XR]", "[YR]", codes=["Rampa_Fim"], link="L101", lcodes=["[CalcRampCode]", "Top", "TOPO"],
        disp="P101&L101 - fim da rampa (topo)")
     lk("L102", "P101", "P102", codes=["Calcada", "Top", "TOPO"], disp="L102 - topo da calçada")
     pt("P103", "P102", "0", "[-E_CALC]", link="L103", lcodes=["Calcada"], disp="P103&L103 - borda externa (piso)")
