@@ -279,10 +279,10 @@ internal static class MFRebaixoData
                 S2 = s2,
                 S3 = s3,
                 Parameter = t0.ParameterName ?? "",
-                ValueStart = t0.StartValue,
-                ValueIn = t0.EndValue,
-                ValueOut = t1.EndValue,
-                ValueEnd = t2.EndValue
+                ValueStart = Convert.ToDouble((object)t0.StartValue, CultureInfo.InvariantCulture),
+                ValueIn = Convert.ToDouble((object)t0.EndValue, CultureInfo.InvariantCulture),
+                ValueOut = Convert.ToDouble((object)t1.EndValue, CultureInfo.InvariantCulture),
+                ValueEnd = Convert.ToDouble((object)t2.EndValue, CultureInfo.InvariantCulture)
             };
 
             info.P0 = Xyz(baseline, s0, 0, 0);
@@ -317,7 +317,7 @@ internal static class MFRebaixoData
 
         if (best is { } b)
         {
-            info.ExposedAtMiddle = Get(b.Values, ExposedOutput) ?? Get(b.Values, MFRebaixoCommands.EffectiveOutputAltParameterName);
+            info.ExposedAtMiddle = Get(b.Values, ExposedOutput) ?? Get(b.Values, MFRebaixoCommands.EffectiveOutputParameterName);
             info.RampSlope = Get(b.Values, MFRebaixoCommands.RampSlopeParameterName);
             info.RampOk = Get(b.Values, RampOkOutput);
             info.FreeWidth = Get(b.Values, FreeWidthOutput);
@@ -325,7 +325,7 @@ internal static class MFRebaixoData
         }
 
         if (before is { } n)
-            info.NormalHeight = Get(n.Values, ExposedOutput) ?? Get(n.Values, MFRebaixoCommands.EffectiveOutputAltParameterName);
+            info.NormalHeight = Get(n.Values, ExposedOutput) ?? Get(n.Values, MFRebaixoCommands.EffectiveOutputParameterName);
         else if (info.ByDepth && info.ExposedAtMiddle.HasValue)
             info.NormalHeight = info.ExposedAtMiddle + info.ValueIn;
         else if (!info.ByDepth)
@@ -476,7 +476,7 @@ internal static class MFRebaixoData
                         Mark = MarkOf(r, st),
                         Reb = Get(v, MFRebaixoCommands.DepthParameterName),
                         Highlight = Get(v, MFRebaixoCommands.HighlightParameterName),
-                        Exposed = Get(v, ExposedOutput) ?? Get(v, MFRebaixoCommands.EffectiveOutputAltParameterName),
+                        Exposed = Get(v, ExposedOutput) ?? Get(v, MFRebaixoCommands.EffectiveOutputParameterName),
                         FreeHeight = Get(v, MFRebaixoCommands.ParameterName),
                         RampOk = Get(v, RampOkOutput),
                         FreeWidth = Get(v, FreeWidthOutput)

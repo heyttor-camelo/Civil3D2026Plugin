@@ -68,7 +68,7 @@ public sealed class MFRebaixoCommands
     private const string NormalParameterName =
         "AMF_LIVRE_NORMAL";
 
-    private const string EffectiveOutputParameterName =
+    internal const string EffectiveOutputParameterName =
         "AMF_LIVRE_EFETIVA";
 
     private const string ExistingVerticalOutputParameterName =

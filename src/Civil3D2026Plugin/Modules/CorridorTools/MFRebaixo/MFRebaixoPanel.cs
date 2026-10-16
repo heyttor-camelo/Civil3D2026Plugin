@@ -47,6 +47,7 @@ internal sealed class MFRebaixoPanel : SW.Window
     private string? _modelKey;
     private bool _refreshQueued;
     private Document? _watched;
+    private (AcadDb.ObjectId Corridor, string Baseline, double S1)? _pending;
 
     // ------------------------------------------------------------------
     // Controles
@@ -248,8 +249,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         WC.Grid root = new();
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1.0, SW.GridUnitType.Star), MinHeight = 140 });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1.0, SW.GridUnitType.Star), MinHeight = 160 });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(0) });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(5) });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 160 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
@@ -290,9 +291,6 @@ internal sealed class MFRebaixoPanel : SW.Window
             _dragFrom = null;
             _plan.ReleaseMouseCapture();
         };
-        WC.Grid.SetRow(graphic, 2);
-        root.Children.Add(graphic);
-
         WC.DockPanel graphicBar = new() { Margin = new SW.Thickness(4, 0, 4, 0), Background = T.Hover, Height = 24 };
         _viewToggles = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         WC.DockPanel.SetDock(_viewToggles, WC.Dock.Left);
@@ -300,8 +298,14 @@ internal sealed class MFRebaixoPanel : SW.Window
         WC.DockPanel.SetDock(_coords, WC.Dock.Right);
         graphicBar.Children.Add(_coords);
         graphicBar.Children.Add(_graphicInfo);
-        WC.Grid.SetRow(graphicBar, 3);
-        root.Children.Add(graphicBar);
+
+        // Grafico e barra juntos na mesma linha: o divisor fica entre duas linhas proporcionais.
+        WC.DockPanel graphicPane = new();
+        WC.DockPanel.SetDock(graphicBar, WC.Dock.Bottom);
+        graphicPane.Children.Add(graphicBar);
+        graphicPane.Children.Add(graphic);
+        WC.Grid.SetRow(graphicPane, 2);
+        root.Children.Add(graphicPane);
 
         WC.GridSplitter splitH = new() { Height = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
         WC.Grid.SetRow(splitH, 4);
@@ -561,6 +565,12 @@ internal sealed class MFRebaixoPanel : SW.Window
         foreach (CorridorSummary c in _corridors)
             c.Rebaixos = _items.Count(r => r.CorridorId == c.Id);
         _warnings = MFRebaixoData.Check(_items);
+
+        if (_pending is { } pend)
+        {
+            _current = _items.FirstOrDefault(r => r.CorridorId == pend.Corridor && r.BaselineKey == pend.Baseline && Math.Abs(r.S1 - pend.S1) < 0.01) ?? _current;
+            _pending = null;
+        }
 
         if (_current is not null)
             _current = _items.FirstOrDefault(r => r.CorridorId == _current.CorridorId && r.SetName == _current.SetName)
@@ -1443,10 +1453,16 @@ internal sealed class MFRebaixoPanel : SW.Window
             return;
         }
 
-        double oldH = r.FinalHeight ?? h.Value;
+        if (r.FinalHeight is not double oldH)
+        {
+            Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
+            return;
+        }
+
+        _pending = (r.CorridorId, r.BaselineKey, s1.Value);
         Edit($"Rebaixo reaplicado: {N(s1.Value)} - {N(s2.Value)}, altura final {Cm(h)}.", (db, ed) =>
         {
-            MFRebaixoData.Remove(db, r);
+            MFRebaixoData.Remove(db, r, rebuild: false);
             try
             {
                 MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1.Value, s2.Value, h.Value);
