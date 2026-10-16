@@ -4,7 +4,9 @@
 - **hyperlink** no bloco para a foto do local (Ctrl+clique abre). O caminho é relativo ao DWG (`PEDs_img\...`) quando a pasta está ao lado dele: copiar o DWG junto com a pasta `PEDs_img` mantém o link;
 - `PEDIMPORTAR`/`PEDATUALIZAR` criam os atributos que faltarem na definição do bloco (inclusive num bloco `PED` próprio do desenho) e completam os blocos já inseridos; `PEDLOCAR` preenche o bloco novo.
 
-## 2.37.2 - MFREBAIXO v1.4.3
+## 2.37.2 - MFREBAIXO v1.4.3 / MFSARJETA v1.21
+
+- MFSARJETA v1.21: o fundo do piso da calçada passa a ter o code `Calcada_Fundo` (antes `Calcada`). Em planta ele fica embaixo da rampa e a hachura do `Calcada` cobria a do `REBAIXO`;
 
 - seções extras a +-1 mm de S0 e S3 (antes 2 cm); `DESTAQUE` começa 0,5 mm antes de S0.
 

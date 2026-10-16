@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.20"
+VERSION = "1.21"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -353,7 +353,7 @@ EXPR.update({
     "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
     # no rebaixo o link da rampa perde o code Calcada: senão a hachura da calçada fica por cima da
-    # do REBAIXO (sobreposição L241). O MFREBAIXO põe seções a +-1 mm de S0 e S3 para essa troca
+    # do REBAIXO (sobreposição L241). O MFREBAIXO põe seções a +-2 cm de S0 e S3 para essa troca
     # de code acontecer num trecho de 2 cm.
     "CalcRampCode": '[IF(Dst = "REBAIXO", "", "Calcada")]',
 })
@@ -371,9 +371,11 @@ with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
     pt("P103", "P102", "0", "[-E_CALC]", link="L103", lcodes=["Calcada"], disp="P103&L103 - borda externa (piso)")
     pt("P104", "P101", "0", "[-E_CALC]", disp="P104 - fundo do piso no fim da rampa")
     pt("P105", "P7", "0", "[-E_CALC]", disp="P105 - fundo do piso no MF")
-    lk("L104", "P103", "P104", codes=["Calcada", "[DatumCP]"], disp="L104 - fundo do piso")
+    # fundo do piso com code próprio: em planta ele fica embaixo da rampa e, com "Calcada",
+    # a hachura da calçada cobria a do REBAIXO.
+    lk("L104", "P103", "P104", codes=["Calcada_Fundo", "[DatumCP]"], disp="L104 - fundo do piso")
     lk("L105", "P104", "P101", codes=["Calcada"], disp="L105 - divisa rampa/calçada")
-    lk("L106", "P104", "P105", codes=["Calcada", "[DatumCP]"], disp="L106 - fundo do piso (rampa)")
+    lk("L106", "P104", "P105", codes=["Calcada_Fundo", "[DatumCP]"], disp="L106 - fundo do piso (rampa)")
     lk("L107", "P105", "P7", codes=["Calcada"], disp="L107 - encosto no MF")
     sh("S31", ["L101", "L105", "L106", "L107"], codes=["Calcada", "CALCADA", "[Dst]"], disp="S31 - CALÇADA (rampa)")
     sh("S32", ["L102", "L103", "L104", "L105"], codes=["Calcada", "CALCADA"], disp="S32 - CALÇADA")
