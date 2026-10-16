@@ -1,3 +1,15 @@
+## 2.37.0 - PEDs v1.0.0 / locação de PEDs com ficha ao clicar
+
+Módulo novo `Modules/PEDs` (categoria **PEDs** na Ribbon), para a planilha de proposta de PEDs (BRT) e o KMZ com os pontos:
+
+- `PEDIMPORTAR`: lê a planilha (.xlsx, aba com cabeçalho "Código" na coluna A, valores em cache das fórmulas) e o KMZ/KML. Grava os dados no DWG (NOD `C3D_PED_V1`), extrai as imagens "dentro da célula" (foto do local e mapa) para `PEDs_img\` ao lado do DWG em JPEG reduzido, e insere o bloco `PED` (8 x 3, hachura 45°, texto "PED XX" → "PED TC01") na layer `PED` em cada ponto. Lon/lat vão para o desenho pela geolocalização, pelo sistema de coordenadas do Civil 3D (fuso UTM) ou por fuso informado;
+- `PEDFICHA`: janela que acompanha a seleção: clicar num bloco PED mostra a ficha no arranjo da aba "Ficha para desenhos" (larguras atual x proposta, abrigo, faixa exclusiva, ciclovia, alterações, embarques, PED anterior/posterior, obs), a avaliação, a foto e o mapa; aba "Todos os campos" com as ~60 colunas; zoom e abrir imagem;
+- `PEDATUALIZAR`: relê a planilha gravada (nova revisão) sem mover os blocos;
+- `PEDLOCAR`: insere ou move um PED clicando (com rotação opcional);
+- `GeoConversion.GeographicToUtm` (lat/lon → UTM, Snyder/GRS80).
+
+Se o DWG já tiver um bloco `PED`, ele é usado: atributos com "XX" no valor padrão recebem o código.
+
 ## 2.36.2 - MFSARJETA v1.16/v1.17 / hachura do rebaixo nas abas e na rampa da calçada
 
 - v1.19: desfaz a v1.17 (o link da rampa volta a ter sempre `Calcada`). Trocar o code de um link entre seções muda a ordem dos links com aquele code e a planta liga links diferentes (gravata). Só os links de sobreposição variam de code;

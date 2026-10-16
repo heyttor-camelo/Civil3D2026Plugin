@@ -139,6 +139,14 @@ public static class CommandNames
         public const string Numerar = "NP";
     }
 
+    public static class Peds
+    {
+        public const string Importar = "PEDIMPORTAR";
+        public const string Atualizar = "PEDATUALIZAR";
+        public const string Locar = "PEDLOCAR";
+        public const string Ficha = "PEDFICHA";
+    }
+
     public static class LispTools
     {
         public const string Painel = "C3DLISP";

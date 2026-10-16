@@ -161,6 +161,7 @@ internal static class RibbonIconFactory
             "Viario" => WpfColor.FromRgb(244, 196, 64),
             "LISPs" => WpfColor.FromRgb(140, 200, 110),
             "Layouts" => WpfColor.FromRgb(120, 190, 230),
+            "PEDs" => WpfColor.FromRgb(225, 80, 80),
             _ => WpfColor.FromRgb(192, 205, 215)
         };
 }

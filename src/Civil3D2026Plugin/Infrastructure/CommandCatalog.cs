@@ -270,6 +270,22 @@ public static class CommandCatalog
                 }),
 
             new(
+                "PEDs",
+                "Locacao de PEDs",
+                C3DVersions.Peds,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Peds.Ficha, "Ficha do PED",
+                        "Janela que acompanha a selecao: clique num bloco PED e veja a ficha (larguras atual x proposta, abrigo, embarques, distancias, obs, foto do local e mapa)."),
+                    new CommandDefinition(C3DCommands.Peds.Importar, "Importar PEDs",
+                        "Le a planilha de proposta (.xlsx) e o KMZ com os pontos: grava os dados no DWG, extrai as fotos para PEDs_img e insere o bloco PED em cada ponto (UTM do sistema do Civil ou geolocalizacao)."),
+                    new CommandDefinition(C3DCommands.Peds.Atualizar, "Atualizar da planilha",
+                        "Rele a planilha gravada (nova revisao) e as imagens, sem mexer na posicao dos blocos ja inseridos."),
+                    new CommandDefinition(C3DCommands.Peds.Locar, "Locar / mover PED",
+                        "Insere ou move um PED clicando no ponto (para os que nao estao no KMZ), com rotacao opcional.")
+                }),
+
+            new(
                 "LISPs",
                 "Utilitarios (ex-LISP)",
                 C3DVersions.Utilitarios,

@@ -25,6 +25,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Geometry.PointNormalCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Layouts.LayoutCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.LispTools.LispCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.PEDs.PedCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.SimpleToolsCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.DrawingToolsCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.RoadToolsCommands))]

@@ -63,6 +63,50 @@ internal static class GeoConversion
     }
 
     /// <summary>
+    /// Latitude/longitude em graus decimais (sul e oeste negativos) -> UTM (E, N em metros)
+    /// no fuso informado. Formulas diretas de Snyder (USGS PP 1395), GRS80.
+    /// </summary>
+    public static (double Easting, double Northing) GeographicToUtm(double latitude, double longitude, int zone, bool south)
+    {
+        double e2 = F * (2.0 - F);
+        double ep2 = e2 / (1.0 - e2);
+
+        double phi = latitude * Math.PI / 180.0;
+        double lam = longitude * Math.PI / 180.0;
+        double lam0 = ((zone * 6.0) - 183.0) * Math.PI / 180.0;
+
+        double sin = Math.Sin(phi);
+        double cos = Math.Cos(phi);
+        double tan = Math.Tan(phi);
+
+        double n = A / Math.Sqrt(1.0 - (e2 * sin * sin));
+        double t = tan * tan;
+        double c = ep2 * cos * cos;
+        double a = (lam - lam0) * cos;
+
+        double e4 = e2 * e2;
+        double e6 = e4 * e2;
+        double m = A * (
+            ((1.0 - (e2 / 4.0) - (3.0 * e4 / 64.0) - (5.0 * e6 / 256.0)) * phi)
+            - (((3.0 * e2 / 8.0) + (3.0 * e4 / 32.0) + (45.0 * e6 / 1024.0)) * Math.Sin(2.0 * phi))
+            + (((15.0 * e4 / 256.0) + (45.0 * e6 / 1024.0)) * Math.Sin(4.0 * phi))
+            - ((35.0 * e6 / 3072.0) * Math.Sin(6.0 * phi)));
+
+        double x = K0 * n * (
+            a
+            + ((1.0 - t + c) * Math.Pow(a, 3) / 6.0)
+            + ((5.0 - (18.0 * t) + (t * t) + (72.0 * c) - (58.0 * ep2)) * Math.Pow(a, 5) / 120.0));
+
+        double y = K0 * (
+            m + (n * tan * (
+                (a * a / 2.0)
+                + ((5.0 - t + (9.0 * c) + (4.0 * c * c)) * Math.Pow(a, 4) / 24.0)
+                + ((61.0 - (58.0 * t) + (t * t) + (600.0 * c) - (330.0 * ep2)) * Math.Pow(a, 6) / 720.0))));
+
+        return (x + FalseEasting, south ? y + FalseNorthingSouth : y);
+    }
+
+    /// <summary>
     /// Graus decimais -> DD°MM'SS.ss" (sem sinal; o hemisferio vai separado).
     /// Arredonda os segundos e propaga o "vai um" (59.995" -> 1').
     /// </summary>
