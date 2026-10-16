@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.15"
+VERSION = "1.16"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -197,6 +197,11 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
     sh("S3", ["L6", "L7", "L14", "L15", "L16", "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24"],
        codes=["Curb", "[MFTipoCode]", "[MFStatusCode]", "[Dst]"], disp="S3 - MEIO-FIO (Kassel)")
 
+# O berço muda a QUANTIDADE de links conforme o MF desce (camada DENTRO/ABAIXO). Em planta o Civil 3D
+# liga os links de uma seção à seguinte pela ordem; se o berço vier antes, os links de depois (calçada e
+# sobreposição) trocam de posição entre S0 e S1 e a hachura sai errada. Por isso ele é gerado aqui mas
+# entra no fluxo POR ÚLTIMO (ver _BERCO abaixo).
+_B0 = len(STEPS)
 # berço: camadas sob sarjeta + meio-fio, até a face de trás, RECORTADAS pelo meio-fio.
 # Linhas das camadas: elev(d) = P1.Elevation - D + I_PISTA*d  (d = distância horizontal a partir de P1)
 EXPR.update({
@@ -327,6 +332,8 @@ with Switch('[IF(BERCO.Value="Yes","Yes","No")]', "BERCO?") as swB:
             layer_sob_mf("SubGrade", "Datum", D3, "REFORÇO")
         out("BERCO_OK", f"[IF({cond(D1)},1,0)]")
 
+_BERCO = STEPS[_B0:]; del STEPS[_B0:]
+
 # calçada: começa no topo de trás do MF (P7). Borda externa na cota NORMAL (topo normal do MF +
 # declividade), ou nos alvos; no rebaixo, rampa a partir do topo rebaixado com a declividade máxima
 # (iRampa) até encontrar a calçada normal (lógica do pkt MF_TIPO10_RAMPA_ACESSIVEL).
@@ -391,6 +398,8 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Sobreposição: MF") as swOF:
 with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Sobreposição: calçada") as swOC:
   with swOC.case("Yes"):
     lk("L241", "P7", "P101", codes=["[Dst]"], disp="L241 - sobreposição: rampa da calçada")
+
+STEPS.extend(_BERCO)
 
 # saidas
 out("EXPOSTO", "[EXP]")

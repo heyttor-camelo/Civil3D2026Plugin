@@ -1,3 +1,7 @@
+## 2.36.2 - MFSARJETA v1.16 / hachura do rebaixo nas abas
+
+- o berço passa a ser gerado por último no PKT. Ele muda a quantidade de links quando o MF desce (camada dentro/abaixo do MF); vindo antes, os links da calçada e de sobreposição mudavam de posição entre S0 e S1, e em planta o Civil 3D ligava links diferentes entre as duas seções (hachura errada nas abas, mesmo com o 3D certo).
+
 ## 2.36.1 - MFREBAIXO v1.4.1 / aba de entrada sem hachura
 
 - na estaca exata em que a Transition começa, o Civil 3D usa o valor de antes: a seção S0 ficava com `DESTAQUE` = 0 e o trecho S0-S1 (aba de entrada do MF, sarjeta e rampa da calçada) não recebia o code `REBAIXO`. O `DESTAQUE` agora começa 1 cm antes de S0.
