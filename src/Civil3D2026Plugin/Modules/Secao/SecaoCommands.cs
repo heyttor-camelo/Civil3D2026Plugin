@@ -85,6 +85,9 @@ public sealed class SecaoCommands
         if (double.IsNaN(atras))
             return;
 
+        // Numero do corte novo: lido antes de abrir a transacao de escrita (o model space
+        // ja aberto para escrita nao pode ser reaberto por uma transacao open/close).
+        int n = SecaoStore.ReadCuts(db).Count + 1;
         AcadDb.ObjectId id;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -109,7 +112,6 @@ public sealed class SecaoCommands
                 pl.Layer = SecaoStore.LayerCut;
             }
 
-            int n = SecaoStore.ReadCuts(db).Count + 1;
             CutBox box = SecaoStore.ReadCut(pl) ?? new CutBox { Name = "Corte " + n.ToString(CultureInfo.InvariantCulture) };
             box.Line = SecaoStore.Vertices(pl);
             box.Frente = frente;
@@ -125,6 +127,9 @@ public sealed class SecaoCommands
         SecaoStore.SavePrefs(prefs);
         ed.Regen();
         ed.WriteMessage($"\n  Caixa de corte criada (layer {SecaoStore.LayerCut}): mova os grips e a janela acompanha; altere profundidades e cotas na aba Propriedades.");
+        int found = SecaoStore.ReadCuts(db).Count(c => c.Id == id);
+        if (found == 0)
+            ed.WriteMessage("\n  [C3DSECAO] A polilinha foi criada, mas a leitura de volta nao achou a caixa (XData). Me avise com esta mensagem.");
         SecaoPanel.ShowPanel();
         SecaoPanel.SelectCut(id);
         SectionData? data = SecaoPanel.CurrentData;
