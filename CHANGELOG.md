@@ -1,3 +1,8 @@
+## 2.44.2 - MFREBAIXO v1.7.1 / escolher os textos da vista
+
+- botao **Textos ▾** na barra da vista do painel: liga/desliga cada texto - etiqueta do rebaixo (codigo, nome, estacas, em todos ou so no selecionado, linha de chamada), planta (nome do corredor, nome das baselines, marcos S0-S3, legenda, escala) e barra de baixo (resumo, o que esta sob o cursor). Atalhos Tudo / Nada / Padrao; a escolha fica salva;
+- por padrao as **estacas nao aparecem mais** na etiqueta nem na leitura do cursor (eram os numeros que pareciam coordenadas); o rebaixo sem nome mostra so o codigo.
+
 ## 2.43.1 - Visualizador de secao v0.1.1 / desempenho
 
 - **corredores lidos uma vez**: a leitura estaca a estaca (a parte cara) fica em cache e so e refeita quando o corredor muda (rebuild); antes era refeita a cada grip ou mudanca de profundidade;
