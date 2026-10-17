@@ -112,7 +112,39 @@ internal sealed class CutBox
     /// Copia sem limite de profundidade (faixa de vista "tudo"): a frente e atras vao
     /// longe; a linha, as elevacoes e o exagero ficam.
     /// </summary>
-    public CutBox Unlimited() => new() { Name = Name, Line = Line, Frente = 1e5, Atras = 1e5, ZMin = ZMin, ZMax = ZMax, Exagero = Exagero };
+    public CutBox Unlimited() => new() { Name = Name, Line = new List<P2>(Line), Frente = 1e5, Atras = 1e5, ZMin = ZMin, ZMax = ZMax, Exagero = Exagero };
+
+    /// <summary>Caixa sem limite de profundidade (feita por <see cref="Unlimited"/>)?</summary>
+    public bool IsUnlimited => Frente >= 1e4 || Atras >= 1e4;
+
+    /// <summary>
+    /// O retangulo em planta cai na largura da linha (faixa perpendicular de algum trecho,
+    /// sem limite de profundidade)? Filtro do modo "tudo".
+    /// </summary>
+    public bool CoversS(double minX, double minY, double maxX, double maxY)
+    {
+        P2[] corners = { new(minX, minY), new(maxX, minY), new(maxX, maxY), new(minX, maxY) };
+        for (int i = 0; i + 1 < Line.Count; i++)
+        {
+            P2 a = Line[i], b = Line[i + 1];
+            double len = P2.Dist(a, b);
+            if (len < 1e-9)
+                continue;
+            P2 t = (b - a) * (1.0 / len);
+            double lo = double.MaxValue, hi = double.MinValue;
+            foreach (P2 c in corners)
+            {
+                double u = P2.Dot(c - a, t);
+                lo = Math.Min(lo, u);
+                hi = Math.Max(hi, u);
+            }
+
+            if (hi >= 0 && lo <= len)
+                return true;
+        }
+
+        return false;
+    }
 
     /// <summary>Normal (para a frente) do trecho mais proximo do ponto: direcao em que se olha ali.</summary>
     public P2 NormalAt(P2 p)
@@ -225,35 +257,89 @@ internal sealed class CutBox
     }
 
     /// <summary>
-    /// Intersecao de um triangulo 3D com o plano do corte: um segmento (S,Z)-(S,Z),
-    /// se houver, por trecho da linha.
+    /// Intersecao de um triangulo 3D com o plano do corte: um segmento (S,Z)-(S,Z) por
+    /// trecho da linha que o triangulo atravessa, recortado ao comprimento do trecho
+    /// (assim o corte acompanha as dobras da linha). Vertices sobre o plano contam; aresta
+    /// deitada no plano vira o proprio segmento; triangulo inteiro no plano nao conta.
     /// </summary>
     public IEnumerable<((double S, double Z) A, (double S, double Z) B)> CutTriangle(P3 a, P3 b, P3 c)
     {
-        List<(double S, double Z)> hits = new();
-        foreach ((P3 u, P3 v) in new[] { (a, b), (b, c), (c, a) })
-            hits.AddRange(Cross(u, v));
-        if (hits.Count < 2)
-            yield break;
-        // Pode haver 2 (caso normal) ou 3 (vertice no plano): usa os dois mais afastados.
-        (double S, double Z) p0 = hits[0], p1 = hits[1];
-        double best = Math.Abs(p0.S - p1.S) + Math.Abs(p0.Z - p1.Z);
-        for (int i = 0; i < hits.Count; i++)
+        double[] starts = Starts();
+        P3[] v = { a, b, c };
+        double[] d = new double[3];
+        for (int i = 0; i + 1 < Line.Count; i++)
         {
-            for (int j = i + 1; j < hits.Count; j++)
+            P2 p = Line[i], q = Line[i + 1];
+            double len = P2.Dist(p, q);
+            if (len < 1e-9)
+                continue;
+            P2 t = (q - p) * (1.0 / len);
+            const double eps = 1e-9;
+            int on = 0, pos = 0, neg = 0;
+            for (int k = 0; k < 3; k++)
             {
-                double d = Math.Abs(hits[i].S - hits[j].S) + Math.Abs(hits[i].Z - hits[j].Z);
-                if (d > best)
+                d[k] = P2.Cross(t, v[k].XY - p);
+                if (Math.Abs(d[k]) <= eps) on++;
+                else if (d[k] > 0) pos++;
+                else neg++;
+            }
+
+            if (on == 3 || (on <= 1 && (pos == 0 || neg == 0)))
+                continue; // no plano, todo de um lado, ou so tocando num vertice
+
+            // Pontos do plano (ao longo, z): vertices sobre ele e arestas que o atravessam.
+            List<(double U, double Z)> hits = new(3);
+            for (int k = 0; k < 3; k++)
+            {
+                if (Math.Abs(d[k]) <= eps)
+                    hits.Add((P2.Dot(v[k].XY - p, t), v[k].Z));
+            }
+
+            for (int k = 0; k < 3; k++)
+            {
+                int k2 = (k + 1) % 3;
+                if (Math.Abs(d[k]) <= eps || Math.Abs(d[k2]) <= eps || (d[k] > 0) == (d[k2] > 0))
+                    continue;
+                double u = d[k] / (d[k] - d[k2]);
+                P3 m = new(v[k].X + ((v[k2].X - v[k].X) * u), v[k].Y + ((v[k2].Y - v[k].Y) * u), v[k].Z + ((v[k2].Z - v[k].Z) * u));
+                hits.Add((P2.Dot(m.XY - p, t), m.Z));
+            }
+
+            if (hits.Count < 2)
+                continue;
+            (double U, double Z) h0 = hits[0], h1 = hits[1];
+            if (hits.Count > 2)
+            {
+                double best = -1;
+                for (int x = 0; x < hits.Count; x++)
                 {
-                    best = d;
-                    p0 = hits[i];
-                    p1 = hits[j];
+                    for (int y = x + 1; y < hits.Count; y++)
+                    {
+                        double dd = Math.Abs(hits[x].U - hits[y].U) + Math.Abs(hits[x].Z - hits[y].Z);
+                        if (dd > best)
+                        {
+                            best = dd;
+                            h0 = hits[x];
+                            h1 = hits[y];
+                        }
+                    }
                 }
             }
-        }
 
-        if (best > 1e-6)
-            yield return (p0, p1);
+            // Recorta ao trecho [0, len] em U.
+            if (h1.U < h0.U)
+                (h0, h1) = (h1, h0);
+            if (h1.U < -1e-9 || h0.U > len + 1e-9)
+                continue;
+            double du = h1.U - h0.U;
+            (double U, double Z) c0 = h0, c1 = h1;
+            if (h0.U < 0 && du > 1e-12)
+                c0 = (0, h0.Z + ((h1.Z - h0.Z) * (-h0.U / du)));
+            if (h1.U > len && du > 1e-12)
+                c1 = (len, h0.Z + ((h1.Z - h0.Z) * ((len - h0.U) / du)));
+            if (Math.Abs(c1.U - c0.U) + Math.Abs(c1.Z - c0.Z) > 1e-6)
+                yield return ((starts[i] + c0.U, c0.Z), (starts[i] + c1.U, c1.Z));
+        }
     }
 }
 
@@ -295,8 +381,31 @@ internal sealed class SectionItem
     public Dictionary<string, string> Info = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Indice de cor sugerido (ACI) quando o objeto tem cor propria; 0 = pela classe.</summary>
     public int ColorIndex;
+    private List<List<(double S, double Z)>>? _fills;
+
+    /// <summary>Calculo adiado das regioes (contorno de fantasmas detalhados): so roda se alguem pedir.</summary>
+    public Func<List<List<(double S, double Z)>>>? FillsFactory;
+
     /// <summary>Regioes fechadas do item (contorno do corredor, solidos, estruturas, tubos), para hachurar.</summary>
-    public List<List<(double S, double Z)>> Fills = new();
+    public List<List<(double S, double Z)>> Fills
+    {
+        get
+        {
+            if (_fills is null)
+            {
+                Func<List<List<(double S, double Z)>>>? f = FillsFactory;
+                FillsFactory = null;
+                _fills = f?.Invoke() ?? new List<List<(double S, double Z)>>();
+            }
+
+            return _fills;
+        }
+        set
+        {
+            _fills = value;
+            FillsFactory = null;
+        }
+    }
 
     /// <summary>Chave estavel do item entre recalculos (para destaque/hachura escolhidos pelo usuario).</summary>
     public string Key => Kind + "|" + Name + (Ghost ? "|g" : "");
@@ -752,34 +861,36 @@ internal static class SecaoGeometry
                 if (Math.Max(r.Z, u.Z) < minZ || Math.Min(r.Z, u.Z) > maxZ)
                     continue;
                 double ex = u.S - r.S, ez = u.Z - r.Z, elen2 = (ex * ex) + (ez * ez), elen = Math.Sqrt(elen2);
+                double ti = tol / len, tj = tol / elen;
+
+                // Pontas de um sobre o outro ("T" e trechos colineares sobrepostos).
+                foreach (int vtx in new[] { raw[j].A, raw[j].B })
+                {
+                    double t = (((verts[vtx].S - p.S) * dx) + ((verts[vtx].Z - p.Z) * dz)) / len2;
+                    double dist = Math.Abs(((verts[vtx].S - p.S) * dz) - ((verts[vtx].Z - p.Z) * dx)) / len;
+                    if (dist <= tol && t > ti && t < 1 - ti)
+                        cuts[i].Add((t, vtx));
+                }
+
+                foreach (int vtx in new[] { raw[i].A, raw[i].B })
+                {
+                    double w = (((verts[vtx].S - r.S) * ex) + ((verts[vtx].Z - r.Z) * ez)) / elen2;
+                    double dist = Math.Abs(((verts[vtx].S - r.S) * ez) - ((verts[vtx].Z - r.Z) * ex)) / elen;
+                    if (dist <= tol && w > tj && w < 1 - tj)
+                        cuts[j].Add((w, vtx));
+                }
+
+                // Cruzamento proprio (no meio dos dois).
                 double den = (dx * ez) - (dz * ex);
-                if (Math.Abs(den) > 1e-9 * len * elen)
+                if (Math.Abs(den) > 1e-12 * len * elen)
                 {
                     double t = (((r.S - p.S) * ez) - ((r.Z - p.Z) * ex)) / den;
                     double w = (((r.S - p.S) * dz) - ((r.Z - p.Z) * dx)) / den;
-                    double ti = tol / len, tj = tol / elen;
-                    if (t > ti && t < 1 - ti && w >= -tj && w <= 1 + tj)
-                        cuts[i].Add((t, Vertex((p.S + (dx * t), p.Z + (dz * t)))));
-                    if (w > tj && w < 1 - tj && t >= -ti && t <= 1 + ti)
-                        cuts[j].Add((w, Vertex((r.S + (ex * w), r.Z + (ez * w)))));
-                }
-                else
-                {
-                    // Paralelos: se colineares e sobrepostos, as pontas de um partem o outro.
-                    foreach (int v in new[] { raw[j].A, raw[j].B })
+                    if (t > ti && t < 1 - ti && w > tj && w < 1 - tj)
                     {
-                        double t = (((verts[v].S - p.S) * dx) + ((verts[v].Z - p.Z) * dz)) / len2;
-                        double dist = Math.Abs(((verts[v].S - p.S) * dz) - ((verts[v].Z - p.Z) * dx)) / len;
-                        if (dist <= tol && t > 1e-9 && t < 1 - 1e-9)
-                            cuts[i].Add((t, v));
-                    }
-
-                    foreach (int v in new[] { raw[i].A, raw[i].B })
-                    {
-                        double w = (((verts[v].S - r.S) * ex) + ((verts[v].Z - r.Z) * ez)) / elen2;
-                        double dist = Math.Abs(((verts[v].S - r.S) * ez) - ((verts[v].Z - r.Z) * ex)) / elen;
-                        if (dist <= tol && w > 1e-9 && w < 1 - 1e-9)
-                            cuts[j].Add((w, v));
+                        int vx = Vertex((p.S + (dx * t), p.Z + (dz * t)));
+                        cuts[i].Add((t, vx));
+                        cuts[j].Add((w, vx));
                     }
                 }
             }
@@ -1080,7 +1191,18 @@ internal sealed class BoxClipper
         return m;
     }
 
-    public bool Contains(P3 p) => Mask(p) != 0;
+    public bool Contains(P3 p)
+    {
+        if (!ZOk(p.Z))
+            return false;
+        foreach ((double A, double B, double C)[] planes in _regions)
+        {
+            if (planes.All(h => (h.A * p.X) + (h.B * p.Y) + h.C >= -1e-9))
+                return true;
+        }
+
+        return false;
+    }
 
     private static List<P3> ClipBy(List<P3> poly, Func<P3, double> f)
     {

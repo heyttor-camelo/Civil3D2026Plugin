@@ -228,6 +228,18 @@ public sealed class SecaoCommands
         _initialized = true;
         SecaoBoxOverrule.Register();
         AcApp.DocumentManager.DocumentCreated += (_, e) => Attach(e.Document);
+        AcApp.DocumentManager.DocumentToBeDestroyed += (_, e) =>
+        {
+            try
+            {
+                Attached.Remove(e.Document.Database);
+                SecaoReader.Forget(e.Document.Database);
+            }
+            catch
+            {
+                // Fechamento.
+            }
+        };
         foreach (Document d in AcApp.DocumentManager)
             Attach(d);
     }

@@ -164,7 +164,7 @@ internal static partial class SecaoReader
                     continue;
                 }
 
-                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
+                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase) && !IsAcadSurface(id))
                 {
                     cache.Kinds[id] = "";
                     continue;
@@ -223,7 +223,7 @@ internal static partial class SecaoReader
                         if (clip.Contains(lp))
                             scene.Points.Add((lp, cogo.PointNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                         break;
-                    case AcadDb.Solid3d or AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface when prefs.Solidos:
+                    case AcadDb.Solid3d or AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface or AcadDb.PolyFaceMesh or AcadDb.Face when prefs.Solidos:
                         AddSolid(MeshOf(tr, cache, ent), ItemKind.Solido, color);
                         break;
                     case AcadDb.BlockReference br when prefs.Blocos:

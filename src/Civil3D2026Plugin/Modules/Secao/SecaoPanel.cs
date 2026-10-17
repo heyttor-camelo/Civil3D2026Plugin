@@ -2112,12 +2112,17 @@ internal sealed class SecaoPanel : SW.Window
     {
         (ViewLayer, SectionItem)? best = null;
         double bestD = 7.0;
+        (double ws, double wz) = ToWorld(p);
+        double tolS = 8.0 / Math.Max(_scale, 1e-9), tolZ = 8.0 / Math.Max(_scale * Ex, 1e-9);
         foreach (ViewLayer layer in Layers())
         {
             double off = layer.Offset;
             foreach (SectionItem it in layer.Data.Items)
             {
                 if ((it.Ghost && !layer.Ghosts) || _prefs.StyleOf(it) == ItemStyle.Oculto)
+                    continue;
+                SW.Rect bb = GeomOf(it).Bounds;
+                if (bb.IsEmpty || ws < bb.Left + off - tolS || ws > bb.Right + off + tolS || wz < bb.Top - tolZ || wz > bb.Bottom + tolZ)
                     continue;
                 foreach (List<(double S, double Z)> pl in it.Polylines)
                 {
@@ -2244,6 +2249,9 @@ internal sealed class SecaoPanel : SW.Window
         public WM.Geometry? Lines;
         public WM.Geometry? Circles;
         public WM.Geometry? Fills;
+        public bool FillsBuilt;
+        /// <summary>Envolvente em (S, Z) do mundo, para descartar rapido no teste do cursor.</summary>
+        public SW.Rect Bounds = SW.Rect.Empty;
     }
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SectionItem, ItemGeom> _geom = new();
@@ -2255,8 +2263,13 @@ internal sealed class SecaoPanel : SW.Window
         g = new ItemGeom();
         if (it.Polylines.Any(p => p.Count > 1))
             g.Lines = Stream(it.Polylines, closed: false);
-        if (it.Fills.Count > 0)
-            g.Fills = Stream(it.Fills, closed: true);
+        foreach (List<(double S, double Z)> pl in it.Polylines)
+            foreach ((double s, double z) in pl)
+                g.Bounds.Union(new SW.Point(s, z));
+        foreach ((double s, double z, double r) in it.Circles)
+            g.Bounds.Union(new SW.Rect(s - r, z - r, 2 * r, 2 * r));
+        foreach ((double s, double z, _) in it.Points)
+            g.Bounds.Union(new SW.Point(s, z));
         if (it.Circles.Count > 0)
         {
             WM.GeometryGroup cg = new();
@@ -2447,6 +2460,13 @@ internal sealed class SecaoPanel : SW.Window
         double thick = selected ? 2.6 : strong ? 3.0 : it.Ghost ? 1.0 : it.Kind == ItemKind.Superficie ? 1.8 : 1.4;
         bool dashed = it.Ghost && !strong;
         ItemGeom g = GeomOf(it);
+
+        if (style == ItemStyle.Hachura && !g.FillsBuilt)
+        {
+            // Regioes so quando a hachura e pedida (o contorno de fantasmas e calculado aqui).
+            g.FillsBuilt = true;
+            g.Fills = it.Fills.Count > 0 ? Stream(it.Fills, closed: true) : null;
+        }
 
         if (style == ItemStyle.Hachura && g.Fills is not null)
             plot.Children.Add(new WS.Path { Data = Placed(g.Fills, tf), Fill = Hatch(layer.Color ?? RgbFor(it)), Stroke = Solid(layer.Color ?? RgbFor(it), 160), StrokeThickness = 0.8 });

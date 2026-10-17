@@ -90,6 +90,7 @@ internal sealed class SecaoView3D : WC.Border
             _orbit = _pan = false;
             ReleaseMouseCapture();
         };
+        LostMouseCapture += (_, _) => _orbit = _pan = false;
         MouseMove += (_, e) =>
         {
             if (!_orbit && !_pan)
@@ -299,16 +300,15 @@ internal sealed class SecaoView3D : WC.Border
             {
                 if (Hidden.Contains(m.Key))
                     continue;
-                W3.MeshGeometry3D geo = new();
+                Builder geo = new();
                 foreach (P3 p in m.Pos)
                     geo.Positions.Add(Map(p));
                 foreach (int i in m.Tri)
                     geo.TriangleIndices.Add(i);
-                geo.Freeze();
                 WM.Color c = ColorOf(m.Kind, m.Aci);
                 W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(WM.Color.FromArgb(alpha, c.R, c.G, c.B)));
                 mat.Freeze();
-                W3.GeometryModel3D model = new(geo, mat) { BackMaterial = mat };
+                W3.GeometryModel3D model = new(geo.ToGeometry(), mat) { BackMaterial = mat };
                 if (alpha < 255)
                     translucent.Add(model);
                 else
@@ -320,7 +320,7 @@ internal sealed class SecaoView3D : WC.Border
         double thin = Math.Max(_size * 0.0018, 0.01);
         foreach (IGrouping<WM.Color, Scene3D.Tube> byColor in scene.Tubes.Where(t => !Hidden.Contains(t.Key)).GroupBy(t => ColorOf(t.Kind, t.Aci)))
         {
-            W3.MeshGeometry3D geo = new();
+            Builder geo = new();
             foreach (Scene3D.Tube tube in byColor)
             {
                 bool round = tube.Radius > 1e-6 && faces;
@@ -329,10 +329,9 @@ internal sealed class SecaoView3D : WC.Border
                     AddPrism(geo, Map(tube.Pts[i]), Map(tube.Pts[i + 1]), r, round ? 12 : 4);
             }
 
-            geo.Freeze();
             W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(byColor.Key));
             mat.Freeze();
-            group.Children.Add(new W3.GeometryModel3D(geo, mat) { BackMaterial = mat });
+            group.Children.Add(new W3.GeometryModel3D(geo.ToGeometry(), mat) { BackMaterial = mat });
         }
 
         // Arestas: as do Brep (solidos/blocos) e as vivas das malhas (superficie, corredor).
@@ -340,11 +339,11 @@ internal sealed class SecaoView3D : WC.Border
         {
             double r = Math.Max(_size * 0.0007, 0.004);
             int budget = 80000;
-            Dictionary<WM.Color, W3.MeshGeometry3D> byColor = new();
-            W3.MeshGeometry3D GeoFor(WM.Color c)
+            Dictionary<WM.Color, Builder> byColor = new();
+            Builder GeoFor(WM.Color c)
             {
-                if (!byColor.TryGetValue(c, out W3.MeshGeometry3D? g))
-                    byColor[c] = g = new W3.MeshGeometry3D();
+                if (!byColor.TryGetValue(c, out Builder? g))
+                    byColor[c] = g = new Builder();
                 return g;
             }
 
@@ -354,7 +353,7 @@ internal sealed class SecaoView3D : WC.Border
                 if (Hidden.Contains(w.Key) || budget <= 0)
                     continue;
                 WM.Color c = faces ? dark : ColorOf(w.Kind, w.Aci);
-                W3.MeshGeometry3D g = GeoFor(c);
+                Builder g = GeoFor(c);
                 for (int i = 0; i + 1 < w.Pts.Count && budget-- > 0; i++)
                     AddPrism(g, Map(w.Pts[i]), Map(w.Pts[i + 1]), r, 3);
             }
@@ -364,7 +363,7 @@ internal sealed class SecaoView3D : WC.Border
                 if (Hidden.Contains(m.Key) || budget <= 0 || m.Kind is ItemKind.Solido or ItemKind.Bloco)
                     continue;
                 WM.Color c = faces ? WM.Color.FromArgb(255, 45, 46, 50) : ColorOf(m.Kind, m.Aci);
-                W3.MeshGeometry3D g = GeoFor(c);
+                Builder g = GeoFor(c);
                 foreach ((P3 a, P3 b) in FeatureEdges(m))
                 {
                     if (budget-- <= 0)
@@ -373,30 +372,28 @@ internal sealed class SecaoView3D : WC.Border
                 }
             }
 
-            foreach ((WM.Color c, W3.MeshGeometry3D g) in byColor)
+            foreach ((WM.Color c, Builder g) in byColor)
             {
-                g.Freeze();
                 W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(c));
                 mat.Freeze();
-                group.Children.Add(new W3.GeometryModel3D(g, mat) { BackMaterial = mat });
+                group.Children.Add(new W3.GeometryModel3D(g.ToGeometry(), mat) { BackMaterial = mat });
             }
         }
 
         if (scene.Points.Count > 0 && !Hidden.Contains(Scene3D.PointsKey))
         {
-            W3.MeshGeometry3D geo = new();
+            Builder geo = new();
             double r = Math.Max(_size * 0.004, 0.03);
             foreach ((P3 p, _) in scene.Points)
                 AddPrism(geo, Map(new P3(p.X, p.Y, p.Z - r)), Map(new P3(p.X, p.Y, p.Z + r)), r, 4);
-            geo.Freeze();
             W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(WM.Color.FromRgb(240, 240, 240)));
             mat.Freeze();
-            group.Children.Add(new W3.GeometryModel3D(geo, mat));
+            group.Children.Add(new W3.GeometryModel3D(geo.ToGeometry(), mat));
         }
 
         // Contorno da caixa (em cima e embaixo) e arestas verticais.
         {
-            W3.MeshGeometry3D geo = new();
+            Builder geo = new();
             double r = Math.Max(_size * 0.0012, 0.008);
             for (int i = 0; i < outline.Count; i++)
             {
@@ -406,10 +403,9 @@ internal sealed class SecaoView3D : WC.Border
                 AddPrism(geo, Map(new P3(a.X, a.Y, scene.ZMin)), Map(new P3(a.X, a.Y, scene.ZMax)), r, 4);
             }
 
-            geo.Freeze();
             W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(WM.Color.FromRgb(120, 120, 125)));
             mat.Freeze();
-            group.Children.Add(new W3.GeometryModel3D(geo, mat) { BackMaterial = mat });
+            group.Children.Add(new W3.GeometryModel3D(geo.ToGeometry(), mat) { BackMaterial = mat });
         }
 
         // Transparentes por ultimo (o WPF nao ordena): raio-x e o plano do corte.
@@ -417,7 +413,7 @@ internal sealed class SecaoView3D : WC.Border
             group.Children.Add(model);
         if (ShowCutPlane)
         {
-            W3.MeshGeometry3D geo = new();
+            Builder geo = new();
             for (int i = 0; i + 1 < box.Line.Count; i++)
             {
                 P2 a = box.Line[i], b = box.Line[i + 1];
@@ -430,10 +426,9 @@ internal sealed class SecaoView3D : WC.Border
                     geo.TriangleIndices.Add(baseIndex + k);
             }
 
-            geo.Freeze();
             W3.DiffuseMaterial mat = new(new WM.SolidColorBrush(WM.Color.FromArgb(55, 80, 160, 255)));
             mat.Freeze();
-            group.Children.Add(new W3.GeometryModel3D(geo, mat) { BackMaterial = mat });
+            group.Children.Add(new W3.GeometryModel3D(geo.ToGeometry(), mat) { BackMaterial = mat });
         }
 
         group.Freeze();
@@ -499,8 +494,25 @@ internal sealed class SecaoView3D : WC.Border
         return result;
     }
 
+    /// <summary>
+    /// Acumula posicoes e indices em listas simples e cria a malha WPF de uma vez (somar
+    /// ponto a ponto numa MeshGeometry3D dispara um aviso de mudanca por ponto).
+    /// </summary>
+    private sealed class Builder
+    {
+        public readonly List<W3.Point3D> Positions = new();
+        public readonly List<int> TriangleIndices = new();
+
+        public W3.MeshGeometry3D ToGeometry()
+        {
+            W3.MeshGeometry3D g = new() { Positions = new W3.Point3DCollection(Positions), TriangleIndices = new WM.Int32Collection(TriangleIndices) };
+            g.Freeze();
+            return g;
+        }
+    }
+
     /// <summary>Prisma de n lados entre dois pontos (tubo, linha, aresta).</summary>
-    private static void AddPrism(W3.MeshGeometry3D geo, W3.Point3D a, W3.Point3D b, double r, int sides)
+    private static void AddPrism(Builder geo, W3.Point3D a, W3.Point3D b, double r, int sides)
     {
         W3.Vector3D axis = b - a;
         if (axis.Length < 1e-9)

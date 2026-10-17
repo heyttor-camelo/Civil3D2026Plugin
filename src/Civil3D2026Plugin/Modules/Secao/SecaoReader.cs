@@ -20,8 +20,8 @@ internal static partial class SecaoReader
     {
         "AECC_TIN_SURFACE", "AECC_GRID_SURFACE", "AECC_TIN_VOLUME_SURFACE", "AECC_GRID_VOLUME_SURFACE",
         "AECC_CORRIDOR", "AECC_PIPE", "AECC_STRUCTURE", "AECC_FEATURE_LINE", "AECC_COGO_POINT",
-        "3DSOLID", "POLYLINE", "BODY", "MESH", "INSERT",
-        "PLANESURFACE", "EXTRUDEDSURFACE", "LOFTEDSURFACE", "REVOLVEDSURFACE", "SWEPTSURFACE", "NURBSSURFACE"
+        "3DSOLID", "POLYLINE", "BODY", "MESH", "INSERT", "3DFACE",
+        "PLANESURFACE", "EXTRUDEDSURFACE", "LOFTEDSURFACE", "REVOLVEDSURFACE", "SWEPTSURFACE", "NURBSURFACE", "NURBSSURFACE"
     };
 
     /// <summary>Classe da faixa de vista de cada tipo lido ("" = so corte, ex.: superficies).</summary>
@@ -84,6 +84,8 @@ internal static partial class SecaoReader
         public readonly Dictionary<AcadDb.ObjectId, AcadDb.ObjectId> BlockOwner = new();
         /// <summary>Insercoes de bloco com malha em cache (refeitas quando uma definicao muda).</summary>
         public readonly HashSet<AcadDb.ObjectId> BlockRefs = new();
+        /// <summary>Layers desligadas/congeladas (conteudo de blocos).</summary>
+        public readonly Dictionary<AcadDb.ObjectId, bool> LayerHidden = new();
     }
 
     private static readonly Dictionary<AcadDb.Database, ExtentsCache> Extents = new();
@@ -109,6 +111,9 @@ internal static partial class SecaoReader
 
     public static void InvalidateAll(AcadDb.Database db) => Extents.Remove(db);
 
+    /// <summary>Desenho fechando: solta os caches dele.</summary>
+    public static void Forget(AcadDb.Database db) => Extents.Remove(db);
+
     private static ExtentsCache CacheFor(AcadDb.Database db)
     {
         if (!Extents.TryGetValue(db, out ExtentsCache? c))
@@ -125,7 +130,7 @@ internal static partial class SecaoReader
             return data;
 
         (double minX, double minY, double maxX, double maxY) = box.Bounds(60.0);
-        // Classes em "tudo": sem filtro de profundidade (so a largura da linha conta).
+        // Classes em "tudo": sem filtro de profundidade, so a largura da linha conta.
         bool Unlimited(string kind) => FaixaClass(kind) is { Length: > 0 } fc && prefs.Faixa(fc) == "tudo";
         CutBox gTubos = prefs.BoxFor("tubos", box), gSolidos = prefs.BoxFor("solidos", box), gLinhas = prefs.BoxFor("linhas", box);
         CutBox gPontos = prefs.BoxFor("pontos", box), gCorredor = prefs.BoxFor("corredor", box);
@@ -148,7 +153,7 @@ internal static partial class SecaoReader
                 if (knownKind.Length == 0)
                     continue; // tipo que nao interessa
                 if (cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? kb) && kb is (double kx0, double ky0, double kx1, double ky1) &&
-                    (kx1 < minX || kx0 > maxX || ky1 < minY || ky0 > maxY) && !Unlimited(knownKind))
+                    (kx1 < minX || kx0 > maxX || ky1 < minY || ky0 > maxY) && !(Unlimited(knownKind) && box.CoversS(kx0, ky0, kx1, ky1)))
                 {
                     skipped++;
                     continue;
@@ -168,7 +173,7 @@ internal static partial class SecaoReader
 
                 // Objetos do Civil (AECC_*: superficies, corredores, tubos...) e os 3D do AutoCAD;
                 // o tipo exato e decidido abaixo. Os demais ficam marcados para nao serem olhados de novo.
-                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
+                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase) && !IsAcadSurface(id))
                 {
                     cache.Kinds[id] = "";
                     continue;
@@ -196,7 +201,7 @@ internal static partial class SecaoReader
                     cache.Boxes[id] = eb;
                 }
 
-                if (eb is (double x0, double y0, double x1, double y1) && (x1 < minX || x0 > maxX || y1 < minY || y0 > maxY) && !Unlimited(kind))
+                if (eb is (double x0, double y0, double x1, double y1) && (x1 < minX || x0 > maxX || y1 < minY || y0 > maxY) && !(Unlimited(kind) && box.CoversS(x0, y0, x1, y1)))
                 {
                     skipped++;
                     continue;
@@ -242,7 +247,7 @@ internal static partial class SecaoReader
                         break;
                     }
 
-                    case AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface when prefs.Solidos:
+                    case AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface or AcadDb.PolyFaceMesh or AcadDb.Face when prefs.Solidos:
                     {
                         bool nearCut = NearBox(cache, id, box), nearGhost = prefs.FantasmaSolidos && NearBox(cache, id, gSolidos);
                         if (!nearCut && !nearGhost)
@@ -298,7 +303,7 @@ internal static partial class SecaoReader
         CivilDb.FeatureLine => "feature line(s)",
         CivilDb.CogoPoint => "ponto(s) COGO",
         AcadDb.Solid3d => "solido(s)",
-        AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface => "corpo(s)/malha(s)",
+        AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface or AcadDb.PolyFaceMesh or AcadDb.Face => "corpo(s)/malha(s)",
         AcadDb.BlockReference => "bloco(s)",
         AcadDb.Polyline3d => "polilinha(s) 3D",
         _ => ""
@@ -334,6 +339,8 @@ internal static partial class SecaoReader
     {
         if (!cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? eb) || eb is not (double x0, double y0, double x1, double y1))
             return true;
+        if (box.IsUnlimited)
+            return box.CoversS(x0, y0, x1, y1);
         (double minX, double minY, double maxX, double maxY) = box.Bounds(0.5);
         return !(x1 < minX || x0 > maxX || y1 < minY || y0 > maxY);
     }
@@ -648,30 +655,43 @@ internal static partial class SecaoReader
         if (last <= first)
             return;
 
-        // Uma linha por (subassembly, link, ponto), quebrada onde a estaca nao tem o indice.
-        Dictionary<(int, int, int), List<P3>> open = new();
+        // Uma linha por (subassembly pelo nome e ocorrencia, link, ponto): subassemblies
+        // condicionais que somem numa estaca nao trocam o indice dos outros. A linha quebra
+        // onde a estaca nao tem o ponto ou onde ele salta (mais que o passo entre estacas).
+        Dictionary<(string, int, int), List<P3>> open = new();
         List<List<P3>> lines = new();
         for (int i = first; i <= last; i++)
         {
-            HashSet<(int, int, int)> seen = new();
+            HashSet<(string, int, int)> seen = new();
             AssemblyCache ac = list[i];
+            double spacing = i > first ? P2.Dist(ac.Origin, list[i - 1].Origin) : 0;
+            Dictionary<string, int> occurrence = new(StringComparer.Ordinal);
             for (int si = 0; si < ac.Subassemblies.Count; si++)
             {
+                string name = si < ac.SubassemblyNames.Count ? ac.SubassemblyNames[si] : "";
+                occurrence[name] = occurrence.TryGetValue(name, out int occ) ? occ + 1 : 0;
+                string sub = name + "#" + occurrence[name];
                 for (int li = 0; li < ac.Subassemblies[si].Count; li++)
                 {
                     List<P3> pts = ac.Subassemblies[si][li].Points;
                     for (int k = 0; k < pts.Count; k++)
                     {
-                        (int, int, int) key = (si, li, k);
+                        (string, int, int) key = (sub, li, k);
                         seen.Add(key);
-                        if (!open.TryGetValue(key, out List<P3>? pl))
+                        if (open.TryGetValue(key, out List<P3>? pl) && pl.Count > 0 && P2.Dist(pl[^1].XY, pts[k].XY) > (spacing * 1.5) + 1.0)
+                        {
+                            lines.Add(pl);
+                            open[key] = pl = new List<P3>();
+                        }
+
+                        if (pl is null)
                             open[key] = pl = new List<P3>();
                         pl.Add(pts[k]);
                     }
                 }
             }
 
-            foreach ((int, int, int) key in open.Keys.Where(k => !seen.Contains(k)).ToList())
+            foreach ((string, int, int) key in open.Keys.Where(k => !seen.Contains(k)).ToList())
             {
                 lines.Add(open[key]);
                 open.Remove(key);

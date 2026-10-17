@@ -12,8 +12,29 @@ internal static partial class SecaoReader
     /// <summary>Classes DXF de objetos 3D lidos como malha (alem do 3DSOLID e dos blocos).</summary>
     private static readonly HashSet<string> MeshClasses = new(StringComparer.OrdinalIgnoreCase)
     {
-        "3DSOLID", "BODY", "MESH", "PLANESURFACE", "EXTRUDEDSURFACE", "LOFTEDSURFACE", "REVOLVEDSURFACE", "SWEPTSURFACE", "NURBSSURFACE"
+        "3DSOLID", "BODY", "MESH", "3DFACE", "POLYLINE",
+        "PLANESURFACE", "EXTRUDEDSURFACE", "LOFTEDSURFACE", "REVOLVEDSURFACE", "SWEPTSURFACE", "NURBSURFACE", "NURBSSURFACE"
     };
+
+    private static Autodesk.AutoCAD.Runtime.RXClass? _surfaceClass;
+
+    /// <summary>Superficie do AutoCAD de qualquer tipo (nurbs, blend, patch, offset...): pela classe, nao pelo nome DXF.</summary>
+    private static bool IsAcadSurface(AcadDb.ObjectId id)
+    {
+        try
+        {
+            _surfaceClass ??= Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(AcadDb.Surface));
+            return id.ObjectClass.IsDerivedFrom(_surfaceClass);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Objeto lido como malha (fora blocos): solido, corpo, superficie, malha SubD, polyface, 3D face.</summary>
+    private static bool IsMeshEntity(AcadDb.Entity e) =>
+        e is AcadDb.Solid3d or AcadDb.Body or AcadDb.Surface or AcadDb.SubDMesh or AcadDb.PolyFaceMesh or AcadDb.Face;
 
     /// <summary>Malha do objeto (cache por ObjectId); vazia se nao for 3D ou nao puder ser lida.</summary>
     private static MeshGeom MeshOf(AcadDb.Transaction tr, ExtentsCache cache, AcadDb.Entity ent)
@@ -23,16 +44,14 @@ internal static partial class SecaoReader
         g = ent switch
         {
             AcadDb.BlockReference br => FromBlock(tr, cache, br),
-            AcadDb.SubDMesh sm => FromSubD(sm),
-            AcadDb.Solid3d or AcadDb.Body or AcadDb.Surface => FromBrep(ent),
-            _ => null
+            _ => FromEntity(tr, ent)
         } ?? new MeshGeom();
         if (g.Name.Length == 0)
             g.Name = ent switch
             {
                 AcadDb.BlockReference br => "Bloco " + br.Name,
                 AcadDb.Solid3d => "Solido " + ent.Handle,
-                AcadDb.SubDMesh => "Malha " + ent.Handle,
+                AcadDb.SubDMesh or AcadDb.PolyFaceMesh or AcadDb.Face => "Malha " + ent.Handle,
                 AcadDb.Surface => "Superficie " + ent.Handle,
                 _ => "Corpo " + ent.Handle
             };
@@ -41,6 +60,15 @@ internal static partial class SecaoReader
             cache.BlockRefs.Add(ent.ObjectId);
         return g;
     }
+
+    private static MeshGeom? FromEntity(AcadDb.Transaction tr, AcadDb.Entity ent) => ent switch
+    {
+        AcadDb.SubDMesh sm => FromSubD(sm),
+        AcadDb.PolyFaceMesh pf => FromPolyFace(tr, pf),
+        AcadDb.Face f => FromFace(f),
+        AcadDb.Solid3d or AcadDb.Body or AcadDb.Surface => FromBrep(ent),
+        _ => null
+    };
 
     private static MeshGeom? FromBrep(AcadDb.Entity ent)
     {
@@ -72,8 +100,21 @@ internal static partial class SecaoReader
 
     private static MeshGeom? FromSubD(AcadDb.SubDMesh mesh)
     {
-        Point3dCollection verts = mesh.Vertices;
-        Int32Collection faces = mesh.FaceArray;
+        Point3dCollection verts;
+        Int32Collection faces;
+        try
+        {
+            // Malha suavizada: a superficie vista e a subdividida, nao a gaiola de controle.
+            bool smooth = mesh.SmoothLevel > 0;
+            verts = smooth ? mesh.GetSubDividedVertices() : mesh.Vertices;
+            faces = smooth ? mesh.GetSubDividedFaceArray() : mesh.FaceArray;
+        }
+        catch
+        {
+            verts = mesh.Vertices;
+            faces = mesh.FaceArray;
+        }
+
         List<P3> v = new();
         foreach (Point3d p in verts)
             v.Add(new P3(p.X, p.Y, p.Z));
@@ -109,6 +150,97 @@ internal static partial class SecaoReader
         }
 
         g.ComputeFolds();
+        return g;
+    }
+
+    /// <summary>Polyface mesh (POLYLINE de faces, comum em blocos importados).</summary>
+    private static MeshGeom? FromPolyFace(AcadDb.Transaction tr, AcadDb.PolyFaceMesh pf)
+    {
+        List<P3> v = new();
+        List<short[]> faces = new();
+        foreach (AcadDb.ObjectId vid in pf)
+        {
+            AcadDb.DBObject o = tr.GetObject(vid, AcadDb.OpenMode.ForRead);
+            if (o is AcadDb.PolyFaceMeshVertex pv)
+                v.Add(new P3(pv.Position.X, pv.Position.Y, pv.Position.Z));
+            else if (o is AcadDb.FaceRecord fr)
+                faces.Add(new[] { fr.GetVertexAt(0), fr.GetVertexAt(1), fr.GetVertexAt(2), fr.GetVertexAt(3) });
+        }
+
+        MeshGeom g = new();
+        HashSet<(int, int)> seen = new();
+        foreach (short[] f in faces)
+        {
+            // Indices a partir de 1; negativo = aresta invisivel; 0 = sem vertice.
+            List<(int Index, bool Visible)> idx = f.Where(x => x != 0).Select(x => (Math.Abs((int)x) - 1, x > 0)).Where(x => x.Item1 < v.Count).ToList();
+            if (idx.Count < 3)
+                continue;
+            for (int k = 1; k + 1 < idx.Count; k++)
+            {
+                foreach (int i in new[] { idx[0].Index, idx[k].Index, idx[k + 1].Index })
+                {
+                    g.Tri.Add(v[i]);
+                    g.Grow(v[i]);
+                }
+            }
+
+            for (int k = 0; k < idx.Count && g.Edges.Count < 20000; k++)
+            {
+                if (!idx[k].Visible)
+                    continue;
+                int a = idx[k].Index, b = idx[(k + 1) % idx.Count].Index;
+                if (a != b && seen.Add(a < b ? (a, b) : (b, a)))
+                    g.Edges.Add(new List<P3> { v[a], v[b] });
+            }
+        }
+
+        g.ComputeFolds();
+        return g;
+    }
+
+    /// <summary>3D face (triangulo ou quadrilatero).</summary>
+    private static MeshGeom? FromFace(AcadDb.Face face)
+    {
+        P3[] p = new P3[4];
+        for (short i = 0; i < 4; i++)
+        {
+            Point3d q = face.GetVertexAt(i);
+            p[i] = new P3(q.X, q.Y, q.Z);
+        }
+
+        MeshGeom g = new();
+        foreach (P3 q in new[] { p[0], p[1], p[2] })
+        {
+            g.Tri.Add(q);
+            g.Grow(q);
+        }
+
+        if (p[3] != p[2])
+        {
+            foreach (P3 q in new[] { p[0], p[2], p[3] })
+            {
+                g.Tri.Add(q);
+                g.Grow(q);
+            }
+        }
+
+        int n = p[3] != p[2] ? 4 : 3;
+        for (short i = 0; i < n; i++)
+        {
+            bool visible = true;
+            try
+            {
+                visible = face.IsEdgeVisibleAt(i);
+            }
+            catch
+            {
+                // sem informacao: visivel
+            }
+
+            if (visible)
+                g.Edges.Add(new List<P3> { p[i], p[(i + 1) % n] });
+        }
+
         return g;
     }
 
@@ -165,13 +297,16 @@ internal static partial class SecaoReader
                 continue;
             }
 
-            if (!MeshClasses.Contains(dxf) && !dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase))
+            if (!MeshClasses.Contains(dxf) && !dxf.Equals("INSERT", StringComparison.OrdinalIgnoreCase) && !IsAcadSurface(eid))
                 continue;
             try
             {
                 if (tr.GetObject(eid, AcadDb.OpenMode.ForRead) is not AcadDb.Entity e)
                     continue;
                 cache.BlockOwner[eid] = btrId;
+                // Estados de visibilidade de blocos dinamicos e layers desligadas/congeladas.
+                if (!e.Visible || LayerHidden(tr, cache, e.LayerId))
+                    continue;
                 MeshGeom? part = e switch
                 {
                     AcadDb.BlockReference nested => BlockMesh(tr, cache, nested.BlockTableRecord, depth + 1) is { } nm
@@ -181,9 +316,7 @@ internal static partial class SecaoReader
                             return new P3(q.X, q.Y, q.Z);
                         }, "")
                         : null,
-                    AcadDb.SubDMesh sm => FromSubD(sm),
-                    AcadDb.Solid3d or AcadDb.Body or AcadDb.Surface => FromBrep(e),
-                    _ => null
+                    _ => IsMeshEntity(e) ? FromEntity(tr, e) : null
                 };
                 acc.Append(part);
             }
@@ -196,6 +329,24 @@ internal static partial class SecaoReader
         MeshGeom? result = acc.IsEmpty ? null : acc;
         cache.Blocks[btrId] = result;
         return result;
+    }
+
+    /// <summary>Layer desligada ou congelada (cache por layer durante a vida do cache de extents).</summary>
+    private static bool LayerHidden(AcadDb.Transaction tr, ExtentsCache cache, AcadDb.ObjectId layerId)
+    {
+        if (cache.LayerHidden.TryGetValue(layerId, out bool hidden))
+            return hidden;
+        try
+        {
+            hidden = tr.GetObject(layerId, AcadDb.OpenMode.ForRead) is AcadDb.LayerTableRecord l && (l.IsOff || l.IsFrozen);
+        }
+        catch
+        {
+            hidden = false;
+        }
+
+        cache.LayerHidden[layerId] = hidden;
+        return hidden;
     }
 
     // ------------------------------------------------------------------
@@ -212,8 +363,19 @@ internal static partial class SecaoReader
         if (!g.Overlaps(minX, minY, maxX, maxY) || g.Tri.Count == 0)
             return;
         List<((double S, double Z) A, (double S, double Z) B)> segs = new();
+        HashSet<(long, long, long, long)> seen = new();
         for (int k = 0; k + 2 < g.Tri.Count; k += 3)
-            segs.AddRange(box.CutTriangle(g.Tri[k], g.Tri[k + 1], g.Tri[k + 2]));
+        {
+            foreach (((double S, double Z) A, (double S, double Z) B) sg in box.CutTriangle(g.Tri[k], g.Tri[k + 1], g.Tri[k + 2]))
+            {
+                // Aresta deitada no plano sai dos dois triangulos vizinhos: fica uma.
+                (long, long) qa = ((long)Math.Round(sg.A.S * 1e5), (long)Math.Round(sg.A.Z * 1e5)), qb = ((long)Math.Round(sg.B.S * 1e5), (long)Math.Round(sg.B.Z * 1e5));
+                (long, long, long, long) key = qa.CompareTo(qb) <= 0 ? (qa.Item1, qa.Item2, qb.Item1, qb.Item2) : (qb.Item1, qb.Item2, qa.Item1, qa.Item2);
+                if (seen.Add(key))
+                    segs.Add(sg);
+            }
+        }
+
         if (segs.Count == 0)
             return;
         // Fica so o que cai dentro do comprimento da linha.
@@ -271,8 +433,10 @@ internal static partial class SecaoReader
             return;
         ghost.Depth = n == 0 ? 0 : sum / n;
         int segCount = ghost.Polylines.Sum(p => p.Count - 1);
-        if (segCount <= 3000)
-            ghost.Fills = SecaoGeometry.Outline(ghost.Polylines, 1e-3); // contorno projetado (hachuravel); caro em objetos muito detalhados
+        // Contorno projetado (hachuravel): caro em objetos detalhados, entao so e calculado
+        // quando alguem pede (hachura, menu de estilo), e so ate um limite de trechos.
+        List<List<(double S, double Z)>> lines = ghost.Polylines;
+        ghost.FillsFactory = segCount <= 1500 ? () => SecaoGeometry.Outline(lines, 1e-3) : null;
         ghost.Info["Handle"] = handle;
         ghost.Info["Afastamento medio"] = ghost.Depth.ToString("0.00", CultureInfo.InvariantCulture) + " m";
         ghost.Info["Arestas projetadas"] = $"{ghost.Polylines.Count} ({silhouettes} de silhueta)";

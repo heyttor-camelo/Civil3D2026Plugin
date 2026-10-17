@@ -333,7 +333,8 @@ internal static class SecaoStore
             };
             lines.AddRange(p.Faixas.Select(kv => "faixa=" + kv.Key + ":" + kv.Value));
             lines.AddRange(p.Estilos.Where(kv => kv.Value != ItemStyle.Normal).Take(500).Select(kv => "estilo=" + (int)kv.Value + ":" + kv.Key));
-            lines.AddRange(p.Deslocamentos.Take(500).Select(kv => "rotulo=" + F(kv.Value.DS) + ";" + F(kv.Value.DZ) + ":" + kv.Key));
+            // Os mais recentes ficam (ate 500).
+            lines.AddRange(p.Deslocamentos.Skip(Math.Max(0, p.Deslocamentos.Count - 500)).Select(kv => "rotulo=" + F(kv.Value.DS) + ";" + F(kv.Value.DZ) + ":" + kv.Key));
             File.WriteAllLines(PrefsPath, lines);
         }
         catch
