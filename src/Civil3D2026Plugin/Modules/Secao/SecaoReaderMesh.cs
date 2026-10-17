@@ -100,20 +100,9 @@ internal static partial class SecaoReader
 
     private static MeshGeom? FromSubD(AcadDb.SubDMesh mesh)
     {
-        Point3dCollection verts;
-        Int32Collection faces;
-        try
-        {
-            // Malha suavizada: a superficie vista e a subdividida, nao a gaiola de controle.
-            bool smooth = mesh.SmoothLevel > 0;
-            verts = smooth ? mesh.GetSubDividedVertices() : mesh.Vertices;
-            faces = smooth ? mesh.GetSubDividedFaceArray() : mesh.FaceArray;
-        }
-        catch
-        {
-            verts = mesh.Vertices;
-            faces = mesh.FaceArray;
-        }
+        // Gaiola de controle da malha (a API .NET nao expoe a superficie subdividida).
+        Point3dCollection verts = mesh.Vertices;
+        Int32Collection faces = mesh.FaceArray;
 
         List<P3> v = new();
         foreach (Point3d p in verts)
