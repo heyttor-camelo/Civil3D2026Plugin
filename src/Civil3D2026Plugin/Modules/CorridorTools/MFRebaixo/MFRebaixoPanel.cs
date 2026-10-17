@@ -579,6 +579,16 @@ internal sealed class MFRebaixoPanel : SW.Window
         foreach (CorridorSummary c in _corridors)
             c.Rebaixos = _items.Count(r => r.CorridorId == c.Id);
         _warnings = MFRebaixoData.Check(_items);
+        if (MFRebaixoData.RemovedSets.Count > 0)
+        {
+            _warnings.Add(new RebaixoWarning
+            {
+                Serious = false,
+                Text = $"{MFRebaixoData.RemovedSets.Count} Transition Set(s) de rebaixos removidos (desligados, sem efeito): " +
+                       string.Join("; ", MFRebaixoData.RemovedSets.Take(6)) + (MFRebaixoData.RemovedSets.Count > 6 ? "; ..." : ""),
+                Reference = "A API do Civil nao apaga Transition Set. Para limpar a lista: Edit Corridor Transition > apagar os sets 'REMOVIDO'"
+            });
+        }
 
         if (_pending is { } pend)
         {

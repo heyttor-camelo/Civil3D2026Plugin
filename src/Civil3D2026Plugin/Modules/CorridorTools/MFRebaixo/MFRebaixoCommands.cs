@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.6.1";
+    public const string Versao = "1.6.2";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";

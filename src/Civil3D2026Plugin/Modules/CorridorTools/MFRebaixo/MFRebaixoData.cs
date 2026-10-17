@@ -211,6 +211,7 @@ internal static class MFRebaixoData
     public static List<RebaixoInfo> ReadAll(AcadDb.Database db)
     {
         List<RebaixoInfo> list = new();
+        RemovedSets.Clear();
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
         {
@@ -236,6 +237,12 @@ internal static class MFRebaixoData
                         name.Contains(HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
                         set.TransitionCount < 3)
                     {
+                        continue;
+                    }
+
+                    if (IsNeutral(set))
+                    {
+                        RemovedSets.Add($"{corridor.Name} / {baseline.Name}: {name}");
                         continue;
                     }
 
@@ -646,10 +653,79 @@ internal static class MFRebaixoData
                n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
+    public const string RemovedComment = "REBAIXO MF - REMOVIDO (apagar no Edit Corridor Transition)";
+
+    /// <summary>Sets ja desligados (lidos no ultimo ReadAll), para avisar e limpar a mao.</summary>
+    public static List<string> RemovedSets { get; } = new();
+
+    private static double Val(object v) => Convert.ToDouble(v, CultureInfo.InvariantCulture);
+
+    /// <summary>Set de rebaixo desligado: REB/DESTAQUE todos 0, ou altura livre constante.</summary>
+    public static bool IsNeutral(CivilDb.CorridorTransitionSet s)
+    {
+        try
+        {
+            if (s.TransitionCount == 0)
+                return true;
+            List<double> values = new();
+            string param = s.GetTransitionAt(0).ParameterName ?? "";
+            for (int i = 0; i < s.TransitionCount; i++)
+            {
+                var t = s.GetTransitionAt(i);
+                values.Add(Val(t.StartValue));
+                values.Add(Val(t.EndValue));
+            }
+
+            bool zeroParam = param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ||
+                             param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase);
+            return zeroParam
+                ? values.All(v => Math.Abs(v) < 1e-6)
+                : values.All(v => Math.Abs(v - values[0]) < 1e-6);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Copia do set com o mesmo nome e as mesmas estacas, mas com valores que nao mudam nada.</summary>
+    private static CivilDb.CorridorTransitionSet Neutral(CivilDb.Baseline baseline, CivilDb.CorridorTransitionSet original)
+    {
+        var first = original.GetTransitionAt(0);
+        CivilDb.BaselineRegion seed = RegionAt(baseline, first.StartStation) ?? RegionAt(baseline, first.EndStation)
+            ?? throw new InvalidOperationException($"Sem region para o Transition Set '{original.Name}'.");
+        CivilDb.CorridorTransitionSet copy = first.HasSide
+            ? new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType, first.Side)
+            : new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType);
+        copy.Comment = RemovedComment;
+
+        string param = first.ParameterName ?? "";
+        bool zeroParam = param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ||
+                         param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase);
+        // AMF_LIVRE (rebaixo antigo): fica a altura normal da entrada em todo o trecho.
+        double neutral = zeroParam ? 0.0 : Val(first.StartValue);
+
+        for (int i = 0; i < original.TransitionCount; i++)
+        {
+            var data = original.GetTransitionAt(i);
+            var created = i == 0 ? copy.AddTransition(data.ParameterName) : copy.AddTransition();
+            created.StartStation = data.StartStation;
+            created.EndStation = data.EndStation;
+            created.StartValue = neutral;
+            created.EndValue = neutral;
+            created.TransitionType = data.TransitionType;
+        }
+
+        copy.StationLocked = original.StationLocked;
+        return copy;
+    }
+
     /// <summary>
-    /// Tira os dois Transition Sets do rebaixo e as seções que o comando criou. Devolve um resumo.
-    /// 1º tenta SetTransitions com os demais sets; se o Civil mantiver o set, refaz a lista com
-    /// cópias dos sets que ficam (como o CORRSPLIT faz ao mover regions).
+    /// "Remove" o rebaixo. A API do Civil 3D nao apaga Transition Set: SetTransitions e
+    /// ImportTransitions so acrescentam ou atualizam (pelo nome). Entao o rebaixo e DESLIGADO:
+    /// os dois sets (geometria e destaque) ficam com o mesmo nome e valores neutros (REB = 0,
+    /// DESTAQUE = 0) e o comentario "REMOVIDO"; o painel nao os lista mais. As secoes que o
+    /// comando criou saem. Para sumir de vez com os sets, apague no Edit Corridor Transition.
     /// </summary>
     public static string Remove(AcadDb.Database db, RebaixoInfo r, bool rebuild = true)
     {
@@ -661,84 +737,18 @@ internal static class MFRebaixoData
 
         List<CivilDb.CorridorTransitionSet> sets = baseline.getTransitions();
         int own = sets.Count(x => IsOwnSet(x, r));
-        string? firstError = null;
-
         if (own > 0)
         {
-            List<CivilDb.CorridorTransitionSet> keep = sets.Where(x => !IsOwnSet(x, r)).ToList();
-            try
+            List<CivilDb.CorridorTransitionSet> updated = sets.Select(x => IsOwnSet(x, r) ? Neutral(baseline, x) : x).ToList();
+            baseline.SetTransitions(updated);
+
+            List<CivilDb.CorridorTransitionSet> after = baseline.getTransitions();
+            if (after.Count != sets.Count || after.Where(x => IsOwnSet(x, r)).Any(x => !IsNeutral(x)))
             {
-                baseline.SetTransitions(keep);
-            }
-            catch (System.Exception ex)
-            {
-                firstError = ex.Message;
-            }
-
-            if (baseline.getTransitions().Any(x => IsOwnSet(x, r)))
-            {
-                // Plano B: lista nova com cópias dos sets que ficam.
-                List<CivilDb.CorridorTransitionSet> copies = new();
-                foreach (CivilDb.CorridorTransitionSet original in baseline.getTransitions().Where(x => !IsOwnSet(x, r)))
-                {
-                    if (original.TransitionCount == 0)
-                        continue;
-                    var first = original.GetTransitionAt(0);
-                    CivilDb.BaselineRegion seed = RegionAt(baseline, first.StartStation)
-                        ?? throw new InvalidOperationException($"Sem region para copiar o Transition Set '{original.Name}'.");
-                    CivilDb.CorridorTransitionSet copy = first.HasSide
-                        ? new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType, first.Side)
-                        : new CivilDb.CorridorTransitionSet(original.Name, seed, original.SubassemblyName, original.NameType);
-                    copy.Comment = original.Comment;
-                    for (int i = 0; i < original.TransitionCount; i++)
-                    {
-                        var data = original.GetTransitionAt(i);
-                        var created = i == 0 ? copy.AddTransition(data.ParameterName) : copy.AddTransition();
-                        created.StartStation = data.StartStation;
-                        created.EndStation = data.EndStation;
-                        created.StartValue = data.StartValue;
-                        created.EndValue = data.EndValue;
-                        created.TransitionType = data.TransitionType;
-                    }
-
-                    copy.StationLocked = original.StationLocked;
-                    copies.Add(copy);
-                }
-
-                try
-                {
-                    baseline.SetTransitions(new List<CivilDb.CorridorTransitionSet>());
-                    baseline.SetTransitions(copies);
-                }
-                catch (System.Exception ex)
-                {
-                    firstError ??= ex.Message;
-                }
-
-                // Plano C: o SetTransitions so acrescenta/atualiza. Exporta o CSV das transitions,
-                // tira as linhas deste rebaixo e importa de volta (Baseline.Export/ImportTransitions, 2024.1+).
-                if (baseline.getTransitions().Any(x => IsOwnSet(x, r)))
-                {
-                    string? csvError = RemoveByCsv(baseline, r);
-                    firstError ??= csvError;
-                }
-
-                List<CivilDb.CorridorTransitionSet> after = baseline.getTransitions();
-                if (!after.Any(x => IsOwnSet(x, r)) && after.Count != sets.Count - own)
-                {
-                    // Sumiu o nosso, mas a contagem dos outros mudou (import duplicou?): desfaz tudo.
-                    throw new InvalidOperationException(
-                        $"A remocao mudaria os outros Transition Sets ({sets.Count - own} esperados, {after.Count} depois). Nada foi alterado." +
-                        " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
-                }
-
-                if (after.Any(x => IsOwnSet(x, r)))
-                {
-                    throw new InvalidOperationException(
-                        "O Civil 3D nao deixou tirar o Transition Set '" + r.SetName + "'" +
-                        (firstError is null ? "." : ": " + firstError) +
-                        " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
-                }
+                // Sem commit: nada fica gravado.
+                throw new InvalidOperationException(
+                    $"O Civil 3D nao aceitou desligar o rebaixo ({sets.Count} sets antes, {after.Count} depois). Nada foi alterado." +
+                    " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
             }
         }
 
@@ -775,63 +785,7 @@ internal static class MFRebaixoData
         if (rebuild)
             corridor.Rebuild();
         tr.Commit();
-        return $"{own} Transition Set(s) e {sections} secao(oes) removidos";
-    }
-
-    /// <summary>
-    /// Remove pelo CSV: ExportTransitions, tira as linhas que citam o set do rebaixo (e o DESTAQUE)
-    /// e ImportTransitions. Chamado por reflexao (os metodos existem a partir do Civil 3D 2024.1).
-    /// Deixa o CSV original e o editado em %TEMP% para conferencia. Devolve o erro, se houver.
-    /// </summary>
-    private static string? RemoveByCsv(CivilDb.Baseline baseline, RebaixoInfo r)
-    {
-        try
-        {
-            System.Reflection.MethodInfo? export = baseline.GetType().GetMethod("ExportTransitions", new[] { typeof(string) });
-            System.Reflection.MethodInfo? import = baseline.GetType().GetMethod("ImportTransitions", new[] { typeof(string) });
-            if (export is null || import is null)
-                return "esta versao do Civil nao tem Export/ImportTransitions";
-
-            string folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "MFREBAIXO");
-            System.IO.Directory.CreateDirectory(folder);
-            string stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
-            string original = System.IO.Path.Combine(folder, $"transitions_{stamp}_antes.csv");
-            string edited = System.IO.Path.Combine(folder, $"transitions_{stamp}_depois.csv");
-
-            export.Invoke(baseline, new object[] { original });
-            if (!System.IO.File.Exists(original))
-                return "o ExportTransitions nao gerou o CSV";
-
-            string[] lines = System.IO.File.ReadAllLines(original);
-            bool Own(string line)
-            {
-                foreach (string raw in line.Split(new[] { ',', ';', '\t' }))
-                {
-                    string cell = raw.Trim().Trim('"').Trim();
-                    if (cell.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) ||
-                        cell.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase))
-                        return true;
-                }
-
-                return false;
-            }
-
-            List<string> kept = lines.Where(l => !Own(l)).ToList();
-            if (kept.Count == lines.Length)
-                return "o set nao aparece no CSV exportado (" + original + ")";
-
-            System.IO.File.WriteAllLines(edited, kept);
-            import.Invoke(baseline, new object[] { edited });
-            return null;
-        }
-        catch (System.Reflection.TargetInvocationException ex) when (ex.InnerException is not null)
-        {
-            return ex.InnerException.Message;
-        }
-        catch (System.Exception ex)
-        {
-            return ex.Message;
-        }
+        return $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0) e {sections} secao(oes) removida(s); os sets vazios podem ser apagados no Edit Corridor Transition";
     }
 
     public static void Rebuild(AcadDb.Database db, AcadDb.ObjectId corridorId)

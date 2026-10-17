@@ -1,3 +1,9 @@
+## 2.42.2 - MFREBAIXO v1.6.2 / remover = desligar o rebaixo
+
+- confirmado no Civil 3D: a API nao apaga Transition Set (`SetTransitions` e `ImportTransitions` so acrescentam/atualizam pelo nome). Remover no painel agora **desliga** o rebaixo: os dois sets ficam com o mesmo nome, as mesmas estacas e valores neutros (REB = 0, DESTAQUE = 0; no rebaixo antigo por AMF_LIVRE, altura constante), comentario "REMOVIDO"; as secoes criadas saem. Se o Civil nao aceitar a troca, nada e gravado;
+- o painel nao lista mais os sets desligados e avisa quantos ha para apagar a mao no Edit Corridor Transition;
+- saiu a tentativa pelo CSV (Export/ImportTransitions), que tambem nao apaga.
+
 ## 2.42.1 - MFREBAIXO v1.6.1 / remover rebaixo pelo CSV das transitions
 
 - o `SetTransitions` do Civil so acrescenta/atualiza sets (nao apaga). Para remover, o painel agora exporta as transitions da baseline em CSV, tira as linhas do rebaixo e importa de volta (`Baseline.ExportTransitions/ImportTransitions`, por reflexao). Os CSVs ficam em `%TEMP%\MFREBAIXO`;
