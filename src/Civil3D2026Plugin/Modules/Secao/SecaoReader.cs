@@ -208,26 +208,49 @@ internal static class SecaoReader
         for (int i = 0; i + 1 < box.Line.Count; i++)
         {
             P2 a = box.Line[i], b = box.Line[i + 1];
-            Point3dCollection pts;
-            try
-            {
-                pts = surface.SampleElevations(new Point3d(a.X, a.Y, 0), new Point3d(b.X, b.Y, 0));
-            }
-            catch
-            {
-                continue; // fora da superficie
-            }
-
             List<(double S, double Z)> pl = new();
             P2 t = (b - a).Unit();
-            foreach (Point3d p in pts)
+            Point3dCollection? pts = null;
+            // SampleElevations fica na interface ITerrainSurface (TinSurface, GridSurface e as de volume), nao na classe Surface.
+            if (surface is CivilDb.ITerrainSurface terrain)
             {
-                double s = starts[i] + P2.Dot(new P2(p.X, p.Y) - a, t);
-                // Falha na superficie: o Civil devolve pontos separados; quebra a polilinha quando o salto em S e grande sem pontos no meio.
-                pl.Add((s, p.Z));
+                try
+                {
+                    pts = terrain.SampleElevations(new Point3d(a.X, a.Y, 0), new Point3d(b.X, b.Y, 0));
+                }
+                catch
+                {
+                    pts = null; // fora da superficie ou tipo sem amostragem
+                }
             }
 
-            if (pl.Count > 0)
+            if (pts is not null)
+            {
+                foreach (Point3d p in pts)
+                    pl.Add((starts[i] + P2.Dot(new P2(p.X, p.Y) - a, t), p.Z));
+            }
+            else
+            {
+                // Outros tipos de superficie: amostra a cada 0,5 m com FindElevationAtXY (fora da superficie lanca).
+                double len = P2.Dist(a, b);
+                int n = Math.Clamp((int)Math.Ceiling(len / 0.5), 1, 4000);
+                for (int k = 0; k <= n; k++)
+                {
+                    P2 q = a + (t * (len * k / n));
+                    try
+                    {
+                        pl.Add((starts[i] + (len * k / n), surface.FindElevationAtXY(q.X, q.Y)));
+                    }
+                    catch
+                    {
+                        if (pl.Count > 1)
+                            item.Polylines.Add(pl);
+                        pl = new List<(double S, double Z)>();
+                    }
+                }
+            }
+
+            if (pl.Count > 1)
                 item.Polylines.Add(pl);
         }
 
