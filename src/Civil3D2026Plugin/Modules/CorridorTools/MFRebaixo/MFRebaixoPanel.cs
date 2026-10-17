@@ -879,6 +879,93 @@ internal sealed class MFRebaixoPanel : SW.Window
                 }, "Trecho mostrado antes e depois do rebaixo", Math.Abs(_settings.PainelMargem - m) < 1e-6));
             }
         }
+
+        _viewToggles.Children.Add(Sep());
+        WC.TextBlock textos = null!;
+        textos = Link("Textos \u25BE", () => ShowTextOptions(textos), "Escolher quais textos aparecem na vista e na barra de baixo");
+        _viewToggles.Children.Add(textos);
+    }
+
+    // ------------------------------------------------------------------
+    // Textos da vista (liga/desliga)
+    // ------------------------------------------------------------------
+
+    /// <summary>Chave, grupo, texto e dica de cada texto que pode ser ligado/desligado.</summary>
+    private static readonly (string Key, string Group, string Text, string Tip)[] TextOptions =
+    {
+        ("CODIGO", "Etiqueta do rebaixo", "Codigo (R01, R02...)", "Codigo automatico do rebaixo"),
+        ("NOME", "Etiqueta do rebaixo", "Nome", "Nome dado na aba Propriedades"),
+        ("ESTACAS", "Etiqueta do rebaixo", "Estacas", "Estacas inicial e final do trecho rebaixado"),
+        ("TODOS", "Etiqueta do rebaixo", "Em todos os rebaixos", "Desligado: etiqueta so no rebaixo selecionado"),
+        ("CHAMADA", "Etiqueta do rebaixo", "Linha de chamada", "Linha ligando a etiqueta ao rebaixo"),
+        ("CORREDOR", "Planta", "Nome do corredor", "Nome do corredor ao longo do eixo (planta geral)"),
+        ("BASELINE", "Planta", "Nome das baselines", "Nome de cada baseline ao longo do eixo (planta geral)"),
+        ("MARCOS", "Planta", "Marcos S0-S3", "Inicio/fim das rampas e do trecho rebaixado (planta do rebaixo)"),
+        ("LEGENDA", "Planta", "Legenda", "Cores da vista"),
+        ("ESCALA", "Planta", "Escala grafica", "Barra de escala no canto"),
+        ("RESUMO", "Barra de baixo", "Resumo", "Quantidade de rebaixos / dados do rebaixo selecionado"),
+        ("CURSOR", "Barra de baixo", "O que esta sob o cursor", "Rebaixo, corredor ou secao sob o mouse")
+    };
+
+    private bool Show(string key) => !_settings.PainelTextosOcultos.Contains(key);
+
+    private void SetShow(string key, bool on)
+    {
+        _settings.PainelTextosOcultos.RemoveAll(x => x == key);
+        if (!on)
+            _settings.PainelTextosOcultos.Add(key);
+        SaveSettings();
+        if (!Show("CURSOR"))
+            _coords.Text = "";
+        RenderGraphic();
+    }
+
+    private void ShowTextOptions(SW.UIElement target)
+    {
+        WC.StackPanel list = new() { Margin = new SW.Thickness(10, 6, 10, 8) };
+        List<WC.CheckBox> boxes = new();
+        string? group = null;
+        foreach ((string key, string g, string text, string tip) in TextOptions)
+        {
+            if (g != group)
+            {
+                group = g;
+                list.Children.Add(new WC.TextBlock { Text = g, Foreground = T.Muted, FontSize = 11, FontWeight = SW.FontWeights.Bold, Margin = new SW.Thickness(0, list.Children.Count == 0 ? 0 : 8, 0, 2) });
+            }
+
+            WC.CheckBox box = new() { Content = text, IsChecked = Show(key), ToolTip = tip, Foreground = T.Text, Margin = new SW.Thickness(4, 2, 0, 2), Tag = key };
+            string k = key;
+            box.Click += (_, _) => SetShow(k, box.IsChecked == true);
+            boxes.Add(box);
+            list.Children.Add(box);
+        }
+
+        void SetAll(Func<string, bool> on)
+        {
+            _settings.PainelTextosOcultos = TextOptions.Select(o => o.Key).Where(k => !on(k)).ToList();
+            foreach (WC.CheckBox b in boxes)
+                b.IsChecked = on((string)b.Tag);
+            SaveSettings();
+            if (!Show("CURSOR"))
+                _coords.Text = "";
+            RenderGraphic();
+        }
+
+        WC.StackPanel quick = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 10, 0, 0) };
+        quick.Children.Add(Link("Tudo", () => SetAll(_ => true), "Ligar todos os textos"));
+        quick.Children.Add(Link("Nada", () => SetAll(_ => false), "Desligar todos os textos"));
+        quick.Children.Add(Link("Padrao", () => SetAll(k => k is not ("ESTACAS" or "BASELINE")), "Codigo, nome, corredor, marcos, legenda, escala e barra"));
+        list.Children.Add(quick);
+
+        var popup = new WC.Primitives.Popup
+        {
+            PlacementTarget = target,
+            Placement = WC.Primitives.PlacementMode.Top,
+            StaysOpen = false,
+            AllowsTransparency = true,
+            Child = new WC.Border { Background = T.Pane, BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = list }
+        };
+        popup.IsOpen = true;
     }
 
     private void SetMode(string mode)
@@ -942,7 +1029,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         RenderPlan();
 
         RebaixoInfo? r = _current;
-        _graphicInfo.Text = Mode == "GERAL"
+        _graphicInfo.Text = !Show("RESUMO") ? "" : Mode == "GERAL"
             ? $"{_items.Count} rebaixo(s) em {_overview.Count} baseline(s)" + (r is null ? "" : $"   |   selecionado: {r.Label}")
             : r is null
                 ? "Nenhum rebaixo selecionado."
@@ -1120,7 +1207,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         // Legenda e escala primeiro: reservam o espaco dos cantos.
         double ly = 8;
-        foreach ((string text, WM.Brush b) in new[] { ("rebaixo", RebaixoBrush), ("com aviso", WarnBrush), ("selecionado", SelectedBrush) })
+        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("rebaixo", RebaixoBrush), ("com aviso", WarnBrush), ("selecionado", SelectedBrush) } : Array.Empty<(string, WM.Brush)>())
         {
             var sw = new WS.Rectangle { Width = 14, Height = 6, Fill = b, IsHitTestVisible = false };
             WC.Canvas.SetLeft(sw, 8);
@@ -1130,12 +1217,16 @@ internal sealed class MFRebaixoPanel : SW.Window
             ly += 15;
         }
 
-        _labelRects.Add(new SW.Rect(0, 0, 110, ly + 4));
-        double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
-        double len = step * _scale;
-        _plan.Children.Add(new WS.Line { X1 = w - len - 14, Y1 = h - 12, X2 = w - 14, Y2 = h - 12, Stroke = ToolTheme.GraphicText, StrokeThickness = 2, IsHitTestVisible = false });
-        PlanLabel($"{step:0.##} m", w - len - 14, h - 28, 10);
-        _labelRects.Add(new SW.Rect(w - len - 20, h - 30, len + 20, 30));
+        if (Show("LEGENDA"))
+            _labelRects.Add(new SW.Rect(0, 0, 110, ly + 4));
+        if (Show("ESCALA"))
+        {
+            double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
+            double len = step * _scale;
+            _plan.Children.Add(new WS.Line { X1 = w - len - 14, Y1 = h - 12, X2 = w - 14, Y2 = h - 12, Stroke = ToolTheme.GraphicText, StrokeThickness = 2, IsHitTestVisible = false });
+            PlanLabel($"{step:0.##} m", w - len - 14, h - 28, 10);
+            _labelRects.Add(new SW.Rect(w - len - 20, h - 30, len + 20, 30));
+        }
 
         // Baselines: as do corredor do rebaixo selecionado mais claras.
         AcadDb.ObjectId? selCorridor = _current?.CorridorId;
@@ -1170,12 +1261,23 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         // Etiquetas dos rebaixos: o selecionado primeiro (sempre aparece), depois os demais na ordem.
-        bool showNames = _items.Count <= 12 || _zoom >= 2;
+        bool showCode = Show("CODIGO"), showName = Show("NOME"), showStations = Show("ESTACAS");
         foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current) ? 0 : 1).ThenBy(x => x.Code))
         {
             if (r.Path.Count == 0)
                 continue;
             bool selected = ReferenceEquals(r, _current);
+            if (!selected && !Show("TODOS"))
+                continue;
+            List<string> parts = new();
+            if (showCode)
+                parts.Add(r.Code);
+            if (showName && r.CustomName.Length > 0)
+                parts.Add(r.CustomName);
+            if (showStations)
+                parts.Add(r.Stations);
+            if (parts.Count == 0)
+                continue;
             bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
             Point3d mid = r.Path[r.Path.Count / 2];
             SW.Point anchor = ToScreen(mid.X, mid.Y);
@@ -1183,9 +1285,11 @@ internal sealed class MFRebaixoPanel : SW.Window
                 continue;
 
             WC.StackPanel content = new() { Orientation = WC.Orientation.Horizontal };
-            content.Children.Add(new WC.TextBlock { Text = r.Code, FontWeight = SW.FontWeights.Bold, FontSize = selected ? 12 : 11, Foreground = DarkText });
-            if (selected || (showNames && r.CustomName.Length > 0))
-                content.Children.Add(new WC.TextBlock { Text = "  " + (r.CustomName.Length > 0 ? r.CustomName : r.Stations), FontSize = selected ? 12 : 10.5, Foreground = DarkText });
+            for (int k = 0; k < parts.Count; k++)
+            {
+                bool bold = k == 0 && showCode;
+                content.Children.Add(new WC.TextBlock { Text = (k == 0 ? "" : "  ") + parts[k], FontWeight = bold ? SW.FontWeights.Bold : SW.FontWeights.Normal, FontSize = selected ? 12 : bold ? 11 : 10.5, Foreground = DarkText });
+            }
 
             var tag = new WC.Border
             {
@@ -1209,7 +1313,7 @@ internal sealed class MFRebaixoPanel : SW.Window
                     SetMode("PLANTA");
             };
 
-            if (Place(tag, anchor, force: selected) is SW.Rect box)
+            if (Place(tag, anchor, force: selected) is SW.Rect box && Show("CHAMADA"))
             {
                 SW.Point end = Nearest(box, anchor);
                 var leader = new WS.Line { X1 = anchor.X, Y1 = anchor.Y, X2 = end.X, Y2 = end.Y, Stroke = tag.Background, StrokeThickness = 1.2, IsHitTestVisible = false };
@@ -1225,8 +1329,9 @@ internal sealed class MFRebaixoPanel : SW.Window
                 continue;
             var longest = visible.OrderByDescending(x => x.Line.Count).First();
             bool mine = selCorridor is AcadDb.ObjectId sid && sid == g.Key;
-            AlongLabel(SplitName(longest.Name).Corridor, longest.Line, mine ? 12 : 11, mine ? ToolTheme.GraphicText : ToolTheme.GraphicLine);
-            if (_zoom >= 2.5)
+            if (Show("CORREDOR"))
+                AlongLabel(SplitName(longest.Name).Corridor, longest.Line, mine ? 12 : 11, mine ? ToolTheme.GraphicText : ToolTheme.GraphicLine);
+            if (Show("BASELINE"))
             {
                 foreach (var (name, line) in visible)
                     AlongLabel(SplitName(name).Baseline, line, 9, ToolTheme.GraphicLine);
@@ -1363,12 +1468,13 @@ internal sealed class MFRebaixoPanel : SW.Window
             WC.Canvas.SetLeft(dot, s.X - 3.5);
             WC.Canvas.SetTop(dot, s.Y - 3.5);
             _plan.Children.Add(dot);
-            PlanLabel(model.MarkNames.Length > i ? model.MarkNames[i] : "", s.X + 5, s.Y - 16, 11, ToolTheme.Brush(255, 205, 80));
+            if (Show("MARCOS"))
+                PlanLabel(model.MarkNames.Length > i ? model.MarkNames[i] : "", s.X + 5, s.Y - 16, 11, ToolTheme.Brush(255, 205, 80));
         }
 
         // Legenda.
         double ly = 8;
-        foreach ((string text, WM.Color color) in new[]
+        foreach ((string text, WM.Color color) in !Show("LEGENDA") ? Array.Empty<(string, WM.Color)>() : new[]
                  {
                      ("REBAIXO", RebaixoStyle.Of(new[] { "REBAIXO" }).Color),
                      ("Meio-fio", RebaixoStyle.Of(new[] { "Curb", "Top" }).Color),
@@ -1386,6 +1492,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         // Escala grafica.
+        if (!Show("ESCALA"))
+            return;
         double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
         double len = step * _scale;
         var bar = new WS.Line { X1 = w - len - 14, Y1 = h - 12, X2 = w - 14, Y2 = h - 12, Stroke = ToolTheme.GraphicText, StrokeThickness = 2, IsHitTestVisible = false };
@@ -1413,7 +1521,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             return;
         SW.Point p = e.GetPosition(_plan);
         (double x, double y) = ToWorld(p);
-        _coords.Text = Mode == "GERAL" ? UnderCursorOverview(p) : UnderCursorDetail(x, y);
+        _coords.Text = !Show("CURSOR") ? "" : Mode == "GERAL" ? UnderCursorOverview(p) : UnderCursorDetail(x, y);
         if (_dragFrom is SW.Point f && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             _panX -= (p.X - f.X) / _scale;
@@ -1442,7 +1550,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         if (hit is not null)
-            return $"{hit.Label}  -  {hit.CorridorName} / {hit.BaselineName}  -  estacas {hit.Stations}  -  lado {hit.SideLabel.ToLowerInvariant()}";
+            return $"{hit.Label}  -  {hit.CorridorName} / {hit.BaselineName}" + (Show("ESTACAS") ? $"  -  estacas {hit.Stations}" : "") + $"  -  lado {hit.SideLabel.ToLowerInvariant()}";
 
         best = 10;
         string? name = null;

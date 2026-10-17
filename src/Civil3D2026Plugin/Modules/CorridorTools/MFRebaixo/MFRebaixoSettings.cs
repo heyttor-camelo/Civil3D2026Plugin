@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 
@@ -24,6 +25,8 @@ internal sealed class MFRebaixoSettings
     public double PainelMargem { get; set; } = 6.0;
     // "GERAL" (todos os rebaixos) ou "PLANTA" (trecho do rebaixo).
     public string PainelModo { get; set; } = "GERAL";
+    // Textos da vista grafica que o usuario desligou (chaves de MFRebaixoPanel.TextOptions).
+    public List<string> PainelTextosOcultos { get; set; } = new() { "ESTACAS", "BASELINE" };
 
     public MFRebaixoPreset Garagem { get; set; } = new()
     {
