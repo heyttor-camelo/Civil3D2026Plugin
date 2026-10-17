@@ -125,7 +125,6 @@ public sealed class SecaoCommands
         prefs.FrentePadrao = frente;
         prefs.AtrasPadrao = atras;
         SecaoStore.SavePrefs(prefs);
-        ed.Regen();
         ed.WriteMessage($"\n  Caixa de corte criada (layer {SecaoStore.LayerCut}): mova os grips e a janela acompanha; altere profundidades e cotas na aba Propriedades.");
         int found = SecaoStore.ReadCuts(db).Count(c => c.Id == id);
         if (found == 0)
@@ -218,7 +217,11 @@ public sealed class SecaoCommands
         {
             try
             {
-                if (e.DBObject is AcadDb.Polyline pl && SecaoStore.IsCut(pl))
+                AcadDb.DBObject obj = e.DBObject;
+                SecaoReader.Invalidate(obj.Database, obj.ObjectId);
+                if (obj is CivilDb.Corridor)
+                    SecaoPanel.InvalidateCorridor(obj.ObjectId);
+                else if (obj is AcadDb.Polyline pl && SecaoStore.IsCut(pl))
                     SecaoPanel.NotifyChanged(pl.ObjectId);
             }
             catch
@@ -230,6 +233,7 @@ public sealed class SecaoCommands
         {
             try
             {
+                SecaoReader.Invalidate(e.DBObject.Database, e.DBObject.ObjectId);
                 if (e.DBObject is AcadDb.Polyline pl && SecaoStore.IsCut(pl))
                     SecaoPanel.NotifyChanged(pl.ObjectId);
             }

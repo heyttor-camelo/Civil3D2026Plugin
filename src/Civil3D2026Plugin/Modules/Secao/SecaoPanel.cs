@@ -186,7 +186,7 @@ internal sealed class SecaoPanel : SW.Window
             return;
         try
         {
-            panel.ReadCuts();
+            panel.UpdateCuts(ids);
             if (!panel._stationMode && (ids.Contains(panel._cutId) || panel._cutId.IsNull || panel._cutId.IsErased))
                 panel.Recompute();
             panel.FillCategories();
@@ -549,6 +549,45 @@ internal sealed class SecaoPanel : SW.Window
             _cutId = _cuts[0].Id;
     }
 
+    /// <summary>Atualiza so as caixas que mudaram (sem varrer o model space).</summary>
+    private void UpdateCuts(HashSet<AcadDb.ObjectId> ids)
+    {
+        Document? doc = Doc;
+        if (doc is null)
+            return;
+        using AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction();
+        foreach (AcadDb.ObjectId id in ids)
+        {
+            _cuts.RemoveAll(c => c.Id == id);
+            if (id.IsNull || id.IsErased)
+                continue;
+            try
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Polyline pl && SecaoStore.ReadCut(pl) is CutBox box && box.IsValid)
+                    _cuts.Add((id, box));
+            }
+            catch
+            {
+                // apagada no meio do caminho
+            }
+        }
+
+        if (!_cutId.IsNull && !_cuts.Any(c => c.Id == _cutId))
+            _cutId = AcadDb.ObjectId.Null;
+        if (_cutId.IsNull && _cuts.Count > 0 && !_stationMode)
+            _cutId = _cuts[0].Id;
+    }
+
+    /// <summary>O corredor mudou (rebuild): sera lido de novo na proxima secao.</summary>
+    public static void InvalidateCorridor(AcadDb.ObjectId id)
+    {
+        SecaoPanel? panel = _instance;
+        if (panel is null)
+            return;
+        panel._corridors.RemoveAll(c => c.Id == id);
+        panel._corridorsLoaded = false;
+    }
+
     private void EnsureCorridors()
     {
         if (_corridorsLoaded)
@@ -613,7 +652,7 @@ internal sealed class SecaoPanel : SW.Window
             else if (!_cutId.IsNull && _cuts.FirstOrDefault(x => x.Id == _cutId).Box is CutBox box)
             {
                 _stationBar.Visibility = SW.Visibility.Collapsed;
-                _data = SecaoReader.Build(doc.Database, box, _prefs, _corridorsLoaded ? _corridors : null);
+                _data = SecaoReader.Build(doc.Database, box, _prefs, _corridors);
             }
             else
             {
@@ -992,16 +1031,8 @@ internal sealed class SecaoPanel : SW.Window
             return;
         }
 
-        try
-        {
-            doc.Editor.Regen();
-        }
-        catch
-        {
-            // sem regen
-        }
-
-        ReadCuts();
+        // Sem REGEN: a polilinha alterada ja e redesenhada pelo AutoCAD (e o overrule com ela).
+        UpdateCuts(new HashSet<AcadDb.ObjectId> { _cutId });
         _fitPending = true;
         Recompute();
         FillList();

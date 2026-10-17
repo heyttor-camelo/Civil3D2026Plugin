@@ -1,3 +1,10 @@
+## 2.43.1 - Visualizador de secao v0.1.1 / desempenho
+
+- **corredores lidos uma vez**: a leitura estaca a estaca (a parte cara) fica em cache e so e refeita quando o corredor muda (rebuild); antes era refeita a cada grip ou mudanca de profundidade;
+- **objetos nao sao reabertos**: tipo e caixa envolvente de cada objeto do model space ficam guardados; nos recalculos seguintes so abre o que esta perto da caixa (objetos modificados/apagados saem do cache). Superficies tambem passam pelo filtro de extents;
+- **sem REGEN**: criar a caixa e mudar frente/atras/cotas nao regenera mais o desenho inteiro (a polilinha alterada ja e redesenhada); a lista de cortes e atualizada so para as polilinhas que mudaram, sem varrer o model space;
+- o diagnostico mostra quantos objetos foram abertos e quantos descartados pela caixa.
+
 ## 2.44.0 - MFREBAIXO v1.7.0 / painel sem 3D, planta geral com nomes
 
 - **saiu a vista 3D** do painel (`MFREBAIXOPAINEL`) e as cameras no desenho (Camera 3D / Vista de cima); ficam so as plantas: geral e do rebaixo;

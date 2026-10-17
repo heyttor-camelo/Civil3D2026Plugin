@@ -55,6 +55,38 @@ internal static class SecaoReader
         public string Codes = "";
     }
 
+    // ------------------------------------------------------------------
+    // Caches (o que custa e abrir objeto por objeto e percorrer o corredor)
+    // ------------------------------------------------------------------
+
+    /// <summary>Caixa envolvente em planta de cada objeto examinado; null = sem extents (entra sempre).</summary>
+    private sealed class ExtentsCache
+    {
+        public readonly Dictionary<AcadDb.ObjectId, (double MinX, double MinY, double MaxX, double MaxY)?> Boxes = new();
+        public readonly Dictionary<AcadDb.ObjectId, string> Kinds = new();
+    }
+
+    private static readonly Dictionary<AcadDb.Database, ExtentsCache> Extents = new();
+
+    /// <summary>O objeto mudou (ou foi apagado): esquece o que se sabia dele.</summary>
+    public static void Invalidate(AcadDb.Database db, AcadDb.ObjectId id)
+    {
+        if (Extents.TryGetValue(db, out ExtentsCache? c))
+        {
+            c.Boxes.Remove(id);
+            c.Kinds.Remove(id);
+        }
+    }
+
+    public static void InvalidateAll(AcadDb.Database db) => Extents.Remove(db);
+
+    private static ExtentsCache CacheFor(AcadDb.Database db)
+    {
+        if (!Extents.TryGetValue(db, out ExtentsCache? c))
+            Extents[db] = c = new ExtentsCache();
+        return c;
+    }
+
     /// <summary>Monta a secao da caixa a partir do desenho ativo.</summary>
     public static SectionData Build(AcadDb.Database db, CutBox box, SecaoStore.Prefs prefs, List<CorridorCache>? corridors = null)
     {
@@ -69,33 +101,56 @@ internal static class SecaoReader
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
         Dictionary<AcadDb.ObjectId, int> layerColors = new();
+        ExtentsCache cache = CacheFor(db);
+        int opened = 0, skipped = 0;
 
         foreach (AcadDb.ObjectId id in ms)
         {
-            string dxf;
-            try
-            {
-                dxf = id.ObjectClass.DxfName;
-            }
-            catch
-            {
+            if (id.IsErased)
                 continue;
-            }
 
-            // Objetos do Civil (AECC_*: superficies, corredores, tubos...) e os 3D do AutoCAD;
-            // o tipo exato e decidido pelo switch abaixo.
-            if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
-                continue;
+            // Ja visto: decide pela caixa envolvente guardada, sem abrir o objeto.
+            if (cache.Kinds.TryGetValue(id, out string? knownKind))
+            {
+                if (knownKind.Length == 0)
+                    continue; // tipo que nao interessa
+                if (cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? kb) && kb is (double kx0, double ky0, double kx1, double ky1) &&
+                    (kx1 < minX || kx0 > maxX || ky1 < minY || ky0 > maxY))
+                {
+                    skipped++;
+                    continue;
+                }
+            }
+            else
+            {
+                string dxf;
+                try
+                {
+                    dxf = id.ObjectClass.DxfName;
+                }
+                catch
+                {
+                    continue;
+                }
+
+                // Objetos do Civil (AECC_*: superficies, corredores, tubos...) e os 3D do AutoCAD;
+                // o tipo exato e decidido abaixo. Os demais ficam marcados para nao serem olhados de novo.
+                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
+                {
+                    cache.Kinds[id] = "";
+                    continue;
+                }
+            }
 
             try
             {
                 if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity ent)
+                {
+                    cache.Kinds[id] = "";
                     continue;
+                }
 
-                // Filtro rapido pela caixa envolvente (superficies e corredores sao grandes: entram sempre).
-                if (ent is not CivilDb.Surface && ent is not CivilDb.Corridor && !Near(ent, minX, minY, maxX, maxY))
-                    continue;
-
+                opened++;
                 string kind = ent switch
                 {
                     CivilDb.Surface => "superficie(s)",
@@ -108,8 +163,23 @@ internal static class SecaoReader
                     AcadDb.Polyline3d => "polilinha(s) 3D",
                     _ => ""
                 };
+                cache.Kinds[id] = kind;
                 if (kind.Length == 0)
                     continue;
+
+                // Caixa envolvente em planta (guardada): corredores entram sempre (o corte usa a propria cache deles).
+                if (!cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? eb))
+                {
+                    eb = ent is CivilDb.Corridor ? null : BoxOf(ent);
+                    cache.Boxes[id] = eb;
+                }
+
+                if (eb is (double x0, double y0, double x1, double y1) && (x1 < minX || x0 > maxX || y1 < minY || y0 > maxY))
+                {
+                    skipped++;
+                    continue;
+                }
+
                 data.Scanned[kind] = data.Scanned.TryGetValue(kind, out int c0) ? c0 + 1 : 1;
 
                 switch (ent)
@@ -118,10 +188,10 @@ internal static class SecaoReader
                         ReadSurface(surface, box, data, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.Corridor corridor when prefs.Corredores:
-                        CorridorCache cache = corridors?.FirstOrDefault(c => c.Id == id) ?? ReadCorridor(tr, corridor);
+                        CorridorCache cc = corridors?.FirstOrDefault(c => c.Id == id) ?? ReadCorridor(tr, corridor);
                         corridors?.RemoveAll(c => c.Id == id);
-                        corridors?.Add(cache);
-                        CutCorridor(cache, box, data, prefs.FantasmaCorredor, LayerColor(tr, ent, layerColors));
+                        corridors?.Add(cc);
+                        CutCorridor(cc, box, data, prefs.FantasmaCorredor, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.Pipe pipe when prefs.Tubos:
                         ReadPipe(pipe, box, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
@@ -145,10 +215,11 @@ internal static class SecaoReader
             }
             catch (System.Exception ex)
             {
-                data.Warnings.Add($"{dxf} {id.Handle}: {ex.Message}");
+                data.Warnings.Add($"{(cache.Kinds.TryGetValue(id, out string? k) && k.Length > 0 ? k : "objeto")} {id.Handle}: {ex.Message}");
             }
         }
 
+        data.Scanned["(objetos abertos: " + opened + ", descartados pela caixa: " + skipped + ")"] = 0;
         data.Items.RemoveAll(i => i.IsEmpty);
         // Cortados antes dos fantasmas; fantasmas mais longe primeiro (ficam atras).
         data.Items = data.Items.OrderBy(i => i.Ghost ? 1 : 0).ThenByDescending(i => Math.Abs(i.Depth)).ToList();
@@ -181,16 +252,16 @@ internal static class SecaoReader
         return list;
     }
 
-    private static bool Near(AcadDb.Entity ent, double minX, double minY, double maxX, double maxY)
+    private static (double MinX, double MinY, double MaxX, double MaxY)? BoxOf(AcadDb.Entity ent)
     {
         try
         {
             AcadDb.Extents3d ext = ent.GeometricExtents;
-            return ext.MaxPoint.X >= minX && ext.MinPoint.X <= maxX && ext.MaxPoint.Y >= minY && ext.MinPoint.Y <= maxY;
+            return (ext.MinPoint.X, ext.MinPoint.Y, ext.MaxPoint.X, ext.MaxPoint.Y);
         }
         catch
         {
-            return true;
+            return null; // sem extents: entra sempre
         }
     }
 

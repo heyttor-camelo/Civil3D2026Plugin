@@ -297,7 +297,9 @@ internal sealed class SectionData
     /// <summary>Resumo em uma linha: o que foi lido, cortado e projetado.</summary>
     public string Summary()
     {
-        string lidos = Scanned.Count == 0 ? "nenhum objeto do Civil/3D perto da caixa" : string.Join(", ", Scanned.Select(kv => $"{kv.Value} {kv.Key}"));
+        string lidos = Scanned.Count(kv => kv.Value > 0) == 0 ? "nenhum objeto do Civil/3D perto da caixa"
+            : string.Join(", ", Scanned.Where(kv => kv.Value > 0).Select(kv => $"{kv.Value} {kv.Key}")) +
+              string.Concat(Scanned.Where(kv => kv.Value == 0).Select(kv => " " + kv.Key));
         int cut = Items.Count(i => !i.Ghost), ghost = Items.Count(i => i.Ghost);
         string porTipo = string.Join(", ", Items.Where(i => !i.Ghost).GroupBy(i => i.Kind).Select(g => $"{g.Count()} {g.Key}"));
         return $"lidos: {lidos} | cortados: {cut}{(porTipo.Length > 0 ? " (" + porTipo + ")" : "")} | na profundidade: {ghost}" +
