@@ -211,12 +211,13 @@ internal static class SecaoReader
             List<(double S, double Z)> pl = new();
             P2 t = (b - a).Unit();
             Point3dCollection? pts = null;
-            // SampleElevations fica na interface ITerrainSurface (TinSurface, GridSurface e as de volume), nao na classe Surface.
-            if (surface is CivilDb.ITerrainSurface terrain)
+            // SampleElevations(Point3d, Point3d) e da classe TinSurface (a interface ITerrainSurface so
+            // tem a versao por ObjectId de curva). As demais superficies vao por FindElevationAtXY.
+            if (surface is CivilDb.TinSurface tin)
             {
                 try
                 {
-                    pts = terrain.SampleElevations(new Point3d(a.X, a.Y, 0), new Point3d(b.X, b.Y, 0));
+                    pts = tin.SampleElevations(new Point3d(a.X, a.Y, 0), new Point3d(b.X, b.Y, 0));
                 }
                 catch
                 {
