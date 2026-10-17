@@ -881,8 +881,23 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         _viewToggles.Children.Add(Sep());
-        WC.TextBlock textos = null!;
-        textos = Link("Textos \u25BE", () => ShowTextOptions(textos), "Escolher quais textos aparecem na vista e na barra de baixo");
+        // Abre no SOLTAR do botao: aberto no MouseDown, o MouseUp que vem em seguida caia
+        // fora do popup (StaysOpen = false) e o fechava na hora.
+        WC.TextBlock textos = Link("Textos \u25BE", () => { }, "Escolher quais textos aparecem na vista e na barra de baixo");
+        textos.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            if (_textPopup?.IsOpen == true)
+            {
+                _textPopup.IsOpen = false;
+                return;
+            }
+
+            // Clique no proprio link com o menu aberto: o MouseDown ja fechou; nao reabre.
+            if ((DateTime.Now - _textPopupClosed).TotalMilliseconds < 250)
+                return;
+            ShowTextOptions(textos);
+        };
         _viewToggles.Children.Add(textos);
     }
 
@@ -906,6 +921,9 @@ internal sealed class MFRebaixoPanel : SW.Window
         ("RESUMO", "Barra de baixo", "Resumo", "Quantidade de rebaixos / dados do rebaixo selecionado"),
         ("CURSOR", "Barra de baixo", "O que esta sob o cursor", "Rebaixo, corredor ou secao sob o mouse")
     };
+
+    private WC.Primitives.Popup? _textPopup;
+    private DateTime _textPopupClosed = DateTime.MinValue;
 
     private bool Show(string key) => !_settings.PainelTextosOcultos.Contains(key);
 
@@ -957,6 +975,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         quick.Children.Add(Link("Padrao", () => SetAll(k => k is not ("ESTACAS" or "BASELINE")), "Codigo, nome, corredor, marcos, legenda, escala e barra"));
         list.Children.Add(quick);
 
+        if (_textPopup is not null)
+            _textPopup.IsOpen = false;
         var popup = new WC.Primitives.Popup
         {
             PlacementTarget = target,
@@ -965,6 +985,8 @@ internal sealed class MFRebaixoPanel : SW.Window
             AllowsTransparency = true,
             Child = new WC.Border { Background = T.Pane, BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = list }
         };
+        popup.Closed += (_, _) => _textPopupClosed = DateTime.Now;
+        _textPopup = popup;
         popup.IsOpen = true;
     }
 

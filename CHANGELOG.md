@@ -1,3 +1,7 @@
+## 2.44.3 - MFREBAIXO v1.7.2 / menu Textos abre com um clique
+
+- o menu **Textos ▾** abria no apertar do botao e o soltar (fora do menu) ja o fechava; agora abre ao soltar e fica aberto ate clicar fora. Clicar de novo em Textos fecha.
+
 ## 2.44.2 - MFREBAIXO v1.7.1 / escolher os textos da vista
 
 - botao **Textos ▾** na barra da vista do painel: liga/desliga cada texto - etiqueta do rebaixo (codigo, nome, estacas, em todos ou so no selecionado, linha de chamada), planta (nome do corredor, nome das baselines, marcos S0-S3, legenda, escala) e barra de baixo (resumo, o que esta sob o cursor). Atalhos Tudo / Nada / Padrao; a escolha fica salva;
