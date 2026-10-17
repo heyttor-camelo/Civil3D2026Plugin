@@ -61,6 +61,9 @@ internal static class ToolIcons
         ["reconstruir"] = new("M12.5,8 A4.5,4.5 0 1 1 11,4.6", "M6,8 H10 M8,6 V10"),
         ["secoes"] = new("M2,12.5 H14", "M3,12.5 L5,8.5 H11 L13,12.5 M5,8.5 V5 M11,8.5 V5"),
         ["planta"] = new("M2,3 H14 V13 H2 Z", "M2,9.5 C6,8.5 10,6.5 14,5.5"),
+        // Modulo Secao (visualizador de secao)
+        ["corte"] = new("M2,13 L6,7 L10,10 L14,4", "M2,3 H14 M8,1.5 V4.5"),
+        ["inverter"] = new("M3,6 H13 M3,10 H13", "M10,3.5 L13,6 L10,8.5 M6,7.5 L3,10 L6,12.5"),
         ["generico"] = new("M3,3 H13 V13 H3 Z", "M5.5,8 H10.5")
     };
 

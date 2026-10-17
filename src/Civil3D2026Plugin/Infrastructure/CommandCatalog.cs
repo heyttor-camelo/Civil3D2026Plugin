@@ -256,6 +256,20 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Corridor",
+                "Visualizador de secao",
+                C3DVersions.Secao,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Secao.Painel, "Visualizador de secao",
+                        "Janela propria (fora da viewport) com o corte de uma caixa - linha em planta, profundidades e faixa de cotas - por superficies, corredores, tubos, solidos, feature lines e pontos; e a secao do corredor estaca a estaca."),
+                    new CommandDefinition(C3DCommands.Secao.Corte, "Nova caixa de corte",
+                        "Linha de corte por pontos ou polilinha existente, com profundidades a frente e atras; a polilinha (layer SECAO-CORTE) guarda a caixa e a janela acompanha os grips."),
+                    new CommandDefinition(C3DCommands.Secao.Desenhar, "Desenhar secao no model",
+                        "Leva a secao mostrada na janela para o desenho como polilinhas 2D, com moldura, cotas e distancias.")
+                }),
+
+            new(
                 "Layouts",
                 "Explorador de layouts",
                 C3DVersions.Layouts,

@@ -218,6 +218,24 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
+## Visualizador de secao (C3DSECAO v0.1.0)
+
+Janela propria (nao ocupa a viewport) com a secao de uma **caixa de corte**: linha em
+planta (um ou mais trechos) + profundidade a frente/atras + faixa de cotas + exagero.
+
+- `C3DSECAOCORTE` (ou botao Nova caixa): clique os pontos da linha, informe as
+  profundidades. A caixa fica numa polilinha na layer SECAO-CORTE (XData); em planta
+  aparece o contorno e uma seta no sentido de quem olha. Mover os grips refaz a secao.
+- No corte (traco cheio): superficies, corredores (interpolados entre estacas), tubos,
+  solidos 3D, feature lines e polilinhas 3D. Na profundidade (fantasmas): estacas do
+  corredor, tubos/estruturas, linhas e pontos COGO.
+- Categoria **Corredor por estaca**: a janela vira o viewport do Section Editor
+  (setas/slider trocam de estaca), sem prender o desenho.
+- `C3DSECAODESENHAR`: desenha a secao mostrada no model (polilinhas 2D, layer SECAO-DESENHO).
+
+Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
+linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
+
 ## Explorador de layouts (C3DLAYOUT, Layouts v1.0.0)
 
 Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS) e Carimbo em lote (atributos de um bloco em varios layouts). A miniatura mostra margem, carimbo e viewports do layout; clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts.

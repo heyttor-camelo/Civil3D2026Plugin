@@ -131,6 +131,13 @@ public static class CommandNames
         public const string Pp = "PP";
     }
 
+    public static class Secao
+    {
+        public const string Painel = "C3DSECAO";
+        public const string Corte = "C3DSECAOCORTE";
+        public const string Desenhar = "C3DSECAODESENHAR";
+    }
+
     public static class Layouts
     {
         public const string Painel = "C3DLAYOUT";

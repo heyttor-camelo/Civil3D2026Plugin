@@ -125,6 +125,8 @@ internal static class RibbonIconFactory
             return "LG";
         if (commandName.StartsWith("C3DSOLID", StringComparison.OrdinalIgnoreCase))
             return "3D";
+        if (commandName.StartsWith("C3DSECAO", StringComparison.OrdinalIgnoreCase))
+            return "SC";
         if (commandName.StartsWith("C3DLAYOUT", StringComparison.OrdinalIgnoreCase) ||
             commandName.Equals("NP", StringComparison.OrdinalIgnoreCase))
             return "LY";

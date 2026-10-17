@@ -1,0 +1,237 @@
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using Autodesk.AutoCAD.Geometry;
+using AcColors = Autodesk.AutoCAD.Colors;
+
+namespace Civil3D2026Plugin.Modules.Secao;
+
+/// <summary>
+/// Persistencia do modulo: a caixa de corte fica numa polilinha (layer SECAO-CORTE)
+/// com XData [CORTE, nome, frente, atras, zmin, zmax, exagero]; as preferencias
+/// (conteudo mostrado, padroes) em %APPDATA%\Civil3D2026Plugin\secao.txt.
+/// </summary>
+internal static class SecaoStore
+{
+    public const string RegApp = "C3DSECAO";
+    public const string TagCut = "CORTE";
+    public const string LayerCut = "SECAO-CORTE";
+    public const string LayerDraw = "SECAO-DESENHO";
+
+    private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+
+    // ------------------------------------------------------------------
+    // XData da caixa
+    // ------------------------------------------------------------------
+
+    public static bool IsCut(AcadDb.DBObject obj)
+    {
+        List<string>? v = ReadValues(obj);
+        return v is not null && v.Count > 0 && v[0] == TagCut;
+    }
+
+    /// <summary>Le a caixa de uma polilinha marcada (geometria + parametros).</summary>
+    public static CutBox? ReadCut(AcadDb.Polyline pl)
+    {
+        List<string>? v = ReadValues(pl);
+        if (v is null || v.Count == 0 || v[0] != TagCut)
+            return null;
+
+        CutBox box = new() { Line = Vertices(pl) };
+        box.Name = v.Count > 1 && v[1].Length > 0 ? v[1] : "Corte";
+        box.Frente = v.Count > 2 ? D(v[2], 10) : 10;
+        box.Atras = v.Count > 3 ? D(v[3], 5) : 5;
+        box.ZMin = v.Count > 4 && v[4].Length > 0 ? D(v[4], 0) : null;
+        box.ZMax = v.Count > 5 && v[5].Length > 0 ? D(v[5], 0) : null;
+        box.Exagero = v.Count > 6 ? Math.Max(0.1, D(v[6], 1)) : 1;
+        return box;
+    }
+
+    public static void WriteCut(AcadDb.Entity entity, CutBox box)
+    {
+        List<AcadDb.TypedValue> list = new()
+        {
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegApp)
+        };
+        foreach (string s in new[]
+                 {
+                     TagCut, box.Name, F(box.Frente), F(box.Atras),
+                     box.ZMin is double a ? F(a) : "", box.ZMax is double b ? F(b) : "", F(box.Exagero)
+                 })
+        {
+            list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, s));
+        }
+
+        entity.XData = new AcadDb.ResultBuffer(list.ToArray());
+    }
+
+    public static List<P2> Vertices(AcadDb.Polyline pl)
+    {
+        List<P2> pts = new();
+        for (int i = 0; i < pl.NumberOfVertices; i++)
+        {
+            Point2d p = pl.GetPoint2dAt(i);
+            pts.Add(new P2(p.X, p.Y));
+        }
+
+        return pts;
+    }
+
+    private static List<string>? ReadValues(AcadDb.DBObject obj)
+    {
+        using AcadDb.ResultBuffer? rb = obj.GetXDataForApplication(RegApp);
+        if (rb is null)
+            return null;
+        List<string> values = new();
+        foreach (AcadDb.TypedValue tv in rb.AsArray())
+        {
+            if (tv.TypeCode == (short)AcadDb.DxfCode.ExtendedDataAsciiString)
+                values.Add(tv.Value as string ?? string.Empty);
+        }
+
+        return values.Count == 0 ? null : values;
+    }
+
+    private static string F(double d) => d.ToString("0.###", Inv);
+
+    private static double D(string s, double fallback) =>
+        double.TryParse(s, NumberStyles.Float, Inv, out double d) ? d : fallback;
+
+    // ------------------------------------------------------------------
+    // Tabelas
+    // ------------------------------------------------------------------
+
+    public static void EnsureRegApp(AcadDb.Transaction tr, AcadDb.Database db)
+    {
+        AcadDb.RegAppTable table = (AcadDb.RegAppTable)tr.GetObject(db.RegAppTableId, AcadDb.OpenMode.ForRead);
+        if (table.Has(RegApp))
+            return;
+        table.UpgradeOpen();
+        AcadDb.RegAppTableRecord record = new() { Name = RegApp };
+        table.Add(record);
+        tr.AddNewlyCreatedDBObject(record, true);
+    }
+
+    public static void EnsureLayer(AcadDb.Transaction tr, AcadDb.Database db, string name, short color)
+    {
+        AcadDb.LayerTable table = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+        if (table.Has(name))
+            return;
+        table.UpgradeOpen();
+        AcadDb.LayerTableRecord layer = new()
+        {
+            Name = name,
+            Color = AcColors.Color.FromColorIndex(AcColors.ColorMethod.ByAci, color)
+        };
+        table.Add(layer);
+        tr.AddNewlyCreatedDBObject(layer, true);
+    }
+
+    /// <summary>Todas as caixas de corte do model space.</summary>
+    public static List<(AcadDb.ObjectId Id, CutBox Box)> ReadCuts(AcadDb.Database db)
+    {
+        List<(AcadDb.ObjectId, CutBox)> result = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (!id.ObjectClass.DxfName.Equals("LWPOLYLINE", StringComparison.OrdinalIgnoreCase))
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Polyline pl && ReadCut(pl) is CutBox box && box.IsValid)
+                result.Add((id, box));
+        }
+
+        return result;
+    }
+
+    // ------------------------------------------------------------------
+    // Preferencias
+    // ------------------------------------------------------------------
+
+    /// <summary>O que entra na vista (por classe) e padroes de caixa nova.</summary>
+    public sealed class Prefs
+    {
+        public bool Superficies = true, Corredores = true, Tubos = true, Solidos = true, FeatureLines = true, Polilinhas3d = true, Pontos = true;
+        public bool FantasmaCorredor = true, FantasmaTubos = true, FantasmaLinhas = true, FantasmaPontos = true;
+        public double FrentePadrao = 10, AtrasPadrao = 5, ExageroPadrao = 1;
+        public bool Grade = true, Codigos = false, Rotulos = true;
+        public HashSet<string> SuperficiesOcultas = new(StringComparer.OrdinalIgnoreCase);
+    }
+
+    public static string PrefsPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "secao.txt");
+
+    public static Prefs LoadPrefs()
+    {
+        Prefs p = new();
+        try
+        {
+            if (!File.Exists(PrefsPath))
+                return p;
+            foreach (string line in File.ReadAllLines(PrefsPath))
+            {
+                int eq = line.IndexOf('=');
+                if (eq <= 0)
+                    continue;
+                string k = line[..eq].Trim(), v = line[(eq + 1)..].Trim();
+                bool B() => v == "1";
+                switch (k.ToLowerInvariant())
+                {
+                    case "superficies": p.Superficies = B(); break;
+                    case "corredores": p.Corredores = B(); break;
+                    case "tubos": p.Tubos = B(); break;
+                    case "solidos": p.Solidos = B(); break;
+                    case "featurelines": p.FeatureLines = B(); break;
+                    case "polilinhas3d": p.Polilinhas3d = B(); break;
+                    case "pontos": p.Pontos = B(); break;
+                    case "fantasmacorredor": p.FantasmaCorredor = B(); break;
+                    case "fantasmatubos": p.FantasmaTubos = B(); break;
+                    case "fantasmalinhas": p.FantasmaLinhas = B(); break;
+                    case "fantasmapontos": p.FantasmaPontos = B(); break;
+                    case "grade": p.Grade = B(); break;
+                    case "codigos": p.Codigos = B(); break;
+                    case "rotulos": p.Rotulos = B(); break;
+                    case "frente": p.FrentePadrao = D(v, 10); break;
+                    case "atras": p.AtrasPadrao = D(v, 5); break;
+                    case "exagero": p.ExageroPadrao = D(v, 1); break;
+                    case "superficiesocultas":
+                        foreach (string s in v.Split('|', StringSplitOptions.RemoveEmptyEntries))
+                            p.SuperficiesOcultas.Add(s);
+                        break;
+                }
+            }
+        }
+        catch
+        {
+            // Preferencia e conveniencia.
+        }
+
+        return p;
+    }
+
+    public static void SavePrefs(Prefs p)
+    {
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(PrefsPath)!);
+            static string B(bool b) => b ? "1" : "0";
+            File.WriteAllLines(PrefsPath, new[]
+            {
+                "# Preferencias do visualizador de secao (C3DSECAO)",
+                "superficies=" + B(p.Superficies), "corredores=" + B(p.Corredores), "tubos=" + B(p.Tubos),
+                "solidos=" + B(p.Solidos), "featurelines=" + B(p.FeatureLines), "polilinhas3d=" + B(p.Polilinhas3d), "pontos=" + B(p.Pontos),
+                "fantasmacorredor=" + B(p.FantasmaCorredor), "fantasmatubos=" + B(p.FantasmaTubos), "fantasmalinhas=" + B(p.FantasmaLinhas), "fantasmapontos=" + B(p.FantasmaPontos),
+                "grade=" + B(p.Grade), "codigos=" + B(p.Codigos), "rotulos=" + B(p.Rotulos),
+                "frente=" + F(p.FrentePadrao), "atras=" + F(p.AtrasPadrao), "exagero=" + F(p.ExageroPadrao),
+                "superficiesocultas=" + string.Join("|", p.SuperficiesOcultas.OrderBy(s => s))
+            });
+        }
+        catch
+        {
+            // Sem permissao: vale so na sessao.
+        }
+    }
+}

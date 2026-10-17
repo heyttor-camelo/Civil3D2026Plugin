@@ -43,6 +43,10 @@ public sealed class PluginApplication : IExtensionApplication
         if (ModuleSettings.IsCategoryEnabled("Viario"))
             ViarioSync.Initialize();
 
+        // Visualizador de secao (C3DSECAO): contorno das caixas de corte em planta e atualizacao da janela.
+        if (ModuleSettings.IsCommandEnabled(C3DCommands.Secao.Painel))
+            Civil3D2026Plugin.Modules.Secao.SecaoCommands.Initialize();
+
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
         if (ModuleSettings.IsCategoryEnabled("LISPs"))
             LispModule.Initialize();
@@ -55,6 +59,7 @@ public sealed class PluginApplication : IExtensionApplication
     public void Terminate()
     {
         LispModule.Terminate();
+        Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
         ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();
