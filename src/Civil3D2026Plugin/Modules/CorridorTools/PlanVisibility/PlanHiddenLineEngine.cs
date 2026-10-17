@@ -152,6 +152,34 @@ internal static class PlanHiddenLineEngine
         }
     }
 
+    /// <summary>
+    /// Malha (triangulos) e arestas do Brep, sem as silhuetas de planta, nas coordenadas do
+    /// proprio objeto. Usado pela vista 3D e pelos fantasmas do visualizador de secao.
+    /// </summary>
+    public static (List<Tri3> Triangles, List<Point3d[]> Edges)? ExtractMesh(AcadDb.Entity entity)
+    {
+        try
+        {
+            EntityGeometry geometry = new();
+            using AcBr.Brep brep = new(entity);
+            try
+            {
+                ExtractTriangles(brep, geometry, MeshDistanceTolerance(entity));
+            }
+            catch
+            {
+                // Sem malha (Brep so com arestas): ficam as arestas.
+            }
+
+            ExtractBrepEdges(brep, geometry);
+            return (geometry.Triangles, geometry.Candidates);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Junta varias geometrias (ex.: solidos de um bloco) sob uma chave.</summary>
     public static EntityGeometry? Merge(long key, IEnumerable<EntityGeometry> parts)
     {

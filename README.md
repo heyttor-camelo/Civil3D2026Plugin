@@ -218,26 +218,34 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
-## Visualizador de secao (C3DSECAO v0.2.0)
+## Visualizador de secao (C3DSECAO v0.3.0)
 
 Janela propria (nao ocupa a viewport) com a secao de uma **caixa de corte**: linha em
-planta (um ou mais trechos) + profundidade a frente/atras + faixa de cotas + exagero.
+planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + exagero.
 
 - `C3DSECAOCORTE` (ou botao Nova caixa): clique os pontos da linha, informe as
   profundidades. A caixa fica numa polilinha na layer SECAO-CORTE (XData); em planta
   aparece o contorno e uma seta no sentido de quem olha. Mover os grips refaz a secao.
 - No corte (traco cheio): superficies, corredores (interpolados entre estacas), tubos,
-  solidos 3D, feature lines e polilinhas 3D. Na profundidade (fantasmas): estacas do
-  corredor, tubos/estruturas, linhas e pontos COGO.
+  solidos 3D, corpos/malhas/superficies do AutoCAD, blocos com solidos, feature lines e
+  polilinhas 3D. Na profundidade (fantasmas): estacas e linhas longitudinais do corredor,
+  tubos/estruturas, solidos e blocos (arestas + silhuetas), linhas e pontos COGO.
+- **Faixa de vista por elemento** (aba Conteudo): Corte, Faixa (profundidade da caixa) ou
+  Tudo (ignora a profundidade), por classe.
 - Categoria **Corredor por estaca**: a janela vira o viewport do Section Editor
   (setas/slider trocam de estaca), sem prender o desenho.
 - `C3DSECAODESENHAR`: desenha a secao mostrada no model (polilinhas 2D, layer SECAO-DESENHO),
   com texto na escala do desenho (1:N e mm no papel) e reguas sem encavalar.
+- **Textos ▾**: escolhe o que aparece escrito (nomes, objetos, linhas, pontos, elevacao,
+  fantasmas, reguas, titulo, legenda); **Ctrl + arrastar** move um rotulo (salvo por secao,
+  com linha de chamada, tambem no desenho exportado).
 - **Comparar secoes**: fixe secoes e sobreponha (alinhadas pelo eixo, centro ou inicio),
   com a diferenca de topo entre duas.
-- **Vista 3D**: isometrica do conteudo da caixa (superficies, corredor, tubos, linhas).
+- **Vista 3D**: conteudo da caixa recortado nela (section box), com solidos e blocos,
+  vistas prontas, estilos (sombreado, arestas, raio-x), perspectiva, objetos liga/desliga
+  e imagem (copiar/salvar PNG).
 - Botao direito num item: destacar, hachurar (regioes fechadas) ou ocultar. Corredor pode
-  ser mostrado so pelo contorno (boundary) ou por codigos de link.
+  ser mostrado so pelo contorno (boundary verdadeiro dos links) ou por codigos de link.
 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.

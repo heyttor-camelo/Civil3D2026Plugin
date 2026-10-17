@@ -17,7 +17,7 @@ namespace Civil3D2026Plugin.Modules.Secao;
 /// <summary>
 /// Visualizador de secao (C3DSECAO), no molde do explorador do viario: categorias,
 /// barra de comandos com icones, vista grafica escura (a secao, com reguas de
-/// distancia e cota, zoom e pan), lista em colunas e abas de detalhe. Janela
+/// distancia e elevacao, zoom e pan), lista em colunas e abas de detalhe. Janela
 /// flutuante; pode ficar em outro monitor enquanto o desenho segue livre.
 /// </summary>
 internal sealed class SecaoPanel : SW.Window
@@ -116,6 +116,7 @@ internal sealed class SecaoPanel : SW.Window
     private WC.StackPanel _stationBar = new();
     private WC.Slider _stationSlider = new();
     private WC.TextBlock _stationText = new();
+    private WC.Button _textButton = new();
     private WC.ListView _list = new();
     private WC.TextBox _find = new();
     private WC.StackPanel _tabStrip = new();
@@ -143,7 +144,7 @@ internal sealed class SecaoPanel : SW.Window
     {
         new("NOVO", "corte", "Nova caixa de corte", "Corte",
             "Linha de corte por pontos (ou polilinha existente) e profundidades; a caixa fica numa polilinha na layer SECAO-CORTE e a janela acompanha os grips.",
-            new[] { "Clique os pontos da linha (Enter termina).", "Profundidade a frente e atras.", "Cotas e exagero na aba Propriedades." },
+            new[] { "Clique os pontos da linha (Enter termina).", "Profundidade a frente e atras.", "Elevacoes e exagero na aba Propriedades." },
             p => p.Send("C3DSECAOCORTE ", "Clique os pontos da linha de corte.")),
         new("SELECIONAR", "abrir", "Usar polilinha existente", "Corte",
             "Transforma uma polilinha do desenho em caixa de corte.", new[] { "Selecione a polilinha." },
@@ -161,9 +162,9 @@ internal sealed class SecaoPanel : SW.Window
             "Guarda a secao mostrada (corte ou estaca do corredor) na categoria Comparar secoes, para sobrepor com outras.",
             new[] { "Mostre a secao (corte ou estaca).", "Clique para fixar; repita com outras.", "Abra Comparar secoes." }, p => p.PinCurrent()),
         new("DESENHAR", "polilinha", "Desenhar secao no model", "Saidas",
-            "Leva a secao mostrada para o desenho como polilinhas 2D (moldura, cotas, distancias), no ponto clicado.",
+            "Leva a secao mostrada para o desenho como polilinhas 2D (moldura, elevacoes, distancias), no ponto clicado.",
             new[] { "Clique o canto inferior esquerdo.", "Confirme o exagero." }, p => p.Send("C3DSECAODESENHAR ", "Clique onde a secao deve ser desenhada.")),
-        new("ATUALIZAR", "atualizar", "Atualizar", "Geral", "Le o desenho de novo (cortes, corredores e conteudo).", new[] { "Sem perguntas." }, p => { p._corridorsLoaded = false; p.Refresh(); })
+        new("ATUALIZAR", "atualizar", "Atualizar", "Geral", "Le o desenho de novo (cortes, corredores e conteudo).", new[] { "Sem perguntas." }, p => p.FullRefresh())
     };
 
     // ------------------------------------------------------------------
@@ -338,13 +339,14 @@ internal sealed class SecaoPanel : SW.Window
         graphicHost.Children.Add(_graphic);
         _view3d.Visibility = SW.Visibility.Collapsed;
         _view3d.Info += t => _graphicInfo.Text = t;
+        _view3d.ImageRequested += save => Image3D(save);
         graphicHost.Children.Add(_view3d);
         WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = graphicHost, Margin = new SW.Thickness(4, 0, 4, 0) };
         _graphic.SizeChanged += (_, _) => RenderGraphic();
         _graphic.MouseWheel += OnWheel;
         _graphic.MouseDown += OnMouseDown;
         _graphic.MouseMove += OnMouseMove;
-        _graphic.MouseUp += (_, _) => { _dragging = false; _graphic.ReleaseMouseCapture(); };
+        _graphic.MouseUp += (_, _) => { _dragging = false; EndLabelDrag(); _graphic.ReleaseMouseCapture(); };
         _graphic.MouseLeave += (_, _) => { _dragging = false; };
         WC.Grid.SetRow(graphic, 2);
         root.Children.Add(graphic);
@@ -368,6 +370,10 @@ internal sealed class SecaoPanel : SW.Window
         _stationBar.Children.Add(_stationText);
         WC.DockPanel.SetDock(_stationBar, WC.Dock.Left);
         graphicBar.Children.Add(_stationBar);
+        _textButton = new WC.Button { Content = "Textos  ▾", Padding = new SW.Thickness(8, 0, 8, 0), Margin = new SW.Thickness(4, 2, 2, 2), ToolTip = "O que aparece escrito na vista e no desenho. Ctrl + arrastar move um rotulo." };
+        _textButton.Click += (_, _) => OpenTextMenu();
+        WC.DockPanel.SetDock(_textButton, WC.Dock.Right);
+        graphicBar.Children.Add(_textButton);
         graphicBar.Children.Add(_graphicInfo);
         WC.Grid.SetRow(graphicBar, 3);
         root.Children.Add(graphicBar);
@@ -398,6 +404,10 @@ internal sealed class SecaoPanel : SW.Window
                 FillList();
                 RenderGraphic();
             }
+            else if ((_list.SelectedItem as WC.ListViewItem)?.Tag is Row { Data: Obj3D o })
+            {
+                Toggle3D(o.Key);
+            }
         };
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
@@ -417,7 +427,7 @@ internal sealed class SecaoPanel : SW.Window
         WC.DockPanel footer = new() { Margin = new SW.Thickness(4, 4, 4, 4) };
         WC.StackPanel leftButtons = new() { Orientation = WC.Orientation.Horizontal };
         leftButtons.Children.Add(FooterButton("Nova caixa...", () => Send("C3DSECAOCORTE ", "Clique os pontos da linha de corte.")));
-        leftButtons.Children.Add(FooterButton("Atualizar", () => { _corridorsLoaded = false; Refresh(); }));
+        leftButtons.Children.Add(FooterButton("Atualizar", FullRefresh));
         WC.DockPanel.SetDock(leftButtons, WC.Dock.Left);
         footer.Children.Add(leftButtons);
         footer.Children.Add(_status);
@@ -676,6 +686,16 @@ internal sealed class SecaoPanel : SW.Window
         }
     }
 
+    /// <summary>Atualizar: esquece os caches (extents, malhas, blocos, corredores) e le tudo de novo.</summary>
+    private void FullRefresh()
+    {
+        if (Doc is Document doc)
+            SecaoReader.InvalidateAll(doc.Database);
+        _corridorsLoaded = false;
+        _scene3dDirty = true;
+        Refresh();
+    }
+
     private void Refresh()
     {
         Document? doc = Doc;
@@ -792,6 +812,7 @@ internal sealed class SecaoPanel : SW.Window
 
     private int CountFor(string category) => category switch
     {
+        "VISTA3D" => _view3d.Scene?.Objects().Count ?? -1,
         "CORTES" => _cuts.Count,
         "CORREDOR" => _corridorsLoaded ? _corridors.Sum(c => c.Regions.Count) : -1,
         "CONTEUDO" => _data?.Items.Count ?? 0,
@@ -841,6 +862,7 @@ internal sealed class SecaoPanel : SW.Window
         bool show3d = id == "VISTA3D";
         _view3d.Visibility = show3d ? SW.Visibility.Visible : SW.Visibility.Collapsed;
         _graphic.Visibility = show3d ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        _textButton.Visibility = show3d ? SW.Visibility.Collapsed : SW.Visibility.Visible;
         if (show3d)
             Update3D(keepCamera: true);
         else if (wasCompare != (id == "COMPARAR"))
@@ -875,6 +897,9 @@ internal sealed class SecaoPanel : SW.Window
     // ------------------------------------------------------------------
     // Lista
     // ------------------------------------------------------------------
+
+    /// <summary>Objeto da vista 3D na lista (chave tipo|nome).</summary>
+    private sealed record Obj3D(string Key);
 
     private sealed class Row
     {
@@ -922,7 +947,7 @@ internal sealed class SecaoPanel : SW.Window
                 break;
 
             case "COMPARAR":
-                headers = new[] { "Secao", "Comp. [m]", "Cota min", "Cota max", "Itens", "Mostrar" };
+                headers = new[] { "Secao", "Comp. [m]", "Elev. min", "Elev. max", "Itens", "Mostrar" };
                 widths = new[] { 220.0, 80, 80, 80, 60, 60 };
                 rows = _compare.Where(c => Match(c.Label)).Select(c =>
                 {
@@ -938,17 +963,16 @@ internal sealed class SecaoPanel : SW.Window
                 break;
 
             case "VISTA3D":
-                headers = new[] { "Tipo", "Nome", "Elementos" };
-                widths = new[] { 110.0, 260, 120 };
-                rows = new List<Row>();
-                if (_view3d.Scene is Scene3D sc)
-                {
-                    rows.AddRange(sc.Meshes.Select(m => new Row { Icon = IconFor(m.Kind), Cells = new[] { KindName(m.Kind), m.Name, (m.Tri.Count / 3) + " triangulos" } }));
-                    rows.AddRange(sc.Tubes.GroupBy(t => (t.Kind, t.Name)).Select(g => new Row { Icon = IconFor(g.Key.Kind), Cells = new[] { KindName(g.Key.Kind), g.Key.Name, g.Sum(t => t.Pts.Count - 1) + " trecho(s)" } }));
-                    if (sc.Points.Count > 0)
-                        rows.Add(new Row { Icon = "numero", Cells = new[] { "Ponto", "Pontos COGO", sc.Points.Count + " ponto(s)" } });
-                }
-
+                headers = new[] { "Tipo", "Nome", "Elementos", "Mostrar" };
+                widths = new[] { 110.0, 240, 120, 60 };
+                rows = _view3d.Scene is Scene3D sc
+                    ? sc.Objects().Where(o => Match(o.Name) || Match(KindName(o.Kind))).Select(o => new Row
+                    {
+                        Icon = IconFor(o.Kind),
+                        Data = new Obj3D(o.Key),
+                        Cells = new[] { KindName(o.Kind), o.Name, o.Info, _view3d.Hidden.Contains(o.Key) ? "nao" : "sim" }
+                    }).ToList()
+                    : new List<Row>();
                 break;
 
             case "CONFIG":
@@ -960,7 +984,7 @@ internal sealed class SecaoPanel : SW.Window
                 break;
 
             default:
-                headers = new[] { "Corte", "Comp. [m]", "Frente [m]", "Atras [m]", "Cota min", "Cota max", "Exagero" };
+                headers = new[] { "Corte", "Comp. [m]", "Frente [m]", "Atras [m]", "Elev. min", "Elev. max", "Exagero" };
                 widths = new[] { 150.0, 80, 80, 80, 80, 80, 60 };
                 rows = _cuts.Where(c => Match(c.Box.Name)).Select(c => new Row
                 {
@@ -1109,6 +1133,28 @@ internal sealed class SecaoPanel : SW.Window
             case SectionItem it:
                 OpenStyleMenu(it);
                 break;
+            case Obj3D o:
+            {
+                WC.ContextMenu menu = new();
+                bool hidden = _view3d.Hidden.Contains(o.Key);
+                WC.MenuItem vis = new() { Header = hidden ? "Mostrar" : "Ocultar" };
+                vis.Click += (_, _) => Toggle3D(o.Key);
+                menu.Items.Add(vis);
+                WC.MenuItem only = new() { Header = "Mostrar so este (isolar)" };
+                only.Click += (_, _) =>
+                {
+                    if (_view3d.Scene is Scene3D sc)
+                        _view3d.SetHidden(sc.Objects().Select(x => x.Key).Where(k => k != o.Key).ToList());
+                    FillList();
+                };
+                menu.Items.Add(only);
+                WC.MenuItem all = new() { Header = "Mostrar todos" };
+                all.Click += (_, _) => { _view3d.SetHidden(Array.Empty<string>()); FillList(); };
+                menu.Items.Add(all);
+                menu.IsOpen = true;
+                break;
+            }
+
             case CompareEntry ce:
             {
                 WC.ContextMenu menu = new();
@@ -1151,7 +1197,8 @@ internal sealed class SecaoPanel : SW.Window
         ItemKind.Corredor => "Corredor",
         ItemKind.Tubo => "Tubo",
         ItemKind.Estrutura => "Estrutura",
-        ItemKind.Solido => "Solido 3D",
+        ItemKind.Solido => "Solido/malha",
+        ItemKind.Bloco => "Bloco",
         ItemKind.FeatureLine => "Feature line",
         ItemKind.Polilinha3d => "Polilinha 3D",
         _ => "Ponto"
@@ -1163,6 +1210,7 @@ internal sealed class SecaoPanel : SW.Window
         ItemKind.Corredor => "corredor",
         ItemKind.Tubo or ItemKind.Estrutura => "curva",
         ItemKind.Solido => "solido3d",
+        ItemKind.Bloco => "bloco",
         ItemKind.FeatureLine or ItemKind.Polilinha3d => "polilinha",
         _ => "numero"
     };
@@ -1421,7 +1469,7 @@ internal sealed class SecaoPanel : SW.Window
             PropText(g, "Layer", it.Layer);
             PropText(g, "Posicao", it.Ghost ? $"na profundidade ({N(it.Depth)} m do plano)" : "cortado pelo plano");
             if (it.ZRange() is (double a, double b))
-                PropText(g, "Cotas", $"{N(a, "0.000")} a {N(b, "0.000")}");
+                PropText(g, "Elevacoes", $"{N(a, "0.000")} a {N(b, "0.000")}");
             PropText(g, "Elementos", $"{it.Polylines.Count} linha(s), {it.Circles.Count} circulo(s), {it.Points.Count} ponto(s)");
             foreach (KeyValuePair<string, string> kv in it.Info)
                 PropText(g, kv.Key, kv.Value);
@@ -1488,9 +1536,9 @@ internal sealed class SecaoPanel : SW.Window
         PropText(grid, "Comprimento", N(box.Length) + " m, " + (box.Line.Count - 1) + " trecho(s)");
         Prop(grid, "Profundidade a frente [m]", frente);
         Prop(grid, "Profundidade atras [m]", atras);
-        Prop(grid, "Faixa de cotas", autoZ);
-        Prop(grid, "Cota minima", zmin);
-        Prop(grid, "Cota maxima", zmax);
+        Prop(grid, "Faixa de elevacao", autoZ);
+        Prop(grid, "Elevacao minima", zmin);
+        Prop(grid, "Elevacao maxima", zmax);
         Prop(grid, "Exagero vertical", exag);
         form.Children.Add(grid);
 
@@ -1519,7 +1567,7 @@ internal sealed class SecaoPanel : SW.Window
             });
         };
         buttons.Children.Add(apply2);
-        WC.Button fromView = new() { Content = "Cotas da vista atual", Width = 150, Margin = new SW.Thickness(0, 0, 6, 0), ToolTip = "Fixa a faixa de cotas no que esta visivel agora (depois do zoom)." };
+        WC.Button fromView = new() { Content = "Elevacoes da vista atual", Width = 150, Margin = new SW.Thickness(0, 0, 6, 0), ToolTip = "Fixa a faixa de elevacao no que esta visivel agora (depois do zoom)." };
         fromView.Click += (_, _) =>
         {
             (double lo, double hi) = VisibleZ();
@@ -1562,7 +1610,7 @@ internal sealed class SecaoPanel : SW.Window
             Prop(g, "Nome", name);
             (double z0, double z1) = sel.Data.DataZ();
             PropText(g, "Comprimento", N(sel.Data.Length) + " m");
-            PropText(g, "Cotas", $"{N(z0, "0.000")} a {N(z1, "0.000")}");
+            PropText(g, "Elevacoes", $"{N(z0, "0.000")} a {N(z1, "0.000")}");
             PropText(g, "Eixo", double.IsNaN(sel.Data.AxisS) ? "(corte livre: alinha pelo centro)" : $"S = {N(sel.Data.AxisS)} m");
             form.Children.Add(g);
         }
@@ -1579,7 +1627,7 @@ internal sealed class SecaoPanel : SW.Window
         return form;
     }
 
-    /// <summary>Compara o topo (maior cota) de duas secoes alinhadas, a cada 5 cm.</summary>
+    /// <summary>Compara o topo (maior elevacao) de duas secoes alinhadas, a cada 5 cm.</summary>
     private (string Text, double Max) TopDifference(CompareEntry a, CompareEntry b)
     {
         double oa = CompareOffset(a.Data), ob = CompareOffset(b.Data);
@@ -1617,19 +1665,92 @@ internal sealed class SecaoPanel : SW.Window
     private SW.UIElement Build3DProperties(WC.StackPanel form)
     {
         form.Children.Add(Label("Vista 3D da caixa", true));
-        form.Children.Add(Label("Mostra o conteudo da caixa corrente (corte ou estaca): superficies amostradas numa grade, o corredor entre as estacas que tocam a caixa, tubos, estruturas, linhas e pontos, o plano do corte translucido e o contorno da caixa."));
-        form.Children.Add(Label("Arrastar: orbitar. Botao direito ou do meio: mover. Roda: zoom. Duplo clique: volta a isometrica. O exagero vertical vale aqui tambem (botao Exagero)."));
+        form.Children.Add(Label("O conteudo da caixa corrente (corte ou estaca) recortado exatamente nela, como a section box do Model Viewer: superficies, corredor, solidos, corpos, malhas e blocos, tubos, estruturas, linhas e pontos. Com a faixa de elevacao fixada, recorta tambem em cima e embaixo."));
+        form.Children.Add(Label("Arrastar: orbitar. Botao direito ou do meio: mover. Roda: zoom. Duplo clique: isometrica. Barra no canto: vistas prontas, estilo, perspectiva e imagem. Na lista: clique duplo mostra/oculta; botao direito isola."));
+
+        form.Children.Add(Label("Estilo", true));
+        WC.WrapPanel styles = new() { Margin = new SW.Thickness(0, 2, 0, 4) };
+        foreach ((SecaoView3D.Style3D st, string text) in new[] { (SecaoView3D.Style3D.Sombreado, "Sombreado"), (SecaoView3D.Style3D.SombreadoArestas, "Com arestas"), (SecaoView3D.Style3D.Arestas, "So arestas"), (SecaoView3D.Style3D.RaioX, "Raio-X") })
+        {
+            bool on = _view3d.ViewStyle == st;
+            WC.Button b = new() { Content = text, Padding = new SW.Thickness(8, 2, 8, 2), Margin = new SW.Thickness(0, 0, 4, 4), Background = on ? T.Selected : T.Hover, BorderBrush = on ? T.Accent : T.Line };
+            SecaoView3D.Style3D chosen = st;
+            b.Click += (_, _) => { _view3d.SetStyle(chosen); BuildTabs(); };
+            styles.Children.Add(b);
+        }
+
+        form.Children.Add(styles);
+        WC.CheckBox persp = new() { Content = "Perspectiva (desligado: ortogonal)", IsChecked = _view3d.Perspective, Foreground = T.Text, Margin = new SW.Thickness(0, 3, 0, 3) };
+        persp.Click += (_, _) => _view3d.SetPerspective(persp.IsChecked == true);
+        form.Children.Add(persp);
+
+        WC.StackPanel buttons = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 8, 0, 0) };
+        WC.Button copy = new() { Content = "Copiar imagem", Width = 110, Margin = new SW.Thickness(0, 0, 6, 0) };
+        copy.Click += (_, _) => Image3D(false);
+        WC.Button save = new() { Content = "Salvar PNG...", Width = 110, Margin = new SW.Thickness(0, 0, 6, 0) };
+        save.Click += (_, _) => Image3D(true);
+        WC.Button rebuild = new() { Content = "Refazer a cena", Width = 120 };
+        rebuild.Click += (_, _) => { _scene3dDirty = true; Update3D(keepCamera: true); FillList(); BuildTabs(); };
+        buttons.Children.Add(copy);
+        buttons.Children.Add(save);
+        buttons.Children.Add(rebuild);
+        form.Children.Add(buttons);
+
         if (_view3d.Scene is Scene3D sc)
         {
             form.Children.Add(Label(sc.Summary(), true));
+            if (_view3d.Hidden.Count > 0)
+                form.Children.Add(Label($"{_view3d.Hidden.Count} objeto(s) oculto(s) (lista: botao direito > Mostrar todos)."));
             foreach (string w in sc.Warnings.Take(10))
                 form.Children.Add(Label("- " + w));
         }
 
-        WC.Button rebuild = new() { Content = "Refazer a cena", Width = 140, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 8, 0, 0) };
-        rebuild.Click += (_, _) => { _scene3dDirty = true; Update3D(keepCamera: true); FillList(); BuildTabs(); };
-        form.Children.Add(rebuild);
         return form;
+    }
+
+    private void Toggle3D(string key)
+    {
+        List<string> hidden = _view3d.Hidden.ToList();
+        if (!hidden.Remove(key))
+            hidden.Add(key);
+        _view3d.SetHidden(hidden);
+        FillList();
+        BuildTabs();
+    }
+
+    /// <summary>Imagem da vista 3D: copia para a area de transferencia ou salva em PNG.</summary>
+    private void Image3D(bool save)
+    {
+        try
+        {
+            WM.Imaging.BitmapSource? img = _view3d.Snapshot();
+            if (img is null)
+            {
+                Say("Abra a Vista 3D para gerar a imagem.");
+                return;
+            }
+
+            if (!save)
+            {
+                SW.Clipboard.SetImage(img);
+                Say("Imagem da vista 3D copiada.");
+                return;
+            }
+
+            string name = string.Concat((_data?.Box.Name ?? "secao").Select(c => System.IO.Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            Microsoft.Win32.SaveFileDialog dlg = new() { Filter = "Imagem PNG (*.png)|*.png", FileName = name + "-3d.png" };
+            if (dlg.ShowDialog(this) != true)
+                return;
+            WM.Imaging.PngBitmapEncoder enc = new();
+            enc.Frames.Add(WM.Imaging.BitmapFrame.Create(img));
+            using (System.IO.FileStream fs = System.IO.File.Create(dlg.FileName))
+                enc.Save(fs);
+            Say("Imagem salva: " + dlg.FileName);
+        }
+        catch (System.Exception ex)
+        {
+            Say("Nao foi possivel gerar a imagem: " + ex.Message);
+        }
     }
 
     private SW.UIElement BuildContent()
@@ -1651,22 +1772,55 @@ internal sealed class SecaoPanel : SW.Window
         Add("Superficies (amostradas ao longo da linha)", () => _prefs.Superficies, v => _prefs.Superficies = v);
         Add("Corredores (links interpolados entre estacas)", () => _prefs.Corredores, v => _prefs.Corredores = v);
         Add("Tubos e estruturas", () => _prefs.Tubos, v => _prefs.Tubos = v);
-        Add("Solidos 3D (secao pelo plano)", () => _prefs.Solidos, v => _prefs.Solidos = v);
+        Add("Solidos 3D, corpos, superficies e malhas do AutoCAD", () => _prefs.Solidos, v => _prefs.Solidos = v);
+        Add("Blocos com solidos/malhas (xrefs ficam de fora)", () => _prefs.Blocos, v => _prefs.Blocos = v);
         Add("Feature lines", () => _prefs.FeatureLines, v => _prefs.FeatureLines = v);
         Add("Polilinhas 3D", () => _prefs.Polilinhas3d, v => _prefs.Polilinhas3d = v);
         Add("Pontos COGO", () => _prefs.Pontos, v => _prefs.Pontos = v);
-        form.Children.Add(Label("Projetado da profundidade (fantasmas, apagados)", true));
-        Add("Estacas do corredor dentro da caixa", () => _prefs.FantasmaCorredor, v => _prefs.FantasmaCorredor = v);
-        Add("Tubos e estruturas dentro da caixa", () => _prefs.FantasmaTubos, v => _prefs.FantasmaTubos = v);
-        Add("Feature lines e polilinhas 3D dentro da caixa", () => _prefs.FantasmaLinhas, v => _prefs.FantasmaLinhas = v);
-        Add("Pontos COGO dentro da caixa", () => _prefs.FantasmaPontos, v => _prefs.FantasmaPontos = v);
+
+        // Faixa de vista por classe: so o corte / faixa da caixa / tudo.
+        form.Children.Add(Label("Faixa de vista por elemento", true));
+        form.Children.Add(Label("Corte: so o que cruza o plano. Faixa: o corte e o que esta na profundidade da caixa (projetado, apagado). Tudo: ignora a profundidade e projeta o que cai na largura da linha."));
+        WC.Grid fg = new() { Margin = new SW.Thickness(0, 2, 0, 4) };
+        fg.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(200) });
+        for (int c = 0; c < 3; c++)
+            fg.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(70) });
+        int row = 0;
+        foreach ((string cls, string title) in SecaoStore.Prefs.FaixaClasses)
+        {
+            fg.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+            WC.TextBlock name = new() { Text = title, Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 2, 6, 2) };
+            WC.Grid.SetRow(name, row);
+            fg.Children.Add(name);
+            int col = 1;
+            foreach ((string mode, string text) in new[] { ("corte", "Corte"), ("faixa", "Faixa"), ("tudo", "Tudo") })
+            {
+                WC.RadioButton rb = new() { Content = text, GroupName = "faixa-" + cls, IsChecked = _prefs.Faixa(cls) == mode, Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center };
+                string c2 = cls, m2 = mode;
+                rb.Checked += (_, _) =>
+                {
+                    if (_prefs.Faixa(c2) == m2)
+                        return;
+                    _prefs.Faixas[c2] = m2;
+                    SecaoStore.SavePrefs(_prefs);
+                    Recompute();
+                };
+                WC.Grid.SetRow(rb, row);
+                WC.Grid.SetColumn(rb, col++);
+                fg.Children.Add(rb);
+            }
+
+            row++;
+        }
+
+        form.Children.Add(fg);
+        form.Children.Add(Label("A vista 3D fica sempre limitada a caixa."));
+
         form.Children.Add(Label("Vista", true));
         WC.CheckBox grade = new() { Content = "Grade", IsChecked = _prefs.Grade, Foreground = T.Text, Margin = new SW.Thickness(0, 3, 0, 3) };
         grade.Click += (_, _) => { _prefs.Grade = grade.IsChecked == true; SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
         form.Children.Add(grade);
-        WC.CheckBox rot = new() { Content = "Rotulos (nome no fim de cada linha)", IsChecked = _prefs.Rotulos, Foreground = T.Text, Margin = new SW.Thickness(0, 3, 0, 3) };
-        rot.Click += (_, _) => { _prefs.Rotulos = rot.IsChecked == true; SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
-        form.Children.Add(rot);
+        form.Children.Add(Label("Textos: botao Textos, na barra abaixo da vista. Ctrl + arrastar move um rotulo; botao direito sobre ele volta a posicao automatica."));
         form.Children.Add(Label("Superficies individuais: categoria Configuracao (clique na linha para mostrar/ocultar)."));
 
         form.Children.Add(Label("Corredor", true));
@@ -1716,7 +1870,7 @@ internal sealed class SecaoPanel : SW.Window
 
         scale.LostFocus += (_, _) => SaveExport();
         mm.LostFocus += (_, _) => SaveExport();
-        form.Children.Add(Label($"Altura do texto no desenho = mm x escala / 1000 (hoje {_prefs.TextoMm * _prefs.EscalaDesenho / 1000:0.###} m). O passo das cotas e das distancias se ajusta para os textos nao se sobreporem."));
+        form.Children.Add(Label($"Altura do texto no desenho = mm x escala / 1000 (hoje {_prefs.TextoMm * _prefs.EscalaDesenho / 1000:0.###} m). O passo das elevacoes e das distancias se ajusta para os textos nao se sobreporem."));
         return form;
     }
 
@@ -1871,11 +2025,31 @@ internal sealed class SecaoPanel : SW.Window
         }
 
         SW.Point p = e.GetPosition(_graphic);
+
+        // Ctrl + arrastar sobre um rotulo: move o rotulo (deslocamento salvo por secao).
+        if (e.ChangedButton == WI.MouseButton.Left && (WI.Keyboard.Modifiers & WI.ModifierKeys.Control) != 0 && LabelAt(p) is LabelHit lh)
+        {
+            _dragLabel = lh;
+            _dragLabelStart = p;
+            if (_prefs.Deslocamentos.TryGetValue(lh.Key, out (double DS, double DZ) d0))
+                _dragLabelOffset0 = d0;
+            else
+            {
+                (double ws, double wz) = ToWorld(new SW.Point(lh.Rect.Left, lh.Rect.Bottom));
+                _dragLabelOffset0 = (ws - lh.S, wz - lh.Z);
+            }
+
+            _graphic.CaptureMouse();
+            return;
+        }
+
         (ViewLayer Layer, SectionItem Item)? hit = HitTest(p);
 
         if (e.ChangedButton == WI.MouseButton.Right)
         {
-            if (hit is not null)
+            if (LabelAt(p) is LabelHit rl)
+                OpenLabelMenu(rl);
+            else if (hit is not null)
                 OpenStyleMenu(hit.Value.Item);
             return;
         }
@@ -1900,6 +2074,22 @@ internal sealed class SecaoPanel : SW.Window
     private void OnMouseMove(object sender, WI.MouseEventArgs e)
     {
         SW.Point p = e.GetPosition(_graphic);
+        if (_dragLabel is LabelHit dl)
+        {
+            if (e.LeftButton != WI.MouseButtonState.Pressed)
+            {
+                EndLabelDrag();
+                return;
+            }
+
+            double ds = (p.X - _dragLabelStart.X) / _scale, dz = -(p.Y - _dragLabelStart.Y) / (_scale * Ex);
+            _prefs.Deslocamentos[dl.Key] = (_dragLabelOffset0.DS + ds, _dragLabelOffset0.DZ + dz);
+            RenderGraphic();
+            return;
+        }
+
+        bool ctrl = (WI.Keyboard.Modifiers & WI.ModifierKeys.Control) != 0;
+        _graphic.Cursor = ctrl && !_dragging && LabelAt(p) is not null ? WI.Cursors.SizeAll : null;
         if (_dragging && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             _ox = _dragOrigin.ox + (p.X - _dragStart.X);
@@ -1990,6 +2180,7 @@ internal sealed class SecaoPanel : SW.Window
             ItemKind.Corredor => 30,
             ItemKind.Tubo or ItemKind.Estrutura => 4,
             ItemKind.Solido => 2,
+            ItemKind.Bloco => 6,
             ItemKind.FeatureLine => 6,
             ItemKind.Polilinha3d => 5,
             _ => 7
@@ -2108,6 +2299,7 @@ internal sealed class SecaoPanel : SW.Window
     private void RenderGraphic()
     {
         _graphic.Children.Clear();
+        _labels.Clear();
         double W = _graphic.ActualWidth, H = _graphic.ActualHeight;
         if (W < 10 || H < 10)
             return;
@@ -2138,7 +2330,7 @@ internal sealed class SecaoPanel : SW.Window
             return new SW.Point(q.X - MarginLeft, q.Y - MarginTop);
         }
 
-        // Faixa util (cotas e comprimento) levemente mais clara.
+        // Faixa util (elevacao e comprimento) levemente mais clara.
         SW.Point c0 = P(smin, zmax), c1 = P(smax, zmin);
         plot.Children.Add(new WS.Rectangle
         {
@@ -2195,11 +2387,12 @@ internal sealed class SecaoPanel : SW.Window
                 DrawItem(plot, layer, _selectedItem, true, tf, P, placed);
         }
 
-        // Reguas: cotas a esquerda, distancias embaixo.
+        // Reguas: elevacoes a esquerda, distancias embaixo.
         WM.Brush ruler = ToolTheme.Brush(44, 46, 50);
         _graphic.Children.Add(new WS.Rectangle { Width = MarginLeft - 2, Height = H, Fill = ruler }.At(0, 0));
         _graphic.Children.Add(new WS.Rectangle { Width = W, Height = MarginBottom - 2, Fill = ruler }.At(0, H - MarginBottom + 2));
-        for (double z = Math.Floor(vzLo / zStep) * zStep; z <= vzHi; z += zStep)
+        bool reguas = _prefs.Texto("reguas");
+        for (double z = Math.Floor(vzLo / zStep) * zStep; reguas && z <= vzHi; z += zStep)
         {
             SW.Point a = ToScreen(0, z);
             if (a.Y < MarginTop || a.Y > H - MarginBottom)
@@ -2208,7 +2401,7 @@ internal sealed class SecaoPanel : SW.Window
             _graphic.Children.Add(Text(z.ToString(zStep < 1 ? "0.00" : "0.0", CultureInfo.InvariantCulture), 4, a.Y - 7, ToolTheme.GraphicText, 10, MarginLeft - 12, SW.TextAlignment.Right));
         }
 
-        for (double s = Math.Floor(vsLo / sStep) * sStep; s <= vsHi; s += sStep)
+        for (double s = Math.Floor(vsLo / sStep) * sStep; reguas && s <= vsHi; s += sStep)
         {
             SW.Point a = ToScreen(s, 0);
             if (a.X < MarginLeft || a.X > W - MarginRight)
@@ -2220,9 +2413,10 @@ internal sealed class SecaoPanel : SW.Window
         if (CompareMode)
         {
             string align = _compareAlign == "Inicio" ? "pelo inicio" : _compareAlign == "Centro" ? "pelo centro" : "pelo eixo";
-            _graphic.Children.Add(Text($"Comparacao: {layers.Count} secao(oes), alinhadas {align}   exagero {Ex:0.##}x", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
+            if (_prefs.Texto("titulo"))
+                _graphic.Children.Add(Text($"Comparacao: {layers.Count} secao(oes), alinhadas {align}   exagero {Ex:0.##}x", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
             double ly = MarginTop + 8;
-            foreach (ViewLayer l in layers)
+            foreach (ViewLayer l in _prefs.Texto("legenda") ? layers : new List<ViewLayer>())
             {
                 WM.Color c = l.Color ?? Colors[0];
                 _graphic.Children.Add(new WS.Rectangle { Width = 14, Height = 4, Fill = Solid(c), Stroke = ReferenceEquals(l.Entry, _compareSel) ? Solid(SelectColor) : null }.At(MarginLeft + 10, ly + 5));
@@ -2230,7 +2424,7 @@ internal sealed class SecaoPanel : SW.Window
                 ly += 14;
             }
         }
-        else
+        else if (_prefs.Texto("titulo"))
         {
             _graphic.Children.Add(Text($"{layers[0].Data.Box.Name}   exagero {Ex:0.##}x   1 m = {_scale:0.#} px", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
             _graphic.Children.Add(Text("esq. (inicio da linha)", MarginLeft + 6, H - MarginBottom - 16, ToolTheme.Brush(150, 152, 156), 9));
@@ -2269,33 +2463,27 @@ internal sealed class SecaoPanel : SW.Window
             plot.Children.Add(path);
         }
 
-        if (_prefs.Rotulos && !it.Ghost && (it.Kind == ItemKind.Superficie || it.Kind == ItemKind.Corredor) && it.Polylines.Count > 0 && it.Polylines[0].Count > 0)
-        {
-            (double s, double z) = it.Polylines[0][^1];
-            SW.Point e = P(s, z);
-            PlaceLabel(plot, placed, it.Name, e.X + 4, e.Y - 7, brush);
-        }
-
-        foreach ((double s, double z, string label) in it.Points)
+        foreach ((double s, double z, _) in it.Points)
         {
             SW.Point c = P(s, z);
             const double m = 4;
             plot.Children.Add(new WS.Line { X1 = c.X - m, Y1 = c.Y - m, X2 = c.X + m, Y2 = c.Y + m, Stroke = brush, StrokeThickness = thick });
             plot.Children.Add(new WS.Line { X1 = c.X - m, Y1 = c.Y + m, X2 = c.X + m, Y2 = c.Y - m, Stroke = brush, StrokeThickness = thick });
-            if (_prefs.Rotulos && label.Length > 0)
-                PlaceLabel(plot, placed, label, c.X + 5, c.Y - 14, brush);
+        }
+
+        // Rotulos conforme o menu Textos (mesma regra do desenho).
+        foreach (LabelSpec spec in SecaoLabels.For(it, layer.Data.Box.Name, _prefs.Texto))
+        {
+            bool atPoint = SecaoLabelsPointSuffix(spec.Key).Length > 0;
+            PlaceLabel(plot, placed, spec, off, brush, atPoint ? 5 : 4, atPoint ? -14 : -7);
         }
     }
 
-    /// <summary>Rotulo sem sobrepor os ja colocados: sobe uma linha por vez (ate 6).</summary>
-    private static void PlaceLabel(WC.Canvas plot, List<SW.Rect> placed, string text, double x, double y, WM.Brush brush)
+    /// <summary>Sufixo "|pN" das chaves de rotulo de ponto ("" se nao for de ponto).</summary>
+    private static string SecaoLabelsPointSuffix(string key)
     {
-        double w = text.Length * 5.6, h = 11;
-        SW.Rect r = new(x, y, w, h);
-        for (int i = 0; i < 6 && placed.Any(q => q.IntersectsWith(r)); i++)
-            r.Y -= h + 1;
-        placed.Add(r);
-        plot.Children.Add(Text(text, r.X, r.Y, brush, 9));
+        int bar = key.LastIndexOf('|');
+        return bar >= 0 && bar + 1 < key.Length && key[bar + 1] == 'p' ? key[bar..] : "";
     }
 
     private static WC.TextBlock Text(string t, double x, double y, WM.Brush brush, double size, double? width = null, SW.TextAlignment align = SW.TextAlignment.Left)
@@ -2306,6 +2494,141 @@ internal sealed class SecaoPanel : SW.Window
         WC.Canvas.SetLeft(tb, x);
         WC.Canvas.SetTop(tb, y);
         return tb;
+    }
+
+    // ------------------------------------------------------------------
+    // Textos (menu) e rotulos arrastaveis (Ctrl)
+    // ------------------------------------------------------------------
+
+    /// <summary>Rotulo desenhado na vista: retangulo (coordenadas da vista), chave e ancoragem no mundo.</summary>
+    private sealed class LabelHit
+    {
+        public SW.Rect Rect;
+        public string Key = "";
+        public double S, Z;
+        public bool Moved;
+    }
+
+    private readonly List<LabelHit> _labels = new();
+    private LabelHit? _dragLabel;
+    private SW.Point _dragLabelStart;
+    private (double DS, double DZ) _dragLabelOffset0;
+
+    private void OpenTextMenu()
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = _textButton, Placement = WC.Primitives.PlacementMode.Top };
+        foreach ((string key, string title) in SecaoStore.Prefs.TextKinds)
+        {
+            WC.MenuItem mi = new() { Header = title, IsCheckable = true, IsChecked = _prefs.Texto(key), StaysOpenOnClick = true };
+            string k = key;
+            mi.Click += (_, _) =>
+            {
+                if (mi.IsChecked)
+                    _prefs.Textos.Add(k);
+                else
+                    _prefs.Textos.Remove(k);
+                SecaoStore.SavePrefs(_prefs);
+                RenderGraphic();
+            };
+            menu.Items.Add(mi);
+        }
+
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem all = new() { Header = "Todos" };
+        all.Click += (_, _) => { foreach ((string key, _) in SecaoStore.Prefs.TextKinds) _prefs.Textos.Add(key); SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
+        menu.Items.Add(all);
+        WC.MenuItem none = new() { Header = "Nenhum" };
+        none.Click += (_, _) => { _prefs.Textos.Clear(); SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
+        menu.Items.Add(none);
+        menu.Items.Add(new WC.Separator());
+        string? section = CompareMode ? null : _data?.Box.Name;
+        int moved = section is null ? 0 : _prefs.Deslocamentos.Keys.Count(k => k.StartsWith(section + "|", StringComparison.Ordinal));
+        WC.MenuItem reset = new() { Header = moved > 0 ? $"Voltar os rotulos movidos desta secao ({moved})" : "Voltar os rotulos movidos desta secao", IsEnabled = moved > 0 };
+        reset.Click += (_, _) => ResetLabels(section);
+        menu.Items.Add(reset);
+        WC.MenuItem hint = new() { Header = "Ctrl + arrastar move um rotulo", IsEnabled = false };
+        menu.Items.Add(hint);
+        menu.IsOpen = true;
+    }
+
+    private void ResetLabels(string? section)
+    {
+        if (section is null)
+            return;
+        foreach (string k in _prefs.Deslocamentos.Keys.Where(k => k.StartsWith(section + "|", StringComparison.Ordinal)).ToList())
+            _prefs.Deslocamentos.Remove(k);
+        SecaoStore.SavePrefs(_prefs);
+        RenderGraphic();
+    }
+
+    private LabelHit? LabelAt(SW.Point p)
+    {
+        for (int i = _labels.Count - 1; i >= 0; i--)
+        {
+            SW.Rect r = _labels[i].Rect;
+            r.Inflate(2, 2);
+            if (r.Contains(p))
+                return _labels[i];
+        }
+
+        return null;
+    }
+
+    private void EndLabelDrag()
+    {
+        if (_dragLabel is null)
+            return;
+        _dragLabel = null;
+        SecaoStore.SavePrefs(_prefs);
+    }
+
+    private void OpenLabelMenu(LabelHit hit)
+    {
+        WC.ContextMenu menu = new();
+        WC.MenuItem back = new() { Header = "Voltar o rotulo para a posicao automatica", IsEnabled = hit.Moved };
+        back.Click += (_, _) => { _prefs.Deslocamentos.Remove(hit.Key); SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
+        menu.Items.Add(back);
+        string section = hit.Key.Split('|')[0];
+        WC.MenuItem all = new() { Header = "Voltar todos os rotulos desta secao" };
+        all.Click += (_, _) => ResetLabels(section);
+        menu.Items.Add(all);
+        menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Coloca um rotulo: no deslocamento salvo (com linha de chamada ate a ancoragem) ou,
+    /// sem ele, ao lado da ancoragem subindo uma linha por vez ate nao sobrepor (ate 6).
+    /// </summary>
+    private void PlaceLabel(WC.Canvas plot, List<SW.Rect> placed, LabelSpec spec, double off, WM.Brush brush, double autoDx, double autoDy)
+    {
+        double w = (spec.Text.Length * 5.6) + 2, h = 11;
+        SW.Point anchor = ToScreen(spec.S + off, spec.Z);
+        SW.Rect r;
+        bool moved = _prefs.Deslocamentos.TryGetValue(spec.Key, out (double DS, double DZ) d);
+        if (moved)
+        {
+            SW.Point bl = ToScreen(spec.S + off + d.DS, spec.Z + d.DZ);
+            r = new SW.Rect(bl.X, bl.Y - h, w, h);
+        }
+        else
+        {
+            r = new SW.Rect(anchor.X + autoDx, anchor.Y + autoDy, w, h);
+            for (int i = 0; i < 6 && placed.Any(q => q.IntersectsWith(r)); i++)
+                r.Y -= h + 1;
+        }
+
+        placed.Add(r);
+        _labels.Add(new LabelHit { Rect = r, Key = spec.Key, S = spec.S + off, Z = spec.Z, Moved = moved });
+        if (moved)
+        {
+            // Linha de chamada: da ancoragem ao lado mais perto do texto.
+            double lx = Math.Abs(anchor.X - r.Left) < Math.Abs(anchor.X - r.Right) ? r.Left : r.Right;
+            double ly = Math.Clamp(anchor.Y, r.Top, r.Bottom);
+            if (Math.Abs(lx - anchor.X) + Math.Abs(ly - anchor.Y) > 6)
+                plot.Children.Add(new WS.Line { X1 = anchor.X - MarginLeft, Y1 = anchor.Y - MarginTop, X2 = lx - MarginLeft, Y2 = (r.Top + (h / 2)) - MarginTop, Stroke = brush, StrokeThickness = 0.7, Opacity = 0.8 });
+        }
+
+        plot.Children.Add(Text(spec.Text, r.X - MarginLeft, r.Y - MarginTop, brush, 9));
     }
 
     // ------------------------------------------------------------------

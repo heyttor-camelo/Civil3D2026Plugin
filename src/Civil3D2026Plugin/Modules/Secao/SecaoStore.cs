@@ -154,10 +154,62 @@ internal static class SecaoStore
     /// <summary>O que entra na vista (por classe) e padroes de caixa nova.</summary>
     public sealed class Prefs
     {
-        public bool Superficies = true, Corredores = true, Tubos = true, Solidos = true, FeatureLines = true, Polilinhas3d = true, Pontos = true;
-        public bool FantasmaCorredor = true, FantasmaTubos = true, FantasmaLinhas = true, FantasmaPontos = true;
+        public bool Superficies = true, Corredores = true, Tubos = true, Solidos = true, Blocos = true, FeatureLines = true, Polilinhas3d = true, Pontos = true;
         public double FrentePadrao = 10, AtrasPadrao = 5, ExageroPadrao = 1;
-        public bool Grade = true, Codigos = false, Rotulos = true;
+        public bool Grade = true, Codigos = false;
+
+        /// <summary>
+        /// Faixa de vista por classe: "corte" (so o que cruza o plano), "faixa" (o corte mais
+        /// o que esta na profundidade da caixa, projetado) ou "tudo" (ignora a profundidade:
+        /// projeta tudo o que cai na largura da linha).
+        /// </summary>
+        public Dictionary<string, string> Faixas = new(StringComparer.OrdinalIgnoreCase);
+
+        public static readonly (string Key, string Title)[] FaixaClasses =
+        {
+            ("corredor", "Corredores (estacas)"),
+            ("tubos", "Tubos e estruturas"),
+            ("solidos", "Solidos, malhas e blocos"),
+            ("linhas", "Feature lines e polilinhas 3D"),
+            ("pontos", "Pontos COGO")
+        };
+
+        public string Faixa(string cls) => Faixas.TryGetValue(cls, out string? v) && v is "corte" or "faixa" or "tudo" ? v : "faixa";
+
+        /// <summary>Caixa usada para a classe: a propria ou, em "tudo", sem limite de profundidade.</summary>
+        public CutBox BoxFor(string cls, CutBox box) => Faixa(cls) == "tudo" ? box.Unlimited() : box;
+
+        private void Ghost(string cls, bool on) => Faixas[cls] = on ? (Faixa(cls) == "tudo" ? "tudo" : "faixa") : "corte";
+
+        public bool FantasmaCorredor { get => Faixa("corredor") != "corte"; set => Ghost("corredor", value); }
+        public bool FantasmaTubos { get => Faixa("tubos") != "corte"; set => Ghost("tubos", value); }
+        public bool FantasmaSolidos { get => Faixa("solidos") != "corte"; set => Ghost("solidos", value); }
+        public bool FantasmaLinhas { get => Faixa("linhas") != "corte"; set => Ghost("linhas", value); }
+        public bool FantasmaPontos { get => Faixa("pontos") != "corte"; set => Ghost("pontos", value); }
+
+        /// <summary>Textos da vista e do desenho (menu Textos).</summary>
+        public static readonly (string Key, string Title)[] TextKinds =
+        {
+            ("nomes", "Nomes de superficies e corredores"),
+            ("objetos", "Nomes de tubos, estruturas, solidos e blocos"),
+            ("linhas", "Nomes das linhas cortadas (feature lines, polilinhas 3D)"),
+            ("pontos", "Pontos COGO (numero e descricao)"),
+            ("elevacao", "Elevacao junto dos rotulos"),
+            ("fantasmas", "Rotulos tambem dos fantasmas"),
+            ("reguas", "Reguas de elevacao e distancia"),
+            ("titulo", "Titulo, exagero e escala"),
+            ("legenda", "Legenda da comparacao")
+        };
+
+        public HashSet<string> Textos = new(StringComparer.OrdinalIgnoreCase) { "nomes", "objetos", "linhas", "pontos", "reguas", "titulo", "legenda" };
+
+        public bool Texto(string key) => Textos.Contains(key);
+
+        /// <summary>Algum rotulo de objeto ligado (compatibilidade com o antigo "Rotulos").</summary>
+        public bool Rotulos => Textos.Overlaps(new[] { "nomes", "objetos", "linhas", "pontos" });
+
+        /// <summary>Rotulos movidos com Ctrl+arrastar: chave (secao|item|parte) -> deslocamento (dS, dZ) em metros.</summary>
+        public Dictionary<string, (double DS, double DZ)> Deslocamentos = new(StringComparer.Ordinal);
         public HashSet<string> SuperficiesOcultas = new(StringComparer.OrdinalIgnoreCase);
 
         /// <summary>Corredor: "links" (todos), "contorno" (so a envoltoria) ou "codigos" (links com os codigos dados).</summary>
@@ -190,6 +242,7 @@ internal static class SecaoStore
         {
             if (!File.Exists(PrefsPath))
                 return p;
+            bool textos = false;
             foreach (string line in File.ReadAllLines(PrefsPath))
             {
                 int eq = line.IndexOf('=');
@@ -206,13 +259,33 @@ internal static class SecaoStore
                     case "featurelines": p.FeatureLines = B(); break;
                     case "polilinhas3d": p.Polilinhas3d = B(); break;
                     case "pontos": p.Pontos = B(); break;
-                    case "fantasmacorredor": p.FantasmaCorredor = B(); break;
-                    case "fantasmatubos": p.FantasmaTubos = B(); break;
-                    case "fantasmalinhas": p.FantasmaLinhas = B(); break;
-                    case "fantasmapontos": p.FantasmaPontos = B(); break;
+                    case "blocos": p.Blocos = B(); break;
+                    case "fantasmacorredor": if (!p.Faixas.ContainsKey("corredor")) p.FantasmaCorredor = B(); break;
+                    case "fantasmatubos": if (!p.Faixas.ContainsKey("tubos")) p.FantasmaTubos = B(); break;
+                    case "fantasmalinhas": if (!p.Faixas.ContainsKey("linhas")) p.FantasmaLinhas = B(); break;
+                    case "fantasmapontos": if (!p.Faixas.ContainsKey("pontos")) p.FantasmaPontos = B(); break;
                     case "grade": p.Grade = B(); break;
                     case "codigos": p.Codigos = B(); break;
-                    case "rotulos": p.Rotulos = B(); break;
+                    case "rotulos":
+                        if (!B() && !textos)
+                            p.Textos.ExceptWith(new[] { "nomes", "objetos", "linhas", "pontos" });
+                        break;
+                    case "textos":
+                        textos = true;
+                        p.Textos = new HashSet<string>(v.Split('|', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase);
+                        break;
+                    case "faixa":
+                        int fc = v.IndexOf(':');
+                        if (fc > 0)
+                            p.Faixas[v[..fc]] = v[(fc + 1)..];
+                        break;
+                    case "rotulo":
+                        // rotulo=dS;dZ:chave
+                        int rc = v.IndexOf(':');
+                        string[] dd = rc > 0 ? v[..rc].Split(';') : Array.Empty<string>();
+                        if (dd.Length == 2)
+                            p.Deslocamentos[v[(rc + 1)..]] = (D(dd[0], 0), D(dd[1], 0));
+                        break;
                     case "frente": p.FrentePadrao = D(v, 10); break;
                     case "atras": p.AtrasPadrao = D(v, 5); break;
                     case "exagero": p.ExageroPadrao = D(v, 1); break;
@@ -251,15 +324,16 @@ internal static class SecaoStore
             {
                 "# Preferencias do visualizador de secao (C3DSECAO)",
                 "superficies=" + B(p.Superficies), "corredores=" + B(p.Corredores), "tubos=" + B(p.Tubos),
-                "solidos=" + B(p.Solidos), "featurelines=" + B(p.FeatureLines), "polilinhas3d=" + B(p.Polilinhas3d), "pontos=" + B(p.Pontos),
-                "fantasmacorredor=" + B(p.FantasmaCorredor), "fantasmatubos=" + B(p.FantasmaTubos), "fantasmalinhas=" + B(p.FantasmaLinhas), "fantasmapontos=" + B(p.FantasmaPontos),
-                "grade=" + B(p.Grade), "codigos=" + B(p.Codigos), "rotulos=" + B(p.Rotulos),
+                "solidos=" + B(p.Solidos), "blocos=" + B(p.Blocos), "featurelines=" + B(p.FeatureLines), "polilinhas3d=" + B(p.Polilinhas3d), "pontos=" + B(p.Pontos),
+                "grade=" + B(p.Grade), "codigos=" + B(p.Codigos), "textos=" + string.Join("|", p.Textos.OrderBy(t => t)),
                 "frente=" + F(p.FrentePadrao), "atras=" + F(p.AtrasPadrao), "exagero=" + F(p.ExageroPadrao),
                 "superficiesocultas=" + string.Join("|", p.SuperficiesOcultas.OrderBy(s => s)),
                 "corredormodo=" + p.CorredorModo, "corredorcodigos=" + p.CorredorCodigos,
                 "escaladesenho=" + F(p.EscalaDesenho), "textomm=" + F(p.TextoMm), "compararfantasmas=" + B(p.CompararFantasmas)
             };
+            lines.AddRange(p.Faixas.Select(kv => "faixa=" + kv.Key + ":" + kv.Value));
             lines.AddRange(p.Estilos.Where(kv => kv.Value != ItemStyle.Normal).Take(500).Select(kv => "estilo=" + (int)kv.Value + ":" + kv.Key));
+            lines.AddRange(p.Deslocamentos.Take(500).Select(kv => "rotulo=" + F(kv.Value.DS) + ";" + F(kv.Value.DZ) + ":" + kv.Key));
             File.WriteAllLines(PrefsPath, lines);
         }
         catch

@@ -28,7 +28,7 @@ internal readonly record struct P3(double X, double Y, double Z)
 /// Caixa de corte: a linha em planta (um ou mais trechos retos) define o plano
 /// vertical do corte; <see cref="Frente"/> e <see cref="Atras"/> sao as
 /// profundidades para cada lado; <see cref="ZMin"/>/<see cref="ZMax"/> a faixa
-/// de cotas mostrada (null = automatica).
+/// de elevacao mostrada (null = automatica).
 ///
 /// Convencao de vista: o observador fica do lado direito da linha (olhando no
 /// sentido dela) e olha para a esquerda; o inicio da linha aparece a esquerda da
@@ -106,6 +106,36 @@ internal sealed class CutBox
         }
 
         return (bestS, bestD, inside);
+    }
+
+    /// <summary>
+    /// Copia sem limite de profundidade (faixa de vista "tudo"): a frente e atras vao
+    /// longe; a linha, as elevacoes e o exagero ficam.
+    /// </summary>
+    public CutBox Unlimited() => new() { Name = Name, Line = Line, Frente = 1e5, Atras = 1e5, ZMin = ZMin, ZMax = ZMax, Exagero = Exagero };
+
+    /// <summary>Normal (para a frente) do trecho mais proximo do ponto: direcao em que se olha ali.</summary>
+    public P2 NormalAt(P2 p)
+    {
+        P2 best = Line.Count >= 2 ? (Line[1] - Line[0]).Unit().Left : new P2(0, 1);
+        double bestDist = double.MaxValue;
+        for (int i = 0; i + 1 < Line.Count; i++)
+        {
+            P2 a = Line[i], b = Line[i + 1];
+            double len = P2.Dist(a, b);
+            if (len < 1e-9)
+                continue;
+            P2 t = (b - a) * (1.0 / len);
+            double along = Math.Clamp(P2.Dot(p - a, t), 0, len);
+            double d = P2.Dist(a + (t * along), p);
+            if (d < bestDist)
+            {
+                bestDist = d;
+                best = t.Left;
+            }
+        }
+
+        return best;
     }
 
     /// <summary>O ponto esta dentro da caixa (em planta)?</summary>
@@ -245,10 +275,11 @@ internal enum ItemKind
     Solido,
     FeatureLine,
     Polilinha3d,
-    Ponto
+    Ponto,
+    Bloco
 }
 
-/// <summary>Um objeto do desenho ja levado ao plano do corte (coordenadas S ao longo, Z cota).</summary>
+/// <summary>Um objeto do desenho ja levado ao plano do corte (coordenadas S ao longo, Z elevacao).</summary>
 internal sealed class SectionItem
 {
     public ItemKind Kind;
@@ -298,7 +329,7 @@ internal sealed class SectionItem
     }
 }
 
-/// <summary>Resultado de um corte: itens e faixa de cotas dos dados.</summary>
+/// <summary>Resultado de um corte: itens e faixa de elevacao dos dados.</summary>
 internal sealed class SectionData
 {
     public CutBox Box = new();
@@ -348,7 +379,7 @@ internal sealed class SectionData
         return (min, max);
     }
 
-    /// <summary>Faixa de cotas efetiva: a da caixa, ou a dos dados com folga.</summary>
+    /// <summary>Faixa de elevacao efetiva: a da caixa, ou a dos dados com folga.</summary>
     public (double Min, double Max) ViewZ()
     {
         (double dmin, double dmax) = DataZ();
@@ -378,12 +409,53 @@ internal static class SecaoGeometry
         return segs;
     }
 
-    /// <summary>Encadeia segmentos (S,Z) pelas pontas em polilinhas.</summary>
+    /// <summary>Encadeia segmentos (S,Z) pelas pontas em polilinhas (pontas indexadas numa grade).</summary>
     public static List<List<(double S, double Z)>> Chain(List<((double S, double Z) A, (double S, double Z) B)> segs, double tol = 1e-4)
     {
         List<List<(double S, double Z)>> result = new();
         bool[] used = new bool[segs.Count];
-        static bool Same((double S, double Z) p, (double S, double Z) q, double t) => Math.Abs(p.S - q.S) <= t && Math.Abs(p.Z - q.Z) <= t;
+        double cell = Math.Max(tol * 2, 1e-9);
+        Dictionary<(long, long), List<int>> grid = new();
+        (long, long) Cell((double S, double Z) p) => ((long)Math.Floor(p.S / cell), (long)Math.Floor(p.Z / cell));
+        for (int i = 0; i < segs.Count; i++)
+        {
+            foreach ((int end, (double S, double Z) p) in new[] { (0, segs[i].A), (1, segs[i].B) })
+            {
+                (long, long) c = Cell(p);
+                if (!grid.TryGetValue(c, out List<int>? list))
+                    grid[c] = list = new List<int>();
+                list.Add((i * 2) + end);
+            }
+        }
+
+        // Ponta livre (de segmento nao usado) perto de p: devolve a outra ponta do segmento.
+        bool Next((double S, double Z) p, out (double S, double Z) other)
+        {
+            (long cx, long cz) = Cell(p);
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dz = -1; dz <= 1; dz++)
+                {
+                    if (!grid.TryGetValue((cx + dx, cz + dz), out List<int>? list))
+                        continue;
+                    foreach (int code in list)
+                    {
+                        int i = code / 2;
+                        if (used[i])
+                            continue;
+                        (double S, double Z) q = code % 2 == 0 ? segs[i].A : segs[i].B;
+                        if (Math.Abs(q.S - p.S) > tol || Math.Abs(q.Z - p.Z) > tol)
+                            continue;
+                        used[i] = true;
+                        other = code % 2 == 0 ? segs[i].B : segs[i].A;
+                        return true;
+                    }
+                }
+            }
+
+            other = default;
+            return false;
+        }
 
         for (int i = 0; i < segs.Count; i++)
         {
@@ -391,19 +463,16 @@ internal static class SecaoGeometry
                 continue;
             used[i] = true;
             List<(double S, double Z)> chain = new() { segs[i].A, segs[i].B };
-            bool grown = true;
-            while (grown)
+            while (Next(chain[^1], out (double S, double Z) tail))
+                chain.Add(tail);
+            List<(double S, double Z)> head = new();
+            while (Next(head.Count > 0 ? head[^1] : chain[0], out (double S, double Z) h))
+                head.Add(h);
+            if (head.Count > 0)
             {
-                grown = false;
-                for (int j = 0; j < segs.Count; j++)
-                {
-                    if (used[j])
-                        continue;
-                    if (Same(segs[j].A, chain[^1], tol)) { chain.Add(segs[j].B); used[j] = true; grown = true; }
-                    else if (Same(segs[j].B, chain[^1], tol)) { chain.Add(segs[j].A); used[j] = true; grown = true; }
-                    else if (Same(segs[j].B, chain[0], tol)) { chain.Insert(0, segs[j].A); used[j] = true; grown = true; }
-                    else if (Same(segs[j].A, chain[0], tol)) { chain.Insert(0, segs[j].B); used[j] = true; grown = true; }
-                }
+                head.Reverse();
+                head.AddRange(chain);
+                chain = head;
             }
 
             result.Add(chain);
@@ -621,6 +690,238 @@ internal static class SecaoGeometry
         return result;
     }
 
+    /// <summary>
+    /// Contorno externo verdadeiro de um conjunto de polilinhas (S,Z), como grafo plano:
+    /// junta as pontas (tolerancia), parte os trechos nos cruzamentos e nos "T", e
+    /// percorre a face externa de cada parte conectada. Ao contrario da envoltoria
+    /// (topo/fundo por abscissa), segue reentrancias - vigas I sob o tabuleiro, abas,
+    /// consolos. Devolve poligonos fechados (anti-horario), sem os de area nula.
+    /// </summary>
+    public static List<List<(double S, double Z)>> Outline(IEnumerable<List<(double S, double Z)>> polylines, double tol = 1e-4)
+    {
+        // Vertices (com junta por grade de tolerancia).
+        List<(double S, double Z)> verts = new();
+        Dictionary<(long, long), int> grid = new();
+        int Vertex((double S, double Z) p)
+        {
+            long gx = (long)Math.Floor(p.S / tol), gz = (long)Math.Floor(p.Z / tol);
+            for (long dx = -1; dx <= 1; dx++)
+            {
+                for (long dz = -1; dz <= 1; dz++)
+                {
+                    if (grid.TryGetValue((gx + dx, gz + dz), out int id) && Math.Abs(verts[id].S - p.S) <= tol && Math.Abs(verts[id].Z - p.Z) <= tol)
+                        return id;
+                }
+            }
+
+            verts.Add(p);
+            grid[(gx, gz)] = verts.Count - 1;
+            return verts.Count - 1;
+        }
+
+        List<(int A, int B)> raw = new();
+        foreach (List<(double S, double Z)> pl in polylines)
+        {
+            for (int i = 0; i + 1 < pl.Count; i++)
+            {
+                int a = Vertex(pl[i]), b = Vertex(pl[i + 1]);
+                if (a != b)
+                    raw.Add((a, b));
+            }
+        }
+
+        if (raw.Count < 3)
+            return new List<List<(double S, double Z)>>();
+
+        // Parte cada trecho nos cruzamentos com os outros e nos vertices que caem sobre
+        // ele ("T"); varredura por S para nao testar todos contra todos.
+        List<List<(double T, int V)>> cuts = raw.Select(_ => new List<(double T, int V)>()).ToList();
+        int[] order = Enumerable.Range(0, raw.Count).OrderBy(i => Math.Min(verts[raw[i].A].S, verts[raw[i].B].S)).ToArray();
+        for (int oi = 0; oi < order.Length; oi++)
+        {
+            int i = order[oi];
+            (double S, double Z) p = verts[raw[i].A], q = verts[raw[i].B];
+            double maxS = Math.Max(p.S, q.S) + tol, minZ = Math.Min(p.Z, q.Z) - tol, maxZ = Math.Max(p.Z, q.Z) + tol;
+            double dx = q.S - p.S, dz = q.Z - p.Z, len2 = (dx * dx) + (dz * dz), len = Math.Sqrt(len2);
+            for (int oj = oi + 1; oj < order.Length; oj++)
+            {
+                int j = order[oj];
+                (double S, double Z) r = verts[raw[j].A], u = verts[raw[j].B];
+                if (Math.Min(r.S, u.S) > maxS)
+                    break;
+                if (Math.Max(r.Z, u.Z) < minZ || Math.Min(r.Z, u.Z) > maxZ)
+                    continue;
+                double ex = u.S - r.S, ez = u.Z - r.Z, elen2 = (ex * ex) + (ez * ez), elen = Math.Sqrt(elen2);
+                double den = (dx * ez) - (dz * ex);
+                if (Math.Abs(den) > 1e-9 * len * elen)
+                {
+                    double t = (((r.S - p.S) * ez) - ((r.Z - p.Z) * ex)) / den;
+                    double w = (((r.S - p.S) * dz) - ((r.Z - p.Z) * dx)) / den;
+                    double ti = tol / len, tj = tol / elen;
+                    if (t > ti && t < 1 - ti && w >= -tj && w <= 1 + tj)
+                        cuts[i].Add((t, Vertex((p.S + (dx * t), p.Z + (dz * t)))));
+                    if (w > tj && w < 1 - tj && t >= -ti && t <= 1 + ti)
+                        cuts[j].Add((w, Vertex((r.S + (ex * w), r.Z + (ez * w)))));
+                }
+                else
+                {
+                    // Paralelos: se colineares e sobrepostos, as pontas de um partem o outro.
+                    foreach (int v in new[] { raw[j].A, raw[j].B })
+                    {
+                        double t = (((verts[v].S - p.S) * dx) + ((verts[v].Z - p.Z) * dz)) / len2;
+                        double dist = Math.Abs(((verts[v].S - p.S) * dz) - ((verts[v].Z - p.Z) * dx)) / len;
+                        if (dist <= tol && t > 1e-9 && t < 1 - 1e-9)
+                            cuts[i].Add((t, v));
+                    }
+
+                    foreach (int v in new[] { raw[i].A, raw[i].B })
+                    {
+                        double w = (((verts[v].S - r.S) * ex) + ((verts[v].Z - r.Z) * ez)) / elen2;
+                        double dist = Math.Abs(((verts[v].S - r.S) * ez) - ((verts[v].Z - r.Z) * ex)) / elen;
+                        if (dist <= tol && w > 1e-9 && w < 1 - 1e-9)
+                            cuts[j].Add((w, v));
+                    }
+                }
+            }
+        }
+
+        HashSet<(int, int)> edges = new();
+        for (int i = 0; i < raw.Count; i++)
+        {
+            List<int> chain = new() { raw[i].A };
+            chain.AddRange(cuts[i].OrderBy(c => c.T).Select(c => c.V));
+            chain.Add(raw[i].B);
+            for (int k = 0; k + 1 < chain.Count; k++)
+            {
+                int a = chain[k], b = chain[k + 1];
+                if (a != b)
+                    edges.Add(a < b ? (a, b) : (b, a));
+            }
+        }
+
+        Dictionary<int, List<int>> adj = new();
+        foreach ((int a, int b) in edges)
+        {
+            if (!adj.TryGetValue(a, out List<int>? la))
+                adj[a] = la = new List<int>();
+            if (!adj.TryGetValue(b, out List<int>? lb))
+                adj[b] = lb = new List<int>();
+            la.Add(b);
+            lb.Add(a);
+        }
+
+        // Tira as pontas soltas (links abertos, saias de talude): nao fecham regiao.
+        Queue<int> leaves = new(adj.Where(kv => kv.Value.Count <= 1).Select(kv => kv.Key));
+        while (leaves.Count > 0)
+        {
+            int v = leaves.Dequeue();
+            if (!adj.TryGetValue(v, out List<int>? nb))
+                continue;
+            foreach (int w in nb)
+            {
+                if (adj.TryGetValue(w, out List<int>? nw))
+                {
+                    nw.Remove(v);
+                    if (nw.Count <= 1)
+                        leaves.Enqueue(w);
+                }
+            }
+
+            adj.Remove(v);
+        }
+
+        if (adj.Count < 3)
+            return new List<List<(double S, double Z)>>();
+
+        // Vizinhos de cada vertice em ordem anti-horaria.
+        foreach ((int v, List<int> list) in adj)
+            list.Sort((x, y) => Math.Atan2(verts[x].Z - verts[v].Z, verts[x].S - verts[v].S).CompareTo(Math.Atan2(verts[y].Z - verts[v].Z, verts[y].S - verts[v].S)));
+
+        // Percorre as faces (interior a esquerda); a externa de cada componente sai horaria.
+        HashSet<(int, int)> used = new();
+        List<List<(double S, double Z)>> result = new();
+        int total = adj.Sum(kv => kv.Value.Count);
+        foreach ((int v0, List<int> nb0) in adj)
+        {
+            foreach (int w0 in nb0)
+            {
+                if (used.Contains((v0, w0)))
+                    continue;
+                List<int> face = new();
+                int u = v0, v = w0, guard = 0;
+                while (!used.Contains((u, v)) && guard++ <= total)
+                {
+                    used.Add((u, v));
+                    face.Add(u);
+                    List<int> nb = adj[v];
+                    int idx = nb.IndexOf(u);
+                    int w = nb[(idx - 1 + nb.Count) % nb.Count];
+                    u = v;
+                    v = w;
+                }
+
+                if (face.Count < 3 || FaceArea(face, verts) >= -1e-9)
+                    continue;
+
+                // Face externa: separa os lacos que se tocam num vertice (pontes, beliscoes).
+                foreach (List<int> loop in SimpleLoops(face))
+                {
+                    if (loop.Count < 3)
+                        continue;
+                    List<(double S, double Z)> poly = loop.Select(i => verts[i]).ToList();
+                    poly.Add(poly[0]);
+                    double area = Area(poly);
+                    if (area < -1e-8)
+                    {
+                        poly.Reverse();
+                        result.Add(poly);
+                    }
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static double FaceArea(List<int> face, List<(double S, double Z)> verts)
+    {
+        double a = 0;
+        for (int i = 0; i < face.Count; i++)
+        {
+            (double S, double Z) p = verts[face[i]], q = verts[face[(i + 1) % face.Count]];
+            a += (p.S * q.Z) - (q.S * p.Z);
+        }
+
+        return a / 2;
+    }
+
+    /// <summary>Quebra um ciclo que repete vertices em lacos simples.</summary>
+    private static List<List<int>> SimpleLoops(List<int> cycle)
+    {
+        List<List<int>> loops = new();
+        List<int> stack = new();
+        Dictionary<int, int> at = new();
+        foreach (int v in cycle)
+        {
+            if (at.TryGetValue(v, out int k))
+            {
+                loops.Add(stack.GetRange(k, stack.Count - k));
+                for (int i = k + 1; i < stack.Count; i++)
+                    at.Remove(stack[i]);
+                stack.RemoveRange(k + 1, stack.Count - k - 1);
+            }
+            else
+            {
+                at[v] = stack.Count;
+                stack.Add(v);
+            }
+        }
+
+        if (stack.Count > 0)
+            loops.Add(stack);
+        return loops;
+    }
+
     /// <summary>Area com sinal de um poligono (S,Z).</summary>
     public static double Area(IReadOnlyList<(double S, double Z)> p)
     {
@@ -697,5 +998,397 @@ internal static class SecaoGeometry
         double f = raw / exp;
         double nice = f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10;
         return nice * exp;
+    }
+}
+
+/// <summary>
+/// Recorte exato pela caixa (vista 3D, como a section box do Model Viewer): uma regiao
+/// convexa por trecho da linha (laterais nas profundidades, bissetriz nas juncoes, o
+/// mesmo contorno que aparece em planta) e, se fixada, a faixa de elevacao.
+/// </summary>
+internal sealed class BoxClipper
+{
+    private readonly List<(double A, double B, double C)[]> _regions = new();
+    private readonly double? _zmin, _zmax;
+
+    public BoxClipper(CutBox box, double? zmin = null, double? zmax = null)
+    {
+        _zmin = zmin;
+        _zmax = zmax;
+        List<P2> pts = new();
+        foreach (P2 p in box.Line)
+        {
+            if (pts.Count == 0 || P2.Dist(pts[^1], p) > 1e-9)
+                pts.Add(p);
+        }
+
+        for (int i = 0; i + 1 < pts.Count; i++)
+        {
+            P2 a = pts[i], b = pts[i + 1];
+            P2 t = (b - a).Unit(), n = t.Left;
+            P2 qs = t, qe = t;
+            if (i > 0)
+            {
+                P2 sum = (a - pts[i - 1]).Unit() + t;
+                if (sum.Length > 1e-6)
+                    qs = sum.Unit();
+            }
+
+            if (i + 2 < pts.Count)
+            {
+                P2 sum = t + (pts[i + 2] - b).Unit();
+                if (sum.Length > 1e-6)
+                    qe = sum.Unit();
+            }
+
+            _regions.Add(new[]
+            {
+                (n.X, n.Y, -P2.Dot(n, a) + box.Atras),   // n.(p-a) >= -atras
+                (-n.X, -n.Y, P2.Dot(n, a) + box.Frente), // n.(p-a) <= frente
+                (qs.X, qs.Y, -P2.Dot(qs, a)),            // depois da juncao inicial
+                (-qe.X, -qe.Y, P2.Dot(qe, b))            // antes da juncao final
+            });
+        }
+    }
+
+    public int Regions => _regions.Count;
+
+    private bool ZOk(double z) => (_zmin is not double lo || z >= lo - 1e-9) && (_zmax is not double hi || z <= hi + 1e-9);
+
+    /// <summary>Regioes (bits) que contem o ponto (com a faixa de elevacao).</summary>
+    public long Mask(P3 p)
+    {
+        if (!ZOk(p.Z))
+            return 0;
+        long m = 0;
+        for (int r = 0; r < _regions.Count && r < 62; r++)
+        {
+            bool inside = true;
+            foreach ((double A, double B, double C) in _regions[r])
+            {
+                if ((A * p.X) + (B * p.Y) + C < -1e-9)
+                {
+                    inside = false;
+                    break;
+                }
+            }
+
+            if (inside)
+                m |= 1L << r;
+        }
+
+        return m;
+    }
+
+    public bool Contains(P3 p) => Mask(p) != 0;
+
+    private static List<P3> ClipBy(List<P3> poly, Func<P3, double> f)
+    {
+        List<P3> result = new(poly.Count + 2);
+        for (int i = 0; i < poly.Count; i++)
+        {
+            P3 p = poly[i], q = poly[(i + 1) % poly.Count];
+            double fp = f(p), fq = f(q);
+            if (fp >= 0)
+                result.Add(p);
+            if ((fp >= 0) != (fq >= 0))
+            {
+                double t = fp / (fp - fq);
+                result.Add(new P3(p.X + ((q.X - p.X) * t), p.Y + ((q.Y - p.Y) * t), p.Z + ((q.Z - p.Z) * t)));
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>Recorta um poligono plano (3D); uma parte por regiao que ele atravessa.</summary>
+    public List<List<P3>> ClipPolygon(IReadOnlyList<P3> poly)
+    {
+        List<List<P3>> result = new();
+        foreach ((double A, double B, double C)[] planes in _regions)
+        {
+            List<P3> cur = new(poly);
+            foreach ((double A, double B, double C) in planes)
+            {
+                cur = ClipBy(cur, p => (A * p.X) + (B * p.Y) + C);
+                if (cur.Count < 3)
+                    break;
+            }
+
+            if (cur.Count >= 3 && _zmin is double lo)
+                cur = ClipBy(cur, p => p.Z - lo);
+            if (cur.Count >= 3 && _zmax is double hi)
+                cur = ClipBy(cur, p => hi - p.Z);
+            if (cur.Count >= 3)
+                result.Add(cur);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Recorta uma malha (posicoes + indices de triangulos). Triangulos inteiros dentro
+    /// de uma regiao ficam como estao (indices reaproveitados); os da borda sao recortados.
+    /// </summary>
+    public (List<P3> Pos, List<int> Tri) ClipMesh(IReadOnlyList<P3> pos, IReadOnlyList<int> tri)
+    {
+        long[] mask = new long[pos.Count];
+        for (int i = 0; i < pos.Count; i++)
+            mask[i] = Mask(pos[i]);
+        List<P3> outPos = new();
+        List<int> outTri = new();
+        int[] remap = Enumerable.Repeat(-1, pos.Count).ToArray();
+        int Keep(int i)
+        {
+            if (remap[i] < 0)
+            {
+                remap[i] = outPos.Count;
+                outPos.Add(pos[i]);
+            }
+
+            return remap[i];
+        }
+
+        for (int k = 0; k + 2 < tri.Count; k += 3)
+        {
+            int a = tri[k], b = tri[k + 1], c = tri[k + 2];
+            if ((mask[a] & mask[b] & mask[c]) != 0)
+            {
+                outTri.Add(Keep(a));
+                outTri.Add(Keep(b));
+                outTri.Add(Keep(c));
+                continue;
+            }
+
+            foreach (List<P3> part in ClipPolygon(new[] { pos[a], pos[b], pos[c] }))
+            {
+                int baseIndex = outPos.Count;
+                outPos.AddRange(part);
+                for (int i = 1; i + 1 < part.Count; i++)
+                {
+                    outTri.Add(baseIndex);
+                    outTri.Add(baseIndex + i);
+                    outTri.Add(baseIndex + i + 1);
+                }
+            }
+        }
+
+        return (outPos, outTri);
+    }
+
+    /// <summary>Trechos de uma polilinha 3D dentro da caixa (cortes exatos nas faces).</summary>
+    public List<List<P3>> ClipPolyline(IReadOnlyList<P3> pts)
+    {
+        List<List<P3>> runs = new();
+        List<P3>? cur = null;
+        bool endedAtOne = false;
+        for (int i = 0; i + 1 < pts.Count; i++)
+        {
+            P3 p = pts[i], q = pts[i + 1];
+            List<(double T0, double T1)> ivals = new();
+            foreach ((double A, double B, double C)[] planes in _regions)
+            {
+                double t0 = 0, t1 = 1;
+                bool ok = true;
+                IEnumerable<(double Fp, double Fq)> fs = planes.Select(h => ((h.A * p.X) + (h.B * p.Y) + h.C, (h.A * q.X) + (h.B * q.Y) + h.C));
+                if (_zmin is double lo)
+                    fs = fs.Append((p.Z - lo, q.Z - lo));
+                if (_zmax is double hi)
+                    fs = fs.Append((hi - p.Z, hi - q.Z));
+                foreach ((double fp, double fq) in fs)
+                {
+                    if (fp < 0 && fq < 0)
+                    {
+                        ok = false;
+                        break;
+                    }
+
+                    if (fp < 0)
+                        t0 = Math.Max(t0, fp / (fp - fq));
+                    else if (fq < 0)
+                        t1 = Math.Min(t1, fp / (fp - fq));
+                }
+
+                if (ok && t1 - t0 > 1e-12)
+                    ivals.Add((t0, t1));
+            }
+
+            ivals.Sort((x, y) => x.T0.CompareTo(y.T0));
+            List<(double T0, double T1)> merged = new();
+            foreach ((double t0, double t1) in ivals)
+            {
+                if (merged.Count > 0 && t0 <= merged[^1].T1 + 1e-9)
+                    merged[^1] = (merged[^1].T0, Math.Max(merged[^1].T1, t1));
+                else
+                    merged.Add((t0, t1));
+            }
+
+            P3 Lerp(double t) => new(p.X + ((q.X - p.X) * t), p.Y + ((q.Y - p.Y) * t), p.Z + ((q.Z - p.Z) * t));
+            if (merged.Count == 0)
+                endedAtOne = false;
+            foreach ((double t0, double t1) in merged)
+            {
+                if (cur is not null && endedAtOne && t0 < 1e-9)
+                {
+                    cur.Add(Lerp(t1));
+                }
+                else
+                {
+                    cur = new List<P3> { Lerp(t0), Lerp(t1) };
+                    runs.Add(cur);
+                }
+
+                endedAtOne = t1 > 1 - 1e-9;
+            }
+        }
+
+        return runs;
+    }
+}
+
+/// <summary>
+/// Malha de um objeto 3D do AutoCAD (solido, corpo, superficie, malha SubD ou bloco com
+/// esses objetos), em coordenadas do desenho: triangulos, arestas do Brep e as "dobras"
+/// (arestas internas entre faces quase paralelas) que viram silhueta conforme a direcao
+/// em que se olha. C# puro depois de montada; guardada em cache por objeto.
+/// </summary>
+internal sealed class MeshGeom
+{
+    public string Name = "";
+    /// <summary>Triangulos em sequencia (3 pontos cada).</summary>
+    public List<P3> Tri = new();
+    public List<List<P3>> Edges = new();
+    /// <summary>Dobras: aresta e as normais das duas faces (silhueta quando uma olha para cada lado).</summary>
+    public List<(P3 A, P3 B, P3 N1, P3 N2)> Folds = new();
+    public double MinX = double.MaxValue, MinY = double.MaxValue, MinZ = double.MaxValue;
+    public double MaxX = double.MinValue, MaxY = double.MinValue, MaxZ = double.MinValue;
+
+    public bool IsEmpty => Tri.Count == 0 && Edges.Count == 0;
+
+    public int Triangles => Tri.Count / 3;
+
+    public void Grow(P3 p)
+    {
+        MinX = Math.Min(MinX, p.X); MaxX = Math.Max(MaxX, p.X);
+        MinY = Math.Min(MinY, p.Y); MaxY = Math.Max(MaxY, p.Y);
+        MinZ = Math.Min(MinZ, p.Z); MaxZ = Math.Max(MaxZ, p.Z);
+    }
+
+    public void Append(MeshGeom? other)
+    {
+        if (other is null)
+            return;
+        Tri.AddRange(other.Tri);
+        Edges.AddRange(other.Edges);
+        Folds.AddRange(other.Folds);
+        if (!other.IsEmpty)
+        {
+            Grow(new P3(other.MinX, other.MinY, other.MinZ));
+            Grow(new P3(other.MaxX, other.MaxY, other.MaxZ));
+        }
+    }
+
+    public bool Overlaps(double minX, double minY, double maxX, double maxY) =>
+        !IsEmpty && MaxX >= minX && MinX <= maxX && MaxY >= minY && MinY <= maxY;
+
+    /// <summary>Copia com os pontos levados por f (blocos: matriz da insercao).</summary>
+    public MeshGeom Transformed(Func<P3, P3> f, string name)
+    {
+        MeshGeom g = new() { Name = name };
+        foreach (P3 p in Tri)
+        {
+            P3 q = f(p);
+            g.Tri.Add(q);
+            g.Grow(q);
+        }
+
+        foreach (List<P3> e in Edges)
+        {
+            List<P3> t = e.Select(f).ToList();
+            foreach (P3 q in t)
+                g.Grow(q);
+            g.Edges.Add(t);
+        }
+
+        foreach ((P3 a, P3 b, P3 n1, P3 n2) in Folds)
+        {
+            P3 ta = f(a), tb = f(b);
+            g.Folds.Add((ta, tb, Vec(f, a, n1, ta), Vec(f, a, n2, ta)));
+        }
+
+        return g;
+    }
+
+    private static P3 Vec(Func<P3, P3> f, P3 origin, P3 n, P3 tOrigin)
+    {
+        P3 tip = f(new P3(origin.X + n.X, origin.Y + n.Y, origin.Z + n.Z));
+        return new P3(tip.X - tOrigin.X, tip.Y - tOrigin.Y, tip.Z - tOrigin.Z);
+    }
+
+    /// <summary>
+    /// Acha as dobras da malha (vertices soldados): arestas com duas faces cujas normais
+    /// diferem entre ~1 e 60 graus. As quinas vivas ja vem nas arestas do Brep.
+    /// </summary>
+    public void ComputeFolds(int limit = 20000)
+    {
+        Folds.Clear();
+        if (Tri.Count < 6)
+            return;
+        double q = 1e-5;
+        Dictionary<(long, long, long), int> ids = new();
+        List<P3> verts = new();
+        int Id(P3 p)
+        {
+            (long, long, long) k = ((long)Math.Round(p.X / q), (long)Math.Round(p.Y / q), (long)Math.Round(p.Z / q));
+            if (!ids.TryGetValue(k, out int id))
+            {
+                id = verts.Count;
+                ids[k] = id;
+                verts.Add(p);
+            }
+
+            return id;
+        }
+
+        Dictionary<(int, int), List<P3>> edges = new();
+        for (int k = 0; k + 2 < Tri.Count; k += 3)
+        {
+            P3 a = Tri[k], b = Tri[k + 1], c = Tri[k + 2];
+            P3 n = Normal(a, b, c);
+            if (n.X == 0 && n.Y == 0 && n.Z == 0)
+                continue;
+            int ia = Id(a), ib = Id(b), ic = Id(c);
+            foreach ((int u, int v) in new[] { (ia, ib), (ib, ic), (ic, ia) })
+            {
+                if (u == v)
+                    continue;
+                (int, int) key = u < v ? (u, v) : (v, u);
+                if (!edges.TryGetValue(key, out List<P3>? list))
+                    edges[key] = list = new List<P3>(2);
+                list.Add(n);
+            }
+        }
+
+        foreach (((int u, int v), List<P3> normals) in edges)
+        {
+            if (normals.Count != 2)
+                continue;
+            P3 n1 = normals[0], n2 = normals[1];
+            double cos = (n1.X * n2.X) + (n1.Y * n2.Y) + (n1.Z * n2.Z);
+            if (cos > 0.99985 || cos < 0.5)
+                continue; // plana (triangulacao) ou quina viva
+            Folds.Add((verts[u], verts[v], n1, n2));
+            if (Folds.Count >= limit)
+                break;
+        }
+    }
+
+    private static P3 Normal(P3 a, P3 b, P3 c)
+    {
+        double ux = b.X - a.X, uy = b.Y - a.Y, uz = b.Z - a.Z;
+        double vx = c.X - a.X, vy = c.Y - a.Y, vz = c.Z - a.Z;
+        double nx = (uy * vz) - (uz * vy), ny = (uz * vx) - (ux * vz), nz = (ux * vy) - (uy * vx);
+        double len = Math.Sqrt((nx * nx) + (ny * ny) + (nz * nz));
+        return len < 1e-14 ? default : new P3(nx / len, ny / len, nz / len);
     }
 }

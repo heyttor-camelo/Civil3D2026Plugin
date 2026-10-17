@@ -20,7 +20,19 @@ internal static partial class SecaoReader
     {
         "AECC_TIN_SURFACE", "AECC_GRID_SURFACE", "AECC_TIN_VOLUME_SURFACE", "AECC_GRID_VOLUME_SURFACE",
         "AECC_CORRIDOR", "AECC_PIPE", "AECC_STRUCTURE", "AECC_FEATURE_LINE", "AECC_COGO_POINT",
-        "3DSOLID", "POLYLINE"
+        "3DSOLID", "POLYLINE", "BODY", "MESH", "INSERT",
+        "PLANESURFACE", "EXTRUDEDSURFACE", "LOFTEDSURFACE", "REVOLVEDSURFACE", "SWEPTSURFACE", "NURBSSURFACE"
+    };
+
+    /// <summary>Classe da faixa de vista de cada tipo lido ("" = so corte, ex.: superficies).</summary>
+    private static string FaixaClass(string kind) => kind switch
+    {
+        "corredor(es)" => "corredor",
+        "tubo(s)" or "estrutura(s)" => "tubos",
+        "solido(s)" or "corpo(s)/malha(s)" or "bloco(s)" => "solidos",
+        "feature line(s)" or "polilinha(s) 3D" => "linhas",
+        "ponto(s) COGO" => "pontos",
+        _ => ""
     };
 
     /// <summary>Corredor ja lido em memoria (estacas com links), para a vista por estaca e para reuso.</summary>
@@ -64,6 +76,14 @@ internal static partial class SecaoReader
     {
         public readonly Dictionary<AcadDb.ObjectId, (double MinX, double MinY, double MaxX, double MaxY)?> Boxes = new();
         public readonly Dictionary<AcadDb.ObjectId, string> Kinds = new();
+        /// <summary>Malhas de objetos 3D (solidos, corpos, malhas, blocos) em coordenadas do desenho.</summary>
+        public readonly Dictionary<AcadDb.ObjectId, MeshGeom> Meshes = new();
+        /// <summary>Malha de cada definicao de bloco (coordenadas do bloco); null = sem 3D.</summary>
+        public readonly Dictionary<AcadDb.ObjectId, MeshGeom?> Blocks = new();
+        /// <summary>Objeto dentro de uma definicao -> a definicao (para esquecer quando ele muda).</summary>
+        public readonly Dictionary<AcadDb.ObjectId, AcadDb.ObjectId> BlockOwner = new();
+        /// <summary>Insercoes de bloco com malha em cache (refeitas quando uma definicao muda).</summary>
+        public readonly HashSet<AcadDb.ObjectId> BlockRefs = new();
     }
 
     private static readonly Dictionary<AcadDb.Database, ExtentsCache> Extents = new();
@@ -75,6 +95,15 @@ internal static partial class SecaoReader
         {
             c.Boxes.Remove(id);
             c.Kinds.Remove(id);
+            c.Meshes.Remove(id);
+            if (c.BlockOwner.Remove(id) || c.Blocks.ContainsKey(id))
+            {
+                // Mudou algo dentro de um bloco (ou a definicao): refaz definicoes e insercoes.
+                c.Blocks.Clear();
+                foreach (AcadDb.ObjectId k in c.BlockRefs)
+                    c.Meshes.Remove(k);
+                c.BlockRefs.Clear();
+            }
         }
     }
 
@@ -96,6 +125,10 @@ internal static partial class SecaoReader
             return data;
 
         (double minX, double minY, double maxX, double maxY) = box.Bounds(60.0);
+        // Classes em "tudo": sem filtro de profundidade (so a largura da linha conta).
+        bool Unlimited(string kind) => FaixaClass(kind) is { Length: > 0 } fc && prefs.Faixa(fc) == "tudo";
+        CutBox gTubos = prefs.BoxFor("tubos", box), gSolidos = prefs.BoxFor("solidos", box), gLinhas = prefs.BoxFor("linhas", box);
+        CutBox gPontos = prefs.BoxFor("pontos", box), gCorredor = prefs.BoxFor("corredor", box);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
@@ -115,7 +148,7 @@ internal static partial class SecaoReader
                 if (knownKind.Length == 0)
                     continue; // tipo que nao interessa
                 if (cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? kb) && kb is (double kx0, double ky0, double kx1, double ky1) &&
-                    (kx1 < minX || kx0 > maxX || ky1 < minY || ky0 > maxY))
+                    (kx1 < minX || kx0 > maxX || ky1 < minY || ky0 > maxY) && !Unlimited(knownKind))
                 {
                     skipped++;
                     continue;
@@ -151,18 +184,7 @@ internal static partial class SecaoReader
                 }
 
                 opened++;
-                string kind = ent switch
-                {
-                    CivilDb.Surface => "superficie(s)",
-                    CivilDb.Corridor => "corredor(es)",
-                    CivilDb.Pipe => "tubo(s)",
-                    CivilDb.Structure => "estrutura(s)",
-                    CivilDb.FeatureLine => "feature line(s)",
-                    CivilDb.CogoPoint => "ponto(s) COGO",
-                    AcadDb.Solid3d => "solido(s)",
-                    AcadDb.Polyline3d => "polilinha(s) 3D",
-                    _ => ""
-                };
+                string kind = KindOf(ent);
                 cache.Kinds[id] = kind;
                 if (kind.Length == 0)
                     continue;
@@ -174,13 +196,14 @@ internal static partial class SecaoReader
                     cache.Boxes[id] = eb;
                 }
 
-                if (eb is (double x0, double y0, double x1, double y1) && (x1 < minX || x0 > maxX || y1 < minY || y0 > maxY))
+                if (eb is (double x0, double y0, double x1, double y1) && (x1 < minX || x0 > maxX || y1 < minY || y0 > maxY) && !Unlimited(kind))
                 {
                     skipped++;
                     continue;
                 }
 
-                data.Scanned[kind] = data.Scanned.TryGetValue(kind, out int c0) ? c0 + 1 : 1;
+                if (kind != "bloco(s)")
+                    data.Scanned[kind] = data.Scanned.TryGetValue(kind, out int c0) ? c0 + 1 : 1;
 
                 switch (ent)
                 {
@@ -191,26 +214,64 @@ internal static partial class SecaoReader
                         CorridorCache cc = corridors?.FirstOrDefault(c => c.Id == id) ?? ReadCorridor(tr, corridor);
                         corridors?.RemoveAll(c => c.Id == id);
                         corridors?.Add(cc);
-                        CutCorridor(cc, box, data, prefs, LayerColor(tr, ent, layerColors));
+                        CutCorridor(cc, gCorredor, data, prefs, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.Pipe pipe when prefs.Tubos:
-                        ReadPipe(pipe, box, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
+                        ReadPipe(pipe, gTubos, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.Structure structure when prefs.Tubos:
-                        ReadStructure(structure, box, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
+                        ReadStructure(structure, gTubos, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.FeatureLine fl when prefs.FeatureLines:
-                        ReadLine(fl.Name.Length > 0 ? fl.Name : "Feature line", ItemKind.FeatureLine, Points(fl), fl.Layer, box, data, prefs.FantasmaLinhas, LayerColor(tr, ent, layerColors));
+                        ReadLine(fl.Name.Length > 0 ? fl.Name : "Feature line", ItemKind.FeatureLine, Points(fl), fl.Layer, gLinhas, data, prefs.FantasmaLinhas, LayerColor(tr, ent, layerColors));
                         break;
                     case AcadDb.Polyline3d p3 when prefs.Polilinhas3d:
-                        ReadLine("Polilinha 3D", ItemKind.Polilinha3d, Points(tr, p3), p3.Layer, box, data, prefs.FantasmaLinhas, LayerColor(tr, ent, layerColors));
+                        ReadLine("Polilinha 3D", ItemKind.Polilinha3d, Points(tr, p3), p3.Layer, gLinhas, data, prefs.FantasmaLinhas, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.CogoPoint cogo when prefs.Pontos:
-                        ReadCogo(cogo, box, data, prefs.FantasmaPontos);
+                        ReadCogo(cogo, gPontos, data, prefs.FantasmaPontos);
                         break;
                     case AcadDb.Solid3d solid when prefs.Solidos:
-                        ReadSolid(solid, box, data, LayerColor(tr, ent, layerColors));
+                    {
+                        int color = LayerColor(tr, ent, layerColors);
+                        bool nearCut = NearBox(cache, id, box), nearGhost = prefs.FantasmaSolidos && NearBox(cache, id, gSolidos);
+                        if (nearCut)
+                            ReadSolid(solid, box, data, color);
+                        if (nearGhost)
+                            GhostMesh(MeshOf(tr, cache, solid), ItemKind.Solido, solid.Layer, gSolidos, data, color, solid.Handle.ToString());
                         break;
+                    }
+
+                    case AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface when prefs.Solidos:
+                    {
+                        bool nearCut = NearBox(cache, id, box), nearGhost = prefs.FantasmaSolidos && NearBox(cache, id, gSolidos);
+                        if (!nearCut && !nearGhost)
+                            break;
+                        int color = LayerColor(tr, ent, layerColors);
+                        MeshGeom mg = MeshOf(tr, cache, ent);
+                        if (nearCut)
+                            CutMesh(mg, ItemKind.Solido, ent.Layer, box, data, color, ent.Handle.ToString());
+                        if (nearGhost)
+                            GhostMesh(mg, ItemKind.Solido, ent.Layer, gSolidos, data, color, ent.Handle.ToString());
+                        break;
+                    }
+
+                    case AcadDb.BlockReference br when prefs.Blocos:
+                    {
+                        bool nearCut = NearBox(cache, id, box), nearGhost = prefs.FantasmaSolidos && NearBox(cache, id, gSolidos);
+                        if (!nearCut && !nearGhost)
+                            break;
+                        MeshGeom mg = MeshOf(tr, cache, br);
+                        if (mg.IsEmpty)
+                            break;
+                        data.Scanned[kind] = data.Scanned.TryGetValue(kind, out int cb) ? cb + 1 : 1;
+                        int color = LayerColor(tr, ent, layerColors);
+                        if (nearCut)
+                            CutMesh(mg, ItemKind.Bloco, br.Layer, box, data, color, br.Handle.ToString());
+                        if (nearGhost)
+                            GhostMesh(mg, ItemKind.Bloco, br.Layer, gSolidos, data, color, br.Handle.ToString());
+                        break;
+                    }
                 }
             }
             catch (System.Exception ex)
@@ -226,6 +287,22 @@ internal static partial class SecaoReader
         data.Elapsed = sw.Elapsed;
         return data;
     }
+
+    /// <summary>Tipo do objeto para a secao e a vista 3D ("" = nao interessa).</summary>
+    private static string KindOf(AcadDb.Entity ent) => ent switch
+    {
+        CivilDb.Surface => "superficie(s)",
+        CivilDb.Corridor => "corredor(es)",
+        CivilDb.Pipe => "tubo(s)",
+        CivilDb.Structure => "estrutura(s)",
+        CivilDb.FeatureLine => "feature line(s)",
+        CivilDb.CogoPoint => "ponto(s) COGO",
+        AcadDb.Solid3d => "solido(s)",
+        AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface => "corpo(s)/malha(s)",
+        AcadDb.BlockReference => "bloco(s)",
+        AcadDb.Polyline3d => "polilinha(s) 3D",
+        _ => ""
+    };
 
     /// <summary>Le todos os corredores do desenho (para a categoria Corredores).</summary>
     public static List<CorridorCache> ReadCorridors(AcadDb.Database db)
@@ -250,6 +327,15 @@ internal static partial class SecaoReader
         }
 
         return list;
+    }
+
+    /// <summary>A caixa envolvente guardada do objeto encosta na caixa dada (sem folga)? Sem extents: sim.</summary>
+    private static bool NearBox(ExtentsCache cache, AcadDb.ObjectId id, CutBox box)
+    {
+        if (!cache.Boxes.TryGetValue(id, out (double MinX, double MinY, double MaxX, double MaxY)? eb) || eb is not (double x0, double y0, double x1, double y1))
+            return true;
+        (double minX, double minY, double maxX, double maxY) = box.Bounds(0.5);
+        return !(x1 < minX || x0 > maxX || y1 < minY || y0 > maxY);
     }
 
     private static (double MinX, double MinY, double MaxX, double MaxY)? BoxOf(AcadDb.Entity ent)
@@ -531,7 +617,99 @@ internal static partial class SecaoReader
                 ghost.Info["Subassemblies"] = string.Join(", ", ac.SubassemblyNames.Where(n => n.Length > 0).Distinct());
                 data.Items.Add(ghost);
             }
+
+            CorridorLongitudinals(corridor, region, box, data, color, bminX, bminY, bmaxX, bmaxY);
         }
+    }
+
+    /// <summary>
+    /// Linhas longitudinais do corredor na profundidade: cada ponto dos links ligado estaca a
+    /// estaca (como as feature lines do corredor), projetado no plano. E o que aparece "atras"
+    /// num corte longitudinal ou obliquo, mesmo quando nenhuma estaca cai dentro da caixa.
+    /// </summary>
+    private static void CorridorLongitudinals(CorridorCache corridor, RegionCache region, CutBox box, SectionData data, int color, double bminX, double bminY, double bmaxX, double bmaxY)
+    {
+        List<AssemblyCache> list = region.Assemblies;
+        int first = -1, last = -1;
+        for (int i = 0; i < list.Count; i++)
+        {
+            AssemblyCache ac = list[i];
+            if (ac.MaxX < bminX || ac.MinX > bmaxX || ac.MaxY < bminY || ac.MinY > bmaxY)
+                continue;
+            if (first < 0)
+                first = i;
+            last = i;
+        }
+
+        if (first < 0)
+            return;
+        first = Math.Max(0, first - 1);
+        last = Math.Min(list.Count - 1, last + 1);
+        if (last <= first)
+            return;
+
+        // Uma linha por (subassembly, link, ponto), quebrada onde a estaca nao tem o indice.
+        Dictionary<(int, int, int), List<P3>> open = new();
+        List<List<P3>> lines = new();
+        for (int i = first; i <= last; i++)
+        {
+            HashSet<(int, int, int)> seen = new();
+            AssemblyCache ac = list[i];
+            for (int si = 0; si < ac.Subassemblies.Count; si++)
+            {
+                for (int li = 0; li < ac.Subassemblies[si].Count; li++)
+                {
+                    List<P3> pts = ac.Subassemblies[si][li].Points;
+                    for (int k = 0; k < pts.Count; k++)
+                    {
+                        (int, int, int) key = (si, li, k);
+                        seen.Add(key);
+                        if (!open.TryGetValue(key, out List<P3>? pl))
+                            open[key] = pl = new List<P3>();
+                        pl.Add(pts[k]);
+                    }
+                }
+            }
+
+            foreach ((int, int, int) key in open.Keys.Where(k => !seen.Contains(k)).ToList())
+            {
+                lines.Add(open[key]);
+                open.Remove(key);
+            }
+        }
+
+        lines.AddRange(open.Values);
+        SectionItem lon = new() { Kind = ItemKind.Corredor, Ghost = true, Name = corridor.Name + " / " + region.Baseline + " (linhas longitudinais)", ColorIndex = color };
+        HashSet<(long, long, long, long, long, long)> dup = new();
+        double step = Math.Clamp(Math.Min(box.Frente + box.Atras, box.Length) / 12.0, 0.2, 2.0);
+        double sum = 0;
+        int n = 0;
+        foreach (List<P3> pl in lines)
+        {
+            if (pl.Count < 2)
+                continue;
+            // Pontos repetidos (fim de um link = inicio do outro) dariam linhas iguais.
+            (long, long, long, long, long, long) key = ((long)Math.Round(pl[0].X * 1000), (long)Math.Round(pl[0].Y * 1000), (long)Math.Round(pl[0].Z * 1000),
+                (long)Math.Round(pl[^1].X * 1000), (long)Math.Round(pl[^1].Y * 1000), (long)Math.Round(pl[^1].Z * 1000));
+            if (!dup.Add(key))
+                continue;
+            foreach (List<(double S, double Z)> part in SecaoGeometry.ProjectInside(box, Subdivide(pl, step), out double d))
+            {
+                if (part.Count < 2)
+                    continue;
+                lon.Polylines.Add(part);
+                sum += d;
+                n++;
+            }
+        }
+
+        if (lon.Polylines.Count == 0)
+            return;
+        lon.Depth = n == 0 ? 0 : sum / n;
+        lon.Info["Regiao"] = region.Region;
+        lon.Info["Linhas"] = lon.Polylines.Count.ToString(CultureInfo.InvariantCulture);
+        lon.Info["Estacas usadas"] = $"{Station(list[first].Station)} a {Station(list[last].Station)}";
+        data.Items.Add(lon);
     }
 
     /// <summary>
@@ -619,12 +797,16 @@ internal static partial class SecaoReader
     }
 
     /// <summary>
-    /// Contorno do corredor (envoltoria de todos os links): sempre guardado como regiao
-    /// hachuravel; no modo "contorno" substitui os links desenhados.
+    /// Contorno do corredor: contorno externo verdadeiro dos links (grafo plano, segue
+    /// vigas I, abas e reentrancias); se os links nao fecham nenhuma regiao, cai na
+    /// envoltoria topo/fundo. Sempre guardado como regiao hachuravel; no modo "contorno"
+    /// substitui os links desenhados.
     /// </summary>
     private static void ApplyCorridorMode(SectionItem item, List<List<(double S, double Z)>> allLinks, string mode)
     {
-        item.Fills = SecaoGeometry.Envelope(allLinks);
+        List<List<(double S, double Z)>> outline = SecaoGeometry.Outline(allLinks, 1e-3);
+        item.Fills = outline.Count > 0 ? outline : SecaoGeometry.Envelope(allLinks);
+        item.Info["Contorno"] = outline.Count > 0 ? $"{outline.Count} regiao(oes) fechada(s)" : item.Fills.Count > 0 ? "envoltoria (links nao fecham regiao)" : "sem regiao";
         if (mode == "contorno" && item.Fills.Count > 0)
             item.Polylines = item.Fills.Select(f => new List<(double S, double Z)>(f)).ToList();
     }
@@ -661,7 +843,7 @@ internal static partial class SecaoReader
             if (ri > 1e-6 && ri < ro)
                 item.Circles.Add((s, z, ri));
             item.Info["Diametro"] = (ri * 2).ToString("0.000", CultureInfo.InvariantCulture) + " m";
-            item.Info["Cota eixo"] = z.ToString("0.000", CultureInfo.InvariantCulture);
+            item.Info["Elevacao eixo"] = z.ToString("0.000", CultureInfo.InvariantCulture);
             data.Items.Add(item);
             cut = true;
         }
@@ -758,12 +940,12 @@ internal static partial class SecaoReader
 
     private static void ReadCogo(CivilDb.CogoPoint cogo, CutBox box, SectionData data, bool ghosts)
     {
-        if (!ghosts)
-            return;
         Point3d p = cogo.Location;
         (double s, double d, bool inside) = box.Project(new P2(p.X, p.Y));
         if (!inside || d > box.Frente || d < -box.Atras)
             return;
+        if (!ghosts && Math.Abs(d) > 0.05)
+            return; // faixa "corte": so os pontos sobre o plano
         string label = cogo.PointNumber.ToString(CultureInfo.InvariantCulture);
         try
         {

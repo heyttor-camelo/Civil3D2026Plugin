@@ -7,7 +7,7 @@ using Autodesk.Civil;
 
 namespace Civil3D2026Plugin.Modules.Secao;
 
-/// <summary>Conteudo 3D da caixa de corte (C# puro: malhas, tubos e pontos em coordenadas do desenho).</summary>
+/// <summary>Conteudo 3D da caixa de corte (C# puro: malhas, tubos, arestas e pontos em coordenadas do desenho, ja recortados na caixa).</summary>
 internal sealed class Scene3D
 {
     public sealed class Mesh
@@ -17,6 +17,7 @@ internal sealed class Scene3D
         public int Aci;
         public List<P3> Pos = new();
         public List<int> Tri = new();
+        public string Key => Kind + "|" + Name;
     }
 
     public sealed class Tube
@@ -26,29 +27,65 @@ internal sealed class Scene3D
         public int Aci;
         public List<P3> Pts = new();
         public double Radius;
+        public string Key => Kind + "|" + Name;
+    }
+
+    /// <summary>Arestas (Brep) de solidos e blocos, recortadas; aparecem nos estilos com arestas.</summary>
+    public sealed class Wire
+    {
+        public string Name = "";
+        public ItemKind Kind;
+        public int Aci;
+        public List<P3> Pts = new();
+        public string Key => Kind + "|" + Name;
     }
 
     public List<Mesh> Meshes = new();
     public List<Tube> Tubes = new();
+    public List<Wire> Wires = new();
     public List<(P3 P, string Label)> Points = new();
     public CutBox Box = new();
     public double ZMin, ZMax;
     public TimeSpan Elapsed;
     public List<string> Warnings = new();
 
+    public const string PointsKey = "Ponto|Pontos COGO";
+
     public int Triangles => Meshes.Sum(m => m.Tri.Count / 3);
 
     public string Summary() =>
         $"{Meshes.Count(m => m.Kind == ItemKind.Superficie)} superficie(s), {Meshes.Count(m => m.Kind == ItemKind.Corredor)} corredor(es), " +
+        $"{Meshes.Count(m => m.Kind is ItemKind.Solido or ItemKind.Bloco)} solido(s)/bloco(s), " +
         $"{Tubes.Count} linha(s)/tubo(s), {Points.Count} ponto(s), {Triangles} triangulos, {Elapsed.TotalMilliseconds:0} ms";
+
+    /// <summary>Objetos da cena (para a lista e para mostrar/ocultar): chave, tipo, nome e tamanho.</summary>
+    public List<(string Key, ItemKind Kind, string Name, string Info)> Objects()
+    {
+        List<(string, ItemKind, string, string)> list = new();
+        foreach (IGrouping<string, Mesh> g in Meshes.GroupBy(m => m.Key))
+            list.Add((g.Key, g.First().Kind, g.First().Name, g.Sum(m => m.Tri.Count / 3) + " triangulos"));
+        foreach (IGrouping<string, Tube> g in Tubes.GroupBy(t => t.Key))
+        {
+            if (!list.Any(o => o.Item1 == g.Key))
+                list.Add((g.Key, g.First().Kind, g.First().Name, g.Sum(t => t.Pts.Count - 1) + " trecho(s)"));
+        }
+
+        if (Points.Count > 0)
+            list.Add((PointsKey, ItemKind.Ponto, "Pontos COGO", Points.Count + " ponto(s)"));
+        return list;
+    }
 }
 
 internal static partial class SecaoReader
 {
+    /// <summary>Teto de triangulos de solidos/blocos na cena (o resto vira aviso).</summary>
+    private const int MaxSolidTriangles = 400000;
+
     /// <summary>
-    /// Conteudo 3D da caixa: superficies amostradas numa grade (linhas paralelas ao corte),
-    /// corredor (fitas entre estacas que tocam a caixa), tubos, estruturas, linhas 3D e pontos.
-    /// Usa os mesmos caches do corte (corredores e extents), entao abre poucos objetos.
+    /// Conteudo 3D da caixa, recortado exatamente nela (laterais, juncoes e, se fixada, a
+    /// faixa de elevacao): superficies numa grade, corredor (fitas entre estacas), solidos,
+    /// corpos, malhas e blocos (malha do Brep + arestas), tubos, estruturas, linhas 3D e
+    /// pontos. Usa os mesmos caches do corte (corredores, extents, malhas).
     /// </summary>
     public static Scene3D Build3D(AcadDb.Database db, CutBox box, SecaoStore.Prefs prefs, List<CorridorCache> corridors, double zmin, double zmax)
     {
@@ -57,13 +94,49 @@ internal static partial class SecaoReader
         if (!box.IsValid)
             return scene;
 
+        BoxClipper clip = new(box, box.ZMin, box.ZMax);
         (double minX, double minY, double maxX, double maxY) = box.Bounds(1.0);
         ExtentsCache cache = CacheFor(db);
         Dictionary<AcadDb.ObjectId, int> layerColors = new();
+        int solidTriangles = 0;
 
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+
+        void AddMesh(string name, ItemKind kind, int color, IReadOnlyList<P3> pos, IReadOnlyList<int> tri)
+        {
+            (List<P3> cp, List<int> ct) = clip.ClipMesh(pos, tri);
+            if (ct.Count > 0)
+                scene.Meshes.Add(new Scene3D.Mesh { Name = name, Kind = kind, Aci = color, Pos = cp, Tri = ct });
+        }
+
+        void AddLines(string name, ItemKind kind, int color, IReadOnlyList<P3> pts, double radius = 0)
+        {
+            foreach (List<P3> run in clip.ClipPolyline(pts))
+                scene.Tubes.Add(new Scene3D.Tube { Name = name, Kind = kind, Aci = color, Pts = run, Radius = radius });
+        }
+
+        void AddSolid(MeshGeom g, ItemKind kind, int color)
+        {
+            if (!g.Overlaps(minX, minY, maxX, maxY))
+                return;
+            if (solidTriangles + g.Triangles > MaxSolidTriangles)
+            {
+                const string w = "Limite de triangulos de solidos/blocos atingido: alguns ficaram fora da vista 3D.";
+                if (!scene.Warnings.Contains(w))
+                    scene.Warnings.Add(w);
+                return;
+            }
+
+            solidTriangles += g.Triangles;
+            AddMesh(g.Name, kind, color, g.Tri, Enumerable.Range(0, g.Tri.Count).ToList());
+            foreach (List<P3> e in g.Edges)
+            {
+                foreach (List<P3> run in clip.ClipPolyline(e))
+                    scene.Wires.Add(new Scene3D.Wire { Name = g.Name, Kind = kind, Aci = color, Pts = run });
+            }
+        }
 
         foreach (AcadDb.ObjectId id in ms)
         {
@@ -91,7 +164,7 @@ internal static partial class SecaoReader
                     continue;
                 }
 
-                if (!dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase) && dxf != "3DSOLID" && dxf != "POLYLINE")
+                if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
                 {
                     cache.Kinds[id] = "";
                     continue;
@@ -101,6 +174,14 @@ internal static partial class SecaoReader
             try
             {
                 if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity ent)
+                {
+                    cache.Kinds[id] = "";
+                    continue;
+                }
+
+                string kind = KindOf(ent);
+                cache.Kinds[id] = kind;
+                if (kind.Length == 0)
                     continue;
                 if (!cache.Boxes.ContainsKey(id))
                     cache.Boxes[id] = ent is CivilDb.Corridor ? null : BoxOf(ent);
@@ -111,67 +192,44 @@ internal static partial class SecaoReader
                 switch (ent)
                 {
                     case CivilDb.Surface surface when prefs.Superficies && !prefs.SuperficiesOcultas.Contains(surface.Name):
-                        cache.Kinds[id] = "superficie(s)";
-                        Scene3D.Mesh? mesh = SampleSurface(surface, box);
-                        if (mesh is not null)
-                        {
-                            mesh.Aci = color;
-                            scene.Meshes.Add(mesh);
-                        }
-
+                        if (SampleSurface(surface, box) is Scene3D.Mesh mesh)
+                            AddMesh(mesh.Name, ItemKind.Superficie, color, mesh.Pos, mesh.Tri);
                         break;
                     case CivilDb.Corridor corridor when prefs.Corredores:
-                        cache.Kinds[id] = "corredor(es)";
                         CorridorCache cc = corridors.FirstOrDefault(c => c.Id == id) ?? ReadCorridor(tr, corridor);
                         if (!corridors.Contains(cc))
                             corridors.Add(cc);
                         Scene3D.Mesh cm = CorridorMesh(cc, box);
                         if (cm.Tri.Count > 0)
-                        {
-                            cm.Aci = color;
-                            scene.Meshes.Add(cm);
-                        }
-
+                            AddMesh(cm.Name, ItemKind.Corredor, color, cm.Pos, cm.Tri);
                         break;
                     case CivilDb.Pipe pipe when prefs.Tubos:
-                        cache.Kinds[id] = "tubo(s)";
                         Point3d a = pipe.StartPoint, b = pipe.EndPoint;
-                        foreach (List<P3> run in InsideRuns(box, new List<P3> { new(a.X, a.Y, a.Z), new(b.X, b.Y, b.Z) }, 0.5))
-                            scene.Tubes.Add(new Scene3D.Tube { Name = pipe.Name, Kind = ItemKind.Tubo, Aci = color, Pts = run, Radius = pipe.OuterDiameterOrWidth / 2.0 });
+                        AddLines(pipe.Name, ItemKind.Tubo, color, new List<P3> { new(a.X, a.Y, a.Z), new(b.X, b.Y, b.Z) }, pipe.OuterDiameterOrWidth / 2.0);
                         break;
                     case CivilDb.Structure st when prefs.Tubos:
-                        cache.Kinds[id] = "estrutura(s)";
                         Point3d pos = st.Position;
-                        if (box.Contains(new P2(pos.X, pos.Y)))
-                        {
-                            scene.Tubes.Add(new Scene3D.Tube
-                            {
-                                Name = st.Name, Kind = ItemKind.Estrutura, Aci = color, Radius = st.InnerDiameterOrWidth / 2.0,
-                                Pts = new List<P3> { new(pos.X, pos.Y, st.SumpElevation), new(pos.X, pos.Y, st.RimElevation) }
-                            });
-                        }
-
+                        AddLines(st.Name, ItemKind.Estrutura, color, new List<P3> { new(pos.X, pos.Y, st.SumpElevation), new(pos.X, pos.Y, st.RimElevation) }, st.InnerDiameterOrWidth / 2.0);
                         break;
                     case CivilDb.FeatureLine fl when prefs.FeatureLines:
-                        cache.Kinds[id] = "feature line(s)";
-                        foreach (List<P3> run in InsideRuns(box, Points(fl), 1.0))
-                            scene.Tubes.Add(new Scene3D.Tube { Name = fl.Name, Kind = ItemKind.FeatureLine, Aci = color, Pts = run });
+                        AddLines(fl.Name.Length > 0 ? fl.Name : "Feature line", ItemKind.FeatureLine, color, Points(fl));
                         break;
                     case AcadDb.Polyline3d p3 when prefs.Polilinhas3d:
-                        cache.Kinds[id] = "polilinha(s) 3D";
-                        foreach (List<P3> run in InsideRuns(box, Points(tr, p3), 1.0))
-                            scene.Tubes.Add(new Scene3D.Tube { Name = "Polilinha 3D", Kind = ItemKind.Polilinha3d, Aci = color, Pts = run });
+                        AddLines("Polilinha 3D", ItemKind.Polilinha3d, color, Points(tr, p3));
                         break;
                     case CivilDb.CogoPoint cogo when prefs.Pontos:
-                        cache.Kinds[id] = "ponto(s) COGO";
                         Point3d loc = cogo.Location;
-                        if (box.Contains(new P2(loc.X, loc.Y)))
-                            scene.Points.Add((new P3(loc.X, loc.Y, loc.Z), cogo.PointNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+                        P3 lp = new(loc.X, loc.Y, loc.Z);
+                        if (clip.Contains(lp))
+                            scene.Points.Add((lp, cogo.PointNumber.ToString(System.Globalization.CultureInfo.InvariantCulture)));
                         break;
-                    case AcadDb.Solid3d when prefs.Solidos:
-                        cache.Kinds[id] = "solido(s)";
-                        if (!scene.Warnings.Contains("Solidos 3D ainda nao entram na vista 3D (so no corte)."))
-                            scene.Warnings.Add("Solidos 3D ainda nao entram na vista 3D (so no corte).");
+                    case AcadDb.Solid3d or AcadDb.Body or AcadDb.SubDMesh or AcadDb.Surface when prefs.Solidos:
+                        AddSolid(MeshOf(tr, cache, ent), ItemKind.Solido, color);
+                        break;
+                    case AcadDb.BlockReference br when prefs.Blocos:
+                        MeshGeom bm = MeshOf(tr, cache, br);
+                        if (!bm.IsEmpty)
+                            AddSolid(bm, ItemKind.Bloco, color);
                         break;
                 }
             }
@@ -301,7 +359,7 @@ internal static partial class SecaoReader
         return row.Count == 1 ? row[0].Z : double.NaN;
     }
 
-    /// <summary>Fitas do corredor entre estacas vizinhas, so os quadrilateros que tocam a caixa.</summary>
+    /// <summary>Fitas do corredor entre estacas vizinhas (quadrilateros perto da caixa; o recorte exato vem depois).</summary>
     private static Scene3D.Mesh CorridorMesh(CorridorCache corridor, CutBox box)
     {
         Scene3D.Mesh mesh = new() { Name = corridor.Name, Kind = ItemKind.Corredor };
@@ -324,7 +382,9 @@ internal static partial class SecaoReader
                         for (int k = 0; k + 1 < Math.Min(pa.Count, pb.Count); k++)
                         {
                             P3 q0 = pa[k], q1 = pa[k + 1], q2 = pb[k + 1], q3 = pb[k];
-                            if (!box.Contains(q0.XY) && !box.Contains(q1.XY) && !box.Contains(q2.XY) && !box.Contains(q3.XY))
+                            double qx0 = Math.Min(Math.Min(q0.X, q1.X), Math.Min(q2.X, q3.X)), qx1 = Math.Max(Math.Max(q0.X, q1.X), Math.Max(q2.X, q3.X));
+                            double qy0 = Math.Min(Math.Min(q0.Y, q1.Y), Math.Min(q2.Y, q3.Y)), qy1 = Math.Max(Math.Max(q0.Y, q1.Y), Math.Max(q2.Y, q3.Y));
+                            if (qx1 < bminX || qx0 > bmaxX || qy1 < bminY || qy0 > bmaxY)
                                 continue;
                             int baseIndex = mesh.Pos.Count;
                             mesh.Pos.AddRange(new[] { q0, q1, q2, q3 });
@@ -336,29 +396,5 @@ internal static partial class SecaoReader
         }
 
         return mesh;
-    }
-
-    /// <summary>Trechos de uma polilinha 3D que ficam dentro da caixa (subdividida para recortar nas bordas).</summary>
-    private static List<List<P3>> InsideRuns(CutBox box, List<P3> pts, double step)
-    {
-        List<List<P3>> runs = new();
-        List<P3> cur = new();
-        foreach (P3 p in Subdivide(pts, step))
-        {
-            if (box.Contains(p.XY))
-            {
-                cur.Add(p);
-            }
-            else if (cur.Count > 0)
-            {
-                if (cur.Count > 1)
-                    runs.Add(cur);
-                cur = new List<P3>();
-            }
-        }
-
-        if (cur.Count > 1)
-            runs.Add(cur);
-        return runs;
     }
 }

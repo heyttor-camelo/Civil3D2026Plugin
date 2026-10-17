@@ -15,7 +15,7 @@ namespace Civil3D2026Plugin.Modules.Secao;
 
 /// <summary>
 /// Visualizador de secao (C3DSECAO): janela propria, fora da viewport, que mostra o
-/// corte de uma caixa (linha em planta + profundidades + faixa de cotas) por tudo o
+/// corte de uma caixa (linha em planta + profundidades + faixa de elevacao) por tudo o
 /// que ela atravessa, e a secao do corredor estaca a estaca.
 /// </summary>
 public sealed class SecaoCommands
@@ -125,7 +125,7 @@ public sealed class SecaoCommands
         prefs.FrentePadrao = frente;
         prefs.AtrasPadrao = atras;
         SecaoStore.SavePrefs(prefs);
-        ed.WriteMessage($"\n  Caixa de corte criada (layer {SecaoStore.LayerCut}): mova os grips e a janela acompanha; altere profundidades e cotas na aba Propriedades.");
+        ed.WriteMessage($"\n  Caixa de corte criada (layer {SecaoStore.LayerCut}): mova os grips e a janela acompanha; altere profundidades e elevacoes na aba Propriedades.");
         int found = SecaoStore.ReadCuts(db).Count(c => c.Id == id);
         if (found == 0)
             ed.WriteMessage("\n  [C3DSECAO] A polilinha foi criada, mas a leitura de volta nao achou a caixa (XData). Me avise com esta mensagem.");
@@ -387,7 +387,7 @@ internal sealed class SecaoBoxOverrule : DrawableOverrule
 internal sealed record DrawLayer(SectionData Data, double Offset, int? Aci, string Label, bool Ghosts);
 
 /// <summary>
-/// Leva a secao da janela para o model space: moldura, grade de cotas e distancias,
+/// Leva a secao da janela para o model space: moldura, grade de elevacoes e distancias,
 /// polilinhas 2D, circulos, pontos e rotulos; destaque (espessura) e hachura (ANSI31)
 /// conforme escolhido na janela; itens ocultos ficam de fora. Os textos tem a altura
 /// do papel (mm) na escala do desenho, e o passo das reguas se ajusta para nao encavalar.
@@ -469,11 +469,12 @@ internal static class SecaoDraw
         frame.Closed = true;
         Add(frame, 8);
 
-        // Reguas: passo que cabe o texto (cotas: 2,2 alturas; distancias: 7 alturas).
+        // Reguas: passo que cabe o texto (elevacoes: 2,2 alturas; distancias: 7 alturas).
         double zStep = SecaoGeometry.NiceStep(Math.Max((zmax - zmin) / 6.0, textH * 2.2 / exagero));
         double sStep = SecaoGeometry.NiceStep(Math.Max((smax - smin) / 8.0, textH * 7.0));
         string zFmt = zStep < 0.1 ? "0.000" : zStep < 1 ? "0.00" : "0.0";
-        for (double z = Math.Ceiling(zmin / zStep) * zStep; z <= zmax + 1e-9; z += zStep)
+        bool reguas = prefs.Texto("reguas");
+        for (double z = Math.Ceiling(zmin / zStep) * zStep; reguas && z <= zmax + 1e-9; z += zStep)
         {
             Add(new AcadDb.Line(Map3(smin, z), Map3(smax, z)), 252);
             Point3d at = Map3(smin, z);
@@ -481,7 +482,7 @@ internal static class SecaoDraw
         }
 
         string sFmt = sStep < 1 ? "0.0" : "0";
-        for (double s = Math.Ceiling(smin / sStep) * sStep; s <= smax + 1e-9; s += sStep)
+        for (double s = Math.Ceiling(smin / sStep) * sStep; reguas && s <= smax + 1e-9; s += sStep)
         {
             Point3d at = Map3(s, zmin);
             Add(new AcadDb.Line(at, new Point3d(at.X, at.Y - (textH * 0.8), 0)), 8);
@@ -491,8 +492,9 @@ internal static class SecaoDraw
         // Titulo e legenda.
         Point3d top = Map3(smin, zmax);
         string title = layers.Count == 1 ? layers[0].Data.Box.Name : $"Comparacao de {layers.Count} secoes";
-        Text($"{title}  (exagero {exagero:0.##}x, escala 1:{prefs.EscalaDesenho:0})", new Point3d(top.X, top.Y + (textH * 1.5), 0), textH * 1.4, 7);
-        if (layers.Count > 1)
+        if (prefs.Texto("titulo"))
+            Text($"{title}  (exagero {exagero:0.##}x, escala 1:{prefs.EscalaDesenho:0})", new Point3d(top.X, top.Y + (textH * 1.5), 0), textH * 1.4, 7);
+        if (layers.Count > 1 && prefs.Texto("legenda"))
         {
             Point3d right = Map3(smax, zmax);
             double ly = right.Y + (textH * 1.5);
@@ -585,22 +587,36 @@ internal static class SecaoDraw
                     }
                 }
 
-                foreach ((double s, double z, string label) in item.Points)
+                double mk = textH * 0.4;
+                foreach ((double s, double z, _) in item.Points)
                 {
                     Point2d c = Map(s + off, z);
-                    double m = textH * 0.4;
-                    Add(new AcadDb.Line(new Point3d(c.X - m, c.Y - m, 0), new Point3d(c.X + m, c.Y + m, 0)), color);
-                    Add(new AcadDb.Line(new Point3d(c.X - m, c.Y + m, 0), new Point3d(c.X + m, c.Y - m, 0)), color);
-                    if (prefs.Rotulos && label.Length > 0)
-                        Label(label, c.X + m, c.Y + m, color);
+                    Add(new AcadDb.Line(new Point3d(c.X - mk, c.Y - mk, 0), new Point3d(c.X + mk, c.Y + mk, 0)), color);
+                    Add(new AcadDb.Line(new Point3d(c.X - mk, c.Y + mk, 0), new Point3d(c.X + mk, c.Y - mk, 0)), color);
                 }
 
-                if (prefs.Rotulos && !item.Ghost && layers.Count == 1 && (item.Kind == ItemKind.Superficie || item.Kind == ItemKind.Corredor) &&
-                    item.Polylines.Count > 0 && item.Polylines[0].Count > 0)
+                // Rotulos: os mesmos da janela (menu Textos), no lugar para onde foram arrastados.
+                foreach (LabelSpec spec in SecaoLabels.For(item, layer.Data.Box.Name, prefs.Texto))
                 {
-                    (double s, double z) = item.Polylines[0][^1];
-                    Point2d e = Map(s + off, Math.Clamp(z, zmin, zmax));
-                    Label(item.Name, e.X + (textH * 0.5), e.Y, color);
+                    if (layers.Count > 1 && spec.Key.EndsWith("|n", StringComparison.Ordinal))
+                        continue; // na comparacao, os nomes ficam na legenda
+                    Point2d anchor = Map(spec.S + off, Math.Clamp(spec.Z, zmin, zmax));
+                    if (prefs.Deslocamentos.TryGetValue(spec.Key, out (double DS, double DZ) d))
+                    {
+                        Point2d at = Map(spec.S + off + d.DS, spec.Z + d.DZ);
+                        double w = spec.Text.Length * charW;
+                        placed.Add((at.X, at.Y, at.X + w, at.Y + (textH * 1.25)));
+                        Text(spec.Text, new Point3d(at.X, at.Y, 0), textH, color);
+                        double lx = Math.Abs(anchor.X - at.X) < Math.Abs(anchor.X - (at.X + w)) ? at.X : at.X + w;
+                        if (Math.Abs(lx - anchor.X) + Math.Abs(at.Y - anchor.Y) > textH)
+                            Add(new AcadDb.Line(new Point3d(anchor.X, anchor.Y, 0), new Point3d(lx, at.Y + (textH * 0.5), 0)), color);
+                    }
+                    else
+                    {
+                        int bar = spec.Key.LastIndexOf('|');
+                        bool atPoint = bar >= 0 && bar + 1 < spec.Key.Length && spec.Key[bar + 1] == 'p';
+                        Label(spec.Text, anchor.X + (atPoint ? mk : textH * 0.5), anchor.Y + (atPoint ? mk : 0), color);
+                    }
                 }
             }
         }
