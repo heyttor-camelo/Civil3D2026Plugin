@@ -30,8 +30,29 @@ internal sealed class SecaoPanel : SW.Window
     private static readonly WM.FontFamily UiFont = new("Tahoma");
     private static readonly WM.FontFamily MonoFont = new("Consolas");
 
-    /// <summary>Secao mostrada agora (usada por C3DSECAODESENHAR).</summary>
+    /// <summary>Secao mostrada agora (usada por C3DSECAOCORTE para o diagnostico).</summary>
     public static SectionData? CurrentData => _instance?._data;
+
+    public static SecaoStore.Prefs? CurrentPrefs => _instance?._prefs;
+
+    public static double CurrentExagero => _instance is null ? 1.0 : _instance.Ex;
+
+    private static readonly int[] ColorsAci = { 30, 4, 6, 2, 3, 1, 5, 7 };
+
+    /// <summary>O que C3DSECAODESENHAR leva ao model: a secao mostrada, ou as fixadas visiveis na comparacao.</summary>
+    public static List<DrawLayer>? ExportLayers()
+    {
+        SecaoPanel? p = _instance;
+        if (p is null)
+            return null;
+        if (p.CompareMode)
+        {
+            return p._compare.Where(c => c.Visible).Select(c => new DrawLayer(c.Data, p.CompareOffset(c.Data),
+                ColorsAci[Math.Max(0, Array.IndexOf(Colors, c.Color)) % ColorsAci.Length], c.Label, p._prefs.CompararFantasmas)).ToList();
+        }
+
+        return p._data is null || p._data.Items.Count == 0 ? null : new List<DrawLayer> { new(p._data, 0, null, p._data.Box.Name, true) };
+    }
 
     // ------------------------------------------------------------------
     // Dados
@@ -51,6 +72,30 @@ internal sealed class SecaoPanel : SW.Window
     private bool _stationMode;
     private SectionItem? _selectedItem;
     private bool _refreshQueued;
+
+    // Comparacao: secoes fixadas (copias, nao sao recalculadas) sobrepostas na vista.
+    private sealed class CompareEntry
+    {
+        public string Label = "";
+        public SectionData Data = null!;
+        public bool Visible = true;
+        public WM.Color Color;
+    }
+
+    private readonly List<CompareEntry> _compare = new();
+    private CompareEntry? _compareSel;
+    private string _compareAlign = "Eixo";
+    private double _compareEx = 1;
+
+    private static readonly WM.Color[] Colors =
+    {
+        WM.Color.FromRgb(255, 160, 60), WM.Color.FromRgb(80, 200, 230), WM.Color.FromRgb(230, 110, 230), WM.Color.FromRgb(230, 220, 60),
+        WM.Color.FromRgb(90, 210, 110), WM.Color.FromRgb(235, 80, 80), WM.Color.FromRgb(110, 150, 255), WM.Color.FromRgb(225, 225, 225)
+    };
+
+    // Vista 3D: montada so quando a categoria 3D esta aberta (e refeita quando a secao muda).
+    private readonly SecaoView3D _view3d = new();
+    private bool _scene3dDirty = true;
 
     // Vista: escala (px por metro em S) e origem; exagero vertical vem da caixa.
     private double _scale = 1;
@@ -87,6 +132,8 @@ internal sealed class SecaoPanel : SW.Window
         ("CORTES", "corte", "Cortes"),
         ("CORREDOR", "corredor", "Corredor por estaca"),
         ("CONTEUDO", "camadas", "Conteudo da secao"),
+        ("COMPARAR", "copiar", "Comparar secoes"),
+        ("VISTA3D", "solido3d", "Vista 3D"),
         ("CONFIG", "config", "Configuracao")
     };
 
@@ -110,6 +157,9 @@ internal sealed class SecaoPanel : SW.Window
         new("EXAGERO", "escala", "Exagero vertical", "Vista", "Escolhe o exagero vertical (1x, 2x, 5x, 10x...).", new[] { "Abre um menu para clicar." }, p => p.OpenExageroMenu()),
         new("ANTERIOR", "esquerda", "Estaca anterior", "Corredor", "Na categoria Corredor por estaca: volta uma estaca.", new[] { "Selecione uma regiao do corredor." }, p => p.StepStation(-1)),
         new("PROXIMA", "direita", "Proxima estaca", "Corredor", "Na categoria Corredor por estaca: avanca uma estaca.", new[] { "Selecione uma regiao do corredor." }, p => p.StepStation(+1)),
+        new("FIXAR", "copiar", "Fixar na comparacao", "Comparar",
+            "Guarda a secao mostrada (corte ou estaca do corredor) na categoria Comparar secoes, para sobrepor com outras.",
+            new[] { "Mostre a secao (corte ou estaca).", "Clique para fixar; repita com outras.", "Abra Comparar secoes." }, p => p.PinCurrent()),
         new("DESENHAR", "polilinha", "Desenhar secao no model", "Saidas",
             "Leva a secao mostrada para o desenho como polilinhas 2D (moldura, cotas, distancias), no ponto clicado.",
             new[] { "Clique o canto inferior esquerdo.", "Confirme o exagero." }, p => p.Send("C3DSECAODESENHAR ", "Clique onde a secao deve ser desenhada.")),
@@ -284,7 +334,12 @@ internal sealed class SecaoPanel : SW.Window
         WC.Grid.SetRow(commandRow, 1);
         root.Children.Add(commandRow);
 
-        WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = _graphic, Margin = new SW.Thickness(4, 0, 4, 0) };
+        WC.Grid graphicHost = new();
+        graphicHost.Children.Add(_graphic);
+        _view3d.Visibility = SW.Visibility.Collapsed;
+        _view3d.Info += t => _graphicInfo.Text = t;
+        graphicHost.Children.Add(_view3d);
+        WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = graphicHost, Margin = new SW.Thickness(4, 0, 4, 0) };
         _graphic.SizeChanged += (_, _) => RenderGraphic();
         _graphic.MouseWheel += OnWheel;
         _graphic.MouseDown += OnMouseDown;
@@ -325,7 +380,25 @@ internal sealed class SecaoPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 260 });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 300 });
-        _list.SelectionChanged += (_, _) => OnRowSelected();
+        _list.MouseRightButtonUp += (_, e) =>
+        {
+            if (ItemUnder(e.OriginalSource as SW.DependencyObject)?.Tag is Row row)
+            {
+                _list.SelectedItem = ItemUnder(e.OriginalSource as SW.DependencyObject);
+                OpenRowMenu(row);
+                e.Handled = true;
+            }
+        };
+        _list.MouseDoubleClick += (_, _) =>
+        {
+            if ((_list.SelectedItem as WC.ListViewItem)?.Tag is Row { Data: CompareEntry ce })
+            {
+                ce.Visible = !ce.Visible;
+                _fitPending = true;
+                FillList();
+                RenderGraphic();
+            }
+        };
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
         WC.Grid.SetColumn(splitV, 1);
@@ -667,12 +740,42 @@ internal sealed class SecaoPanel : SW.Window
         }
 
         _selectedItem = null;
-        RenderGraphic();
+        _scene3dDirty = true;
+        if (_category == "VISTA3D")
+            Update3D(keepCamera: true);
+        else
+            RenderGraphic();
         Status();
-        if (_category == "CONTEUDO")
+        if (_category is "CONTEUDO" or "VISTA3D")
         {
             FillList();
             BuildTabs();
+        }
+    }
+
+    /// <summary>Monta a cena 3D da caixa corrente (so na categoria Vista 3D).</summary>
+    private void Update3D(bool keepCamera)
+    {
+        Document? doc = Doc;
+        if (doc is null || _data is null)
+        {
+            _view3d.Clear();
+            _graphicInfo.Text = "3D: sem secao (selecione um corte ou uma estaca).";
+            return;
+        }
+
+        if (!_scene3dDirty && _view3d.Scene is not null)
+            return;
+        try
+        {
+            (double zmin, double zmax) = _data.ViewZ();
+            Scene3D scene = SecaoReader.Build3D(doc.Database, _data.Box, _prefs, _corridors, zmin, zmax);
+            _view3d.SetScene(scene, _data.Box.Exagero, keepCamera && _view3d.Scene is not null && _view3d.Scene.Box.Name == scene.Box.Name);
+            _scene3dDirty = false;
+        }
+        catch (System.Exception ex)
+        {
+            Say("Erro ao montar a vista 3D: " + ex.Message);
         }
     }
 
@@ -692,6 +795,7 @@ internal sealed class SecaoPanel : SW.Window
         "CORTES" => _cuts.Count,
         "CORREDOR" => _corridorsLoaded ? _corridors.Sum(c => c.Regions.Count) : -1,
         "CONTEUDO" => _data?.Items.Count ?? 0,
+        "COMPARAR" => _compare.Count,
         _ => -1
     };
 
@@ -729,13 +833,43 @@ internal sealed class SecaoPanel : SW.Window
 
     private void SelectCategory(string id)
     {
+        bool wasCompare = _category == "COMPARAR";
         _category = id;
         _tab = "Propriedades";
         if (id == "CORREDOR")
             EnsureCorridors();
+        bool show3d = id == "VISTA3D";
+        _view3d.Visibility = show3d ? SW.Visibility.Visible : SW.Visibility.Collapsed;
+        _graphic.Visibility = show3d ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        if (show3d)
+            Update3D(keepCamera: true);
+        else if (wasCompare != (id == "COMPARAR"))
+        {
+            _fitPending = true;
+            RenderGraphic();
+        }
+
         FillCategories();
         FillList();
         BuildTabs();
+    }
+
+    /// <summary>Fixa a secao mostrada na comparacao (copia, nao e recalculada depois).</summary>
+    private void PinCurrent()
+    {
+        if (_data is null || CompareMode)
+        {
+            Say("Mostre uma secao (Cortes ou Corredor por estaca) para fixar.");
+            return;
+        }
+
+        string label = _data.Box.Name;
+        int n = _compare.Count(c => c.Label.StartsWith(label, StringComparison.Ordinal));
+        if (n > 0)
+            label += $" ({n + 1})";
+        _compare.Add(new CompareEntry { Label = label, Data = _data, Color = Colors[_compare.Count % Colors.Length] });
+        FillCategories();
+        Say($"Fixada na comparacao: {label} ({_compare.Count} no total). Abra Comparar secoes.");
     }
 
     // ------------------------------------------------------------------
@@ -776,15 +910,45 @@ internal sealed class SecaoPanel : SW.Window
                 break;
 
             case "CONTEUDO":
-                headers = new[] { "Tipo", "Nome", "Layer", "Posicao", "Afastamento" };
-                widths = new[] { 100.0, 220, 120, 90, 90 };
+                headers = new[] { "Tipo", "Nome", "Layer", "Posicao", "Afastamento", "Estilo" };
+                widths = new[] { 100.0, 220, 110, 90, 80, 80 };
                 rows = (_data?.Items ?? new List<SectionItem>()).Select(i => new Row
                 {
                     Icon = IconFor(i.Kind),
                     Data = i,
-                    Cells = new[] { KindName(i.Kind), i.Name, i.Layer, i.Ghost ? "na profundidade" : "cortado", i.Ghost ? N(i.Depth) + " m" : "" }
+                    Cells = new[] { KindName(i.Kind), i.Name, i.Layer, i.Ghost ? "na profundidade" : "cortado", i.Ghost ? N(i.Depth) + " m" : "", StyleName(_prefs.StyleOf(i)) }
                 }).Where(r => Match(r.Cells[0]) || Match(r.Cells[1]) || Match(r.Cells[2])).ToList();
                 current = _selectedItem;
+                break;
+
+            case "COMPARAR":
+                headers = new[] { "Secao", "Comp. [m]", "Cota min", "Cota max", "Itens", "Mostrar" };
+                widths = new[] { 220.0, 80, 80, 80, 60, 60 };
+                rows = _compare.Where(c => Match(c.Label)).Select(c =>
+                {
+                    (double z0, double z1) = c.Data.DataZ();
+                    return new Row
+                    {
+                        Icon = "copiar",
+                        Data = c,
+                        Cells = new[] { c.Label, N(c.Data.Length), N(z0), N(z1), c.Data.Items.Count(i => !i.Ghost).ToString(CultureInfo.InvariantCulture), c.Visible ? "sim" : "nao" }
+                    };
+                }).ToList();
+                current = _compareSel;
+                break;
+
+            case "VISTA3D":
+                headers = new[] { "Tipo", "Nome", "Elementos" };
+                widths = new[] { 110.0, 260, 120 };
+                rows = new List<Row>();
+                if (_view3d.Scene is Scene3D sc)
+                {
+                    rows.AddRange(sc.Meshes.Select(m => new Row { Icon = IconFor(m.Kind), Cells = new[] { KindName(m.Kind), m.Name, (m.Tri.Count / 3) + " triangulos" } }));
+                    rows.AddRange(sc.Tubes.GroupBy(t => (t.Kind, t.Name)).Select(g => new Row { Icon = IconFor(g.Key.Kind), Cells = new[] { KindName(g.Key.Kind), g.Key.Name, g.Sum(t => t.Pts.Count - 1) + " trecho(s)" } }));
+                    if (sc.Points.Count > 0)
+                        rows.Add(new Row { Icon = "numero", Cells = new[] { "Ponto", "Pontos COGO", sc.Points.Count + " ponto(s)" } });
+                }
+
                 break;
 
             case "CONFIG":
@@ -912,6 +1076,10 @@ internal sealed class SecaoPanel : SW.Window
                 _selectedItem = it;
                 RenderGraphic();
                 break;
+            case CompareEntry ce:
+                _compareSel = ce;
+                RenderGraphic();
+                break;
             case string surface:
                 if (_prefs.SuperficiesOcultas.Contains(surface))
                     _prefs.SuperficiesOcultas.Remove(surface);
@@ -924,6 +1092,57 @@ internal sealed class SecaoPanel : SW.Window
         }
 
         BuildTabs();
+    }
+
+    private static WC.ListViewItem? ItemUnder(SW.DependencyObject? d)
+    {
+        while (d is not null and not WC.ListViewItem)
+            d = d is SW.Media.Visual or SW.Media.Media3D.Visual3D ? WM.VisualTreeHelper.GetParent(d) : SW.LogicalTreeHelper.GetParent(d);
+        return d as WC.ListViewItem;
+    }
+
+    /// <summary>Menu do botao direito na lista: estilo do item ou acoes da comparacao.</summary>
+    private void OpenRowMenu(Row row)
+    {
+        switch (row.Data)
+        {
+            case SectionItem it:
+                OpenStyleMenu(it);
+                break;
+            case CompareEntry ce:
+            {
+                WC.ContextMenu menu = new();
+                WC.MenuItem vis = new() { Header = ce.Visible ? "Ocultar na vista" : "Mostrar na vista" };
+                vis.Click += (_, _) => { ce.Visible = !ce.Visible; _fitPending = true; FillList(); RenderGraphic(); };
+                menu.Items.Add(vis);
+                WC.MenuItem only = new() { Header = "Mostrar so esta" };
+                only.Click += (_, _) => { foreach (CompareEntry c in _compare) c.Visible = ReferenceEquals(c, ce); _fitPending = true; FillList(); RenderGraphic(); };
+                menu.Items.Add(only);
+                WC.MenuItem all = new() { Header = "Mostrar todas" };
+                all.Click += (_, _) => { foreach (CompareEntry c in _compare) c.Visible = true; _fitPending = true; FillList(); RenderGraphic(); };
+                menu.Items.Add(all);
+                menu.Items.Add(new WC.Separator());
+                WC.MenuItem color = new() { Header = "Cor" };
+                foreach (WM.Color c in Colors)
+                {
+                    WC.MenuItem ci = new() { Header = new WS.Rectangle { Width = 40, Height = 10, Fill = Solid(c) }, IsCheckable = true, IsChecked = c == ce.Color };
+                    WM.Color chosen = c;
+                    ci.Click += (_, _) => { ce.Color = chosen; RenderGraphic(); };
+                    color.Items.Add(ci);
+                }
+
+                menu.Items.Add(color);
+                menu.Items.Add(new WC.Separator());
+                WC.MenuItem remove = new() { Header = "Remover da comparacao" };
+                remove.Click += (_, _) => { _compare.Remove(ce); if (ReferenceEquals(_compareSel, ce)) _compareSel = null; _fitPending = true; FillCategories(); FillList(); BuildTabs(); RenderGraphic(); };
+                menu.Items.Add(remove);
+                WC.MenuItem clear = new() { Header = "Remover todas" };
+                clear.Click += (_, _) => { _compare.Clear(); _compareSel = null; FillCategories(); FillList(); BuildTabs(); RenderGraphic(); };
+                menu.Items.Add(clear);
+                menu.IsOpen = true;
+                break;
+            }
+        }
     }
 
     private static string KindName(ItemKind k) => k switch
@@ -969,7 +1188,7 @@ internal sealed class SecaoPanel : SW.Window
         WC.ContextMenu menu = new();
         foreach (double ex in new[] { 0.5, 1, 2, 3, 5, 10 })
         {
-            WC.MenuItem mi = new() { Header = ex.ToString("0.#", CultureInfo.InvariantCulture) + "x", IsCheckable = true, IsChecked = Math.Abs((_data?.Box.Exagero ?? _prefs.ExageroPadrao) - ex) < 1e-9 };
+            WC.MenuItem mi = new() { Header = ex.ToString("0.#", CultureInfo.InvariantCulture) + "x", IsCheckable = true, IsChecked = Math.Abs((CompareMode ? _compareEx : _data?.Box.Exagero ?? _prefs.ExageroPadrao) - ex) < 1e-9 };
             double v = ex;
             mi.Click += (_, _) => SetExagero(v);
             menu.Items.Add(mi);
@@ -980,7 +1199,18 @@ internal sealed class SecaoPanel : SW.Window
 
     private void SetExagero(double ex)
     {
+        if (CompareMode)
+        {
+            _compareEx = ex;
+            _fitPending = true;
+            RenderGraphic();
+            BuildTabs();
+            return;
+        }
+
         _prefs.ExageroPadrao = ex;
+        if (_category == "VISTA3D")
+            _view3d.SetExagero(ex);
         SecaoStore.SavePrefs(_prefs);
         if (!_stationMode && !_cutId.IsNull)
         {
@@ -1160,9 +1390,33 @@ internal sealed class SecaoPanel : SW.Window
     private SW.UIElement BuildProperties()
     {
         WC.StackPanel form = Form();
-        if (_category == "CONTEUDO" && _selectedItem is SectionItem it)
+        if (_category == "COMPARAR")
+            return BuildCompareProperties(form);
+        if (_category == "VISTA3D")
+            return Build3DProperties(form);
+        if (_selectedItem is SectionItem it && _category is "CONTEUDO" or "CORTES" or "CORREDOR")
         {
             form.Children.Add(Label(KindName(it.Kind) + ": " + it.Name, true));
+            WC.StackPanel styles = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 2, 0, 6) };
+            foreach ((ItemStyle st, string text) in new[] { (ItemStyle.Normal, "Normal"), (ItemStyle.Destaque, "Destacar"), (ItemStyle.Hachura, "Hachurar"), (ItemStyle.Oculto, "Ocultar") })
+            {
+                bool on = _prefs.StyleOf(it) == st;
+                WC.Button sb = new()
+                {
+                    Content = text,
+                    Padding = new SW.Thickness(8, 2, 8, 2),
+                    Margin = new SW.Thickness(0, 0, 4, 0),
+                    Background = on ? T.Selected : T.Hover,
+                    BorderBrush = on ? T.Accent : T.Line,
+                    IsEnabled = st != ItemStyle.Hachura || it.Fills.Count > 0,
+                    ToolTip = st == ItemStyle.Hachura && it.Fills.Count == 0 ? "Este item nao forma regiao fechada." : null
+                };
+                ItemStyle chosen = st;
+                sb.Click += (_, _) => SetStyle(it, chosen);
+                styles.Children.Add(sb);
+            }
+
+            form.Children.Add(styles);
             WC.Grid g = PropGrid();
             PropText(g, "Layer", it.Layer);
             PropText(g, "Posicao", it.Ghost ? $"na profundidade ({N(it.Depth)} m do plano)" : "cortado pelo plano");
@@ -1277,6 +1531,107 @@ internal sealed class SecaoPanel : SW.Window
         return form;
     }
 
+    private SW.UIElement BuildCompareProperties(WC.StackPanel form)
+    {
+        form.Children.Add(Label("Comparacao de secoes", true));
+        form.Children.Add(Label("Fixe secoes com o botao Fixar na comparacao (em Cortes ou Corredor por estaca). Clique duplo na linha mostra/oculta; botao direito: cor, remover."));
+
+        WC.StackPanel align = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 4, 0, 4) };
+        align.Children.Add(new WC.TextBlock { Text = "Alinhar pelo:", Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 8, 0) });
+        foreach ((string key, string text) in new[] { ("Eixo", "eixo"), ("Centro", "centro"), ("Inicio", "inicio") })
+        {
+            bool on = _compareAlign == key;
+            WC.Button b = new() { Content = text, Padding = new SW.Thickness(8, 2, 8, 2), Margin = new SW.Thickness(0, 0, 4, 0), Background = on ? T.Selected : T.Hover, BorderBrush = on ? T.Accent : T.Line };
+            string k = key;
+            b.Click += (_, _) => { _compareAlign = k; _fitPending = true; RenderGraphic(); BuildTabs(); };
+            align.Children.Add(b);
+        }
+
+        form.Children.Add(align);
+        WC.CheckBox ghosts = new() { Content = "Incluir o que esta na profundidade (fantasmas)", IsChecked = _prefs.CompararFantasmas, Foreground = T.Text, Margin = new SW.Thickness(0, 3, 0, 3) };
+        ghosts.Click += (_, _) => { _prefs.CompararFantasmas = ghosts.IsChecked == true; SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
+        form.Children.Add(ghosts);
+        form.Children.Add(Label($"Exagero vertical: {_compareEx:0.##}x (botao Exagero)"));
+
+        if (_compareSel is CompareEntry sel)
+        {
+            form.Children.Add(Label("Selecionada", true));
+            WC.Grid g = PropGrid();
+            WC.TextBox name = new() { Text = sel.Label };
+            name.LostFocus += (_, _) => { if (name.Text.Trim().Length > 0 && name.Text.Trim() != sel.Label) { sel.Label = name.Text.Trim(); FillList(); RenderGraphic(); } };
+            Prop(g, "Nome", name);
+            (double z0, double z1) = sel.Data.DataZ();
+            PropText(g, "Comprimento", N(sel.Data.Length) + " m");
+            PropText(g, "Cotas", $"{N(z0, "0.000")} a {N(z1, "0.000")}");
+            PropText(g, "Eixo", double.IsNaN(sel.Data.AxisS) ? "(corte livre: alinha pelo centro)" : $"S = {N(sel.Data.AxisS)} m");
+            form.Children.Add(g);
+        }
+
+        // Diferenca de topo entre as duas primeiras visiveis.
+        List<CompareEntry> vis = _compare.Where(c => c.Visible).ToList();
+        if (vis.Count >= 2)
+        {
+            (string text, _) = TopDifference(vis[0], vis[1]);
+            form.Children.Add(Label("Diferenca de topo", true));
+            form.Children.Add(new WC.TextBlock { Text = text, Foreground = T.Text, FontFamily = MonoFont, TextWrapping = SW.TextWrapping.Wrap, Margin = new SW.Thickness(0, 2, 0, 2) });
+        }
+
+        return form;
+    }
+
+    /// <summary>Compara o topo (maior cota) de duas secoes alinhadas, a cada 5 cm.</summary>
+    private (string Text, double Max) TopDifference(CompareEntry a, CompareEntry b)
+    {
+        double oa = CompareOffset(a.Data), ob = CompareOffset(b.Data);
+        double lo = Math.Max(oa, ob), hi = Math.Min(oa + a.Data.Length, ob + b.Data.Length);
+        if (hi - lo < 0.05)
+            return ("As duas secoes nao se sobrepoem no alinhamento escolhido.", 0);
+        List<double> xs = new();
+        for (double x = lo; x <= hi + 1e-9; x += 0.05)
+            xs.Add(x);
+        IEnumerable<List<(double S, double Z)>> Lines(CompareEntry e, double off) =>
+            e.Data.Items.Where(i => !i.Ghost && _prefs.StyleOf(i) != ItemStyle.Oculto && i.Kind is ItemKind.Superficie or ItemKind.Corredor)
+                .SelectMany(i => i.Polylines).Select(pl => pl.Select(p => (p.S + off, p.Z)).ToList());
+        double[] ta = SecaoGeometry.TopAt(Lines(a, oa), xs), tb = SecaoGeometry.TopAt(Lines(b, ob), xs);
+        double maxAbs = 0, at = 0, sum = 0;
+        int n = 0;
+        for (int i = 0; i < xs.Count; i++)
+        {
+            if (double.IsNaN(ta[i]) || double.IsNaN(tb[i]))
+                continue;
+            double d = tb[i] - ta[i];
+            sum += d;
+            n++;
+            if (Math.Abs(d) > Math.Abs(maxAbs))
+            {
+                maxAbs = d;
+                at = xs[i];
+            }
+        }
+
+        if (n == 0)
+            return ("Sem superficie/corredor em comum para comparar.", 0);
+        return ($"{b.Label} - {a.Label}:\n  maior diferenca {maxAbs:+0.000;-0.000} m em S = {at:0.00}\n  media {sum / n:+0.000;-0.000} m em {n} pontos ({(n - 1) * 0.05:0.00} m)", maxAbs);
+    }
+
+    private SW.UIElement Build3DProperties(WC.StackPanel form)
+    {
+        form.Children.Add(Label("Vista 3D da caixa", true));
+        form.Children.Add(Label("Mostra o conteudo da caixa corrente (corte ou estaca): superficies amostradas numa grade, o corredor entre as estacas que tocam a caixa, tubos, estruturas, linhas e pontos, o plano do corte translucido e o contorno da caixa."));
+        form.Children.Add(Label("Arrastar: orbitar. Botao direito ou do meio: mover. Roda: zoom. Duplo clique: volta a isometrica. O exagero vertical vale aqui tambem (botao Exagero)."));
+        if (_view3d.Scene is Scene3D sc)
+        {
+            form.Children.Add(Label(sc.Summary(), true));
+            foreach (string w in sc.Warnings.Take(10))
+                form.Children.Add(Label("- " + w));
+        }
+
+        WC.Button rebuild = new() { Content = "Refazer a cena", Width = 140, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 8, 0, 0) };
+        rebuild.Click += (_, _) => { _scene3dDirty = true; Update3D(keepCamera: true); FillList(); BuildTabs(); };
+        form.Children.Add(rebuild);
+        return form;
+    }
+
     private SW.UIElement BuildContent()
     {
         WC.StackPanel form = Form();
@@ -1313,6 +1668,55 @@ internal sealed class SecaoPanel : SW.Window
         rot.Click += (_, _) => { _prefs.Rotulos = rot.IsChecked == true; SecaoStore.SavePrefs(_prefs); RenderGraphic(); };
         form.Children.Add(rot);
         form.Children.Add(Label("Superficies individuais: categoria Configuracao (clique na linha para mostrar/ocultar)."));
+
+        form.Children.Add(Label("Corredor", true));
+        WC.StackPanel modes = new() { Margin = new SW.Thickness(0, 2, 0, 2) };
+        WC.TextBox codes = new() { Text = _prefs.CorredorCodigos, Width = 220, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(20, 2, 0, 4), ToolTip = "Codigos de link separados por virgula (ex.: TOP, DATUM, Pave1)." };
+        foreach ((string key, string text) in new[] { ("links", "Todos os links"), ("contorno", "So o contorno (boundary)"), ("codigos", "So os links com os codigos:") })
+        {
+            WC.RadioButton rb = new() { Content = text, GroupName = "corredor", IsChecked = _prefs.CorredorModo == key, Foreground = T.Text, Margin = new SW.Thickness(0, 2, 0, 2) };
+            string k = key;
+            rb.Checked += (_, _) =>
+            {
+                if (_prefs.CorredorModo == k)
+                    return;
+                _prefs.CorredorModo = k;
+                SecaoStore.SavePrefs(_prefs);
+                Recompute();
+            };
+            modes.Children.Add(rb);
+        }
+
+        modes.Children.Add(codes);
+        codes.LostFocus += (_, _) =>
+        {
+            if (codes.Text.Trim() == _prefs.CorredorCodigos)
+                return;
+            _prefs.CorredorCodigos = codes.Text.Trim();
+            SecaoStore.SavePrefs(_prefs);
+            if (_prefs.CorredorModo == "codigos")
+                Recompute();
+        };
+        form.Children.Add(modes);
+        form.Children.Add(Label("O contorno e sempre calculado: com ele o corredor pode ser hachurado (botao direito no corredor > Hachurar), mesmo mostrando os links."));
+
+        form.Children.Add(Label("Desenhar no model", true));
+        WC.Grid g = PropGrid();
+        WC.TextBox scale = new() { Text = N(_prefs.EscalaDesenho, "0"), Width = 90, HorizontalAlignment = SW.HorizontalAlignment.Left };
+        WC.TextBox mm = new() { Text = N(_prefs.TextoMm, "0.0#"), Width = 90, HorizontalAlignment = SW.HorizontalAlignment.Left };
+        Prop(g, "Escala do desenho 1:", scale);
+        Prop(g, "Texto no papel [mm]", mm);
+        form.Children.Add(g);
+        void SaveExport()
+        {
+            if (TryD(scale.Text, out double n) && n >= 1) _prefs.EscalaDesenho = n;
+            if (TryD(mm.Text, out double h) && h >= 0.5) _prefs.TextoMm = h;
+            SecaoStore.SavePrefs(_prefs);
+        }
+
+        scale.LostFocus += (_, _) => SaveExport();
+        mm.LostFocus += (_, _) => SaveExport();
+        form.Children.Add(Label($"Altura do texto no desenho = mm x escala / 1000 (hoje {_prefs.TextoMm * _prefs.EscalaDesenho / 1000:0.###} m). O passo das cotas e das distancias se ajusta para os textos nao se sobreporem."));
         return form;
     }
 
@@ -1345,7 +1749,72 @@ internal sealed class SecaoPanel : SW.Window
 
     private const double MarginLeft = 60, MarginBottom = 26, MarginTop = 12, MarginRight = 14;
 
-    private double Ex => _data?.Box.Exagero ?? 1.0;
+    /// <summary>Uma secao desenhada na vista (normal: a corrente; comparacao: as fixadas, sobrepostas).</summary>
+    private sealed class ViewLayer
+    {
+        public SectionData Data = null!;
+        public double Offset;
+        public WM.Color? Color;
+        public string Label = "";
+        public bool Ghosts = true;
+        public CompareEntry? Entry;
+    }
+
+    private bool CompareMode => _category == "COMPARAR";
+
+    private List<ViewLayer> Layers()
+    {
+        if (CompareMode)
+        {
+            return _compare.Where(c => c.Visible).Select(c => new ViewLayer
+            {
+                Data = c.Data,
+                Offset = CompareOffset(c.Data),
+                Color = c.Color,
+                Label = c.Label,
+                Ghosts = _prefs.CompararFantasmas,
+                Entry = c
+            }).ToList();
+        }
+
+        return _data is null ? new List<ViewLayer>() : new List<ViewLayer> { new() { Data = _data } };
+    }
+
+    private double CompareOffset(SectionData d) => _compareAlign switch
+    {
+        "Inicio" => 0,
+        "Centro" => -d.Length / 2,
+        _ => double.IsNaN(d.AxisS) ? -d.Length / 2 : -d.AxisS
+    };
+
+    private double Ex => CompareMode ? _compareEx : _data?.Box.Exagero ?? 1.0;
+
+    private static (double Min, double Max) LayersZ(List<ViewLayer> layers)
+    {
+        if (layers.Count == 1)
+            return layers[0].Data.ViewZ();
+        double min = double.MaxValue, max = double.MinValue;
+        foreach (ViewLayer l in layers)
+        {
+            (double a, double b) = l.Data.ViewZ();
+            min = Math.Min(min, a);
+            max = Math.Max(max, b);
+        }
+
+        return min <= max ? (min, max) : (0, 10);
+    }
+
+    private static (double Min, double Max) LayersS(List<ViewLayer> layers)
+    {
+        double min = double.MaxValue, max = double.MinValue;
+        foreach (ViewLayer l in layers)
+        {
+            min = Math.Min(min, l.Offset);
+            max = Math.Max(max, l.Offset + l.Data.Length);
+        }
+
+        return min <= max ? (min, max) : (0, 1);
+    }
 
     private SW.Point ToScreen(double s, double z) => new(_ox + (s * _scale), _oy - (z * _scale * Ex));
 
@@ -1353,17 +1822,19 @@ internal sealed class SecaoPanel : SW.Window
 
     private void Fit()
     {
-        if (_data is null)
+        List<ViewLayer> layers = Layers();
+        if (layers.Count == 0)
             return;
         double w = _graphic.ActualWidth - MarginLeft - MarginRight, h = _graphic.ActualHeight - MarginTop - MarginBottom;
         if (w < 20 || h < 20)
             return;
-        (double zmin, double zmax) = _data.ViewZ();
-        double length = Math.Max(_data.Length, 1e-6);
+        (double zmin, double zmax) = LayersZ(layers);
+        (double smin, double smax) = LayersS(layers);
+        double length = Math.Max(smax - smin, 1e-6);
         double sx = w / length, sy = h / Math.Max((zmax - zmin) * Ex, 1e-6);
         _scale = Math.Min(sx, sy) * 0.97;
         double cw = length * _scale, ch = (zmax - zmin) * Ex * _scale;
-        _ox = MarginLeft + ((w - cw) / 2);
+        _ox = MarginLeft + ((w - cw) / 2) - (smin * _scale);
         _oy = MarginTop + ((h - ch) / 2) + ch + (zmin * _scale * Ex);
         _fitPending = false;
     }
@@ -1377,7 +1848,7 @@ internal sealed class SecaoPanel : SW.Window
 
     private void OnWheel(object sender, WI.MouseWheelEventArgs e)
     {
-        if (_data is null)
+        if (Layers().Count == 0)
             return;
         SW.Point p = e.GetPosition(_graphic);
         (double s, double z) = ToWorld(p);
@@ -1399,20 +1870,29 @@ internal sealed class SecaoPanel : SW.Window
             return;
         }
 
-        if (e.ChangedButton == WI.MouseButton.Left && _data is not null && _category == "CONTEUDO")
+        SW.Point p = e.GetPosition(_graphic);
+        (ViewLayer Layer, SectionItem Item)? hit = HitTest(p);
+
+        if (e.ChangedButton == WI.MouseButton.Right)
         {
-            SectionItem? hit = HitTest(e.GetPosition(_graphic));
             if (hit is not null)
-            {
-                _selectedItem = hit;
+                OpenStyleMenu(hit.Value.Item);
+            return;
+        }
+
+        if (e.ChangedButton == WI.MouseButton.Left && hit is not null)
+        {
+            _selectedItem = hit.Value.Item;
+            if (hit.Value.Layer.Entry is CompareEntry ce)
+                _compareSel = ce;
+            if (_category is "CONTEUDO" or "COMPARAR")
                 FillList();
-                BuildTabs();
-                RenderGraphic();
-            }
+            BuildTabs();
+            RenderGraphic();
         }
 
         _dragging = true;
-        _dragStart = e.GetPosition(_graphic);
+        _dragStart = p;
         _dragOrigin = (_ox, _oy);
         _graphic.CaptureMouse();
     }
@@ -1428,57 +1908,61 @@ internal sealed class SecaoPanel : SW.Window
             return;
         }
 
-        if (_data is null)
+        if (Layers().Count == 0)
             return;
         (double s, double z) = ToWorld(p);
-        SectionItem? hit = HitTest(p);
+        (ViewLayer Layer, SectionItem Item)? hit = HitTest(p);
         string info = $"S {s,8:0.00} m   Z {z,9:0.000}";
-        if (hit is not null)
-            info += $"   |  {KindName(hit.Kind)}: {hit.Name}" + (hit.Ghost ? $" (a {N(hit.Depth)} m do plano)" : "");
+        if (hit is (ViewLayer hl, SectionItem hi))
+            info += $"   |  {(hl.Label.Length > 0 ? hl.Label + ": " : "")}{KindName(hi.Kind)}: {hi.Name}" + (hi.Ghost ? $" (a {N(hi.Depth)} m do plano)" : "") + "   (botao direito: destacar/hachurar)";
         _graphicInfo.Text = info;
     }
 
-    private SectionItem? HitTest(SW.Point p)
+    private (ViewLayer Layer, SectionItem Item)? HitTest(SW.Point p)
     {
-        if (_data is null)
-            return null;
-        SectionItem? best = null;
+        (ViewLayer, SectionItem)? best = null;
         double bestD = 7.0;
-        foreach (SectionItem it in _data.Items)
+        foreach (ViewLayer layer in Layers())
         {
-            foreach (List<(double S, double Z)> pl in it.Polylines)
+            double off = layer.Offset;
+            foreach (SectionItem it in layer.Data.Items)
             {
-                for (int i = 0; i + 1 < pl.Count; i++)
+                if ((it.Ghost && !layer.Ghosts) || _prefs.StyleOf(it) == ItemStyle.Oculto)
+                    continue;
+                foreach (List<(double S, double Z)> pl in it.Polylines)
                 {
-                    double d = DistToSegment(p, ToScreen(pl[i].S, pl[i].Z), ToScreen(pl[i + 1].S, pl[i + 1].Z));
+                    for (int i = 0; i + 1 < pl.Count; i++)
+                    {
+                        double d = DistToSegment(p, ToScreen(pl[i].S + off, pl[i].Z), ToScreen(pl[i + 1].S + off, pl[i + 1].Z));
+                        if (d < bestD)
+                        {
+                            bestD = d;
+                            best = (layer, it);
+                        }
+                    }
+                }
+
+                foreach ((double s, double z, double r) in it.Circles)
+                {
+                    SW.Point c = ToScreen(s + off, z);
+                    double rx = r * _scale, ry = r * _scale * Ex;
+                    double d = Math.Abs(Math.Sqrt(Math.Pow((p.X - c.X) / Math.Max(rx, 1), 2) + Math.Pow((p.Y - c.Y) / Math.Max(ry, 1), 2)) - 1) * Math.Min(rx, ry);
                     if (d < bestD)
                     {
                         bestD = d;
-                        best = it;
+                        best = (layer, it);
                     }
                 }
-            }
 
-            foreach ((double s, double z, double r) in it.Circles)
-            {
-                SW.Point c = ToScreen(s, z);
-                double rx = r * _scale, ry = r * _scale * Ex;
-                double d = Math.Abs(Math.Sqrt(Math.Pow((p.X - c.X) / Math.Max(rx, 1), 2) + Math.Pow((p.Y - c.Y) / Math.Max(ry, 1), 2)) - 1) * Math.Min(rx, ry);
-                if (d < bestD)
+                foreach ((double s, double z, _) in it.Points)
                 {
-                    bestD = d;
-                    best = it;
-                }
-            }
-
-            foreach ((double s, double z, _) in it.Points)
-            {
-                SW.Point c = ToScreen(s, z);
-                double d = Math.Sqrt(Math.Pow(p.X - c.X, 2) + Math.Pow(p.Y - c.Y, 2));
-                if (d < bestD)
-                {
-                    bestD = d;
-                    best = it;
+                    SW.Point c = ToScreen(s + off, z);
+                    double d = Math.Sqrt(Math.Pow(p.X - c.X, 2) + Math.Pow(p.Y - c.Y, 2));
+                    if (d < bestD)
+                    {
+                        bestD = d;
+                        best = (layer, it);
+                    }
                 }
             }
         }
@@ -1512,23 +1996,113 @@ internal sealed class SecaoPanel : SW.Window
         };
     }
 
-    private static WM.Brush BrushFor(SectionItem it, bool selected)
+    private static WM.Color RgbFor(SectionItem it) => ColorFor(it) switch
     {
-        if (selected)
-            return ToolTheme.Brush(255, 176, 0);
-        if (it.Ghost)
-            return ToolTheme.Brush(120, 124, 130);
-        return ColorFor(it) switch
+        1 => WM.Color.FromRgb(235, 80, 80),
+        2 => WM.Color.FromRgb(230, 220, 60),
+        3 => WM.Color.FromRgb(90, 210, 110),
+        4 => WM.Color.FromRgb(80, 200, 230),
+        5 => WM.Color.FromRgb(110, 150, 255),
+        6 => WM.Color.FromRgb(230, 110, 230),
+        30 => WM.Color.FromRgb(255, 160, 60),
+        _ => WM.Color.FromRgb(225, 225, 225)
+    };
+
+    private static readonly WM.Color GhostColor = WM.Color.FromRgb(120, 124, 130);
+    private static readonly WM.Color SelectColor = WM.Color.FromRgb(255, 176, 0);
+    private readonly Dictionary<uint, WM.Brush> _brushes = new();
+    private readonly Dictionary<uint, WM.Brush> _hatches = new();
+
+    private WM.Brush Solid(WM.Color c, byte a = 255)
+    {
+        uint key = ((uint)a << 24) | ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+        if (!_brushes.TryGetValue(key, out WM.Brush? b))
+            _brushes[key] = b = ToolTheme.Brush(c.R, c.G, c.B, a);
+        return b;
+    }
+
+    /// <summary>Hachura diagonal (tela) na cor dada, com fundo translucido.</summary>
+    private WM.Brush Hatch(WM.Color c)
+    {
+        uint key = ((uint)c.R << 16) | ((uint)c.G << 8) | c.B;
+        if (_hatches.TryGetValue(key, out WM.Brush? cached))
+            return cached;
+        WM.DrawingGroup dg = new();
+        dg.Children.Add(new WM.GeometryDrawing(new WM.SolidColorBrush(WM.Color.FromArgb(45, c.R, c.G, c.B)), null, new WM.RectangleGeometry(new SW.Rect(0, 0, 8, 8))));
+        WM.GeometryGroup lines = new();
+        lines.Children.Add(new WM.LineGeometry(new SW.Point(0, 8), new SW.Point(8, 0)));
+        lines.Children.Add(new WM.LineGeometry(new SW.Point(-2, 2), new SW.Point(2, -2)));
+        lines.Children.Add(new WM.LineGeometry(new SW.Point(6, 10), new SW.Point(10, 6)));
+        dg.Children.Add(new WM.GeometryDrawing(null, new WM.Pen(new WM.SolidColorBrush(WM.Color.FromArgb(210, c.R, c.G, c.B)), 1.0), lines));
+        WM.DrawingBrush brush = new(dg)
         {
-            1 => ToolTheme.Brush(235, 80, 80),
-            2 => ToolTheme.Brush(230, 220, 60),
-            3 => ToolTheme.Brush(90, 210, 110),
-            4 => ToolTheme.Brush(80, 200, 230),
-            5 => ToolTheme.Brush(110, 150, 255),
-            6 => ToolTheme.Brush(230, 110, 230),
-            30 => ToolTheme.Brush(255, 160, 60),
-            _ => ToolTheme.Brush(225, 225, 225)
+            TileMode = WM.TileMode.Tile,
+            Viewport = new SW.Rect(0, 0, 8, 8),
+            ViewportUnits = WM.BrushMappingMode.Absolute,
+            Viewbox = new SW.Rect(0, 0, 8, 8),
+            ViewboxUnits = WM.BrushMappingMode.Absolute
         };
+        brush.Freeze();
+        _hatches[key] = brush;
+        return brush;
+    }
+
+    /// <summary>Geometria de um item em coordenadas do mundo (S, Z), montada uma vez e congelada.</summary>
+    private sealed class ItemGeom
+    {
+        public WM.Geometry? Lines;
+        public WM.Geometry? Circles;
+        public WM.Geometry? Fills;
+    }
+
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<SectionItem, ItemGeom> _geom = new();
+
+    private ItemGeom GeomOf(SectionItem it)
+    {
+        if (_geom.TryGetValue(it, out ItemGeom? g))
+            return g;
+        g = new ItemGeom();
+        if (it.Polylines.Any(p => p.Count > 1))
+            g.Lines = Stream(it.Polylines, closed: false);
+        if (it.Fills.Count > 0)
+            g.Fills = Stream(it.Fills, closed: true);
+        if (it.Circles.Count > 0)
+        {
+            WM.GeometryGroup cg = new();
+            foreach ((double s, double z, double r) in it.Circles)
+                cg.Children.Add(new WM.EllipseGeometry(new SW.Point(s, z), r, r));
+            cg.Freeze();
+            g.Circles = cg;
+        }
+
+        _geom.Add(it, g);
+        return g;
+    }
+
+    private static WM.Geometry Stream(List<List<(double S, double Z)>> polylines, bool closed)
+    {
+        WM.StreamGeometry sg = new() { FillRule = WM.FillRule.EvenOdd };
+        using (WM.StreamGeometryContext ctx = sg.Open())
+        {
+            foreach (List<(double S, double Z)> pl in polylines)
+            {
+                if (pl.Count < 2)
+                    continue;
+                ctx.BeginFigure(new SW.Point(pl[0].S, pl[0].Z), closed, closed);
+                for (int i = 1; i < pl.Count; i++)
+                    ctx.LineTo(new SW.Point(pl[i].S, pl[i].Z), true, true);
+            }
+        }
+
+        sg.Freeze();
+        return sg;
+    }
+
+    private static WM.Geometry Placed(WM.Geometry g, WM.Transform tf)
+    {
+        WM.GeometryGroup group = new() { Transform = tf };
+        group.Children.Add(g);
+        return group;
     }
 
     private void RenderGraphic()
@@ -1538,20 +2112,22 @@ internal sealed class SecaoPanel : SW.Window
         if (W < 10 || H < 10)
             return;
 
-        if (_data is null)
+        List<ViewLayer> layers = Layers();
+        if (layers.Count == 0)
         {
-            _graphic.Children.Add(Text(_cuts.Count == 0 ? "Sem caixa de corte. Use Nova caixa de corte: clique os pontos em planta e informe as profundidades." : "Selecione um corte na lista.",
-                12, H / 2 - 8, ToolTheme.GraphicText, 12));
+            string msg = CompareMode
+                ? "Nada para comparar: em Cortes ou Corredor por estaca, use Fixar na comparacao para guardar a secao mostrada."
+                : _cuts.Count == 0 ? "Sem caixa de corte. Use Nova caixa de corte: clique os pontos em planta e informe as profundidades." : "Selecione um corte na lista.";
+            _graphic.Children.Add(Text(msg, 12, H / 2 - 8, ToolTheme.GraphicText, 12));
             return;
         }
 
         if (_fitPending)
             Fit();
 
-        (double zmin, double zmax) = _data.ViewZ();
-        double length = _data.Length;
+        (double zmin, double zmax) = LayersZ(layers);
+        (double smin, double smax) = LayersS(layers);
 
-        // Area util (clip): a secao fica dentro da moldura; reguas fora.
         WC.Canvas plot = new() { ClipToBounds = true, Width = Math.Max(1, W - MarginLeft - MarginRight), Height = Math.Max(1, H - MarginTop - MarginBottom) };
         WC.Canvas.SetLeft(plot, MarginLeft);
         WC.Canvas.SetTop(plot, MarginTop);
@@ -1562,40 +2138,62 @@ internal sealed class SecaoPanel : SW.Window
             return new SW.Point(q.X - MarginLeft, q.Y - MarginTop);
         }
 
-        // Faixa da caixa (cotas min/max) e comprimento: fundo levemente mais claro.
-        SW.Point c0 = P(0, zmax), c1 = P(length, zmin);
+        // Faixa util (cotas e comprimento) levemente mais clara.
+        SW.Point c0 = P(smin, zmax), c1 = P(smax, zmin);
         plot.Children.Add(new WS.Rectangle
         {
             Width = Math.Max(0, c1.X - c0.X), Height = Math.Max(0, c1.Y - c0.Y),
             Fill = ToolTheme.Brush(64, 66, 71), Stroke = ToolTheme.Brush(110, 112, 118), StrokeThickness = 1
         }.At(c0.X, c0.Y));
 
-        // Grade.
+        // Grade num unico Path.
         double zStep = SecaoGeometry.NiceStep(60.0 / Math.Max(_scale * Ex, 1e-9));
         double sStep = SecaoGeometry.NiceStep(80.0 / Math.Max(_scale, 1e-9));
         (double vzLo, double vzHi) = VisibleZ();
         (double vsLo, _) = ToWorld(new SW.Point(MarginLeft, 0));
         (double vsHi, _) = ToWorld(new SW.Point(W - MarginRight, 0));
-        WM.Brush grid = ToolTheme.Brush(78, 80, 86), gridMajor = ToolTheme.Brush(96, 98, 104);
         if (_prefs.Grade)
         {
-            for (double z = Math.Floor(vzLo / zStep) * zStep; z <= vzHi; z += zStep)
+            WM.StreamGeometry grid = new();
+            using (WM.StreamGeometryContext ctx = grid.Open())
             {
-                SW.Point a = P(vsLo, z), b = P(vsHi, z);
-                bool major = Math.Abs(Math.Round(z / (zStep * 5)) * zStep * 5 - z) < zStep * 0.01;
-                plot.Children.Add(new WS.Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = major ? gridMajor : grid, StrokeThickness = 1 });
+                for (double z = Math.Floor(vzLo / zStep) * zStep; z <= vzHi; z += zStep)
+                {
+                    ctx.BeginFigure(P(vsLo, z), false, false);
+                    ctx.LineTo(P(vsHi, z), true, false);
+                }
+
+                for (double s = Math.Floor(vsLo / sStep) * sStep; s <= vsHi; s += sStep)
+                {
+                    ctx.BeginFigure(P(s, vzLo), false, false);
+                    ctx.LineTo(P(s, vzHi), true, false);
+                }
             }
 
-            for (double s = Math.Floor(vsLo / sStep) * sStep; s <= vsHi; s += sStep)
-            {
-                SW.Point a = P(s, vzLo), b = P(s, vzHi);
-                plot.Children.Add(new WS.Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = grid, StrokeThickness = 1 });
-            }
+            grid.Freeze();
+            plot.Children.Add(new WS.Path { Data = grid, Stroke = ToolTheme.Brush(78, 80, 86), StrokeThickness = 1 });
         }
 
-        // Itens: fantasmas primeiro (ja ordenados), cortados por cima; selecionado por ultimo.
-        foreach (SectionItem it in _data.Items.Where(i => !ReferenceEquals(i, _selectedItem)).Concat(_selectedItem is null ? Enumerable.Empty<SectionItem>() : new[] { _selectedItem }))
-            DrawItem(plot, it, ReferenceEquals(it, _selectedItem), P);
+        // Eixo (secoes na estaca / comparacao alinhada pelo eixo).
+        if (CompareMode && _compareAlign == "Eixo" || (!CompareMode && layers.Count == 1 && !double.IsNaN(layers[0].Data.AxisS)))
+        {
+            double ax = CompareMode ? 0 : layers[0].Data.AxisS;
+            SW.Point a = P(ax, vzLo), b = P(ax, vzHi);
+            plot.Children.Add(new WS.Line { X1 = a.X, Y1 = a.Y, X2 = b.X, Y2 = b.Y, Stroke = ToolTheme.Brush(200, 90, 90), StrokeThickness = 1, StrokeDashArray = new WM.DoubleCollection { 8, 3, 2, 3 } });
+        }
+
+        // Itens: por camada; fantasmas primeiro (ja ordenados), selecionado por ultimo.
+        List<SW.Rect> placed = new();
+        foreach (ViewLayer layer in layers)
+        {
+            WM.MatrixTransform tf = new(new WM.Matrix(_scale, 0, 0, -_scale * Ex, _ox + (layer.Offset * _scale) - MarginLeft, _oy - MarginTop));
+            tf.Freeze();
+            IEnumerable<SectionItem> items = layer.Data.Items.Where(i => layer.Ghosts || !i.Ghost);
+            foreach (SectionItem it in items.Where(i => !ReferenceEquals(i, _selectedItem)))
+                DrawItem(plot, layer, it, false, tf, P, placed);
+            if (_selectedItem is not null && layer.Data.Items.Contains(_selectedItem))
+                DrawItem(plot, layer, _selectedItem, true, tf, P, placed);
+        }
 
         // Reguas: cotas a esquerda, distancias embaixo.
         WM.Brush ruler = ToolTheme.Brush(44, 46, 50);
@@ -1619,44 +2217,63 @@ internal sealed class SecaoPanel : SW.Window
             _graphic.Children.Add(Text(s.ToString(sStep < 1 ? "0.0" : "0", CultureInfo.InvariantCulture), a.X - 30, H - MarginBottom + 8, ToolTheme.GraphicText, 10, 60, SW.TextAlignment.Center));
         }
 
-        // Cabecalho: nome, exagero, escala.
-        _graphic.Children.Add(Text($"{_data.Box.Name}   exagero {Ex:0.##}x   1 m = {_scale:0.#} px", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
-        _graphic.Children.Add(Text("esq. (inicio da linha)", MarginLeft + 6, H - MarginBottom - 16, ToolTheme.Brush(150, 152, 156), 9));
-        _graphic.Children.Add(Text("dir. (fim da linha)", W - MarginRight - 110, H - MarginBottom - 16, ToolTheme.Brush(150, 152, 156), 9, 104, SW.TextAlignment.Right));
-    }
-
-    private void DrawItem(WC.Canvas plot, SectionItem it, bool selected, Func<double, double, SW.Point> P)
-    {
-        WM.Brush brush = BrushFor(it, selected);
-        double thick = selected ? 2.4 : it.Ghost ? 1.0 : it.Kind == ItemKind.Superficie ? 1.8 : 1.4;
-        WM.DoubleCollection? dash = it.Ghost ? new WM.DoubleCollection { 4, 3 } : null;
-
-        foreach (List<(double S, double Z)> pl in it.Polylines)
+        if (CompareMode)
         {
-            if (pl.Count < 2)
-                continue;
-            WS.Polyline line = new() { Stroke = brush, StrokeThickness = thick, StrokeLineJoin = WM.PenLineJoin.Round };
-            if (dash is not null)
-                line.StrokeDashArray = dash;
-            foreach ((double s, double z) in pl)
-                line.Points.Add(P(s, z));
-            plot.Children.Add(line);
-            if (_prefs.Rotulos && !it.Ghost && (it.Kind == ItemKind.Superficie || it.Kind == ItemKind.Corredor) && ReferenceEquals(pl, it.Polylines[0]))
+            string align = _compareAlign == "Inicio" ? "pelo inicio" : _compareAlign == "Centro" ? "pelo centro" : "pelo eixo";
+            _graphic.Children.Add(Text($"Comparacao: {layers.Count} secao(oes), alinhadas {align}   exagero {Ex:0.##}x", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
+            double ly = MarginTop + 8;
+            foreach (ViewLayer l in layers)
             {
-                (double s, double z) = pl[^1];
-                SW.Point e = P(s, z);
-                plot.Children.Add(Text(it.Name, e.X + 4, e.Y - 7, brush, 9));
+                WM.Color c = l.Color ?? Colors[0];
+                _graphic.Children.Add(new WS.Rectangle { Width = 14, Height = 4, Fill = Solid(c), Stroke = ReferenceEquals(l.Entry, _compareSel) ? Solid(SelectColor) : null }.At(MarginLeft + 10, ly + 5));
+                _graphic.Children.Add(Text(l.Label, MarginLeft + 30, ly, Solid(c), 10));
+                ly += 14;
             }
         }
-
-        foreach ((double s, double z, double r) in it.Circles)
+        else
         {
-            double rx = r * _scale, ry = r * _scale * Ex;
-            SW.Point c = P(s, z);
-            WS.Ellipse el = new() { Width = rx * 2, Height = ry * 2, Stroke = brush, StrokeThickness = thick };
-            if (dash is not null)
-                el.StrokeDashArray = dash;
-            plot.Children.Add(el.At(c.X - rx, c.Y - ry));
+            _graphic.Children.Add(Text($"{layers[0].Data.Box.Name}   exagero {Ex:0.##}x   1 m = {_scale:0.#} px", MarginLeft + 6, 2, ToolTheme.GraphicText, 10));
+            _graphic.Children.Add(Text("esq. (inicio da linha)", MarginLeft + 6, H - MarginBottom - 16, ToolTheme.Brush(150, 152, 156), 9));
+            _graphic.Children.Add(Text("dir. (fim da linha)", W - MarginRight - 110, H - MarginBottom - 16, ToolTheme.Brush(150, 152, 156), 9, 104, SW.TextAlignment.Right));
+        }
+    }
+
+    private void DrawItem(WC.Canvas plot, ViewLayer layer, SectionItem it, bool selected, WM.Transform tf, Func<double, double, SW.Point> P0, List<SW.Rect> placed)
+    {
+        ItemStyle style = _prefs.StyleOf(it);
+        if (style == ItemStyle.Oculto && !selected)
+            return;
+
+        double off = layer.Offset;
+        SW.Point P(double s, double z) => P0(s + off, z);
+        bool strong = style == ItemStyle.Destaque;
+        WM.Color baseColor = layer.Color ?? (it.Ghost && !strong ? GhostColor : RgbFor(it));
+        WM.Color color = selected ? SelectColor : baseColor;
+        WM.Brush brush = Solid(color, (byte)(layer.Color is not null && it.Ghost && !strong ? 120 : 255));
+        double thick = selected ? 2.6 : strong ? 3.0 : it.Ghost ? 1.0 : it.Kind == ItemKind.Superficie ? 1.8 : 1.4;
+        bool dashed = it.Ghost && !strong;
+        ItemGeom g = GeomOf(it);
+
+        if (style == ItemStyle.Hachura && g.Fills is not null)
+            plot.Children.Add(new WS.Path { Data = Placed(g.Fills, tf), Fill = Hatch(layer.Color ?? RgbFor(it)), Stroke = Solid(layer.Color ?? RgbFor(it), 160), StrokeThickness = 0.8 });
+
+        foreach (WM.Geometry? geom in new[] { g.Lines, g.Circles })
+        {
+            if (geom is null)
+                continue;
+            if (strong && !selected)
+                plot.Children.Add(new WS.Path { Data = Placed(geom, tf), Stroke = Solid(color, 70), StrokeThickness = thick + 5, StrokeLineJoin = WM.PenLineJoin.Round });
+            WS.Path path = new() { Data = Placed(geom, tf), Stroke = brush, StrokeThickness = thick, StrokeLineJoin = WM.PenLineJoin.Round };
+            if (dashed)
+                path.StrokeDashArray = new WM.DoubleCollection { 4, 3 };
+            plot.Children.Add(path);
+        }
+
+        if (_prefs.Rotulos && !it.Ghost && (it.Kind == ItemKind.Superficie || it.Kind == ItemKind.Corredor) && it.Polylines.Count > 0 && it.Polylines[0].Count > 0)
+        {
+            (double s, double z) = it.Polylines[0][^1];
+            SW.Point e = P(s, z);
+            PlaceLabel(plot, placed, it.Name, e.X + 4, e.Y - 7, brush);
         }
 
         foreach ((double s, double z, string label) in it.Points)
@@ -1666,8 +2283,19 @@ internal sealed class SecaoPanel : SW.Window
             plot.Children.Add(new WS.Line { X1 = c.X - m, Y1 = c.Y - m, X2 = c.X + m, Y2 = c.Y + m, Stroke = brush, StrokeThickness = thick });
             plot.Children.Add(new WS.Line { X1 = c.X - m, Y1 = c.Y + m, X2 = c.X + m, Y2 = c.Y - m, Stroke = brush, StrokeThickness = thick });
             if (_prefs.Rotulos && label.Length > 0)
-                plot.Children.Add(Text(label, c.X + 5, c.Y - 14, brush, 9));
+                PlaceLabel(plot, placed, label, c.X + 5, c.Y - 14, brush);
         }
+    }
+
+    /// <summary>Rotulo sem sobrepor os ja colocados: sobe uma linha por vez (ate 6).</summary>
+    private static void PlaceLabel(WC.Canvas plot, List<SW.Rect> placed, string text, double x, double y, WM.Brush brush)
+    {
+        double w = text.Length * 5.6, h = 11;
+        SW.Rect r = new(x, y, w, h);
+        for (int i = 0; i < 6 && placed.Any(q => q.IntersectsWith(r)); i++)
+            r.Y -= h + 1;
+        placed.Add(r);
+        plot.Children.Add(Text(text, r.X, r.Y, brush, 9));
     }
 
     private static WC.TextBlock Text(string t, double x, double y, WM.Brush brush, double size, double? width = null, SW.TextAlignment align = SW.TextAlignment.Left)
@@ -1679,6 +2307,62 @@ internal sealed class SecaoPanel : SW.Window
         WC.Canvas.SetTop(tb, y);
         return tb;
     }
+
+    // ------------------------------------------------------------------
+    // Estilo por item (destacar / hachurar / ocultar)
+    // ------------------------------------------------------------------
+
+    private void OpenStyleMenu(SectionItem it)
+    {
+        WC.ContextMenu menu = new();
+        menu.Items.Add(new WC.MenuItem { Header = KindName(it.Kind) + ": " + it.Name, IsEnabled = false });
+        menu.Items.Add(new WC.Separator());
+        ItemStyle current = _prefs.StyleOf(it);
+        foreach ((ItemStyle st, string text) in new[] { (ItemStyle.Normal, "Normal"), (ItemStyle.Destaque, "Destacar"), (ItemStyle.Hachura, it.Fills.Count > 0 ? "Hachurar" : "Hachurar (sem regiao fechada)"), (ItemStyle.Oculto, "Ocultar") })
+        {
+            WC.MenuItem mi = new() { Header = text, IsCheckable = true, IsChecked = current == st, IsEnabled = st != ItemStyle.Hachura || it.Fills.Count > 0 };
+            ItemStyle chosen = st;
+            mi.Click += (_, _) => SetStyle(it, chosen);
+            menu.Items.Add(mi);
+        }
+
+        if (_prefs.Estilos.Count > 0)
+        {
+            menu.Items.Add(new WC.Separator());
+            WC.MenuItem reset = new() { Header = "Limpar destaques e hachuras de todos" };
+            reset.Click += (_, _) =>
+            {
+                _prefs.Estilos.Clear();
+                SecaoStore.SavePrefs(_prefs);
+                RenderGraphic();
+                FillList();
+            };
+            menu.Items.Add(reset);
+        }
+
+        menu.IsOpen = true;
+    }
+
+    private void SetStyle(SectionItem it, ItemStyle st)
+    {
+        if (st == ItemStyle.Normal)
+            _prefs.Estilos.Remove(it.Key);
+        else
+            _prefs.Estilos[it.Key] = st;
+        SecaoStore.SavePrefs(_prefs);
+        RenderGraphic();
+        if (_category is "CONTEUDO")
+            FillList();
+        BuildTabs();
+    }
+
+    private static string StyleName(ItemStyle st) => st switch
+    {
+        ItemStyle.Destaque => "destacado",
+        ItemStyle.Hachura => "hachurado",
+        ItemStyle.Oculto => "oculto",
+        _ => ""
+    };
 }
 
 internal static class SecaoCanvasExtensions

@@ -153,26 +153,57 @@ public sealed class SecaoCommands
         if (doc is null)
             return;
         Editor ed = doc.Editor;
-        SectionData? data = SecaoPanel.CurrentData;
-        if (data is null || data.Items.Count == 0)
+        List<DrawLayer>? layers = SecaoPanel.ExportLayers();
+        if (layers is null || layers.Count == 0)
         {
-            ed.WriteMessage("\n  Nenhuma secao na janela (abra C3DSECAO e escolha um corte).");
+            ed.WriteMessage("\n  Nenhuma secao na janela (abra C3DSECAO e escolha um corte, uma estaca ou secoes fixadas em Comparar).");
             return;
         }
 
-        PromptPointResult pr = ed.GetPoint("\nCanto inferior esquerdo da secao no desenho: ");
-        if (pr.Status != PromptStatus.OK)
-            return;
-        Point3d origin = pr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+        SecaoStore.Prefs prefs = SecaoPanel.CurrentPrefs ?? SecaoStore.LoadPrefs();
+        double ex = SecaoPanel.CurrentExagero;
+        Point3d origin;
+        while (true)
+        {
+            PromptPointOptions opt = new($"\nCanto inferior esquerdo da secao [Escala/Texto/eXagero] <escala 1:{prefs.EscalaDesenho:0}, texto {prefs.TextoMm:0.0#} mm, exagero {ex:0.##}x>: ");
+            opt.Keywords.Add("Escala");
+            opt.Keywords.Add("Texto");
+            opt.Keywords.Add("eXagero");
+            opt.AppendKeywordsToMessage = false;
+            PromptPointResult pr = ed.GetPoint(opt);
+            if (pr.Status == PromptStatus.OK)
+            {
+                origin = pr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                break;
+            }
 
-        PromptDoubleOptions pdo = new("\nExagero vertical") { DefaultValue = data.Box.Exagero, UseDefaultValue = true, AllowNegative = false, AllowZero = false, AllowNone = true };
-        PromptDoubleResult pd = ed.GetDouble(pdo);
-        if (pd.Status != PromptStatus.OK && pd.Status != PromptStatus.None)
-            return;
-        double ex = pd.Status == PromptStatus.OK ? pd.Value : data.Box.Exagero;
+            if (pr.Status != PromptStatus.Keyword)
+                return;
 
-        int count = SecaoDraw.Draw(doc.Database, data, origin, ex);
-        ed.WriteMessage($"\n  Secao desenhada: {count} entidade(s) na layer {SecaoStore.LayerDraw} (exagero {ex:0.##}).");
+            switch (pr.StringResult)
+            {
+                case "Escala":
+                    double n = AskDistance(ed, "\nEscala do desenho 1:", prefs.EscalaDesenho);
+                    if (!double.IsNaN(n) && n >= 1)
+                        prefs.EscalaDesenho = n;
+                    break;
+                case "Texto":
+                    double mm = AskDistance(ed, "\nAltura do texto no papel [mm]", prefs.TextoMm);
+                    if (!double.IsNaN(mm) && mm >= 0.5)
+                        prefs.TextoMm = mm;
+                    break;
+                default:
+                    double e = AskDistance(ed, "\nExagero vertical", ex);
+                    if (!double.IsNaN(e) && e > 0)
+                        ex = e;
+                    break;
+            }
+
+            SecaoStore.SavePrefs(prefs);
+        }
+
+        int count = SecaoDraw.Draw(doc.Database, layers, origin, ex, prefs);
+        ed.WriteMessage($"\n  Secao desenhada: {count} entidade(s) na layer {SecaoStore.LayerDraw} (escala 1:{prefs.EscalaDesenho:0}, texto {prefs.TextoMm * prefs.EscalaDesenho / 1000:0.###} m, exagero {ex:0.##}x).");
     }
 
     private static double AskDistance(Editor ed, string message, double def)
@@ -352,101 +383,225 @@ internal sealed class SecaoBoxOverrule : DrawableOverrule
     }
 }
 
-/// <summary>Leva a secao da janela para o model space (polilinhas 2D + moldura + cotas).</summary>
+/// <summary>Uma secao a desenhar no model (normal: a mostrada; comparacao: as visiveis, sobrepostas).</summary>
+internal sealed record DrawLayer(SectionData Data, double Offset, int? Aci, string Label, bool Ghosts);
+
+/// <summary>
+/// Leva a secao da janela para o model space: moldura, grade de cotas e distancias,
+/// polilinhas 2D, circulos, pontos e rotulos; destaque (espessura) e hachura (ANSI31)
+/// conforme escolhido na janela; itens ocultos ficam de fora. Os textos tem a altura
+/// do papel (mm) na escala do desenho, e o passo das reguas se ajusta para nao encavalar.
+/// </summary>
 internal static class SecaoDraw
 {
-    public static int Draw(AcadDb.Database db, SectionData data, Point3d origin, double exagero)
+    public static int Draw(AcadDb.Database db, IReadOnlyList<DrawLayer> layers, Point3d origin, double exagero, SecaoStore.Prefs prefs)
     {
-        (double zmin, double zmax) = data.ViewZ();
-        double length = data.Length;
+        if (layers.Count == 0)
+            return 0;
+
+        double zmin = double.MaxValue, zmax = double.MinValue, smin = double.MaxValue, smax = double.MinValue;
+        foreach (DrawLayer l in layers)
+        {
+            (double a, double b) = l.Data.ViewZ();
+            zmin = Math.Min(zmin, a);
+            zmax = Math.Max(zmax, b);
+            smin = Math.Min(smin, l.Offset);
+            smax = Math.Max(smax, l.Offset + l.Data.Length);
+        }
+
+        double textH = Math.Max(0.01, prefs.TextoMm * prefs.EscalaDesenho / 1000.0);
+        double charW = textH * 0.85;
         int count = 0;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         SecaoStore.EnsureLayer(tr, db, SecaoStore.LayerDraw, 7);
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
 
-        Point2d Map(double s, double z) => new(origin.X + s, origin.Y + ((z - zmin) * exagero));
+        Point2d Map(double s, double z) => new(origin.X + (s - smin), origin.Y + ((z - zmin) * exagero));
+        Point3d Map3(double s, double z)
+        {
+            Point2d p = Map(s, z);
+            return new Point3d(p.X, p.Y, 0);
+        }
 
-        void Add(AcadDb.Entity e, int color)
+        void Add(AcadDb.Entity e, int color, bool strong = false)
         {
             e.SetDatabaseDefaults(db);
             e.Layer = SecaoStore.LayerDraw;
             e.ColorIndex = color;
+            if (strong)
+                e.LineWeight = AcadDb.LineWeight.LineWeight050;
             ms.AppendEntity(e);
             tr.AddNewlyCreatedDBObject(e, true);
             count++;
         }
 
-        // Moldura e grade de cotas.
+        void Text(string text, Point3d at, double h, int color, AcadDb.TextHorizontalMode mode = AcadDb.TextHorizontalMode.TextLeft)
+        {
+            AcadDb.DBText t = new() { Position = at, Height = h, TextString = text };
+            if (mode != AcadDb.TextHorizontalMode.TextLeft)
+            {
+                t.HorizontalMode = mode;
+                t.AlignmentPoint = at;
+            }
+
+            Add(t, color);
+        }
+
+        // Rotulos sem encavalar: sobe uma linha por vez ate achar lugar.
+        List<(double X0, double Y0, double X1, double Y1)> placed = new();
+        void Label(string text, double x, double y, int color)
+        {
+            double w = text.Length * charW, h = textH * 1.25;
+            double y0 = y;
+            for (int i = 0; i < 8 && placed.Any(r => x < r.X1 && x + w > r.X0 && y0 < r.Y1 && y0 + h > r.Y0); i++)
+                y0 += h;
+            placed.Add((x, y0, x + w, y0 + h));
+            Text(text, new Point3d(x, y0, 0), textH, color);
+        }
+
+        // Moldura.
         AcadDb.Polyline frame = new();
-        frame.AddVertexAt(0, Map(0, zmin), 0, 0, 0);
-        frame.AddVertexAt(1, Map(length, zmin), 0, 0, 0);
-        frame.AddVertexAt(2, Map(length, zmax), 0, 0, 0);
-        frame.AddVertexAt(3, Map(0, zmax), 0, 0, 0);
+        frame.AddVertexAt(0, Map(smin, zmin), 0, 0, 0);
+        frame.AddVertexAt(1, Map(smax, zmin), 0, 0, 0);
+        frame.AddVertexAt(2, Map(smax, zmax), 0, 0, 0);
+        frame.AddVertexAt(3, Map(smin, zmax), 0, 0, 0);
         frame.Closed = true;
         Add(frame, 8);
 
-        double zStep = SecaoGeometry.NiceStep((zmax - zmin) / 6.0);
-        double textH = Math.Max(0.2, Math.Min(length, (zmax - zmin) * exagero) / 40.0);
+        // Reguas: passo que cabe o texto (cotas: 2,2 alturas; distancias: 7 alturas).
+        double zStep = SecaoGeometry.NiceStep(Math.Max((zmax - zmin) / 6.0, textH * 2.2 / exagero));
+        double sStep = SecaoGeometry.NiceStep(Math.Max((smax - smin) / 8.0, textH * 7.0));
+        string zFmt = zStep < 0.1 ? "0.000" : zStep < 1 ? "0.00" : "0.0";
         for (double z = Math.Ceiling(zmin / zStep) * zStep; z <= zmax + 1e-9; z += zStep)
         {
-            Point2d a = Map(0, z), b = Map(length, z);
-            Add(new AcadDb.Line(new Point3d(a.X, a.Y, 0), new Point3d(b.X, b.Y, 0)), 252);
-            Add(new AcadDb.DBText { Position = new Point3d(a.X - (textH * 0.6), a.Y, 0), Height = textH, TextString = z.ToString("0.00", CultureInfo.InvariantCulture), HorizontalMode = AcadDb.TextHorizontalMode.TextRight, AlignmentPoint = new Point3d(a.X - (textH * 0.6), a.Y, 0) }, 8);
+            Add(new AcadDb.Line(Map3(smin, z), Map3(smax, z)), 252);
+            Point3d at = Map3(smin, z);
+            Text(z.ToString(zFmt, CultureInfo.InvariantCulture), new Point3d(at.X - (textH * 0.6), at.Y - (textH * 0.5), 0), textH, 8, AcadDb.TextHorizontalMode.TextRight);
         }
 
-        double sStep = SecaoGeometry.NiceStep(length / 8.0);
-        for (double s = 0; s <= length + 1e-9; s += sStep)
+        string sFmt = sStep < 1 ? "0.0" : "0";
+        for (double s = Math.Ceiling(smin / sStep) * sStep; s <= smax + 1e-9; s += sStep)
         {
-            Point2d a = Map(s, zmin);
-            Add(new AcadDb.Line(new Point3d(a.X, a.Y, 0), new Point3d(a.X, a.Y - (textH * 0.8), 0)), 8);
-            Add(new AcadDb.DBText { Position = new Point3d(a.X, a.Y - (textH * 2.2), 0), Height = textH, TextString = s.ToString("0.0", CultureInfo.InvariantCulture), HorizontalMode = AcadDb.TextHorizontalMode.TextCenter, AlignmentPoint = new Point3d(a.X, a.Y - (textH * 2.2), 0) }, 8);
+            Point3d at = Map3(s, zmin);
+            Add(new AcadDb.Line(at, new Point3d(at.X, at.Y - (textH * 0.8), 0)), 8);
+            Text(s.ToString(sFmt, CultureInfo.InvariantCulture), new Point3d(at.X, at.Y - (textH * 2.2), 0), textH, 8, AcadDb.TextHorizontalMode.TextCenter);
         }
 
-        Add(new AcadDb.DBText { Position = new Point3d(origin.X, origin.Y + ((zmax - zmin) * exagero) + (textH * 1.5), 0), Height = textH * 1.3, TextString = $"{data.Box.Name}  (exagero {exagero:0.##}x)" }, 7);
-
-        foreach (SectionItem item in data.Items)
+        // Titulo e legenda.
+        Point3d top = Map3(smin, zmax);
+        string title = layers.Count == 1 ? layers[0].Data.Box.Name : $"Comparacao de {layers.Count} secoes";
+        Text($"{title}  (exagero {exagero:0.##}x, escala 1:{prefs.EscalaDesenho:0})", new Point3d(top.X, top.Y + (textH * 1.5), 0), textH * 1.4, 7);
+        if (layers.Count > 1)
         {
-            int color = item.Ghost ? 9 : SecaoPanel.ColorFor(item);
-            foreach (List<(double S, double Z)> pl in item.Polylines)
+            Point3d right = Map3(smax, zmax);
+            double ly = right.Y + (textH * 1.5);
+            foreach (DrawLayer l in layers)
             {
-                if (pl.Count < 2)
+                int c = l.Aci ?? 7;
+                Add(new AcadDb.Line(new Point3d(right.X + textH, ly + (textH * 0.5), 0), new Point3d(right.X + (textH * 3), ly + (textH * 0.5), 0)), c, true);
+                Text(l.Label, new Point3d(right.X + (textH * 3.5), ly, 0), textH, c);
+                ly -= textH * 1.6;
+            }
+        }
+
+        foreach (DrawLayer layer in layers)
+        {
+            double off = layer.Offset;
+            foreach (SectionItem item in layer.Data.Items)
+            {
+                if (item.Ghost && !layer.Ghosts)
                     continue;
-                AcadDb.Polyline p = new();
-                for (int i = 0; i < pl.Count; i++)
-                    p.AddVertexAt(i, Map(pl[i].S, Math.Clamp(pl[i].Z, zmin, zmax)), 0, 0, 0);
-                Add(p, color);
-            }
+                ItemStyle style = prefs.StyleOf(item);
+                if (style == ItemStyle.Oculto)
+                    continue;
+                bool strong = style == ItemStyle.Destaque;
+                int color = layer.Aci ?? (item.Ghost && !strong ? 9 : SecaoPanel.ColorFor(item));
 
-            foreach ((double s, double z, double r) in item.Circles)
-            {
-                if (Math.Abs(exagero - 1.0) < 1e-9)
+                if (style == ItemStyle.Hachura && item.Fills.Count > 0)
                 {
-                    Point2d c = Map(s, z);
-                    Add(new AcadDb.Circle(new Point3d(c.X, c.Y, 0), Vector3d.ZAxis, r), color);
-                }
-                else
-                {
-                    AcadDb.Polyline p = new();
-                    for (int i = 0; i < 36; i++)
+                    try
                     {
-                        double ang = i * Math.PI * 2 / 36;
-                        p.AddVertexAt(i, Map(s + (r * Math.Cos(ang)), z + (r * Math.Sin(ang))), 0, 0, 0);
+                        AcadDb.Hatch hatch = new();
+                        hatch.SetDatabaseDefaults(db);
+                        hatch.Layer = SecaoStore.LayerDraw;
+                        hatch.ColorIndex = color;
+                        ms.AppendEntity(hatch);
+                        tr.AddNewlyCreatedDBObject(hatch, true);
+                        hatch.PatternScale = Math.Max(0.01, textH * 0.4);
+                        hatch.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, "ANSI31");
+                        hatch.Associative = false;
+                        foreach (List<(double S, double Z)> poly in item.Fills)
+                        {
+                            Point2dCollection pts = new();
+                            DoubleCollection bulges = new();
+                            for (int i = 0; i + 1 < poly.Count; i++)
+                            {
+                                pts.Add(Map(poly[i].S + off, Math.Clamp(poly[i].Z, zmin, zmax)));
+                                bulges.Add(0.0);
+                            }
+
+                            if (pts.Count >= 3)
+                                hatch.AppendLoop(AcadDb.HatchLoopTypes.Polyline, pts, bulges);
+                        }
+
+                        hatch.EvaluateHatch(true);
+                        count++;
                     }
-
-                    p.Closed = true;
-                    Add(p, color);
+                    catch
+                    {
+                        // Regiao degenerada: fica so o contorno.
+                    }
                 }
-            }
 
-            foreach ((double s, double z, string label) in item.Points)
-            {
-                Point2d c = Map(s, z);
-                double m = textH * 0.5;
-                Add(new AcadDb.Line(new Point3d(c.X - m, c.Y - m, 0), new Point3d(c.X + m, c.Y + m, 0)), color);
-                Add(new AcadDb.Line(new Point3d(c.X - m, c.Y + m, 0), new Point3d(c.X + m, c.Y - m, 0)), color);
-                if (label.Length > 0)
-                    Add(new AcadDb.DBText { Position = new Point3d(c.X + m, c.Y + m, 0), Height = textH * 0.8, TextString = label }, color);
+                foreach (List<(double S, double Z)> pl in item.Polylines)
+                {
+                    if (pl.Count < 2)
+                        continue;
+                    AcadDb.Polyline p = new();
+                    for (int i = 0; i < pl.Count; i++)
+                        p.AddVertexAt(i, Map(pl[i].S + off, Math.Clamp(pl[i].Z, zmin, zmax)), 0, 0, 0);
+                    Add(p, color, strong);
+                }
+
+                foreach ((double s, double z, double r) in item.Circles)
+                {
+                    if (Math.Abs(exagero - 1.0) < 1e-9)
+                    {
+                        Point2d c = Map(s + off, z);
+                        Add(new AcadDb.Circle(new Point3d(c.X, c.Y, 0), Vector3d.ZAxis, r), color, strong);
+                    }
+                    else
+                    {
+                        AcadDb.Polyline p = new();
+                        for (int i = 0; i < 36; i++)
+                        {
+                            double ang = i * Math.PI * 2 / 36;
+                            p.AddVertexAt(i, Map(s + off + (r * Math.Cos(ang)), z + (r * Math.Sin(ang))), 0, 0, 0);
+                        }
+
+                        p.Closed = true;
+                        Add(p, color, strong);
+                    }
+                }
+
+                foreach ((double s, double z, string label) in item.Points)
+                {
+                    Point2d c = Map(s + off, z);
+                    double m = textH * 0.4;
+                    Add(new AcadDb.Line(new Point3d(c.X - m, c.Y - m, 0), new Point3d(c.X + m, c.Y + m, 0)), color);
+                    Add(new AcadDb.Line(new Point3d(c.X - m, c.Y + m, 0), new Point3d(c.X + m, c.Y - m, 0)), color);
+                    if (prefs.Rotulos && label.Length > 0)
+                        Label(label, c.X + m, c.Y + m, color);
+                }
+
+                if (prefs.Rotulos && !item.Ghost && layers.Count == 1 && (item.Kind == ItemKind.Superficie || item.Kind == ItemKind.Corredor) &&
+                    item.Polylines.Count > 0 && item.Polylines[0].Count > 0)
+                {
+                    (double s, double z) = item.Polylines[0][^1];
+                    Point2d e = Map(s + off, Math.Clamp(z, zmin, zmax));
+                    Label(item.Name, e.X + (textH * 0.5), e.Y, color);
+                }
             }
         }
 

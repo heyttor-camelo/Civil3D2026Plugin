@@ -159,6 +159,25 @@ internal static class SecaoStore
         public double FrentePadrao = 10, AtrasPadrao = 5, ExageroPadrao = 1;
         public bool Grade = true, Codigos = false, Rotulos = true;
         public HashSet<string> SuperficiesOcultas = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Corredor: "links" (todos), "contorno" (so a envoltoria) ou "codigos" (links com os codigos dados).</summary>
+        public string CorredorModo = "links";
+        public string CorredorCodigos = "TOP,DATUM";
+
+        /// <summary>Exportacao: escala do desenho (1:N) e altura do texto no papel [mm].</summary>
+        public double EscalaDesenho = 100, TextoMm = 2.0;
+
+        /// <summary>Comparacao: incluir os fantasmas de cada secao fixada.</summary>
+        public bool CompararFantasmas;
+
+        /// <summary>Estilo escolhido por item (chave do item -> estilo).</summary>
+        public Dictionary<string, ItemStyle> Estilos = new(StringComparer.Ordinal);
+
+        public ItemStyle StyleOf(SectionItem it) => Estilos.TryGetValue(it.Key, out ItemStyle st) ? st : ItemStyle.Normal;
+
+        /// <summary>Codigos do filtro do corredor (separados por virgula/ponto e virgula/espaco).</summary>
+        public HashSet<string> CodeFilter() =>
+            new(CorredorCodigos.Split(new[] { ',', ';', ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(c => c.Trim()), StringComparer.OrdinalIgnoreCase);
     }
 
     public static string PrefsPath =>
@@ -197,6 +216,16 @@ internal static class SecaoStore
                     case "frente": p.FrentePadrao = D(v, 10); break;
                     case "atras": p.AtrasPadrao = D(v, 5); break;
                     case "exagero": p.ExageroPadrao = D(v, 1); break;
+                    case "corredormodo": p.CorredorModo = v.Length > 0 ? v : "links"; break;
+                    case "corredorcodigos": p.CorredorCodigos = v; break;
+                    case "escaladesenho": p.EscalaDesenho = Math.Max(1, D(v, 100)); break;
+                    case "textomm": p.TextoMm = Math.Max(0.5, D(v, 2)); break;
+                    case "compararfantasmas": p.CompararFantasmas = B(); break;
+                    case "estilo":
+                        int c = v.IndexOf(':');
+                        if (c > 0 && int.TryParse(v[..c], out int st) && st is >= 1 and <= 3)
+                            p.Estilos[v[(c + 1)..]] = (ItemStyle)st;
+                        break;
                     case "superficiesocultas":
                         foreach (string s in v.Split('|', StringSplitOptions.RemoveEmptyEntries))
                             p.SuperficiesOcultas.Add(s);
@@ -218,7 +247,7 @@ internal static class SecaoStore
         {
             Directory.CreateDirectory(Path.GetDirectoryName(PrefsPath)!);
             static string B(bool b) => b ? "1" : "0";
-            File.WriteAllLines(PrefsPath, new[]
+            List<string> lines = new()
             {
                 "# Preferencias do visualizador de secao (C3DSECAO)",
                 "superficies=" + B(p.Superficies), "corredores=" + B(p.Corredores), "tubos=" + B(p.Tubos),
@@ -226,8 +255,12 @@ internal static class SecaoStore
                 "fantasmacorredor=" + B(p.FantasmaCorredor), "fantasmatubos=" + B(p.FantasmaTubos), "fantasmalinhas=" + B(p.FantasmaLinhas), "fantasmapontos=" + B(p.FantasmaPontos),
                 "grade=" + B(p.Grade), "codigos=" + B(p.Codigos), "rotulos=" + B(p.Rotulos),
                 "frente=" + F(p.FrentePadrao), "atras=" + F(p.AtrasPadrao), "exagero=" + F(p.ExageroPadrao),
-                "superficiesocultas=" + string.Join("|", p.SuperficiesOcultas.OrderBy(s => s))
-            });
+                "superficiesocultas=" + string.Join("|", p.SuperficiesOcultas.OrderBy(s => s)),
+                "corredormodo=" + p.CorredorModo, "corredorcodigos=" + p.CorredorCodigos,
+                "escaladesenho=" + F(p.EscalaDesenho), "textomm=" + F(p.TextoMm), "compararfantasmas=" + B(p.CompararFantasmas)
+            };
+            lines.AddRange(p.Estilos.Where(kv => kv.Value != ItemStyle.Normal).Take(500).Select(kv => "estilo=" + (int)kv.Value + ":" + kv.Key));
+            File.WriteAllLines(PrefsPath, lines);
         }
         catch
         {

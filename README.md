@@ -218,7 +218,7 @@ Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divi
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
-## Visualizador de secao (C3DSECAO v0.1.0)
+## Visualizador de secao (C3DSECAO v0.2.0)
 
 Janela propria (nao ocupa a viewport) com a secao de uma **caixa de corte**: linha em
 planta (um ou mais trechos) + profundidade a frente/atras + faixa de cotas + exagero.
@@ -231,7 +231,13 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de cotas + exa
   corredor, tubos/estruturas, linhas e pontos COGO.
 - Categoria **Corredor por estaca**: a janela vira o viewport do Section Editor
   (setas/slider trocam de estaca), sem prender o desenho.
-- `C3DSECAODESENHAR`: desenha a secao mostrada no model (polilinhas 2D, layer SECAO-DESENHO).
+- `C3DSECAODESENHAR`: desenha a secao mostrada no model (polilinhas 2D, layer SECAO-DESENHO),
+  com texto na escala do desenho (1:N e mm no papel) e reguas sem encavalar.
+- **Comparar secoes**: fixe secoes e sobreponha (alinhadas pelo eixo, centro ou inicio),
+  com a diferenca de topo entre duas.
+- **Vista 3D**: isometrica do conteudo da caixa (superficies, corredor, tubos, linhas).
+- Botao direito num item: destacar, hachurar (regioes fechadas) ou ocultar. Corredor pode
+  ser mostrado so pelo contorno (boundary) ou por codigos de link.
 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.

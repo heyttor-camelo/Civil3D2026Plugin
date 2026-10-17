@@ -227,6 +227,15 @@ internal sealed class CutBox
     }
 }
 
+/// <summary>Como um item aparece (escolha do usuario, por item).</summary>
+internal enum ItemStyle
+{
+    Normal = 0,
+    Destaque = 1,
+    Hachura = 2,
+    Oculto = 3
+}
+
 internal enum ItemKind
 {
     Superficie,
@@ -255,6 +264,11 @@ internal sealed class SectionItem
     public Dictionary<string, string> Info = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Indice de cor sugerido (ACI) quando o objeto tem cor propria; 0 = pela classe.</summary>
     public int ColorIndex;
+    /// <summary>Regioes fechadas do item (contorno do corredor, solidos, estruturas, tubos), para hachurar.</summary>
+    public List<List<(double S, double Z)>> Fills = new();
+
+    /// <summary>Chave estavel do item entre recalculos (para destaque/hachura escolhidos pelo usuario).</summary>
+    public string Key => Kind + "|" + Name + (Ghost ? "|g" : "");
 
     public bool IsEmpty => Polylines.All(p => p.Count == 0) && Circles.Count == 0 && Points.Count == 0;
 
@@ -307,6 +321,9 @@ internal sealed class SectionData
     }
 
     public double Length => Box.Length;
+
+    /// <summary>Posicao do eixo ao longo da linha (secao na estaca do corredor); NaN se nao houver.</summary>
+    public double AxisS = double.NaN;
 
     public (double Min, double Max) DataZ()
     {
@@ -463,6 +480,212 @@ internal static class SecaoGeometry
         if (cur.Count > 1)
             result.Add(cur);
         return result;
+    }
+
+    /// <summary>
+    /// Contorno (envoltoria) de um conjunto de polilinhas (S,Z): topo da esquerda para a
+    /// direita e fundo de volta, por trechos continuos em S. Paredes verticais (face do
+    /// meio-fio) sao preservadas avaliando os limites a esquerda e a direita de cada
+    /// abscissa. Devolve poligonos fechados (primeiro ponto repetido no fim).
+    /// </summary>
+    public static List<List<(double S, double Z)>> Envelope(IEnumerable<List<(double S, double Z)>> polylines, double tol = 1e-6)
+    {
+        List<(double S0, double Z0, double S1, double Z1)> segs = new();
+        foreach (List<(double S, double Z)> pl in polylines)
+        {
+            for (int i = 0; i + 1 < pl.Count; i++)
+            {
+                (double s0, double z0) = pl[i];
+                (double s1, double z1) = pl[i + 1];
+                if (s1 < s0)
+                    (s0, z0, s1, z1) = (s1, z1, s0, z0);
+                segs.Add((s0, z0, s1, z1));
+            }
+        }
+
+        List<List<(double S, double Z)>> result = new();
+        if (segs.Count == 0)
+            return result;
+
+        List<double> xs = segs.SelectMany(g => new[] { g.S0, g.S1 }).OrderBy(x => x).ToList();
+        List<double> breaks = new();
+        foreach (double x in xs)
+        {
+            if (breaks.Count == 0 || x - breaks[^1] > tol)
+                breaks.Add(x);
+        }
+
+        // Faixa (menor e maior Z) dos segmentos nao verticais que chegam (side -1) ou saem (+1) de x,
+        // e dos verticais (side 0) que estao em x.
+        (double Lo, double Hi)? Range(double x, int side)
+        {
+            double lo = double.MaxValue, hi = double.MinValue;
+            foreach ((double s0, double z0, double s1, double z1) in segs)
+            {
+                bool vertical = s1 - s0 <= tol;
+                if (side == 0)
+                {
+                    if (vertical && Math.Abs(x - s0) <= tol)
+                    {
+                        lo = Math.Min(lo, Math.Min(z0, z1));
+                        hi = Math.Max(hi, Math.Max(z0, z1));
+                    }
+
+                    continue;
+                }
+
+                if (vertical)
+                    continue;
+                bool covers = side < 0 ? (s0 < x - tol && x <= s1 + tol) : (s0 - tol <= x && x < s1 - tol);
+                if (!covers)
+                    continue;
+                double u = Math.Clamp((x - s0) / (s1 - s0), 0, 1);
+                double z = z0 + ((z1 - z0) * u);
+                lo = Math.Min(lo, z);
+                hi = Math.Max(hi, z);
+            }
+
+            return lo <= hi ? (lo, hi) : null;
+        }
+
+        bool Covered(double a, double b)
+        {
+            double m = (a + b) / 2;
+            return segs.Any(g => g.S1 - g.S0 > tol && g.S0 <= m && m <= g.S1);
+        }
+
+        List<(double S, double Z)> top = new(), bottom = new();
+        void Add(List<(double S, double Z)> list, double x, double z)
+        {
+            if (list.Count == 0 || Math.Abs(list[^1].S - x) > tol || Math.Abs(list[^1].Z - z) > tol)
+                list.Add((x, z));
+        }
+
+        void Close()
+        {
+            if (top.Count >= 2)
+            {
+                List<(double S, double Z)> poly = new(top);
+                bottom.Reverse();
+                poly.AddRange(bottom);
+                poly.Add(poly[0]);
+                result.Add(poly);
+            }
+
+            top = new List<(double S, double Z)>();
+            bottom = new List<(double S, double Z)>();
+        }
+
+        for (int i = 0; i < breaks.Count; i++)
+        {
+            double x = breaks[i];
+            bool inRun = top.Count > 0;
+            bool continues = i + 1 < breaks.Count && Covered(x, breaks[i + 1]);
+            (double Lo, double Hi)? left = inRun ? Range(x, -1) : null;
+            (double Lo, double Hi)? right = continues ? Range(x, +1) : null;
+            (double Lo, double Hi)? wall = Range(x, 0);
+            if (left is null && right is null && wall is null)
+                continue;
+
+            double sideHi = Math.Max(left?.Hi ?? double.MinValue, right?.Hi ?? double.MinValue);
+            double sideLo = Math.Min(left?.Lo ?? double.MaxValue, right?.Lo ?? double.MaxValue);
+
+            if (left is (double llo, double lhi))
+            {
+                Add(top, x, lhi);
+                Add(bottom, x, llo);
+            }
+
+            if (wall is (double wlo, double whi))
+            {
+                if (whi > sideHi + tol || (left is null && right is not null))
+                    Add(top, x, Math.Max(whi, right?.Hi ?? whi));
+                if (wlo < sideLo - tol || (left is null && right is not null))
+                    Add(bottom, x, Math.Min(wlo, right?.Lo ?? wlo));
+            }
+
+            if (right is (double rlo, double rhi))
+            {
+                Add(top, x, rhi);
+                Add(bottom, x, rlo);
+            }
+            else if (inRun)
+            {
+                Close();
+            }
+        }
+
+        Close();
+        // Envoltoria sem espessura (uma linha so): nao e regiao.
+        result.RemoveAll(p => Math.Abs(Area(p)) < 1e-6);
+        return result;
+    }
+
+    /// <summary>Area com sinal de um poligono (S,Z).</summary>
+    public static double Area(IReadOnlyList<(double S, double Z)> p)
+    {
+        double a = 0;
+        for (int i = 0; i + 1 < p.Count; i++)
+            a += (p[i].S * p[i + 1].Z) - (p[i + 1].S * p[i].Z);
+        return a / 2;
+    }
+
+    /// <summary>Circulo como poligono fechado (para hachura de tubos).</summary>
+    public static List<(double S, double Z)> CirclePolygon(double s, double z, double r, int n = 36)
+    {
+        List<(double S, double Z)> p = new();
+        for (int i = 0; i <= n; i++)
+        {
+            double a = i * Math.PI * 2 / n;
+            p.Add((s + (r * Math.Cos(a)), z + (r * Math.Sin(a))));
+        }
+
+        return p;
+    }
+
+    /// <summary>Cadeias fechadas (primeiro ponto = ultimo) dentre as dadas.</summary>
+    public static List<List<(double S, double Z)>> ClosedLoops(List<List<(double S, double Z)>> chains, double tol = 1e-3)
+    {
+        List<List<(double S, double Z)>> loops = new();
+        foreach (List<(double S, double Z)> c in chains)
+        {
+            if (c.Count >= 4 && Math.Abs(c[0].S - c[^1].S) <= tol && Math.Abs(c[0].Z - c[^1].Z) <= tol && Math.Abs(Area(c)) > 1e-6)
+                loops.Add(c);
+        }
+
+        return loops;
+    }
+
+    /// <summary>
+    /// Perfil de topo (maior Z) de um conjunto de polilinhas amostrado nas abscissas dadas;
+    /// NaN onde nada cobre. Base da comparacao entre secoes.
+    /// </summary>
+    public static double[] TopAt(IEnumerable<List<(double S, double Z)>> polylines, IReadOnlyList<double> xs)
+    {
+        double[] top = Enumerable.Repeat(double.NaN, xs.Count).ToArray();
+        foreach (List<(double S, double Z)> pl in polylines)
+        {
+            for (int i = 0; i + 1 < pl.Count; i++)
+            {
+                (double s0, double z0) = pl[i];
+                (double s1, double z1) = pl[i + 1];
+                if (s1 < s0)
+                    (s0, z0, s1, z1) = (s1, z1, s0, z0);
+                if (s1 - s0 < 1e-9)
+                    continue;
+                for (int k = 0; k < xs.Count; k++)
+                {
+                    double x = xs[k];
+                    if (x < s0 || x > s1)
+                        continue;
+                    double z = z0 + ((z1 - z0) * (x - s0) / (s1 - s0));
+                    if (double.IsNaN(top[k]) || z > top[k])
+                        top[k] = z;
+                }
+            }
+        }
+
+        return top;
     }
 
     /// <summary>Passo "bonito" para reguas (1, 2, 5 x 10^n) perto do pedido.</summary>

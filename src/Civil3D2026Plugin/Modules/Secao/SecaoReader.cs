@@ -14,7 +14,7 @@ namespace Civil3D2026Plugin.Modules.Secao;
 /// estacas vizinhas; estacas dentro da caixa como fantasma), tubos e estruturas,
 /// solidos 3D (secao pelo plano), feature lines, polilinhas 3D e pontos COGO.
 /// </summary>
-internal static class SecaoReader
+internal static partial class SecaoReader
 {
     private static readonly HashSet<string> Classes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -191,7 +191,7 @@ internal static class SecaoReader
                         CorridorCache cc = corridors?.FirstOrDefault(c => c.Id == id) ?? ReadCorridor(tr, corridor);
                         corridors?.RemoveAll(c => c.Id == id);
                         corridors?.Add(cc);
-                        CutCorridor(cc, box, data, prefs.FantasmaCorredor, LayerColor(tr, ent, layerColors));
+                        CutCorridor(cc, box, data, prefs, LayerColor(tr, ent, layerColors));
                         break;
                     case CivilDb.Pipe pipe when prefs.Tubos:
                         ReadPipe(pipe, box, data, prefs.FantasmaTubos, LayerColor(tr, ent, layerColors));
@@ -441,15 +441,17 @@ internal static class SecaoReader
     }
 
     /// <summary>Corte do corredor: fitas entre estacas vizinhas; estacas dentro da caixa como fantasma.</summary>
-    public static void CutCorridor(CorridorCache corridor, CutBox box, SectionData data, bool ghosts, int color)
+    public static void CutCorridor(CorridorCache corridor, CutBox box, SectionData data, SecaoStore.Prefs prefs, int color)
     {
+        bool ghosts = prefs.FantasmaCorredor;
+        HashSet<string> codes = prefs.CorredorModo == "codigos" ? prefs.CodeFilter() : new HashSet<string>();
         double lminX = box.Line.Min(p => p.X), lmaxX = box.Line.Max(p => p.X);
         double lminY = box.Line.Min(p => p.Y), lmaxY = box.Line.Max(p => p.Y);
         (double bminX, double bminY, double bmaxX, double bmaxY) = box.Bounds();
 
         foreach (RegionCache region in corridor.Regions)
         {
-            List<((double, double), (double, double))> segs = new();
+            List<((double, double), (double, double))> segs = new(), all = new();
             List<AssemblyCache> list = region.Assemblies;
             for (int i = 0; i + 1 < list.Count; i++)
             {
@@ -465,11 +467,16 @@ internal static class SecaoReader
                     List<LinkCache> la = a.Subassemblies[si], lb = b.Subassemblies[si];
                     int links = Math.Min(la.Count, lb.Count);
                     for (int li = 0; li < links; li++)
-                        segs.AddRange(SecaoGeometry.CutRibbon(box, la[li].Points, lb[li].Points));
+                    {
+                        List<((double, double), (double, double))> cut = SecaoGeometry.CutRibbon(box, la[li].Points, lb[li].Points);
+                        all.AddRange(cut);
+                        if (LinkWanted(la[li], codes))
+                            segs.AddRange(cut);
+                    }
                 }
             }
 
-            if (segs.Count > 0)
+            if (all.Count > 0)
             {
                 SectionItem item = new()
                 {
@@ -478,6 +485,7 @@ internal static class SecaoReader
                     ColorIndex = color
                 };
                 item.Polylines.AddRange(SecaoGeometry.Chain(segs));
+                ApplyCorridorMode(item, SecaoGeometry.Chain(all), prefs.CorredorModo);
                 item.Info["Regiao"] = region.Region;
                 item.Info["Segmentos"] = segs.Count.ToString(CultureInfo.InvariantCulture);
                 data.Items.Add(item);
@@ -502,14 +510,21 @@ internal static class SecaoReader
                     Name = $"{corridor.Name} est. {Station(ac.Station)}",
                     ColorIndex = color
                 };
+                List<List<(double S, double Z)>> allGhost = new();
                 for (int si = 0; si < ac.Subassemblies.Count; si++)
                 {
                     foreach (LinkCache link in ac.Subassemblies[si])
                     {
                         foreach (List<(double S, double Z)> pl in SecaoGeometry.ProjectInside(box, link.Points, out _))
-                            ghost.Polylines.Add(pl);
+                        {
+                            allGhost.Add(pl);
+                            if (LinkWanted(link, codes))
+                                ghost.Polylines.Add(pl);
+                        }
                     }
                 }
+
+                ApplyCorridorMode(ghost, allGhost, prefs.CorredorModo);
 
                 ghost.Info["Estaca"] = Station(ac.Station);
                 ghost.Info["Afastamento"] = d.ToString("0.00", CultureInfo.InvariantCulture) + " m";
@@ -558,6 +573,8 @@ internal static class SecaoReader
         data.Items.RemoveAll(i => i.Kind == ItemKind.Corredor && !i.Ghost && i.Name.StartsWith(corridor.Name + " /", StringComparison.Ordinal));
         data.Items.RemoveAll(i => i.Kind == ItemKind.Corredor && i.Ghost && Math.Abs(i.Depth) < 1e-6 && i.Name.StartsWith(corridor.Name, StringComparison.Ordinal));
         SectionItem own = new() { Kind = ItemKind.Corredor, Name = corridor.Name + " / " + region.Baseline, ColorIndex = 0 };
+        HashSet<string> codes = prefs.CorredorModo == "codigos" ? prefs.CodeFilter() : new HashSet<string>();
+        List<List<(double S, double Z)>> allOwn = new();
         for (int si = 0; si < ac.Subassemblies.Count; si++)
         {
             foreach (LinkCache link in ac.Subassemblies[si])
@@ -569,16 +586,47 @@ internal static class SecaoReader
                     pl.Add((s, p.Z));
                 }
 
-                if (pl.Count > 1)
+                if (pl.Count < 2)
+                    continue;
+                allOwn.Add(pl);
+                if (LinkWanted(link, codes))
                     own.Polylines.Add(pl);
             }
         }
+
+        ApplyCorridorMode(own, allOwn, prefs.CorredorModo);
+        data.AxisS = hi;
 
         own.Info["Estaca"] = Station(ac.Station);
         own.Info["Regiao"] = region.Region;
         own.Info["Subassemblies"] = string.Join(", ", ac.SubassemblyNames.Where(n => n.Length > 0).Distinct());
         data.Items.Insert(0, own);
         return data;
+    }
+
+    /// <summary>O link tem algum dos codigos pedidos (filtro vazio = todos).</summary>
+    private static bool LinkWanted(LinkCache link, HashSet<string> codes)
+    {
+        if (codes.Count == 0)
+            return true;
+        foreach (string c in link.Codes.Split(','))
+        {
+            if (codes.Contains(c.Trim()))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Contorno do corredor (envoltoria de todos os links): sempre guardado como regiao
+    /// hachuravel; no modo "contorno" substitui os links desenhados.
+    /// </summary>
+    private static void ApplyCorridorMode(SectionItem item, List<List<(double S, double Z)>> allLinks, string mode)
+    {
+        item.Fills = SecaoGeometry.Envelope(allLinks);
+        if (mode == "contorno" && item.Fills.Count > 0)
+            item.Polylines = item.Fills.Select(f => new List<(double S, double Z)>(f)).ToList();
     }
 
     public static string Station(double s)
@@ -609,6 +657,7 @@ internal static class SecaoReader
         {
             SectionItem item = new() { Kind = ItemKind.Tubo, Name = name, Layer = pipe.Layer, ColorIndex = color };
             item.Circles.Add((s, z, ro));
+            item.Fills.Add(SecaoGeometry.CirclePolygon(s, z, ro));
             if (ri > 1e-6 && ri < ro)
                 item.Circles.Add((s, z, ri));
             item.Info["Diametro"] = (ri * 2).ToString("0.000", CultureInfo.InvariantCulture) + " m";
@@ -649,6 +698,7 @@ internal static class SecaoReader
         double rim = st.RimElevation, sump = st.SumpElevation;
         SectionItem item = new() { Kind = ItemKind.Estrutura, Name = st.Name, Layer = st.Layer, Ghost = ghost, Depth = d, ColorIndex = color };
         item.Polylines.Add(new List<(double, double)> { (s - w / 2, sump), (s - w / 2, rim), (s + w / 2, rim), (s + w / 2, sump), (s - w / 2, sump) });
+        item.Fills.Add(new List<(double, double)>(item.Polylines[0]));
         item.Info["Tampa"] = rim.ToString("0.000", CultureInfo.InvariantCulture);
         item.Info["Fundo"] = sump.ToString("0.000", CultureInfo.InvariantCulture);
         item.Info["Afastamento"] = d.ToString("0.00", CultureInfo.InvariantCulture) + " m";
@@ -836,6 +886,14 @@ internal static class SecaoReader
 
         if (item.Polylines.Count > 0)
         {
+            // Curvas da regiao encadeadas: lacos fechados viram regioes hachuraveis.
+            List<((double S, double Z) A, (double S, double Z) B)> segsS = new();
+            foreach (List<(double S, double Z)> pl in item.Polylines)
+                for (int k = 0; k + 1 < pl.Count; k++)
+                    segsS.Add((pl[k], pl[k + 1]));
+            List<List<(double S, double Z)>> chains = SecaoGeometry.Chain(segsS, 1e-3);
+            item.Polylines = chains;
+            item.Fills = SecaoGeometry.ClosedLoops(chains);
             item.Info["Handle"] = solid.Handle.ToString();
             data.Items.Add(item);
         }
