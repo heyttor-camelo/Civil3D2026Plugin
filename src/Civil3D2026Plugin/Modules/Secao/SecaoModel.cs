@@ -291,6 +291,18 @@ internal sealed class SectionData
     public List<SectionItem> Items = new();
     public List<string> Warnings = new();
     public TimeSpan Elapsed;
+    /// <summary>Objetos examinados por tipo (diagnostico: o que havia perto da caixa).</summary>
+    public SortedDictionary<string, int> Scanned = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Resumo em uma linha: o que foi lido, cortado e projetado.</summary>
+    public string Summary()
+    {
+        string lidos = Scanned.Count == 0 ? "nenhum objeto do Civil/3D perto da caixa" : string.Join(", ", Scanned.Select(kv => $"{kv.Value} {kv.Key}"));
+        int cut = Items.Count(i => !i.Ghost), ghost = Items.Count(i => i.Ghost);
+        string porTipo = string.Join(", ", Items.Where(i => !i.Ghost).GroupBy(i => i.Kind).Select(g => $"{g.Count()} {g.Key}"));
+        return $"lidos: {lidos} | cortados: {cut}{(porTipo.Length > 0 ? " (" + porTipo + ")" : "")} | na profundidade: {ghost}" +
+               (Warnings.Count > 0 ? $" | {Warnings.Count} aviso(s)" : "");
+    }
 
     public double Length => Box.Length;
 

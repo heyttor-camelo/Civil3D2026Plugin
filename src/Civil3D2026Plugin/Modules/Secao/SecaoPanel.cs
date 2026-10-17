@@ -645,9 +645,7 @@ internal sealed class SecaoPanel : SW.Window
             return;
         }
 
-        int ghosts = _data.Items.Count(i => i.Ghost);
-        string warn = _data.Warnings.Count > 0 ? $" | {_data.Warnings.Count} aviso(s)" : "";
-        Say($"{_data.Box.Name}: {_data.Length:0.00} m, {_data.Items.Count - ghosts} cortado(s), {ghosts} na profundidade, {_data.Elapsed.TotalMilliseconds:0} ms{warn} | v{C3DVersions.Secao}");
+        Say($"{_data.Box.Name}: {_data.Length:0.00} m | {_data.Summary()} | {_data.Elapsed.TotalMilliseconds:0} ms | v{C3DVersions.Secao}");
     }
 
     private int CountFor(string category) => category switch
@@ -1063,7 +1061,7 @@ internal sealed class SecaoPanel : SW.Window
         {
             ("Propriedades", "Propriedades", BuildProperties),
             ("Conteudo", "Conteudo", BuildContent),
-            ("Avisos", _data is { Warnings.Count: > 0 } ? $"Avisos ({_data.Warnings.Count})" : "Avisos", BuildWarnings)
+            ("Avisos", _data is { Warnings.Count: > 0 } ? $"Diagnostico ({_data.Warnings.Count})" : "Diagnostico", BuildWarnings)
         };
         if (!tabs.Any(t => t.Key == _tab))
             _tab = tabs[0].Key;
@@ -1290,6 +1288,12 @@ internal sealed class SecaoPanel : SW.Window
     private SW.UIElement BuildWarnings()
     {
         WC.StackPanel form = Form();
+        if (_data is not null)
+        {
+            form.Children.Add(Label("Diagnostico", true));
+            form.Children.Add(new WC.TextBlock { Text = _data.Summary(), Foreground = T.Text, TextWrapping = SW.TextWrapping.Wrap, Margin = new SW.Thickness(0, 2, 0, 8) });
+        }
+
         if (_data is null || _data.Warnings.Count == 0)
         {
             form.Children.Add(Label("Sem avisos."));

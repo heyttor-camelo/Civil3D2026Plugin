@@ -127,6 +127,18 @@ public sealed class SecaoCommands
         ed.WriteMessage($"\n  Caixa de corte criada (layer {SecaoStore.LayerCut}): mova os grips e a janela acompanha; altere profundidades e cotas na aba Propriedades.");
         SecaoPanel.ShowPanel();
         SecaoPanel.SelectCut(id);
+        SectionData? data = SecaoPanel.CurrentData;
+        if (data is null)
+        {
+            ed.WriteMessage("\n  [C3DSECAO] A janela nao montou a secao (veja a barra de status dela).");
+            return;
+        }
+
+        ed.WriteMessage($"\n  [C3DSECAO] {data.Box.Name}: {data.Summary()}");
+        foreach (string w in data.Warnings.Take(5))
+            ed.WriteMessage("\n  [C3DSECAO] aviso: " + w);
+        if (data.Items.Count == 0)
+            ed.WriteMessage("\n  [C3DSECAO] Nada cortado: a linha precisa atravessar uma superficie, corredor, tubo ou solido (ou ter algo dentro da profundidade). Confira a aba Conteudo da janela.");
     }
 
     /// <summary>Desenha a secao corrente como polilinhas 2D no model space, no ponto clicado.</summary>

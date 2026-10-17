@@ -82,7 +82,9 @@ internal static class SecaoReader
                 continue;
             }
 
-            if (!Classes.Contains(dxf))
+            // Objetos do Civil (AECC_*: superficies, corredores, tubos...) e os 3D do AutoCAD;
+            // o tipo exato e decidido pelo switch abaixo.
+            if (!Classes.Contains(dxf) && !dxf.StartsWith("AECC_", StringComparison.OrdinalIgnoreCase))
                 continue;
 
             try
@@ -93,6 +95,22 @@ internal static class SecaoReader
                 // Filtro rapido pela caixa envolvente (superficies e corredores sao grandes: entram sempre).
                 if (ent is not CivilDb.Surface && ent is not CivilDb.Corridor && !Near(ent, minX, minY, maxX, maxY))
                     continue;
+
+                string kind = ent switch
+                {
+                    CivilDb.Surface => "superficie(s)",
+                    CivilDb.Corridor => "corredor(es)",
+                    CivilDb.Pipe => "tubo(s)",
+                    CivilDb.Structure => "estrutura(s)",
+                    CivilDb.FeatureLine => "feature line(s)",
+                    CivilDb.CogoPoint => "ponto(s) COGO",
+                    AcadDb.Solid3d => "solido(s)",
+                    AcadDb.Polyline3d => "polilinha(s) 3D",
+                    _ => ""
+                };
+                if (kind.Length == 0)
+                    continue;
+                data.Scanned[kind] = data.Scanned.TryGetValue(kind, out int c0) ? c0 + 1 : 1;
 
                 switch (ent)
                 {
