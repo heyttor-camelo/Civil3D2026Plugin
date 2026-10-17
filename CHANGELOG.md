@@ -1,3 +1,11 @@
+## 2.44.0 - MFREBAIXO v1.7.0 / painel sem 3D, planta geral com nomes
+
+- **saiu a vista 3D** do painel (`MFREBAIXOPAINEL`) e as cameras no desenho (Camera 3D / Vista de cima); ficam so as plantas: geral e do rebaixo;
+- **rebaixos com codigo e nome**: cada rebaixo ganha um codigo (R01, R02... por corredor, baseline e estaca) e pode receber um **nome** na aba Propriedades (botao Salvar nome). O nome vai no comentario do Transition Set ("REBAIXO MF | nome") e e mantido ao editar;
+- **planta geral reorganizada**: etiqueta colorida em cada rebaixo com codigo + nome (clicavel, com linha de chamada), rotulos sem sobreposicao, nome do corredor ao longo do eixo (nome da baseline ao aproximar), corredor selecionado em destaque, legenda e escala com espaco reservado;
+- a barra de baixo mostra **o que esta sob o cursor** (rebaixo / corredor, ou estaca e trecho na planta do rebaixo) em vez de coordenadas E/N;
+- lista e avisos identificam o rebaixo pelo codigo e nome ("R03 Garagem 12 (Corredor)"), com colunas Rebaixo e Estacas.
+
 ## 2.43.0 - Visualizador de secao v0.1.0 (C3DSECAO) - primeira versao
 
 - **C3DSECAO**: janela propria, no molde do explorador do viario (categorias, barra de icones, vista grafica escura, lista e abas), que mostra a secao de uma **caixa de corte** sem ocupar a viewport: pode ficar em outro monitor enquanto o desenho segue livre;

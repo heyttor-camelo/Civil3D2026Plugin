@@ -18,8 +18,9 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 /// <summary>
 /// Explorador dos rebaixos de meio-fio (MFREBAIXOPAINEL), no molde do explorador da rede
-/// viaria: categorias com contagem, barra de comandos, vista grafica (planta do corredor ou
-/// 3D), lista em colunas e abas de detalhe (propriedades editaveis, secoes, avisos).
+/// viaria: categorias com contagem, barra de comandos, vista grafica (planta geral com os
+/// rebaixos identificados por codigo/nome ou planta do trecho), lista em colunas e abas de
+/// detalhe (propriedades editaveis, nome, secoes, avisos).
 /// Segue o tema claro/escuro do painel viario.
 /// </summary>
 internal sealed class MFRebaixoPanel : SW.Window
@@ -45,12 +46,11 @@ internal sealed class MFRebaixoPanel : SW.Window
     private CorridorSummary? _currentCorridor;
     private RebaixoModel? _model;
     private List<(AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> _overview = new();
-    private SavedView? _savedView;
 
-    private sealed record SavedView(Point2d Center, double Height, double Width, Point3d Target, Vector3d Direction,
-        double Twist, bool Perspective, double Lens, AcadDb.ObjectId VisualStyle);
+    // Rotulos ja colocados na planta (para nao sobrepor textos).
+    private readonly List<SW.Rect> _labelRects = new();
 
-    private string Mode => _settings.PainelModo is "PLANTA" or "3D" ? _settings.PainelModo : "GERAL";
+    private string Mode => _settings.PainelModo is "PLANTA" or "3D" ? "PLANTA" : "GERAL";
     private string? _modelKey;
     private bool _refreshQueued;
     private Document? _watched;
@@ -64,7 +64,6 @@ internal sealed class MFRebaixoPanel : SW.Window
     private WC.StackPanel _commandBar = new();
     private WC.Grid _graphicHost = new();
     private WC.Canvas _plan = new();
-    private MFRebaixoView3D _view3d = new();
     private WC.TextBlock _graphicInfo = new();
     private WC.TextBlock _coords = new();
     private WC.StackPanel _viewToggles = new();
@@ -111,12 +110,6 @@ internal sealed class MFRebaixoPanel : SW.Window
         new("SECOES", "secoes", "Secoes do rebaixo", "Rebaixo",
             "Valores do meio-fio em cada secao do corredor no trecho: REB, DESTAQUE, altura exposta, rampa e faixa livre da calcada.",
             new[] { "Selecione o rebaixo." }, p => p.SelectTab("Secoes")),
-        new("CAMERA", "solido3d", "Camera 3D no desenho", "Rebaixo",
-            "Poe a vista do desenho em perspectiva (estilo Realistic) olhando o rebaixo selecionado, como uma camera na rua. Orbite com Shift+roda.",
-            new[] { "Selecione o rebaixo.", "Clique; use Vista de cima para voltar." }, p => p.CameraView()),
-        new("TOPO", "planta", "Vista de cima no desenho", "Rebaixo",
-            "Volta a vista do desenho para como estava antes da camera (ou planta de cima, 2D Wireframe).",
-            new[] { "Clique." }, p => p.RestoreView()),
         new("SELECIONAR", "corredor", "Selecionar corredor", "Corredor",
             "Seleciona no desenho o corredor do item escolhido (para Propriedades, Corridor Transitions, Section Editor).",
             new[] { "Selecione um rebaixo ou corredor." }, p => p.SelectCorridor()),
@@ -247,12 +240,10 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         _categoryBar = new WC.WrapPanel { Margin = new SW.Thickness(4, 4, 4, 0) };
         _plan = new WC.Canvas { Background = ToolTheme.GraphicBack, ClipToBounds = true };
-        _view3d = new MFRebaixoView3D();
         _graphicHost = new WC.Grid();
         _graphicHost.Children.Add(_plan);
-        _graphicHost.Children.Add(_view3d);
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), TextTrimming = SW.TextTrimming.CharacterEllipsis };
-        _coords = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), FontFamily = MonoFont };
+        _coords = new WC.TextBlock { Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), MaxWidth = 520, TextTrimming = SW.TextTrimming.CharacterEllipsis };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
         _find = new WC.TextBox { Width = 160, VerticalContentAlignment = SW.VerticalAlignment.Center };
         _tabStrip = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -732,11 +723,11 @@ internal sealed class MFRebaixoPanel : SW.Window
             case "AVISOS":
                 headers = new[] { "Rebaixo", "Aviso", "Referencia" };
                 widths = new[] { 150.0, 330, 260 };
-                rows = _warnings.Where(w => Match(w.Text, w.Reference, w.Item?.Label ?? "")).Select(w => new Row
+                rows = _warnings.Where(w => Match(w.Text, w.Reference, w.Item?.Label ?? "", w.Item?.CorridorName ?? "")).Select(w => new Row
                 {
                     Icon = w.Serious ? "aviso" : "ajuda",
                     Data = w,
-                    Cells = new[] { w.Item is null ? "" : $"{w.Item.CorridorName} {w.Item.Label}", w.Text, w.Reference }
+                    Cells = new[] { w.Item is null ? "(desenho)" : $"{w.Item.Label} ({w.Item.CorridorName})", w.Text, w.Reference }
                 }).ToList();
                 break;
 
@@ -746,16 +737,15 @@ internal sealed class MFRebaixoPanel : SW.Window
                 rows = new List<Row>
                 {
                     new() { Icon = "config", Data = "margem", Cells = new[] { "Trecho mostrado antes/depois do rebaixo", N(_settings.PainelMargem, "0.#") + " m" } },
-                    new() { Icon = "config", Data = "exagero", Cells = new[] { "Exagero vertical na vista 3D", N(_settings.PainelExagero, "0.#") + "x" } },
                     new() { Icon = "config", Data = "altura", Cells = new[] { "Ultima altura livre final (MFREBAIXO)", Cm(_settings.UltimaAlturaFinal) } },
                     new() { Icon = "config", Data = "reducao", Cells = new[] { "Ultima reducao (MFREBAIXO)", Cm(_settings.UltimaReducao) } }
                 };
                 break;
 
             default:
-                headers = new[] { "Rebaixo (S1 - S2)", "Corredor", "Lado", "Rebaixado", "Total", "Altura final", "Rampa", "Avisos" };
-                widths = new[] { 150.0, 150, 70, 75, 65, 80, 60, 60 };
-                rows = _items.Where(r => Match(r.Label, r.CorridorName, r.BaselineName, r.RegionName)).Select(r =>
+                headers = new[] { "Rebaixo", "Estacas (S1 - S2)", "Corredor", "Lado", "Rebaixado", "Altura final", "Rampa", "Avisos" };
+                widths = new[] { 160.0, 115, 140, 65, 70, 75, 55, 50 };
+                rows = _items.Where(r => Match(r.Label, r.Stations, r.CorridorName, r.BaselineName, r.RegionName)).Select(r =>
                 {
                     int w = _warnings.Count(x => ReferenceEquals(x.Item, r));
                     bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
@@ -765,7 +755,7 @@ internal sealed class MFRebaixoPanel : SW.Window
                         Data = r,
                         Cells = new[]
                         {
-                            r.Label, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m", N(r.TotalLength, "0.00") + " m",
+                            r.Label, r.Stations, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m",
                             Cm(r.FinalHeight), Pct(r.RampSlope), w == 0 ? "" : w.ToString()
                         }
                     };
@@ -844,7 +834,7 @@ internal sealed class MFRebaixoPanel : SW.Window
     }
 
     // ------------------------------------------------------------------
-    // Vista grafica: planta ou 3D
+    // Vista grafica: planta geral ou planta do rebaixo
     // ------------------------------------------------------------------
 
     private WC.Button ModeButton(string mode, string icon, string text, string tip)
@@ -872,29 +862,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         _viewToggles.Children.Clear();
         _viewToggles.Children.Add(ModeButton("GERAL", "mapa", "Planta geral", "Todos os corredores e rebaixos do desenho; clique num rebaixo para selecionar, duplo clique para abrir"));
         _viewToggles.Children.Add(ModeButton("PLANTA", "planta", "Planta do rebaixo", "Trecho do corredor do rebaixo selecionado, colorido pelos codes"));
-        _viewToggles.Children.Add(ModeButton("3D", "solido3d", "3D", "Vista 3D do trecho: girar, arrastar e zoom com o mouse"));
 
-        if (Mode == "3D")
-        {
-            _viewToggles.Children.Add(Sep());
-            _viewToggles.Children.Add(Link("orbita", () => _view3d.Home(), "Vista de cima, girando em volta do rebaixo"));
-            _viewToggles.Children.Add(Link("da rua", () => PanelCamera(fromStreet: true), "Camera na pista, a 1,6 m de altura, olhando o rebaixo"));
-            _viewToggles.Children.Add(Link("da calcada", () => PanelCamera(fromStreet: false), "Camera na calcada, a 1,6 m de altura, olhando o rebaixo"));
-            _viewToggles.Children.Add(Sep());
-            foreach (double ex in new[] { 1.0, 2.0, 5.0 })
-            {
-                double e = ex;
-                _viewToggles.Children.Add(Link($"{ex:0}x", () =>
-                {
-                    _settings.PainelExagero = e;
-                    SaveSettings();
-                    BuildViewToggles();
-                    RenderGraphic(keepCamera: true);
-                }, "Exagero vertical da vista 3D", Math.Abs(_settings.PainelExagero - ex) < 1e-6));
-            }
-        }
-
-        if (Mode != "GERAL")
+        if (Mode == "PLANTA")
         {
             _viewToggles.Children.Add(Sep());
             foreach (double m in new[] { 3.0, 6.0, 15.0 })
@@ -910,9 +879,6 @@ internal sealed class MFRebaixoPanel : SW.Window
                 }, "Trecho mostrado antes e depois do rebaixo", Math.Abs(_settings.PainelMargem - m) < 1e-6));
             }
         }
-
-        _viewToggles.Children.Add(Sep());
-        _viewToggles.Children.Add(Link("camera no desenho", CameraView, "Vista em perspectiva do rebaixo no proprio desenho"));
     }
 
     private void SetMode(string mode)
@@ -928,9 +894,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void ShowView()
     {
-        bool v3 = Mode == "3D";
-        _view3d.Visibility = v3 ? SW.Visibility.Visible : SW.Visibility.Collapsed;
-        _plan.Visibility = v3 ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        _plan.Visibility = SW.Visibility.Visible;
         _coords.Text = "";
     }
 
@@ -972,216 +936,18 @@ internal sealed class MFRebaixoPanel : SW.Window
         return _model;
     }
 
-    private void RenderGraphic(bool keepCamera = false)
+    private void RenderGraphic()
     {
         RebaixoModel? model = Mode == "GERAL" ? null : CurrentModel();
-        if (Mode == "3D")
-            _view3d.SetModel(model, _settings.PainelExagero, keepCamera);
-        else
-            RenderPlan();
+        RenderPlan();
 
         RebaixoInfo? r = _current;
-        _graphicInfo.Text = r is null
-            ? "Nenhum rebaixo selecionado."
-            : $"{r.CorridorName} / {r.BaselineName}  lado {r.SideLabel.ToLowerInvariant()}  S0 {N(r.S0)}  S1 {N(r.S1)}  S2 {N(r.S2)}  S3 {N(r.S3)}" +
-              (model is null ? "" : $"   ({model.Sections.Count} secoes)");
-    }
-
-    // ------------------------------------------------------------------
-    // Cameras (no painel e no desenho)
-    // ------------------------------------------------------------------
-
-    /// <summary>Cota do topo perto de (x, y): maior Z dos pontos do corredor num raio de 0,6 m.</summary>
-    private static double? GroundZ(RebaixoModel model, double x, double y)
-    {
-        double? best = null, nearestZ = null, nearestD = double.MaxValue;
-        foreach (ModelSection s in model.Sections)
-        {
-            foreach ((long _, List<ModelLink> links) in s.Subassemblies)
-            {
-                foreach (ModelLink l in links)
-                {
-                    foreach (Point3d p in l.Points)
-                    {
-                        double d = Math.Sqrt(((p.X - x) * (p.X - x)) + ((p.Y - y) * (p.Y - y)));
-                        if (d < 0.6 && (best is null || p.Z > best))
-                            best = p.Z;
-                        if (d < nearestD)
-                        {
-                            nearestD = d;
-                            nearestZ = p.Z;
-                        }
-                    }
-                }
-            }
-        }
-
-        return best ?? nearestZ;
-    }
-
-    /// <summary>Olho e alvo de uma camera a 1,6 m de altura, da pista ou da calcada, olhando o meio do rebaixo.</summary>
-    private (Point3d Eye, Point3d Target)? CameraFrame(RebaixoInfo r, RebaixoModel model, bool fromStreet)
-    {
-        Point3d a = r.P1, b = r.P2;
-        if (a.DistanceTo(b) < 0.05)
-        {
-            a = r.P0;
-            b = r.P3;
-        }
-
-        Vector3d t = new(b.X - a.X, b.Y - a.Y, 0);
-        if (t.Length < 1e-6 || a == Point3d.Origin)
-            return null;
-        t = t.GetNormal();
-        Vector3d right = new(t.Y, -t.X, 0);
-        double side = r.Left ? -1 : 1; // lado do meio-fio/calcada em relacao a baseline
-        Point3d mid = new((a.X + b.X) / 2, (a.Y + b.Y) / 2, 0);
-
-        Point3d targetXY = mid + (right * side * 0.6);
-        Point3d eyeXY = fromStreet
-            ? mid - (right * side * 9.0) - (t * 6.0)
-            : mid + (right * side * 4.5) + (t * 5.0);
-
-        double tz = GroundZ(model, targetXY.X, targetXY.Y) ?? 0;
-        double ez = (GroundZ(model, eyeXY.X, eyeXY.Y) ?? tz) + 1.6;
-        return (new Point3d(eyeXY.X, eyeXY.Y, ez), new Point3d(targetXY.X, targetXY.Y, tz));
-    }
-
-    private void PanelCamera(bool fromStreet)
-    {
-        RebaixoInfo? r = _current;
-        RebaixoModel? model = CurrentModel();
-        if (r is null || model is null)
-        {
-            Say("Selecione um rebaixo.");
-            return;
-        }
-
-        if (CameraFrame(r, model, fromStreet) is not { } cam)
-        {
-            Say("Sem coordenadas para a camera.");
-            return;
-        }
-
-        // Com exagero vertical a altura do olho tambem e exagerada; para a camera, 1x fica natural.
-        if (Math.Abs(_settings.PainelExagero - 1) > 1e-6)
-        {
-            _settings.PainelExagero = 1;
-            SaveSettings();
-            BuildViewToggles();
-            RenderGraphic(keepCamera: true);
-        }
-
-        _view3d.LookFrom(cam.Eye, cam.Target);
-        Say(fromStreet ? "Camera na pista olhando o rebaixo." : "Camera na calcada olhando o rebaixo.");
-    }
-
-    /// <summary>Poe a vista do desenho em perspectiva olhando o rebaixo, da pista, com estilo Realistic.</summary>
-    private void CameraView()
-    {
-        RebaixoInfo? r = _current;
-        RebaixoModel? model = CurrentModel();
-        if (r is null || model is null || Doc is not Document doc)
-        {
-            Say("Selecione um rebaixo.");
-            return;
-        }
-
-        if (CameraFrame(r, model, fromStreet: true) is not { } cam)
-        {
-            Say("Sem coordenadas para a camera.");
-            return;
-        }
-
-        try
-        {
-            using (doc.LockDocument())
-            {
-                using AcadDb.ViewTableRecord view = doc.Editor.GetCurrentView();
-                _savedView ??= new SavedView(view.CenterPoint, view.Height, view.Width, view.Target, view.ViewDirection,
-                    view.ViewTwist, view.PerspectiveEnabled, view.LensLength, view.VisualStyleId);
-
-                Vector3d dir = cam.Eye - cam.Target;
-                view.Target = cam.Target;
-                view.ViewDirection = dir;
-                view.ViewTwist = 0;
-                view.PerspectiveEnabled = true;
-                view.LensLength = 28;
-                view.CenterPoint = new Point2d(0, 0);
-                double height = dir.Length * 0.9;
-                double ratio = _savedView.Width / Math.Max(_savedView.Height, 1e-9);
-                view.Height = height;
-                view.Width = height * ratio;
-                AcadDb.ObjectId style = VisualStyle(doc.Database, "Realistic");
-                if (!style.IsNull)
-                    view.VisualStyleId = style;
-                doc.Editor.SetCurrentView(view);
-                AcApp.UpdateScreen();
-            }
-
-            Say("Camera no desenho (perspectiva). Shift+roda do mouse orbita; Vista de cima volta.");
-        }
-        catch (System.Exception ex)
-        {
-            Say("Camera falhou: " + ex.Message);
-        }
-    }
-
-    /// <summary>Volta a vista do desenho para antes da camera (ou planta de cima em 2D Wireframe).</summary>
-    private void RestoreView()
-    {
-        if (Doc is not Document doc)
-            return;
-
-        try
-        {
-            using (doc.LockDocument())
-            {
-                using AcadDb.ViewTableRecord view = doc.Editor.GetCurrentView();
-                if (_savedView is { } v)
-                {
-                    view.Target = v.Target;
-                    view.ViewDirection = v.Direction;
-                    view.ViewTwist = v.Twist;
-                    view.PerspectiveEnabled = v.Perspective;
-                    view.LensLength = v.Lens;
-                    view.CenterPoint = v.Center;
-                    view.Height = v.Height;
-                    view.Width = v.Width;
-                    if (!v.VisualStyle.IsNull)
-                        view.VisualStyleId = v.VisualStyle;
-                    _savedView = null;
-                }
-                else
-                {
-                    view.ViewDirection = Vector3d.ZAxis;
-                    view.ViewTwist = 0;
-                    view.PerspectiveEnabled = false;
-                    AcadDb.ObjectId style = VisualStyle(doc.Database, "2dWireframe");
-                    if (!style.IsNull)
-                        view.VisualStyleId = style;
-                }
-
-                doc.Editor.SetCurrentView(view);
-                AcApp.UpdateScreen();
-            }
-
-            if (_current is not null)
-                ZoomCurrent();
-            Say("Vista de cima no desenho.");
-        }
-        catch (System.Exception ex)
-        {
-            Say("Nao deu para voltar a vista: " + ex.Message);
-        }
-    }
-
-    private static AcadDb.ObjectId VisualStyle(AcadDb.Database db, string name)
-    {
-        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
-        if (tr.GetObject(db.VisualStyleDictionaryId, AcadDb.OpenMode.ForRead) is AcadDb.DBDictionary dict && dict.Contains(name))
-            return dict.GetAt(name);
-        return AcadDb.ObjectId.Null;
+        _graphicInfo.Text = Mode == "GERAL"
+            ? $"{_items.Count} rebaixo(s) em {_overview.Count} baseline(s)" + (r is null ? "" : $"   |   selecionado: {r.Label}")
+            : r is null
+                ? "Nenhum rebaixo selecionado."
+                : $"{r.Label}   {r.CorridorName} / {r.BaselineName}   lado {r.SideLabel.ToLowerInvariant()}   rampa {N(r.S0, "0.00")}-{N(r.S1, "0.00")}   rebaixado {N(r.S1, "0.00")}-{N(r.S2, "0.00")}   rampa {N(r.S2, "0.00")}-{N(r.S3, "0.00")}" +
+                  (model is null ? "" : $"   ({model.Sections.Count} secoes)");
     }
 
     private SW.Point ToScreen(double x, double y) => new(_ox + ((x - _cx) * _scale), _oy - ((y - _cy) * _scale));
@@ -1196,10 +962,143 @@ internal sealed class MFRebaixoPanel : SW.Window
             RenderDetail();
     }
 
-    /// <summary>Planta geral: baselines de todos os corredores e os rebaixos clicaveis.</summary>
+    // ------------------------------------------------------------------
+    // Planta geral
+    // ------------------------------------------------------------------
+
+    private static readonly WM.Brush HaloBrush = ToolTheme.Brush(40, 42, 46, 215);
+    private static readonly WM.Brush RebaixoBrush = ToolTheme.Brush(225, 45, 60);
+    private static readonly WM.Brush WarnBrush = ToolTheme.Brush(240, 150, 30);
+    private static readonly WM.Brush SelectedBrush = ToolTheme.Brush(255, 205, 60);
+    private static readonly WM.Brush DarkText = ToolTheme.Brush(25, 25, 25);
+
+    private static (string Corridor, string Baseline) SplitName(string name)
+    {
+        int k = name.IndexOf(" / ", StringComparison.Ordinal);
+        return k < 0 ? (name, "") : (name[..k], name[(k + 3)..]);
+    }
+
+    private bool Inside(SW.Rect r) => r.Left >= 0 && r.Top >= 0 && r.Right <= _plan.ActualWidth && r.Bottom <= _plan.ActualHeight;
+
+    /// <summary>Coloca o elemento perto de anchor na primeira posicao livre (sem sobrepor outros textos).</summary>
+    private SW.Rect? Place(SW.FrameworkElement el, SW.Point anchor, bool force)
+    {
+        el.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double w = el.DesiredSize.Width, h = el.DesiredSize.Height;
+        SW.Vector[] offsets =
+        {
+            new(10, -h - 6), new(10, 6), new(-w - 10, -h - 6), new(-w - 10, 6),
+            new(-w / 2, -h - 12), new(-w / 2, 12), new(18, -h / 2), new(-w - 18, -h / 2),
+            new(14, -h - 22), new(-w - 14, -h - 22), new(14, 22), new(-w - 14, 22)
+        };
+        foreach (SW.Vector o in offsets)
+        {
+            SW.Rect r = new(anchor.X + o.X, anchor.Y + o.Y, w, h);
+            if (Inside(r) && !_labelRects.Any(x => x.IntersectsWith(r)))
+                return Put(el, r);
+        }
+
+        return force ? Put(el, new SW.Rect(anchor.X + offsets[0].X, anchor.Y + offsets[0].Y, w, h)) : null;
+    }
+
+    private SW.Rect Put(SW.FrameworkElement el, SW.Rect r)
+    {
+        WC.Canvas.SetLeft(el, r.Left);
+        WC.Canvas.SetTop(el, r.Top);
+        _plan.Children.Add(el);
+        _labelRects.Add(r);
+        return r;
+    }
+
+    private static SW.Point Nearest(SW.Rect r, SW.Point p) =>
+        new(Math.Clamp(p.X, r.Left, r.Right), Math.Clamp(p.Y, r.Top, r.Bottom));
+
+    /// <summary>Texto ao longo da linha (girado, sempre de pe), com fundo escuro.</summary>
+    private void AlongLabel(string text, List<SW.Point> line, double size, WM.Brush fg)
+    {
+        if (line.Count < 2)
+            return;
+
+        // Ponto no meio do comprimento visivel.
+        double total = 0;
+        for (int k = 1; k < line.Count; k++)
+            total += (line[k] - line[k - 1]).Length;
+        double half = total / 2, run = 0;
+        SW.Point at = line[0];
+        SW.Vector dir = line[1] - line[0];
+        for (int k = 1; k < line.Count; k++)
+        {
+            double seg = (line[k] - line[k - 1]).Length;
+            if (run + seg >= half && seg > 1e-6)
+            {
+                dir = line[k] - line[k - 1];
+                at = line[k - 1] + (dir * ((half - run) / seg));
+                break;
+            }
+
+            run += seg;
+        }
+
+        double angle = Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
+        if (angle > 90) angle -= 180;
+        if (angle < -90) angle += 180;
+
+        var t = new WC.TextBlock
+        {
+            Text = text,
+            Foreground = fg,
+            FontSize = size,
+            Background = HaloBrush,
+            Padding = new SW.Thickness(3, 0, 3, 0),
+            IsHitTestVisible = false,
+            RenderTransformOrigin = new SW.Point(0.5, 0.5),
+            RenderTransform = new WM.RotateTransform(angle)
+        };
+        t.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double w = t.DesiredSize.Width, h = t.DesiredSize.Height;
+        if (w > total * 0.9)
+            return; // nao cabe ao longo da linha visivel
+
+        // Caixa que envolve o texto girado.
+        double a = Math.Abs(angle * Math.PI / 180.0);
+        double bw = (w * Math.Cos(a)) + (h * Math.Sin(a)), bh = (w * Math.Sin(a)) + (h * Math.Cos(a));
+        SW.Rect box = new(at.X - (bw / 2), at.Y - (bh / 2), bw, bh);
+        if (!Inside(box) || _labelRects.Any(x => x.IntersectsWith(box)))
+            return;
+
+        WC.Canvas.SetLeft(t, at.X - (w / 2));
+        WC.Canvas.SetTop(t, at.Y - (h / 2));
+        _plan.Children.Add(t);
+        _labelRects.Add(box);
+    }
+
+    /// <summary>Parte da polilinha que aparece na tela (pontos de tela).</summary>
+    private List<SW.Point> VisiblePart(List<Point3d> pts, double w, double h)
+    {
+        List<SW.Point> best = new(), cur = new();
+        foreach (Point3d p in pts)
+        {
+            SW.Point s = ToScreen(p.X, p.Y);
+            if (s.X >= 0 && s.Y >= 0 && s.X <= w && s.Y <= h)
+            {
+                cur.Add(s);
+            }
+            else
+            {
+                if (cur.Count > best.Count)
+                    best = cur;
+                cur = new List<SW.Point>();
+            }
+        }
+
+        return cur.Count > best.Count ? cur : best;
+    }
+
+    /// <summary>Planta geral: baselines dos corredores (com nomes) e os rebaixos identificados por codigo e nome.</summary>
     private void RenderOverview()
     {
         _plan.Children.Clear();
+        _labelRects.Clear();
         double w = _plan.ActualWidth, h = _plan.ActualHeight;
         if (w < 20 || h < 20 || !_plan.IsVisible)
             return;
@@ -1219,70 +1118,11 @@ internal sealed class MFRebaixoPanel : SW.Window
         _ox = w / 2.0;
         _oy = h / 2.0;
 
-        WM.Brush baseBrush = ToolTheme.Brush(150, 152, 156);
-        foreach ((AcadDb.ObjectId _, string name, List<Point3d> pts) in _overview)
-        {
-            var line = new WS.Polyline { Stroke = baseBrush, StrokeThickness = 1.2, IsHitTestVisible = false };
-            foreach (Point3d p in pts)
-                line.Points.Add(ToScreen(p.X, p.Y));
-            _plan.Children.Add(line);
-            if (_zoom >= 2.5)
-            {
-                Point3d m = pts[pts.Count / 2];
-                SW.Point s = ToScreen(m.X, m.Y);
-                PlanLabel(name, s.X + 4, s.Y + 2, 9, ToolTheme.GraphicLine);
-            }
-        }
-
-        WM.Brush red = ToolTheme.Brush(225, 45, 60), orange = ToolTheme.Brush(240, 150, 30), yellow = ToolTheme.Brush(255, 205, 60);
-        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
-        {
-            if (r.Path.Count == 0)
-                continue;
-            bool selected = ReferenceEquals(r, _current);
-            bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
-            WM.Brush brush = selected ? yellow : serious ? orange : red;
-
-            var path = new WS.Polyline { Stroke = brush, StrokeThickness = selected ? 6 : 4, StrokeStartLineCap = WM.PenLineCap.Round, StrokeEndLineCap = WM.PenLineCap.Round, IsHitTestVisible = false };
-            foreach (Point3d p in r.Path)
-                path.Points.Add(ToScreen(p.X, p.Y));
-            _plan.Children.Add(path);
-
-            Point3d mid = r.Path[r.Path.Count / 2];
-            SW.Point c = ToScreen(mid.X, mid.Y);
-            double size = selected ? 13 : 10;
-            var marker = new WS.Ellipse
-            {
-                Width = size,
-                Height = size,
-                Fill = brush,
-                Stroke = ToolTheme.Brush(30, 30, 30),
-                StrokeThickness = 1,
-                Cursor = WI.Cursors.Hand,
-                ToolTip = $"{r.CorridorName} / {r.BaselineName}\nRebaixo {r.Label} ({r.SideLabel.ToLowerInvariant()})\n" +
-                          $"rebaixado {N(r.LoweredLength, "0.00")} m, total {N(r.TotalLength, "0.00")} m, altura final {Cm(r.FinalHeight)}\n" +
-                          "clique: selecionar   duplo clique: abrir a planta do rebaixo"
-            };
-            RebaixoInfo item = r;
-            marker.MouseLeftButtonDown += (_, e) =>
-            {
-                e.Handled = true;
-                SelectRebaixo(item);
-                if (e.ClickCount == 2)
-                    SetMode("PLANTA");
-            };
-            WC.Canvas.SetLeft(marker, c.X - (size / 2));
-            WC.Canvas.SetTop(marker, c.Y - (size / 2));
-            _plan.Children.Add(marker);
-
-            if (selected || _zoom >= 4)
-                PlanLabel(r.Label, c.X + 8, c.Y - 7, selected ? 11 : 9, selected ? yellow : ToolTheme.GraphicText);
-        }
-
+        // Legenda e escala primeiro: reservam o espaco dos cantos.
         double ly = 8;
-        foreach ((string text, WM.Brush b) in new[] { ("rebaixo", red), ("com aviso", orange), ("selecionado", yellow) })
+        foreach ((string text, WM.Brush b) in new[] { ("rebaixo", RebaixoBrush), ("com aviso", WarnBrush), ("selecionado", SelectedBrush) })
         {
-            var sw = new WS.Rectangle { Width = 14, Height = 5, Fill = b, IsHitTestVisible = false };
+            var sw = new WS.Rectangle { Width = 14, Height = 6, Fill = b, IsHitTestVisible = false };
             WC.Canvas.SetLeft(sw, 8);
             WC.Canvas.SetTop(sw, ly + 5);
             _plan.Children.Add(sw);
@@ -1290,10 +1130,108 @@ internal sealed class MFRebaixoPanel : SW.Window
             ly += 15;
         }
 
+        _labelRects.Add(new SW.Rect(0, 0, 110, ly + 4));
         double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
         double len = step * _scale;
         _plan.Children.Add(new WS.Line { X1 = w - len - 14, Y1 = h - 12, X2 = w - 14, Y2 = h - 12, Stroke = ToolTheme.GraphicText, StrokeThickness = 2, IsHitTestVisible = false });
         PlanLabel($"{step:0.##} m", w - len - 14, h - 28, 10);
+        _labelRects.Add(new SW.Rect(w - len - 20, h - 30, len + 20, 30));
+
+        // Baselines: as do corredor do rebaixo selecionado mais claras.
+        AcadDb.ObjectId? selCorridor = _current?.CorridorId;
+        WM.Brush baseBrush = ToolTheme.Brush(120, 123, 128), baseSel = ToolTheme.Brush(185, 188, 194);
+        foreach ((AcadDb.ObjectId id, string _, List<Point3d> pts) in _overview)
+        {
+            bool mine = selCorridor is AcadDb.ObjectId sid && sid == id;
+            var line = new WS.Polyline { Stroke = mine ? baseSel : baseBrush, StrokeThickness = mine ? 1.6 : 1.1, IsHitTestVisible = false };
+            foreach (Point3d p in pts)
+                line.Points.Add(ToScreen(p.X, p.Y));
+            _plan.Children.Add(line);
+        }
+
+        // Rebaixos: traco grosso ao longo da baseline.
+        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
+        {
+            if (r.Path.Count == 0)
+                continue;
+            bool selected = ReferenceEquals(r, _current);
+            bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
+            var path = new WS.Polyline
+            {
+                Stroke = selected ? SelectedBrush : serious ? WarnBrush : RebaixoBrush,
+                StrokeThickness = selected ? 7 : 5,
+                StrokeStartLineCap = WM.PenLineCap.Round,
+                StrokeEndLineCap = WM.PenLineCap.Round,
+                IsHitTestVisible = false
+            };
+            foreach (Point3d p in r.Path)
+                path.Points.Add(ToScreen(p.X, p.Y));
+            _plan.Children.Add(path);
+        }
+
+        // Etiquetas dos rebaixos: o selecionado primeiro (sempre aparece), depois os demais na ordem.
+        bool showNames = _items.Count <= 12 || _zoom >= 2;
+        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current) ? 0 : 1).ThenBy(x => x.Code))
+        {
+            if (r.Path.Count == 0)
+                continue;
+            bool selected = ReferenceEquals(r, _current);
+            bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
+            Point3d mid = r.Path[r.Path.Count / 2];
+            SW.Point anchor = ToScreen(mid.X, mid.Y);
+            if (anchor.X < 0 || anchor.Y < 0 || anchor.X > w || anchor.Y > h)
+                continue;
+
+            WC.StackPanel content = new() { Orientation = WC.Orientation.Horizontal };
+            content.Children.Add(new WC.TextBlock { Text = r.Code, FontWeight = SW.FontWeights.Bold, FontSize = selected ? 12 : 11, Foreground = DarkText });
+            if (selected || (showNames && r.CustomName.Length > 0))
+                content.Children.Add(new WC.TextBlock { Text = "  " + (r.CustomName.Length > 0 ? r.CustomName : r.Stations), FontSize = selected ? 12 : 10.5, Foreground = DarkText });
+
+            var tag = new WC.Border
+            {
+                Child = content,
+                Background = selected ? SelectedBrush : serious ? WarnBrush : RebaixoBrush,
+                BorderBrush = DarkText,
+                BorderThickness = new SW.Thickness(selected ? 1.5 : 0.8),
+                CornerRadius = new SW.CornerRadius(3),
+                Padding = new SW.Thickness(4, 1, 4, 1),
+                Cursor = WI.Cursors.Hand,
+                ToolTip = $"{r.Label}\n{r.CorridorName} / {r.BaselineName}, lado {r.SideLabel.ToLowerInvariant()}\n" +
+                          $"estacas {r.Stations} (rebaixado {N(r.LoweredLength, "0.00")} m, total {N(r.TotalLength, "0.00")} m)\n" +
+                          $"altura final {Cm(r.FinalHeight)}\nclique: selecionar   duplo clique: planta do rebaixo"
+            };
+            RebaixoInfo item = r;
+            tag.MouseLeftButtonDown += (_, e) =>
+            {
+                e.Handled = true;
+                SelectRebaixo(item);
+                if (e.ClickCount == 2)
+                    SetMode("PLANTA");
+            };
+
+            if (Place(tag, anchor, force: selected) is SW.Rect box)
+            {
+                SW.Point end = Nearest(box, anchor);
+                var leader = new WS.Line { X1 = anchor.X, Y1 = anchor.Y, X2 = end.X, Y2 = end.Y, Stroke = tag.Background, StrokeThickness = 1.2, IsHitTestVisible = false };
+                _plan.Children.Insert(Math.Max(0, _plan.Children.Count - 1), leader);
+            }
+        }
+
+        // Nomes dos corredores ao longo da baseline mais comprida de cada um (por ultimo: so onde sobra espaco).
+        foreach (IGrouping<AcadDb.ObjectId, (AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> g in _overview.GroupBy(o => o.Corridor))
+        {
+            var visible = g.Select(o => (o.Name, Line: VisiblePart(o.Points, w, h))).Where(x => x.Line.Count > 1).ToList();
+            if (visible.Count == 0)
+                continue;
+            var longest = visible.OrderByDescending(x => x.Line.Count).First();
+            bool mine = selCorridor is AcadDb.ObjectId sid && sid == g.Key;
+            AlongLabel(SplitName(longest.Name).Corridor, longest.Line, mine ? 12 : 11, mine ? ToolTheme.GraphicText : ToolTheme.GraphicLine);
+            if (_zoom >= 2.5)
+            {
+                foreach (var (name, line) in visible)
+                    AlongLabel(SplitName(name).Baseline, line, 9, ToolTheme.GraphicLine);
+            }
+        }
     }
 
     private void SelectRebaixo(RebaixoInfo r)
@@ -1475,7 +1413,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             return;
         SW.Point p = e.GetPosition(_plan);
         (double x, double y) = ToWorld(p);
-        _coords.Text = $"E {x,12:0.000}   N {y,12:0.000}";
+        _coords.Text = Mode == "GERAL" ? UnderCursorOverview(p) : UnderCursorDetail(x, y);
         if (_dragFrom is SW.Point f && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             _panX -= (p.X - f.X) / _scale;
@@ -1483,6 +1421,88 @@ internal sealed class MFRebaixoPanel : SW.Window
             _dragFrom = p;
             RenderPlan();
         }
+    }
+
+    /// <summary>O que esta sob o cursor na planta geral: rebaixo (nome) ou corredor/baseline.</summary>
+    private string UnderCursorOverview(SW.Point p)
+    {
+        double best = 14;
+        RebaixoInfo? hit = null;
+        foreach (RebaixoInfo r in _items)
+        {
+            foreach (Point3d q in r.Path)
+            {
+                double d = (ToScreen(q.X, q.Y) - p).Length;
+                if (d < best)
+                {
+                    best = d;
+                    hit = r;
+                }
+            }
+        }
+
+        if (hit is not null)
+            return $"{hit.Label}  -  {hit.CorridorName} / {hit.BaselineName}  -  estacas {hit.Stations}  -  lado {hit.SideLabel.ToLowerInvariant()}";
+
+        best = 10;
+        string? name = null;
+        foreach ((AcadDb.ObjectId _, string n, List<Point3d> pts) in _overview)
+        {
+            for (int k = 1; k < pts.Count; k++)
+            {
+                double d = SegDist(p, ToScreen(pts[k - 1].X, pts[k - 1].Y), ToScreen(pts[k].X, pts[k].Y));
+                if (d < best)
+                {
+                    best = d;
+                    name = n;
+                }
+            }
+        }
+
+        return name ?? "";
+    }
+
+    /// <summary>Na planta do rebaixo: estaca da secao mais perto do cursor e o trecho.</summary>
+    private string UnderCursorDetail(double x, double y)
+    {
+        RebaixoInfo? r = _current;
+        if (r is null || _model is null)
+            return "";
+        double best = double.MaxValue, station = 0;
+        foreach (ModelSection s in _model.Sections)
+        {
+            foreach ((long _, List<ModelLink> links) in s.Subassemblies)
+            {
+                foreach (ModelLink l in links)
+                {
+                    foreach (Point3d q in l.Points)
+                    {
+                        double d = ((q.X - x) * (q.X - x)) + ((q.Y - y) * (q.Y - y));
+                        if (d < best)
+                        {
+                            best = d;
+                            station = s.Station;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (best == double.MaxValue)
+            return "";
+        string where = station < r.S0 - 1e-4 ? "antes do rebaixo"
+            : station < r.S1 - 1e-4 ? "rampa de entrada"
+            : station <= r.S2 + 1e-4 ? "trecho rebaixado"
+            : station <= r.S3 + 1e-4 ? "rampa de saida"
+            : "depois do rebaixo";
+        return $"{r.Label}  -  secao {N(station, "0.00")}  -  {where}";
+    }
+
+    private static double SegDist(SW.Point p, SW.Point a, SW.Point b)
+    {
+        SW.Vector ab = b - a;
+        double t = ab.LengthSquared < 1e-9 ? 0 : Math.Clamp(((p - a) * ab) / ab.LengthSquared, 0, 1);
+        return (p - (a + (ab * t))).Length;
     }
 
     private void OnPlanWheel(object sender, WI.MouseWheelEventArgs e)
@@ -1645,6 +1665,14 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         p.Children.Add(Label($"Rebaixo {r.Label}", true));
+        WC.Grid nameRow = EditRow("nome", "Nome", r.CustomName, "");
+        nameRow.ColumnDefinitions[1].Width = new SW.GridLength(220);
+        WC.Button saveName = new() { Content = "Salvar nome", Padding = new SW.Thickness(8, 1, 8, 1), Margin = new SW.Thickness(8, 0, 0, 0) };
+        saveName.Click += (_, _) => RenameCurrent(r);
+        WC.Grid.SetColumn(saveName, 2);
+        nameRow.Children.Add(saveName);
+        p.Children.Add(nameRow);
+        p.Children.Add(Prop("Codigo / estacas", $"{r.Code} / {r.Stations}"));
         p.Children.Add(Prop("Corredor / baseline / region", $"{r.CorridorName} / {r.BaselineName} / {r.RegionName}"));
         p.Children.Add(Prop("Lado / subassembly", $"{r.SideLabel} / {r.SubassemblyName}"));
         p.Children.Add(Prop("Rampa de entrada", $"{N(r.S0)} -> {N(r.S1)}  ({N(r.EntryLength, "0.00")} m)"));
@@ -1679,7 +1707,6 @@ internal sealed class MFRebaixoPanel : SW.Window
         WC.StackPanel p = Form();
         p.Children.Add(Label("Painel", true));
         p.Children.Add(EditRow("margem", "Trecho antes/depois do rebaixo", N(_settings.PainelMargem, "0.##"), "m"));
-        p.Children.Add(EditRow("exagero", "Exagero vertical no 3D", N(_settings.PainelExagero, "0.##"), "x"));
         p.Children.Add(Label("Valores padrao do MFREBAIXO", true));
         p.Children.Add(EditRow("altura", "Altura livre final", N(_settings.UltimaAlturaFinal, "0.000"), "m"));
         p.Children.Add(EditRow("reducao", "Reducao", N(_settings.UltimaReducao, "0.000"), "m"));
@@ -1687,8 +1714,6 @@ internal sealed class MFRebaixoPanel : SW.Window
         {
             if (Number("margem") is double m && m >= 0)
                 _settings.PainelMargem = Math.Min(m, 100);
-            if (Number("exagero") is double e && e > 0)
-                _settings.PainelExagero = Math.Min(e, 50);
             if (Number("altura") is double h && h >= 0)
                 _settings.UltimaAlturaFinal = h;
             if (Number("reducao") is double d && d >= 0)
@@ -1811,6 +1836,13 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
     }
 
+    private void RenameCurrent(RebaixoInfo r)
+    {
+        string name = _fields.TryGetValue("nome", out WC.TextBox? box) ? box.Text.Trim() : "";
+        _pending = (r.CorridorId, r.BaselineKey, r.S1);
+        Edit(name.Length > 0 ? $"{r.Code} agora se chama \"{name}\"." : $"{r.Code} ficou sem nome.", (db, _) => MFRebaixoData.Rename(db, r, name));
+    }
+
     private void ApplyEdit(RebaixoInfo r)
     {
         double? s1 = Number("s1"), s2 = Number("s2"), h = Number("h");
@@ -1844,14 +1876,14 @@ internal sealed class MFRebaixoPanel : SW.Window
             MFRebaixoData.Remove(db, r, rebuild: false);
             try
             {
-                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1.Value, s2.Value, h.Value);
+                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1.Value, s2.Value, h.Value, MFRebaixoData.CommentFor(r.CustomName));
             }
             catch (System.Exception ex)
             {
                 // Volta o rebaixo antigo.
                 try
                 {
-                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH);
+                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName));
                 }
                 catch
                 {

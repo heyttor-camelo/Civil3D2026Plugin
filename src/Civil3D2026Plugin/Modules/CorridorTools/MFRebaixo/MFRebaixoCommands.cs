@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.6.2";
+    public const string Versao = "1.7.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -404,7 +404,8 @@ public sealed class MFRebaixoCommands
         bool leftSide,
         double s1,
         double s2,
-        double finalHeight)
+        double finalHeight,
+        string comment = "REBAIXO MF")
     {
         using var tr =
             db.TransactionManager
@@ -471,7 +472,8 @@ public sealed class MFRebaixoCommands
             finalHeight,
             "painel",
             null,
-            null);
+            null,
+            comment);
     }
 
     [CommandMethod(
@@ -884,7 +886,8 @@ public sealed class MFRebaixoCommands
         double finalHeight,
         string sideOrigin,
         double? expectedNominal,
-        double? expectedStart)
+        double? expectedStart,
+        string comment = "REBAIXO MF")
     {
         if (s2 <= s1 + StationTolerance)
         {
@@ -1110,7 +1113,7 @@ public sealed class MFRebaixoCommands
                 CorridorTransitionNameType.SubassemblyName);
 
         set.Comment =
-            "REBAIXO MF";
+            comment;
 
         bool useDepth =
             HasDoubleParameter(

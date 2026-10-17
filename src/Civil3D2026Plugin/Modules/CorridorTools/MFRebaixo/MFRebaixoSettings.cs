@@ -22,9 +22,7 @@ internal sealed class MFRebaixoSettings
 
     // Painel (MFREBAIXOPAINEL).
     public double PainelMargem { get; set; } = 6.0;
-    public double PainelExagero { get; set; } = 2.0;
-    public bool PainelVista3D { get; set; }
-    // "GERAL" (todos os rebaixos), "PLANTA" (trecho do rebaixo) ou "3D".
+    // "GERAL" (todos os rebaixos) ou "PLANTA" (trecho do rebaixo).
     public string PainelModo { get; set; } = "GERAL";
 
     public MFRebaixoPreset Garagem { get; set; } = new()

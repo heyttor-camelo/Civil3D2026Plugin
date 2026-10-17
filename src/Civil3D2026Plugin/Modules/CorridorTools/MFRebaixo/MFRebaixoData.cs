@@ -66,7 +66,18 @@ internal sealed class RebaixoInfo
 
     public string SideLabel => Left ? "Esquerdo" : "Direito";
 
-    public string Label => $"{Num(S1)} - {Num(S2)}";
+    /// <summary>Codigo sequencial do rebaixo no desenho (R01, R02...).</summary>
+    public string Code { get; set; } = "";
+
+    /// <summary>Nome dado pelo usuario (guardado no comentario do Transition Set: "REBAIXO MF | nome").</summary>
+    public string CustomName =>
+        Comment.Contains('|') ? Comment[(Comment.IndexOf('|') + 1)..].Trim() : "";
+
+    /// <summary>Como o rebaixo aparece no painel: "R03" ou "R03 Garagem 120".</summary>
+    public string Label => CustomName.Length > 0 ? $"{Code} {CustomName}" : Code;
+
+    /// <summary>Trecho rebaixado em estacas da baseline.</summary>
+    public string Stations => $"{Num(S1, "0.00")} - {Num(S2, "0.00")}";
 
     public static string Num(double v, string fmt = "0.000") => v.ToString(fmt, CultureInfo.InvariantCulture);
 }
@@ -254,7 +265,10 @@ internal static class MFRebaixoData
         }
 
         tr.Commit();
-        return list.OrderBy(r => r.CorridorName).ThenBy(r => r.BaselineName).ThenBy(r => r.S1).ToList();
+        List<RebaixoInfo> ordered = list.OrderBy(r => r.CorridorName).ThenBy(r => r.BaselineName).ThenBy(r => r.S1).ToList();
+        for (int i = 0; i < ordered.Count; i++)
+            ordered[i].Code = $"R{i + 1:00}";
+        return ordered;
     }
 
     private static RebaixoInfo? Build(AcadDb.Transaction tr, CivilCorridor corridor, AcadDb.ObjectId corridorId,
@@ -786,6 +800,35 @@ internal static class MFRebaixoData
             corridor.Rebuild();
         tr.Commit();
         return $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0) e {sections} secao(oes) removida(s); os sets vazios podem ser apagados no Edit Corridor Transition";
+    }
+
+    public const string BaseComment = "REBAIXO MF";
+
+    public static string CommentFor(string? name) =>
+        string.IsNullOrWhiteSpace(name) ? BaseComment : BaseComment + " | " + name.Trim().Replace('|', '/');
+
+    /// <summary>Da nome ao rebaixo: grava no comentario do Transition Set (SetTransitions atualiza pelo nome).</summary>
+    public static void Rename(AcadDb.Database db, RebaixoInfo r, string? name)
+    {
+        string comment = CommentFor(name);
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        if (tr.GetObject(r.CorridorId, AcadDb.OpenMode.ForWrite) is not CivilCorridor corridor)
+            throw new InvalidOperationException("O corredor do rebaixo nao existe mais.");
+        CivilDb.Baseline baseline = FindBaseline(corridor, r.BaselineKey)
+            ?? throw new InvalidOperationException("A baseline do rebaixo nao existe mais.");
+
+        List<CivilDb.CorridorTransitionSet> sets = baseline.getTransitions();
+        CivilDb.CorridorTransitionSet set = sets.FirstOrDefault(x => (x.Name ?? "").Equals(r.SetName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException("O Transition Set do rebaixo nao foi encontrado.");
+        set.Comment = comment;
+        baseline.SetTransitions(sets);
+
+        List<CivilDb.CorridorTransitionSet> after = baseline.getTransitions();
+        CivilDb.CorridorTransitionSet? check = after.FirstOrDefault(x => (x.Name ?? "").Equals(r.SetName, StringComparison.OrdinalIgnoreCase));
+        if (after.Count != sets.Count || check is null || (check.Comment ?? "") != comment)
+            throw new InvalidOperationException("O Civil 3D nao aceitou o novo nome. Nada foi alterado.");
+
+        tr.Commit();
     }
 
     public static void Rebuild(AcadDb.Database db, AcadDb.ObjectId corridorId)
