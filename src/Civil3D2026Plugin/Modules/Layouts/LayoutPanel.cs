@@ -53,6 +53,12 @@ internal sealed class LayoutPanel : SW.Window
     private List<KeyMapSheet> _kmResumo = new();
     private List<ViewFrameItem> _vfs = new();
     private readonly HashSet<ObjectId> _vfsMarcados = new();
+    private readonly TextFilter _filtro = new();
+    private List<SheetText2> _textos = new();
+    private readonly HashSet<ObjectId> _textosMarcados = new();
+    private readonly NumberingRule _regra = new();
+    private Dictionary<ObjectId, ViewFrameLink> _vinculos = new();
+    private readonly SheetBlockOptions _prancha = new();
     private readonly HashSet<Document> _docsLigados = new();
     private readonly Dictionary<string, string> _valoresCarimbo = new(StringComparer.OrdinalIgnoreCase);
     private bool _refreshQueued;
@@ -71,14 +77,15 @@ internal sealed class LayoutPanel : SW.Window
 
     // Vista grafica: um layout (com zoom/pan) ou todos (cartoes).
     private bool _todos;
-    private bool _textos = true;
+    private bool _mostrarTextos = true;
     private double _zoom = 1;
     private SW.Vector _pan;
     private SW.Point? _dragFrom;
     private SheetGraphics.Mapa? _mapa;
     private readonly Dictionary<ObjectId, List<WS.Path>> _vpShapes = new();
     private readonly Dictionary<SheetData, WC.Border> _cards = new();
-    private const double CardW = 250, ThumbH = 176;
+    private double CardW = 250;
+    private double ThumbH => CardW * 0.7;
     private WC.ListView _list = new();
     private WC.TextBox _find = new();
     private WC.StackPanel _tabStrip = new();
@@ -90,6 +97,14 @@ internal sealed class LayoutPanel : SW.Window
     private readonly WM.Brush _vpHover = ToolTheme.Brush(80, 160, 255, 45);
     private readonly WM.Brush _vpSel = ToolTheme.Brush(80, 160, 255, 110);
     private readonly WM.Brush _vpSelTraco = ToolTheme.Brush(80, 160, 255);
+    private readonly WM.Brush _vpTravada = ToolTheme.Brush(110, 200, 120, 38);
+    private readonly WM.Brush _vpDesligada = ToolTheme.Brush(140, 140, 140, 70);
+    private readonly WM.Brush _vp3d = ToolTheme.Brush(230, 165, 20, 45);
+    private readonly WM.Brush _vp3dTraco = ToolTheme.Brush(230, 165, 20);
+
+    /// <summary>Hachura (preenchimento) pelo estado: desligada > 3D > travada > livre.</summary>
+    private WM.Brush FillEstado(SheetViewport v) =>
+        !v.Ligada ? _vpDesligada : !v.Planta ? _vp3d : v.Travada ? _vpTravada : WM.Brushes.Transparent;
 
     // ------------------------------------------------------------------
     // Categorias e comandos
@@ -138,8 +153,11 @@ internal sealed class LayoutPanel : SW.Window
             "Aplica a escala 1:N nas viewports marcadas (e a escala de anotacao, se existir no desenho).",
             new[] { "Marque as viewports.", "Escolha a escala na aba Escala." }, p => p.SelectCategory("VIEWPORTS", "Escala")),
         new("NUMERAR", "numero", "Numerar pranchas", "Numeracao",
-            "Escreve o numero (01, 02...) e o total (/NN) nos textos das layers PRANCHA_NUMERO e PRANCHA_TOTAL, na ordem das abas.",
-            new[] { "Configure os textos uma vez (aba Numeracao).", "Clique para renumerar depois de criar, apagar ou reordenar layouts." }, p => p.Executar(() => LayoutOps.Numerar(p.Doc!))),
+            "Escreve numero e total nos textos marcados (busca na aba Numeracao), na ordem das abas, com prefixo, sufixo, digitos e total configuraveis.",
+            new[] { "Busque e marque os textos do numero e do total (uma vez).", "Clique para renumerar depois de criar, apagar ou reordenar layouts." }, p => p.Numerar()),
+        new("PRANCHA", "prancha", "Inserir prancha", "Layouts",
+            "Insere um bloco de prancha (A0 a A4 ou tamanho livre) com estendimentos, margens e marcas de dobra, na origem ou num ponto clicado.",
+            new[] { "Configure na aba Prancha.", "Inserir na origem ou clicar o ponto." }, p => p.SelectCategory("LAYOUTS", "Prancha")),
         new("LAYERSTATE", "camadas", "Aplicar layer state", "Layer state",
             "Restaura o layer state escolhido como override nas viewports marcadas.",
             new[] { "Escolha o layer state na lista.", "Marque as viewports nas miniaturas.", "Aplicar." }, p => p.AplicarLayerState()),
@@ -163,6 +181,9 @@ internal sealed class LayoutPanel : SW.Window
             new[] { "Sem perguntas." }, p => p.Executar(() => LayoutKeyMap.Gerar(p.Doc!, true))),
         new("VFZOOM", "viewframe", "Zoom no view frame", "View frames",
             "Mostra no Model o view frame ou match line selecionado.", new[] { "Selecione na categoria View frames." }, p => p.ZoomViewFrame()),
+        new("VFATUALIZAR", "atualizar", "Atualizar viewports pelos view frames", "View frames",
+            "Reposiciona as viewports vinculadas pelo frame (planta: centro e giro pelo eixo; perfil: intervalo de estacas do profile view).",
+            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.Executar(() => LayoutViewFrameSync.Atualizar(p.Doc!, null, p._vfs))),
         new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
             "Le os layouts do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh())
     };
@@ -296,8 +317,7 @@ internal sealed class LayoutPanel : SW.Window
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(0.85, SW.GridUnitType.Star), MinHeight = 120 });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(5) });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(6) });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 160 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
 
@@ -329,6 +349,14 @@ internal sealed class LayoutPanel : SW.Window
             Background = ToolTheme.GraphicBack,
             Visibility = SW.Visibility.Collapsed
         };
+        _gradeScroll.PreviewMouseWheel += (_, e) =>
+        {
+            if ((WI.Keyboard.Modifiers & WI.ModifierKeys.Control) == 0)
+                return;
+            CardW = Math.Clamp(CardW * (e.Delta > 0 ? 1.2 : 1 / 1.2), 140, 900);
+            RenderGraphic();
+            e.Handled = true;
+        };
         WC.Grid graphicHost = new();
         graphicHost.Children.Add(_graphic);
         graphicHost.Children.Add(_gradeScroll);
@@ -342,9 +370,6 @@ internal sealed class LayoutPanel : SW.Window
             _dragFrom = null;
             _graphic.ReleaseMouseCapture();
         };
-        WC.Grid.SetRow(graphic, 2);
-        root.Children.Add(graphic);
-
         WC.DockPanel graphicBar = new() { Margin = new SW.Thickness(4, 0, 4, 0), Background = T.Hover, Height = 24 };
         WC.StackPanel links = new() { Orientation = WC.Orientation.Horizontal };
         _modoBar = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -360,24 +385,38 @@ internal sealed class LayoutPanel : SW.Window
         var textos = new WC.CheckBox
         {
             Content = "Textos",
-            IsChecked = _textos,
+            IsChecked = _mostrarTextos,
             VerticalAlignment = SW.VerticalAlignment.Center,
             Margin = new SW.Thickness(8, 0, 8, 0),
             ToolTip = "Mostra os textos e atributos do papel na miniatura"
         };
         textos.Click += (_, _) =>
         {
-            _textos = textos.IsChecked == true;
+            _mostrarTextos = textos.IsChecked == true;
             RenderGraphic();
         };
         WC.DockPanel.SetDock(textos, WC.Dock.Right);
         graphicBar.Children.Add(textos);
         graphicBar.Children.Add(_graphicInfo);
-        WC.Grid.SetRow(graphicBar, 3);
-        root.Children.Add(graphicBar);
+        // Vista + barra na mesma linha: o GridSplitter redimensiona as duas linhas estrela vizinhas.
+        WC.DockPanel graphicRow = new();
+        WC.DockPanel.SetDock(graphicBar, WC.Dock.Bottom);
+        graphicRow.Children.Add(graphicBar);
+        graphicRow.Children.Add(graphic);
+        WC.Grid.SetRow(graphicRow, 2);
+        root.Children.Add(graphicRow);
 
-        WC.GridSplitter splitH = new() { Height = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
-        WC.Grid.SetRow(splitH, 4);
+        WC.GridSplitter splitH = new()
+        {
+            Height = 6,
+            HorizontalAlignment = SW.HorizontalAlignment.Stretch,
+            VerticalAlignment = SW.VerticalAlignment.Stretch,
+            Background = T.Back,
+            ResizeDirection = WC.GridResizeDirection.Rows,
+            ResizeBehavior = WC.GridResizeBehavior.PreviousAndNext,
+            Cursor = WI.Cursors.SizeNS
+        };
+        WC.Grid.SetRow(splitH, 3);
         root.Children.Add(splitH);
 
         WC.Grid bottom = new() { Margin = new SW.Thickness(4, 0, 4, 0) };
@@ -387,7 +426,7 @@ internal sealed class LayoutPanel : SW.Window
         _list.SelectionChanged += (_, _) => OnRowSelected();
         _list.MouseDoubleClick += (_, _) => OnRowDoubleClick();
         bottom.Children.Add(_list);
-        WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
+        WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, VerticalAlignment = SW.VerticalAlignment.Stretch, Background = T.Back, ResizeDirection = WC.GridResizeDirection.Columns, ResizeBehavior = WC.GridResizeBehavior.PreviousAndNext, Cursor = WI.Cursors.SizeWE };
         WC.Grid.SetColumn(splitV, 1);
         bottom.Children.Add(splitV);
 
@@ -398,7 +437,7 @@ internal sealed class LayoutPanel : SW.Window
         right.Children.Add(new WC.Border { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1, 0, 1, 1), Background = T.Pane, Child = _tabContent });
         WC.Grid.SetColumn(right, 2);
         bottom.Children.Add(right);
-        WC.Grid.SetRow(bottom, 5);
+        WC.Grid.SetRow(bottom, 4);
         root.Children.Add(bottom);
 
         WC.DockPanel footer = new() { Margin = new SW.Thickness(4, 4, 4, 4) };
@@ -409,7 +448,7 @@ internal sealed class LayoutPanel : SW.Window
         WC.DockPanel.SetDock(leftButtons, WC.Dock.Left);
         footer.Children.Add(leftButtons);
         footer.Children.Add(_status);
-        WC.Grid.SetRow(footer, 6);
+        WC.Grid.SetRow(footer, 5);
         root.Children.Add(footer);
 
         BuildCommandBar();
@@ -600,6 +639,8 @@ internal sealed class LayoutPanel : SW.Window
             _kmCfg = LayoutKeyMap.Ler(db);
             _kmResumo = LayoutKeyMap.Resumo(db);
             _vfs = LayoutViewFrames.Ler(db, _folhas.Select(f => f.Nome).ToList());
+            _vinculos = LayoutViewFrameSync.LerVinculos(db);
+            _textos = LayoutNumbering.Buscar(db, _filtro);
         }
         catch (System.Exception ex)
         {
@@ -609,6 +650,7 @@ internal sealed class LayoutPanel : SW.Window
 
         LigarDocumento(doc);
         _vfsMarcados.RemoveWhere(id => !_vfs.Any(v => v.Id == id));
+        _textosMarcados.RemoveWhere(id => !_textos.Any(t => t.Id == id));
         if (_pageSetup is not null && !_pageSetups.Any(p => p.Nome == _pageSetup))
             _pageSetup = null;
 
@@ -640,7 +682,7 @@ internal sealed class LayoutPanel : SW.Window
     {
         "LAYOUTS" => _folhas.Count,
         "VIEWPORTS" => _folhas.Sum(f => f.Viewports.Count),
-        "NUMERACAO" => -1,
+        "NUMERACAO" => _textos.Count(t => t.Papel.Length > 0),
         "LAYERSTATE" => _states.Count,
         "CARIMBO" => _blocos.Count,
         "PAGESETUP" => _pageSetups.Count,
@@ -727,9 +769,9 @@ internal sealed class LayoutPanel : SW.Window
                     Cells = new[]
                     {
                         $"{f.Nome}  #{i + 1}",
-                        v.Escala.Length > 0 ? v.Escala : EscalaTexto(v.EscalaCustom),
+                        EscalaTexto(v.EscalaCustom) + (v.Escala.Length > 0 ? $"  {v.Escala}" : ""),
                         $"{v.Largura:0.#} x {v.Altura:0.#}",
-                        (v.Travada ? "travada" : "livre") + (v.Ligada ? "" : ", desligada"),
+                        EstadoTexto(v),
                         v.Aplicado ?? ""
                     }
                 })).Where(r => Match(r.Cells[0]) || Match(r.Cells[1])).ToList();
@@ -749,6 +791,19 @@ internal sealed class LayoutPanel : SW.Window
                 comCheck = false;
                 rows = _blocos.Where(b => Match(b.Nome))
                     .Select(b => new Row { Icon = "bloco", Data = b, Cells = new[] { b.Nome, b.Layouts.ToString(), b.Referencias.ToString(), string.Join(", ", b.Tags) }, Checked = b.Nome.Equals(_bloco, StringComparison.OrdinalIgnoreCase) }).ToList();
+                break;
+
+            case "NUMERACAO":
+                headers = new[] { "Texto", "Layout", "Tipo", "Layer", "Altura", "Papel" };
+                widths = new[] { 220.0, 120, 70, 130, 60, 70 };
+                comCheck = true;
+                rows = _textos.Where(t => Match(t.Texto) || Match(t.Layout) || Match(t.Layer) || Match(t.Bloco) || Match(t.Tag)).Select(t => new Row
+                {
+                    Icon = t.Papel == "Numero" ? "numero" : t.Papel == "Total" ? "ordenar" : t.Tipo == "Atributo" ? "bloco" : "renomear",
+                    Data = t,
+                    Checked = _textosMarcados.Contains(t.Id),
+                    Cells = new[] { t.Texto.Length > 60 ? t.Texto[..60] + "..." : t.Texto, t.Layout, t.Tipo == "Atributo" ? $"Atrib. {t.Tag}" : t.Tipo, t.Layer, t.Altura.ToString("0.##", CultureInfo.InvariantCulture), t.Papel.Length > 0 ? t.Papel.ToUpperInvariant() : "" }
+                }).ToList();
                 break;
 
             case "PAGESETUP":
@@ -777,15 +832,15 @@ internal sealed class LayoutPanel : SW.Window
                 break;
 
             case "VIEWFRAMES":
-                headers = new[] { "View frame", "Eixo", "Estaca inicial", "Estaca final", "Layout" };
-                widths = new[] { 170.0, 140, 90, 90, 130 };
+                headers = new[] { "View frame", "Eixo", "Estaca inicial", "Estaca final", "Layout", "Viewports vinculadas" };
+                widths = new[] { 170.0, 130, 85, 85, 120, 140 };
                 comCheck = true;
                 rows = _vfs.Where(v => Match(v.Nome) || Match(v.Eixo) || Match(v.Grupo) || Match(v.Layout)).Select(v => new Row
                 {
                     Icon = v.Tipo == "Frame" ? "viewframe" : "quebrar",
                     Data = v,
                     Checked = _vfsMarcados.Contains(v.Id),
-                    Cells = new[] { v.Nome, v.Eixo, LayoutViewFrames.Estaca(v.EstacaInicio), LayoutViewFrames.Estaca(v.EstacaFim), v.Layout }
+                    Cells = new[] { v.Nome, v.Eixo, LayoutViewFrames.Estaca(v.EstacaInicio), LayoutViewFrames.Estaca(v.EstacaFim), v.Layout, VinculosTexto(v) }
                 }).ToList();
                 break;
 
@@ -895,6 +950,9 @@ internal sealed class LayoutPanel : SW.Window
             case ViewFrameItem vf:
                 if (marcar) _vfsMarcados.Add(vf.Id); else _vfsMarcados.Remove(vf.Id);
                 break;
+            case SheetText2 tx:
+                if (marcar) _textosMarcados.Add(tx.Id); else _textosMarcados.Remove(tx.Id);
+                break;
         }
         Status();
     }
@@ -929,6 +987,9 @@ internal sealed class LayoutPanel : SW.Window
                 break;
             case ViewFrameItem vf when vf.Layout.Length > 0:
                 MostrarFolha(_folhas.FirstOrDefault(f => f.Nome == vf.Layout));
+                break;
+            case SheetText2 tx:
+                MostrarFolha(_folhas.FirstOrDefault(f => f.Nome == tx.Layout));
                 break;
         }
         BuildTabs();
@@ -1007,7 +1068,7 @@ internal sealed class LayoutPanel : SW.Window
             return;
         }
 
-        _mapa = SheetGraphics.Desenhar(_graphic, folha, w, h, _zoom, _pan, _textos, soTextosGrandes: false);
+        _mapa = SheetGraphics.Desenhar(_graphic, folha, w, h, _zoom, _pan, _mostrarTextos, soTextosGrandes: false);
         DesenharViewports(_graphic, folha, _mapa, rotulos: true);
 
         var nome = new WC.TextBlock
@@ -1065,7 +1126,7 @@ internal sealed class LayoutPanel : SW.Window
             sp.Children.Add(cab);
 
             var canvas = new WC.Canvas { Width = CardW - 2, Height = ThumbH, Background = ToolTheme.GraphicBack, ClipToBounds = true };
-            SheetGraphics.Mapa mapa = SheetGraphics.Desenhar(canvas, folha, CardW - 2, ThumbH, 1, new SW.Vector(), _textos, soTextosGrandes: true, margem: 6);
+            SheetGraphics.Mapa mapa = SheetGraphics.Desenhar(canvas, folha, CardW - 2, ThumbH, 1, new SW.Vector(), _mostrarTextos, soTextosGrandes: true, margem: 6);
             DesenharViewports(canvas, folha, mapa, rotulos: false);
             sp.Children.Add(canvas);
 
@@ -1124,12 +1185,13 @@ internal sealed class LayoutPanel : SW.Window
                 Data = vg,
                 StrokeDashArray = vp.Ligada ? null : new WM.DoubleCollection { 3, 2 },
                 Cursor = WI.Cursors.Hand,
-                ToolTip = $"Viewport #{i}\n{(vp.Escala.Length > 0 ? vp.Escala : EscalaTexto(vp.EscalaCustom))}\n{vp.Largura:0.##} x {vp.Altura:0.##}\n{(vp.Travada ? "travada" : "livre")}{(vp.Ligada ? "" : ", desligada")}" +
-                          (vp.Aplicado is null ? "" : $"\nLayer state: {vp.Aplicado}") + "\nClique para marcar/desmarcar"
+                ToolTip = DicaViewport(folha, vp),
+                ContextMenu = MenuViewport(folha, vp)
             };
             SheetViewport v = vp;
             forma.MouseEnter += (_, _) => { if (!_vpsMarcadas.Contains(v.Id)) forma.Fill = _vpHover; };
-            forma.MouseLeave += (_, _) => { if (!_vpsMarcadas.Contains(v.Id)) forma.Fill = WM.Brushes.Transparent; };
+            forma.MouseLeave += (_, _) => { if (!_vpsMarcadas.Contains(v.Id)) forma.Fill = FillEstado(v); };
+            forma.MouseRightButtonDown += (_, _) => MostrarFolha(folha);
             forma.MouseLeftButtonDown += (_, e) =>
             {
                 if (e.ClickCount > 1)
@@ -1150,7 +1212,7 @@ internal sealed class LayoutPanel : SW.Window
             if (rotulos)
             {
                 SW.Point c = mapa.Tela(vp.Centro);
-                string rot = vp.Aplicado ?? (vp.Escala.Length > 0 ? vp.Escala : EscalaTexto(vp.EscalaCustom));
+                string rot = vp.Aplicado ?? (vp.EscalaCustom > 0 ? vp.EscalaCustom.ToString("0.####", CultureInfo.InvariantCulture) : vp.Escala);
                 var rotulo = new WC.TextBlock
                 {
                     Text = $"#{i}  {rot}",
@@ -1178,8 +1240,9 @@ internal sealed class LayoutPanel : SW.Window
             bool marcada = _vpsMarcadas.Contains(id);
             foreach (WS.Path forma in formas)
             {
-                forma.Fill = marcada ? _vpSel : WM.Brushes.Transparent;
-                forma.Stroke = marcada ? _vpSelTraco : _vpTraco;
+                SheetViewport? vpi = _vpPorId.GetValueOrDefault(id);
+                forma.Fill = marcada ? _vpSel : vpi is null ? WM.Brushes.Transparent : FillEstado(vpi);
+                forma.Stroke = marcada ? _vpSelTraco : vpi is { Planta: false } ? _vp3dTraco : _vpTraco;
                 forma.StrokeThickness = marcada ? 2.0 : 1.2;
             }
         }
@@ -1206,7 +1269,7 @@ internal sealed class LayoutPanel : SW.Window
         int total = _vpsMarcadas.Count;
         int layouts = _folhas.Count(f => f.Viewports.Any(v => _vpsMarcadas.Contains(v.Id)));
         _graphicInfo.Text = _todos
-            ? $"{_folhas.Count} layout(s); {total} viewport(s) marcada(s) em {layouts} layout(s). Clique no cartao para escolher; duplo clique abre."
+            ? $"{_folhas.Count} layout(s); {total} viewport(s) marcada(s) em {layouts} layout(s). Clique no cartao para escolher; duplo clique abre; Ctrl+roda muda o tamanho."
             : _folhaAtual is null
                 ? ""
                 : $"{_folhaAtual.Viewports.Count(v => _vpsMarcadas.Contains(v.Id))}/{_folhaAtual.Viewports.Count} viewport(s) marcada(s) neste layout; {total} no total. Roda: zoom; arrastar: mover; duplo clique: enquadrar.";
@@ -1270,7 +1333,110 @@ internal sealed class LayoutPanel : SW.Window
             RenderGraphic();
     }
 
-    private static string EscalaTexto(double custom) => custom > 0 ? $"1:{1.0 / custom:0.##}" : "";
+    private string EscalaTexto(double custom) => LayoutOps.EscalaTexto(custom, Fator);
+
+    private double Fator => _folhaAtual?.FatorUnidade ?? _folhas.FirstOrDefault()?.FatorUnidade ?? 1000;
+
+    private static string EstadoTexto(SheetViewport v) =>
+        (v.Travada ? "travada" : "livre") + (v.Ligada ? "" : ", desligada") + (v.Planta ? "" : ", vista 3D/inclinada");
+
+    private string DicaViewport(SheetData folha, SheetViewport vp) =>
+        $"{folha.Nome}  viewport #{vp.Indice}\nEscala: {(vp.Escala.Length > 0 ? vp.Escala + "  |  " : "")}{EscalaTexto(vp.EscalaCustom)}\n{vp.Largura:0.##} x {vp.Altura:0.##} no papel\n{EstadoTexto(vp)}" +
+        (vp.Aplicado is null ? "" : $"\nLayer state: {vp.Aplicado}") + "\nClique: marcar/desmarcar   Botao direito: acoes";
+
+    /// <summary>Botao direito na viewport: informacoes e edicoes rapidas.</summary>
+    private WC.ContextMenu MenuViewport(SheetData folha, SheetViewport vp)
+    {
+        var menu = new WC.ContextMenu();
+        menu.Items.Add(new WC.MenuItem { Header = $"{folha.Nome}  #{vp.Indice}   {EscalaTexto(vp.EscalaCustom)}   {EstadoTexto(vp)}", IsEnabled = false, FontWeight = SW.FontWeights.Bold });
+        menu.Items.Add(new WC.Separator());
+
+        void Item(string texto, Action acao, string? icone = null)
+        {
+            var mi = new WC.MenuItem { Header = texto };
+            if (icone is not null)
+                mi.Icon = new WC.Image { Source = IconOf(icone), Width = 16, Height = 16 };
+            mi.Click += (_, _) => acao();
+            menu.Items.Add(mi);
+        }
+        var so = new[] { vp.Id };
+
+        Item(_vpsMarcadas.Contains(vp.Id) ? "Desmarcar" : "Marcar", () =>
+        {
+            if (!_vpsMarcadas.Remove(vp.Id)) _vpsMarcadas.Add(vp.Id);
+            AtualizarViewports();
+            if (_category == "VIEWPORTS") FillList();
+            Status();
+        });
+        Item("Repetir esta posicao nos demais layouts", () =>
+        {
+            _vpsMarcadas.Add(vp.Id);
+            MostrarFolha(folha);
+            RepetirNosDemais();
+        });
+        menu.Items.Add(new WC.Separator());
+        Item(vp.Travada ? "Destravar" : "Travar", () => Executar(() => LayoutOps.Travar(Doc!, so, !vp.Travada)), vp.Travada ? "destravar" : "travar");
+        Item(vp.Ligada ? "Desligar" : "Ligar", () => Executar(() => LayoutOps.Ligar(Doc!, so, !vp.Ligada)), vp.Ligada ? "desligar" : "ligar");
+        Item("Escala...", () =>
+        {
+            _vpsMarcadas.Add(vp.Id);
+            AtualizarViewports();
+            SelectCategory("VIEWPORTS", "Escala");
+        }, "escala");
+        if (_layerState is not null)
+            Item($"Aplicar layer state \"{_layerState}\"", () =>
+            {
+                Executar(() => LayoutOps.AplicarLayerState(Doc!, _layerState, so));
+                vp.Aplicado = _layerState;
+            }, "camadas");
+        menu.Items.Add(new WC.Separator());
+        Item("Abrir layout e dar zoom nesta viewport", () => ZoomViewport(folha, vp), "abrir");
+        Item("Selecionar no desenho", () => SelecionarViewport(folha, vp));
+        Item("Propriedades", () =>
+        {
+            MostrarFolha(folha);
+            SelectCategory("VIEWPORTS");
+            foreach (WC.ListViewItem item in _list.Items)
+                if (item.Tag is Row { Data: SheetViewport r } && r.Id == vp.Id)
+                    _list.SelectedItem = item;
+        });
+        return menu;
+    }
+
+    private void ZoomViewport(SheetData folha, SheetViewport vp)
+    {
+        if (Doc is not Document doc)
+            return;
+        try
+        {
+            LayoutOps.Abrir(doc, folha.Nome);
+        }
+        catch (System.Exception ex)
+        {
+            Say("Erro ao abrir: " + ex.Message);
+            return;
+        }
+        double w = vp.Largura * 0.55, h = vp.Altura * 0.55;
+        string P(double x, double y) => $"{x.ToString("0.###", CultureInfo.InvariantCulture)},{y.ToString("0.###", CultureInfo.InvariantCulture)}";
+        Enviar($"_.PSPACE _.ZOOM _W {P(vp.Centro.X - w, vp.Centro.Y - h)} {P(vp.Centro.X + w, vp.Centro.Y + h)}");
+    }
+
+    private void SelecionarViewport(SheetData folha, SheetViewport vp)
+    {
+        if (Doc is not Document doc)
+            return;
+        try
+        {
+            LayoutOps.Abrir(doc, folha.Nome);
+            doc.Editor.SwitchToPaperSpace();
+            doc.Editor.SetImpliedSelection(new[] { vp.Id });
+            Say($"Viewport #{vp.Indice} de {folha.Nome} selecionada no desenho.");
+        }
+        catch (System.Exception ex)
+        {
+            Say("Erro ao selecionar: " + ex.Message);
+        }
+    }
 
     private static string Papel(SheetData f) =>
         f.PapelLargura > 0 && f.PapelAltura > 0 ? $"{f.PapelLargura:0} x {f.PapelAltura:0} mm" : f.Papel;
@@ -1286,18 +1452,22 @@ internal sealed class LayoutPanel : SW.Window
         {
             case "LAYOUTS":
                 tabs.Add(("Renomear", "Renomear", BuildRename));
+                tabs.Add(("Prancha", "Inserir prancha", BuildSheetBlock));
                 break;
             case "VIEWPORTS":
                 tabs.Add(("Escala", "Escala", BuildScale));
                 break;
             case "NUMERACAO":
-                tabs.Insert(0, ("Numeracao", "Numeracao", BuildNumbering));
+                tabs.Insert(0, ("Busca", "Buscar textos", BuildTextSearch));
+                tabs.Insert(1, ("Numeracao", "Numerar", BuildNumbering));
+                tabs.Add(("Editar", "Editar texto", BuildTextEdit));
                 break;
             case "LAYERSTATE":
                 tabs.Insert(0, ("Aplicar", "Aplicar", BuildLayerState));
                 break;
             case "CARIMBO":
                 tabs.Insert(0, ("Carimbo", "Carimbo", BuildStamp));
+                tabs.Add(("Editar", "Editar texto", BuildTextEdit));
                 break;
             case "PAGESETUP":
                 tabs.Insert(0, ("Nomeado", "Page setup nomeado", BuildPageSetupNamed));
@@ -1386,7 +1556,8 @@ internal sealed class LayoutPanel : SW.Window
                 SheetData? dono = _folhas.FirstOrDefault(f => f.Viewports.Contains(v));
                 p.Children.Add(Label($"Viewport de {dono?.Nome}", true));
                 p.Children.Add(Prop("Escala de anotacao", v.Escala.Length > 0 ? v.Escala : "(nenhuma)"));
-                p.Children.Add(Prop("Escala", EscalaTexto(v.EscalaCustom)));
+                p.Children.Add(Prop("Custom scale", EscalaTexto(v.EscalaCustom)));
+                p.Children.Add(Prop("Vista", v.Planta ? "planta" : "3D / inclinada"));
                 p.Children.Add(Prop("Tamanho no papel", $"{v.Largura:0.##} x {v.Altura:0.##}"));
                 p.Children.Add(Prop("Centro", $"{v.Centro.X:0.##}, {v.Centro.Y:0.##}"));
                 p.Children.Add(Prop("Travada", v.Travada ? "sim" : "nao"));
@@ -1398,6 +1569,22 @@ internal sealed class LayoutPanel : SW.Window
                 p.Children.Add(Label(s.Nome, true));
                 p.Children.Add(Prop("Descricao", s.Descricao.Length > 0 ? s.Descricao : "(sem descricao)"));
                 p.Children.Add(Label("Para incluir VP Freeze e cores de viewport, o layer state precisa ter sido salvo de dentro de uma viewport (MSPACE)."));
+                break;
+            case SheetText2 tx:
+                p.Children.Add(Label(tx.Tipo == "Atributo" ? $"Atributo {tx.Tag} do bloco {tx.Bloco}" : tx.Tipo, true));
+                p.Children.Add(Prop("Layout", tx.Layout));
+                p.Children.Add(Prop("Texto", tx.Texto));
+                p.Children.Add(Prop("Layer", tx.Layer));
+                p.Children.Add(Prop("Altura", tx.Altura.ToString("0.###", CultureInfo.InvariantCulture)));
+                p.Children.Add(Prop("Caracteres", tx.Caracteres.ToString()));
+                p.Children.Add(Prop("Papel na numeracao", tx.Papel.Length > 0 ? tx.Papel : "(nenhum)"));
+                var acoesTx = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+                acoesTx.Children.Add(ActionButton("Marcar como numero", () => MarcarTextos("Numero", new[] { tx.Id })));
+                acoesTx.Children.Add(ActionButton("Marcar como total", () => MarcarTextos("Total", new[] { tx.Id })));
+                if (tx.Papel.Length > 0)
+                    acoesTx.Children.Add(ActionButton("Desmarcar", () => MarcarTextos("", new[] { tx.Id })));
+                p.Children.Add(acoesTx);
+                p.Children.Add(ActionButton("Editar texto", () => { _tab = "Editar"; BuildTabs(); }));
                 break;
             case ViewFrameItem vf:
                 p.Children.Add(Label(vf.Nome, true));
@@ -1486,49 +1673,334 @@ internal sealed class LayoutPanel : SW.Window
     {
         WC.StackPanel p = Form();
         p.Children.Add(Label($"Escala para {_vpsMarcadas.Count} viewport(s) marcada(s)", true));
-        var combo = new WC.ComboBox { Width = 220, HorizontalAlignment = SW.HorizontalAlignment.Left, IsEditable = true, Margin = new SW.Thickness(0, 4, 0, 0) };
-        foreach ((string nome, double den) in _escalas)
-            combo.Items.Add($"{nome}   (1:{den:0.##})");
-        foreach (int den in new[] { 50, 100, 200, 250, 500, 1000, 2000, 5000 })
-            if (!_escalas.Any(e => Math.Abs(e.Denominador - den) < 1e-6))
-                combo.Items.Add($"1:{den}");
-        if (combo.Items.Count > 0)
-            combo.SelectedIndex = 0;
-        p.Children.Add(Label("Escala (escolha ou digite 1:N ou so N)"));
+        p.Children.Add(Label("No formato da propriedade \"Custom scale\" do AutoCAD (unidades de papel por unidade de desenho). Tambem aceita 1:N, 1/N ou N:1, convertido pelo fator de unidade abaixo."));
+
+        var fator = new WC.TextBox { Width = 90, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = Fator.ToString("0.###", CultureInfo.InvariantCulture) };
+        double FatorAtual() => double.TryParse(fator.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double f) && f > 0 ? f : Fator;
+
+        var combo = new WC.ComboBox { Width = 260, HorizontalAlignment = SW.HorizontalAlignment.Left, IsEditable = true, Margin = new SW.Thickness(0, 4, 0, 0) };
+        void Preencher()
+        {
+            combo.Items.Clear();
+            double f = FatorAtual();
+            foreach ((string nome, double den) in _escalas)
+                combo.Items.Add($"{(f / den).ToString("0.####", CultureInfo.InvariantCulture)}   ({nome})");
+            foreach (int den in new[] { 50, 100, 200, 250, 500, 1000, 2000, 5000 })
+                if (!_escalas.Any(e => Math.Abs(e.Denominador - den) < 1e-6))
+                    combo.Items.Add($"{(f / den).ToString("0.####", CultureInfo.InvariantCulture)}   (1:{den})");
+            if (combo.Items.Count > 0)
+                combo.SelectedIndex = 0;
+        }
+        Preencher();
+        fator.TextChanged += (_, _) => Preencher();
+
+        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 4, 0, 0) };
+        void Previa()
+        {
+            string t = (combo.Text ?? "").Trim();
+            int par = t.IndexOf("  (", StringComparison.Ordinal);
+            if (par > 0) t = t[..par];
+            previa.Text = LayoutOps.TentarEscala(t, FatorAtual(), out double c) ? "Vai aplicar custom scale " + LayoutOps.EscalaTexto(c, FatorAtual()) : "Escala invalida.";
+        }
+        combo.AddHandler(WC.Primitives.TextBoxBase.TextChangedEvent, new WC.TextChangedEventHandler((_, _) => Previa()));
+        combo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(Previa), SW.Threading.DispatcherPriority.Background);
+        fator.TextChanged += (_, _) => Previa();
+
+        p.Children.Add(Label("Escala (escolha ou digite: 2, 0.5, 1:500, 4:1)"));
         p.Children.Add(combo);
-        p.Children.Add(Label("As viewports travadas sao destravadas, escaladas e travadas de novo. A escala de anotacao so muda se existir no desenho."));
+        p.Children.Add(previa);
+        p.Children.Add(Label("Fator de unidade: mm de papel por unidade de desenho (1000 = desenho em metros; 1 = em milimetros). Lido do INSUNITS."));
+        p.Children.Add(fator);
+        p.Children.Add(Label("As viewports travadas sao destravadas, escaladas e travadas de novo. A escala de anotacao 1:N equivalente so muda se existir no desenho."));
         p.Children.Add(ActionButton("Aplicar escala", () =>
         {
-            string texto = (combo.Text ?? "").Trim();
-            int p1 = texto.IndexOf("(1:", StringComparison.Ordinal);
-            if (p1 >= 0)
-                texto = texto[(p1 + 1)..].TrimEnd(')');
-            texto = texto.Replace("1:", "").Replace(",", ".").Trim();
-            if (!double.TryParse(texto, NumberStyles.Float, CultureInfo.InvariantCulture, out double den) || den <= 0)
-            {
-                Say("Escala invalida. Use 1:N ou N.");
-                return;
-            }
-            Executar(() => LayoutOps.Escalar(Doc!, VpsMarcadas(), den));
+            if (_vpsMarcadas.Count == 0) { Say("Marque as viewports."); return; }
+            string t = (combo.Text ?? "").Trim();
+            int par = t.IndexOf("  (", StringComparison.Ordinal);
+            if (par > 0) t = t[..par];
+            if (!LayoutOps.TentarEscala(t, FatorAtual(), out double custom)) { Say("Escala invalida. Use 2, 0.5, 1:500 ou 4:1."); return; }
+            Executar(() => LayoutOps.Escalar(Doc!, VpsMarcadas(), custom, FatorAtual()));
         }));
+        Dispatcher.BeginInvoke(new Action(Previa), SW.Threading.DispatcherPriority.Background);
         return p;
     }
 
     private SW.UIElement BuildNumbering()
     {
         WC.StackPanel p = Form();
-        p.Children.Add(Label("Numeracao automatica de pranchas", true));
-        p.Children.Add(Label($"Os textos (ou atributos de bloco) da layer {LayoutOps.LayerNumero} recebem o numero (01, 02...) e os da layer {LayoutOps.LayerTotal} recebem o total (/NN), na ordem das abas. O Model nao conta."));
-        p.Children.Add(Label("Configurar (uma vez por modelo de prancha)", true));
-        p.Children.Add(Label("Clique no desenho o texto do numero e depois o do total; eles vao para as layers acima e a numeracao e feita em seguida. Se o carimbo e um bloco, clique no atributo dentro dele."));
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes.Children.Add(ActionButton("Escolher os textos (NP > Configurar)", () => Enviar(C3DCommands.Layouts.Numerar + " Configurar")));
-        p.Children.Add(botoes);
-        p.Children.Add(Label("Atualizar", true));
-        p.Children.Add(Label($"Renumera os {_folhas.Count} layouts na ordem atual das abas."));
-        p.Children.Add(ActionButton("Numerar agora", () => Executar(() => LayoutOps.Numerar(Doc!))));
+        int nNum = _textos.Count(t => t.Papel == "Numero"), nTot = _textos.Count(t => t.Papel == "Total");
+        var layoutsComNum = _textos.Where(t => t.Papel == "Numero").Select(t => t.Layout).Distinct().Count();
+        p.Children.Add(Label("Numerar pranchas", true));
+        p.Children.Add(Label($"{nNum} texto(s) marcado(s) como numero em {layoutsComNum} layout(s); {nTot} como total. Layouts sem texto marcado contam no total, mas nao recebem numero. Use a aba Buscar textos para marcar."));
+
+        var prefixo = new WC.TextBox { Width = 120, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Prefixo };
+        var sufixo = new WC.TextBox { Width = 120, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Sufixo };
+        var inicio = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Inicio.ToString() };
+        var digitos = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Digitos.ToString() };
+        int totalPadrao = _regra.SoLayoutsMarcados ? Marcados().Count : _folhas.Count;
+        var total = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = (_regra.Total ?? totalPadrao).ToString(), ToolTip = "Sugerido: quantidade de layouts. Edite se o conjunto tiver mais folhas." };
+        var fmtTotal = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left };
+        foreach (string f in new[] { "/{0}", "{0}", "de {0}", "/ {0}" })
+            fmtTotal.Items.Add(f);
+        fmtTotal.SelectedItem = _regra.FormatoTotal;
+        var soMarcados = new WC.CheckBox { Content = "Numerar so os layouts marcados (os outros nao mudam)", IsChecked = _regra.SoLayoutsMarcados, Margin = new SW.Thickness(0, 8, 0, 0) };
+        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 8, 0, 0), TextWrapping = SW.TextWrapping.Wrap };
+
+        void Ler()
+        {
+            _regra.Prefixo = prefixo.Text;
+            _regra.Sufixo = sufixo.Text;
+            _regra.Inicio = int.TryParse(inicio.Text, out int i0) ? i0 : 1;
+            _regra.Digitos = int.TryParse(digitos.Text, out int d0) ? Math.Clamp(d0, 1, 6) : 2;
+            _regra.Total = int.TryParse(total.Text, out int t0) && t0 > 0 ? t0 : null;
+            _regra.FormatoTotal = fmtTotal.SelectedItem as string ?? "/{0}";
+            _regra.SoLayoutsMarcados = soMarcados.IsChecked == true;
+            _regra.Marcados = Marcados();
+            int tot = _regra.Total ?? (_regra.SoLayoutsMarcados ? _regra.Marcados.Count : _folhas.Count);
+            previa.Text = $"Previa: {_regra.Numero(_regra.Inicio)}{_regra.TotalTexto(tot)}, {_regra.Numero(_regra.Inicio + 1)}{_regra.TotalTexto(tot)} ... (total {_regra.TotalTexto(tot).Trim()})";
+        }
+        foreach (WC.TextBox tb in new[] { prefixo, sufixo, inicio, digitos, total })
+            tb.TextChanged += (_, _) => Ler();
+        fmtTotal.SelectionChanged += (_, _) => Ler();
+        soMarcados.Click += (_, _) => { total.Text = (soMarcados.IsChecked == true ? Marcados().Count : _folhas.Count).ToString(); Ler(); };
+
+        var g = new WC.Grid();
+        for (int i = 0; i < 3; i++) g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
+        g.RowDefinitions.Add(new WC.RowDefinition()); g.RowDefinitions.Add(new WC.RowDefinition());
+        void Campo(int col, string rotulo, SW.UIElement c)
+        {
+            var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) };
+            sp.Children.Add(Label(rotulo));
+            sp.Children.Add(c);
+            WC.Grid.SetColumn(sp, col);
+            g.Children.Add(sp);
+        }
+        Campo(0, "Prefixo", prefixo); Campo(1, "Inicio", inicio); Campo(2, "Digitos (zeros a esquerda)", digitos);
+        p.Children.Add(g);
+        var g2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var c1 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) }; c1.Children.Add(Label("Sufixo")); c1.Children.Add(sufixo);
+        var c2 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) }; c2.Children.Add(Label("Total de folhas")); c2.Children.Add(total);
+        var c3 = new WC.StackPanel(); c3.Children.Add(Label("Formato do total")); c3.Children.Add(fmtTotal);
+        g2.Children.Add(c1); g2.Children.Add(c2); g2.Children.Add(c3);
+        p.Children.Add(g2);
+        p.Children.Add(soMarcados);
+        p.Children.Add(previa);
+        Ler();
+        p.Children.Add(ActionButton("Numerar agora", Numerar));
+        p.Children.Add(Label("O NP da linha de comando continua funcionando: [Configurar/Atualizar] usa os mesmos textos marcados."));
         return p;
     }
+
+    private SW.UIElement BuildTextSearch()
+    {
+        WC.StackPanel p = Form();
+        p.Children.Add(Label("Buscar textos nos layouts (TEXT, MTEXT e atributos de bloco, inclusive dentro do carimbo)", true));
+        p.Children.Add(Label("Filtre ate sobrar o texto que numera a prancha, marque-o como numero (e o do total como total). O plugin grava a marca no proprio texto; nos outros layouts, o texto com a mesma layer/posicao e encontrado com os mesmos filtros."));
+
+        var layer = new WC.TextBox { Width = 160, Text = _filtro.Layer, ToolTip = "Curinga: PR-*,CARIMBO" };
+        var contem = new WC.TextBox { Width = 160, Text = _filtro.Contem };
+        var regex = new WC.CheckBox { Content = "regex", IsChecked = _filtro.Regex, VerticalAlignment = SW.VerticalAlignment.Bottom, Margin = new SW.Thickness(6, 0, 0, 3) };
+        var altMin = new WC.TextBox { Width = 60, Text = _filtro.AlturaMin?.ToString(CultureInfo.InvariantCulture) ?? "" };
+        var altMax = new WC.TextBox { Width = 60, Text = _filtro.AlturaMax?.ToString(CultureInfo.InvariantCulture) ?? "" };
+        var carMin = new WC.TextBox { Width = 50, Text = _filtro.CaracteresMin?.ToString() ?? "" };
+        var carMax = new WC.TextBox { Width = 50, Text = _filtro.CaracteresMax?.ToString() ?? "" };
+        var numericos = new WC.CheckBox { Content = "So textos com cara de numero (01, 12/30, 3 de 10)", IsChecked = _filtro.SoNumericos, Margin = new SW.Thickness(0, 6, 0, 0) };
+        var tipos = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 6, 0, 0) };
+        var cbT = new WC.CheckBox { Content = "TEXT", IsChecked = _filtro.Textos, Margin = new SW.Thickness(0, 0, 12, 0) };
+        var cbM = new WC.CheckBox { Content = "MTEXT", IsChecked = _filtro.MTextos, Margin = new SW.Thickness(0, 0, 12, 0) };
+        var cbA = new WC.CheckBox { Content = "Atributos", IsChecked = _filtro.Atributos, Margin = new SW.Thickness(0, 0, 12, 0) };
+        var cbMarc = new WC.CheckBox { Content = "So os ja marcados", IsChecked = _filtro.SoMarcados };
+        tipos.Children.Add(cbT); tipos.Children.Add(cbM); tipos.Children.Add(cbA); tipos.Children.Add(cbMarc);
+
+        double? D(string t) => double.TryParse(t.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : null;
+        int? I(string t) => int.TryParse(t, out int v) ? v : null;
+        void Buscar()
+        {
+            _filtro.Layer = layer.Text.Trim(); _filtro.Contem = contem.Text; _filtro.Regex = regex.IsChecked == true;
+            _filtro.AlturaMin = D(altMin.Text); _filtro.AlturaMax = D(altMax.Text);
+            _filtro.CaracteresMin = I(carMin.Text); _filtro.CaracteresMax = I(carMax.Text);
+            _filtro.SoNumericos = numericos.IsChecked == true;
+            _filtro.Textos = cbT.IsChecked == true; _filtro.MTextos = cbM.IsChecked == true; _filtro.Atributos = cbA.IsChecked == true; _filtro.SoMarcados = cbMarc.IsChecked == true;
+            if (Doc is not Document doc) return;
+            try
+            {
+                _textos = LayoutNumbering.Buscar(doc.Database, _filtro);
+                _textosMarcados.RemoveWhere(id => !_textos.Any(t => t.Id == id));
+                FillList();
+                Say($"{_textos.Count} texto(s) encontrado(s).");
+            }
+            catch (System.Exception ex)
+            {
+                Say("Erro na busca: " + ex.Message);
+            }
+        }
+
+        var l1 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        void Campo(WC.Panel pai, string rotulo, SW.UIElement c)
+        {
+            var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
+            sp.Children.Add(Label(rotulo));
+            sp.Children.Add(c);
+            pai.Children.Add(sp);
+        }
+        Campo(l1, "Layer (curinga)", layer);
+        var contemSp = new WC.StackPanel { Orientation = WC.Orientation.Horizontal }; contemSp.Children.Add(contem); contemSp.Children.Add(regex);
+        Campo(l1, "Contem", contemSp);
+        p.Children.Add(l1);
+        var l2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        Campo(l2, "Altura min", altMin); Campo(l2, "Altura max", altMax); Campo(l2, "Caracteres min", carMin); Campo(l2, "Caracteres max", carMax);
+        p.Children.Add(l2);
+        p.Children.Add(numericos);
+        p.Children.Add(tipos);
+
+        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        botoes.Children.Add(ActionButton("Buscar", Buscar));
+        botoes.Children.Add(ActionButton("Limpar filtros", () =>
+        {
+            layer.Text = ""; contem.Text = ""; regex.IsChecked = false; altMin.Text = ""; altMax.Text = ""; carMin.Text = ""; carMax.Text = "";
+            numericos.IsChecked = false; cbT.IsChecked = cbM.IsChecked = cbA.IsChecked = true; cbMarc.IsChecked = false;
+            Buscar();
+        }));
+        p.Children.Add(botoes);
+
+        p.Children.Add(Label($"Com os textos marcados na lista ({_textosMarcados.Count}):", true));
+        var moverLayer = new WC.CheckBox { Content = $"Tambem mover para a layer {LayoutOps.LayerNumero} / {LayoutOps.LayerTotal} (compativel com o NP antigo)", IsChecked = true };
+        p.Children.Add(moverLayer);
+        var acoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        acoes.Children.Add(ActionButton("Marcar como NUMERO", () => MarcarTextos("Numero", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
+        acoes.Children.Add(ActionButton("Marcar como TOTAL", () => MarcarTextos("Total", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
+        acoes.Children.Add(ActionButton("Desmarcar", () => MarcarTextos("", _textosMarcados.ToList())));
+        p.Children.Add(acoes);
+        p.Children.Add(ActionButton("Marcar todos da lista", () =>
+        {
+            foreach (SheetText2 t in _textos) _textosMarcados.Add(t.Id);
+            FillList();
+            BuildTabs();
+        }));
+        return p;
+    }
+
+    private SW.UIElement BuildTextEdit()
+    {
+        WC.StackPanel p = Form();
+        SheetText2? tx = (_list.SelectedItem as WC.ListViewItem)?.Tag is Row { Data: SheetText2 t } ? t : null;
+        if (tx is null)
+        {
+            p.Children.Add(Label("Selecione um texto na lista (categoria Numeracao > Buscar textos) para editar.", true));
+            return p;
+        }
+        p.Children.Add(Label(tx.Tipo == "Atributo" ? $"Atributo {tx.Tag} do bloco {tx.Bloco} em {tx.Layout}" : $"{tx.Tipo} em {tx.Layout}", true));
+        var caixa = new WC.TextBox { Text = tx.Texto, AcceptsReturn = tx.Tipo == "MTexto", TextWrapping = SW.TextWrapping.Wrap, MinHeight = 60, Margin = new SW.Thickness(0, 4, 0, 0) };
+        p.Children.Add(caixa);
+        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        botoes.Children.Add(ActionButton("Salvar texto", () => Executar(() => LayoutNumbering.EditarTexto(Doc!, tx.Id, caixa.Text))));
+        botoes.Children.Add(ActionButton("Aplicar nos layouts marcados", () =>
+        {
+            // Mesmo texto (mesma layer, tipo e tag/bloco) nos layouts marcados.
+            List<string> marcados = Marcados();
+            var alvos = _textos.Where(o => marcados.Contains(o.Layout, StringComparer.OrdinalIgnoreCase) && o.Tipo == tx.Tipo && o.Layer == tx.Layer && o.Tag == tx.Tag && o.Bloco == tx.Bloco && o.Texto == tx.Texto).Select(o => o.Id).ToList();
+            if (alvos.Count == 0) { Say("Nenhum texto igual nos layouts marcados."); return; }
+            Executar(() =>
+            {
+                int n = 0;
+                foreach (ObjectId id in alvos)
+                    n += LayoutNumbering.EditarTexto(Doc!, id, caixa.Text).Ok;
+                return new OpResult(n, 0, $"{n} texto(s) alterado(s).");
+            });
+        }));
+        p.Children.Add(botoes);
+        p.Children.Add(Label("\"Aplicar nos layouts marcados\" altera os textos iguais a este (mesma layer, tipo e conteudo) nos layouts marcados: serve para trocar um campo do carimbo em varias pranchas."));
+        return p;
+    }
+
+    private SW.UIElement BuildSheetBlock()
+    {
+        WC.StackPanel p = Form();
+        SheetBlockOptions o = _prancha;
+        p.Children.Add(Label("Inserir bloco de prancha", true));
+        p.Children.Add(Label("Contorno do papel, quadro com margens (esquerda maior para encadernacao) e marcas de dobra. O bloco e criado/atualizado com o nome PRANCHA_<formato>_E<n> e inserido no espaco atual."));
+
+        var formato = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left };
+        foreach (SheetFormat f in SheetFormat.Padrao) formato.Items.Add($"{f.Nome}  ({f.Largura:0} x {f.Altura:0})");
+        formato.Items.Add("Personalizado");
+        formato.SelectedIndex = Math.Max(0, Array.FindIndex(SheetFormat.Padrao, f => f.Nome == o.Formato));
+        if (o.Formato == "Personalizado") formato.SelectedIndex = formato.Items.Count - 1;
+        var larg = new WC.TextBox { Width = 70, Text = o.Largura.ToString("0.##", CultureInfo.InvariantCulture) };
+        var alt = new WC.TextBox { Width = 70, Text = o.Altura.ToString("0.##", CultureInfo.InvariantCulture) };
+        var nEst = new WC.TextBox { Width = 50, Text = o.Estendimentos.ToString() };
+        var tamEst = new WC.TextBox { Width = 70, Text = o.Estendimento.ToString("0.##", CultureInfo.InvariantCulture) };
+        var mEsq = new WC.TextBox { Width = 60, Text = o.MargemEsquerda.ToString("0.##", CultureInfo.InvariantCulture) };
+        var mOut = new WC.TextBox { Width = 60, Text = o.MargemOutras.ToString("0.##", CultureInfo.InvariantCulture) };
+        var layer = new WC.TextBox { Width = 140, Text = o.Layer };
+        var dobras = new WC.CheckBox { Content = "Marcas de dobra (modulos de 210 mm)", IsChecked = o.MarcasDeDobra, Margin = new SW.Thickness(0, 8, 0, 0) };
+        var retrato = new WC.CheckBox { Content = "Retrato", IsChecked = o.Retrato, Margin = new SW.Thickness(0, 4, 0, 0) };
+        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 8, 0, 0) };
+
+        double D(WC.TextBox tb, double padrao) => double.TryParse(tb.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v > 0 ? v : padrao;
+        void Ler()
+        {
+            o.Formato = formato.SelectedIndex >= 0 && formato.SelectedIndex < SheetFormat.Padrao.Length ? SheetFormat.Padrao[formato.SelectedIndex].Nome : "Personalizado";
+            o.Largura = D(larg, 841); o.Altura = D(alt, 594);
+            o.Estendimentos = int.TryParse(nEst.Text, out int n) ? Math.Clamp(n, 0, 20) : 0;
+            o.Estendimento = D(tamEst, 210);
+            o.MargemEsquerda = D(mEsq, 25); o.MargemOutras = D(mOut, 10);
+            o.Layer = layer.Text.Trim().Length > 0 ? layer.Text.Trim() : "PRANCHA";
+            o.MarcasDeDobra = dobras.IsChecked == true; o.Retrato = retrato.IsChecked == true;
+            larg.IsEnabled = alt.IsEnabled = o.Formato == "Personalizado";
+            previa.Text = $"{o.NomeBloco()}: {(o.Retrato ? o.AlturaTotal : o.LarguraTotal):0} x {(o.Retrato ? o.LarguraTotal : o.AlturaTotal):0} mm";
+        }
+        formato.SelectionChanged += (_, _) => Ler();
+        foreach (WC.TextBox tb in new[] { larg, alt, nEst, tamEst, mEsq, mOut, layer }) tb.TextChanged += (_, _) => Ler();
+        dobras.Click += (_, _) => Ler(); retrato.Click += (_, _) => Ler();
+
+        void Campo(WC.Panel pai, string rotulo, SW.UIElement c)
+        {
+            var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
+            sp.Children.Add(Label(rotulo));
+            sp.Children.Add(c);
+            pai.Children.Add(sp);
+        }
+        var l1 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        Campo(l1, "Formato", formato); Campo(l1, "Largura", larg); Campo(l1, "Altura", alt);
+        p.Children.Add(l1);
+        var l2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        Campo(l2, "Estendimentos", nEst); Campo(l2, "Tamanho do estendimento", tamEst); Campo(l2, "Margem esquerda", mEsq); Campo(l2, "Demais margens", mOut); Campo(l2, "Layer", layer);
+        p.Children.Add(l2);
+        p.Children.Add(dobras);
+        p.Children.Add(retrato);
+        p.Children.Add(previa);
+        Ler();
+
+        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        botoes.Children.Add(ActionButton("Inserir na origem", () => Executar(() => LayoutSheetBlock.Inserir(Doc!, o, Autodesk.AutoCAD.Geometry.Point3d.Origin))));
+        botoes.Children.Add(ActionButton("Clicar o ponto...", () => Enviar(C3DCommands.Layouts.Prancha)));
+        p.Children.Add(botoes);
+        return p;
+    }
+
+    private void MarcarTextos(string papel, IReadOnlyList<ObjectId> ids, bool moverLayer = true)
+    {
+        if (ids.Count == 0)
+        {
+            Say("Marque os textos na lista.");
+            return;
+        }
+        Executar(() => LayoutNumbering.Marcar(Doc!, ids, papel, moverLayer));
+    }
+
+    private void Numerar()
+    {
+        _regra.Marcados = Marcados();
+        if (_regra.SoLayoutsMarcados && _regra.Marcados.Count == 0)
+        {
+            Say("Marque os layouts que devem ser numerados.");
+            return;
+        }
+        Executar(() => LayoutNumbering.Numerar(Doc!, _regra));
+    }
+
+    /// <summary>Opcoes de prancha atuais (para o comando C3DPRANCHA).</summary>
+    internal static SheetBlockOptions? PranchaAtual => _instance?._prancha;
 
     private SW.UIElement BuildLayerState()
     {
@@ -1548,7 +2020,9 @@ internal sealed class LayoutPanel : SW.Window
         if (bloco is null)
         {
             p.Children.Add(Label("Escolha o bloco de carimbo na lista.", true));
-            p.Children.Add(Label("Sao listados os blocos com atributos encontrados nos layouts, com a quantidade de layouts em que aparecem."));
+            p.Children.Add(Label("Sao listados os blocos com atributos encontrados nos layouts, com a quantidade de layouts em que aparecem. Se a lista esta vazia, o carimbo deste desenho nao usa atributos (e desenho e textos soltos, ou um bloco so com textos dentro)."));
+            p.Children.Add(Label("Nesse caso, edite os textos pela categoria Numeracao > Buscar textos: filtre pela layer ou pelo conteudo, selecione o texto e use a aba Editar texto, que tambem aplica a mesma alteracao nos layouts marcados."));
+            p.Children.Add(ActionButton("Ir para Buscar textos", () => SelectCategory("NUMERACAO", "Busca")));
             return p;
         }
 
@@ -1998,6 +2472,43 @@ internal sealed class LayoutPanel : SW.Window
         p.Children.Add(Label("Transparencia da hachura (0 a 90 %)"));
         p.Children.Add(transp);
 
+        var padrao = new WC.ComboBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left, IsEditable = true, Text = _kmCfg.Padrao };
+        foreach (string pat in new[] { "SOLID", "ANSI31", "ANSI32", "ANSI37", "DOTS", "NET", "LINE", "CROSS", "GRASS" })
+            padrao.Items.Add(pat);
+        padrao.Text = _kmCfg.Padrao;
+        var escH = new WC.TextBox { Width = 60, Text = _kmCfg.EscalaHachura.ToString("0.##", CultureInfo.InvariantCulture) };
+        var angH = new WC.TextBox { Width = 60, Text = _kmCfg.AnguloHachura.ToString("0.#", CultureInfo.InvariantCulture) };
+        var fundo = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left };
+        fundo.Items.Add(new WC.ComboBoxItem { Content = "Sem fundo", Tag = (short)-1 });
+        foreach ((short aci, string nome) in cores)
+            fundo.Items.Add(new WC.ComboBoxItem { Content = $"{nome} ({aci})", Tag = aci });
+        fundo.Items.Add(new WC.ComboBoxItem { Content = "Branco (7)", Tag = (short)7 });
+        fundo.Items.Add(new WC.ComboBoxItem { Content = "Cinza claro (254)", Tag = (short)254 });
+        fundo.SelectedItem = fundo.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i => (short)i.Tag! == _kmCfg.CorFundo) ?? fundo.Items[0];
+        var lh = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        void CampoH(string rotulo, SW.UIElement c)
+        {
+            var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
+            sp.Children.Add(Label(rotulo));
+            sp.Children.Add(c);
+            lh.Children.Add(sp);
+        }
+        CampoH("Padrao da hachura", padrao); CampoH("Escala", escH); CampoH("Angulo (graus)", angH); CampoH("Cor de fundo", fundo);
+        p.Children.Add(lh);
+        p.Children.Add(Label("Com SOLID nao ha escala, angulo nem fundo. O angulo e somado ao giro da folha no mapa (como na LISP)."));
+
+        var fatorTxt = new WC.TextBox { Width = 60, Text = _kmCfg.FatorTexto.ToString("0.##", CultureInfo.InvariantCulture) };
+        var totalMan = new WC.TextBox { Width = 60, Text = _kmCfg.TotalManual > 0 ? _kmCfg.TotalManual.ToString() : "", ToolTip = "Vazio = quantidade de layouts com folha sobre a base" };
+        var usarCarimbo = new WC.CheckBox { Content = "Numero/total dos textos marcados do carimbo (senao ordem das abas)", IsChecked = _kmCfg.UsarCarimbo, Margin = new SW.Thickness(0, 6, 0, 0) };
+        var titulo = new WC.CheckBox { Content = "Titulo MAPA CHAVE na caixa", IsChecked = _kmCfg.Titulo, Margin = new SW.Thickness(0, 4, 0, 0) };
+        var lt = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var sp1 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) }; sp1.Children.Add(Label("Fator da altura do texto (1 = como a LISP)")); sp1.Children.Add(fatorTxt);
+        var sp2 = new WC.StackPanel(); sp2.Children.Add(Label("Total de folhas (vazio = contar)")); sp2.Children.Add(totalMan);
+        lt.Children.Add(sp1); lt.Children.Add(sp2);
+        p.Children.Add(lt);
+        p.Children.Add(usarCarimbo);
+        p.Children.Add(titulo);
+
         var auto = new WC.CheckBox
         {
             Content = "Atualizar sozinho quando viewports ou layouts mudarem",
@@ -2014,6 +2525,15 @@ internal sealed class LayoutPanel : SW.Window
             _kmCfg.CorDestaque = (cor.SelectedItem as WC.ComboBoxItem)?.Tag is short c ? c : (short)1;
             _kmCfg.Transparencia = int.TryParse(transp.Text, out int t) ? Math.Clamp(t, 0, 90) : 50;
             _kmCfg.Automatico = auto.IsChecked == true;
+            _kmCfg.Padrao = (padrao.Text ?? "SOLID").Trim().ToUpperInvariant();
+            if (_kmCfg.Padrao.Length == 0) _kmCfg.Padrao = "SOLID";
+            _kmCfg.EscalaHachura = double.TryParse(escH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double eh) && eh > 0 ? eh : 1;
+            _kmCfg.AnguloHachura = double.TryParse(angH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ah) ? ah : 0;
+            _kmCfg.CorFundo = (fundo.SelectedItem as WC.ComboBoxItem)?.Tag is short cf ? cf : (short)-1;
+            _kmCfg.FatorTexto = double.TryParse(fatorTxt.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ft) && ft > 0 ? ft : 1;
+            _kmCfg.TotalManual = int.TryParse(totalMan.Text, out int tm) && tm > 0 ? tm : 0;
+            _kmCfg.UsarCarimbo = usarCarimbo.IsChecked == true;
+            _kmCfg.Titulo = titulo.IsChecked == true;
             try
             {
                 LayoutKeyMap.Gravar(doc, _kmCfg);
@@ -2027,6 +2547,7 @@ internal sealed class LayoutPanel : SW.Window
         }));
         botoes.Children.Add(ActionButton("Atualizar", () => Executar(() => LayoutKeyMap.Gerar(Doc!, false))));
         botoes.Children.Add(ActionButton("Remover", () => Executar(() => LayoutKeyMap.Remover(Doc!))));
+        botoes.Children.Add(ActionButton("Inserir no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Inserir")));
         p.Children.Add(botoes);
         p.Children.Add(Label("Tudo o que o mapa-chave cria fica nas layers MAPA_CHAVE_* e e refeito a cada atualizacao; nao edite esses objetos a mao. A base fica no bloco C3D_MAPACHAVE: \"Salvar e gerar\" refaz o bloco a partir dos objetos do Model."));
         return p;
@@ -2043,16 +2564,118 @@ internal sealed class LayoutPanel : SW.Window
         p.Children.Add(Label("View frames do Civil 3D", true));
         p.Children.Add(Label(_vfs.Count == 0
             ? "O desenho nao tem view frames. Crie pelo assistente do Civil (Output > Create View Frames); eles aparecem aqui."
-            : $"{frames} frame(s) e {linhas} match line(s) em {_vfs.Select(v => v.Grupo).Distinct().Count()} grupo(s). Selecione um para ver o layout ligado (pela folha do Civil); duplo clique faz zoom no Model."));
-        p.Children.Add(Label("O que da para controlar daqui", true));
-        p.Children.Add(Label("A API do Civil le estacas, eixo, grupo e folha de cada frame e deixa ligar/desligar e posicionar os rotulos. Criar ou mover view frames e criar folhas a partir deles nao e exposto pela API (so pelo assistente do Civil)."));
+            : $"{frames} frame(s) e {linhas} match line(s) em {_vfs.Select(v => v.Grupo).Distinct().Count()} grupo(s); {_vinculos.Count} viewport(s) vinculada(s). Selecione um para ver o layout ligado; duplo clique faz zoom no Model."));
 
+        p.Children.Add(Label("Vincular viewports aos frames", true));
+        p.Children.Add(Label("O vinculo fica gravado na viewport. Planta: a viewport passa a seguir o centro do frame no eixo (e o giro pela tangente, se marcado). Perfil: o profile view mostrado na viewport recebe o intervalo de estacas do frame e a viewport e recentrada."));
+        var girar = new WC.CheckBox { Content = "Planta: girar a viewport pela tangente do eixo", IsChecked = true, Margin = new SW.Thickness(0, 4, 0, 0) };
+        p.Children.Add(girar);
         var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes.Children.Add(ActionButton("Ligar rotulos dos marcados", () => RotulosVf(true)));
-        botoes.Children.Add(ActionButton("Desligar rotulos", () => RotulosVf(false)));
+        botoes.Children.Add(ActionButton("Vincular automaticamente", () => Executar(() => LayoutViewFrameSync.VincularAutomatico(Doc!, _vfs, _folhas))));
+        botoes.Children.Add(ActionButton("Vincular marcados (planta)", () => VincularMarcados(false, girar.IsChecked == true)));
+        botoes.Children.Add(ActionButton("Vincular marcados (perfil)", () => VincularMarcados(true, false)));
+        botoes.Children.Add(ActionButton("Desvincular viewports marcadas", () => Executar(() => LayoutViewFrameSync.Desvincular(Doc!, VpsMarcadas()))));
         p.Children.Add(botoes);
-        p.Children.Add(ActionButton("Zoom no selecionado", ZoomViewFrame));
+        p.Children.Add(Label("\"Vincular marcados\": 1 view frame marcado nesta lista + viewports marcadas na miniatura. Para perfil, a viewport precisa mostrar um profile view do mesmo eixo."));
+
+        p.Children.Add(Label("Atualizar", true));
+        var botoes2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        botoes2.Children.Add(ActionButton("Atualizar todas as vinculadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, null, _vfs))));
+        botoes2.Children.Add(ActionButton("Atualizar viewports marcadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, VpsMarcadas(), _vfs))));
+        p.Children.Add(botoes2);
+
+        p.Children.Add(Label("Rotulos", true));
+        var botoes3 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        botoes3.Children.Add(ActionButton("Ligar rotulos dos marcados", () => RotulosVf(true)));
+        botoes3.Children.Add(ActionButton("Desligar rotulos", () => RotulosVf(false)));
+        botoes3.Children.Add(ActionButton("Zoom no selecionado", ZoomViewFrame));
+        p.Children.Add(botoes3);
+        p.Children.Add(Label("A API do Civil nao cria nem move view frames nem gera folhas; isso continua no assistente do Civil."));
         return p;
+    }
+
+    private string VinculosTexto(ViewFrameItem v)
+    {
+        var lista = new List<string>();
+        foreach ((ObjectId vpId, ViewFrameLink l) in _vinculos)
+        {
+            if (l.Frame != v.Id || !_vpPorId.TryGetValue(vpId, out SheetViewport? vp))
+                continue;
+            SheetData? f = _folhas.FirstOrDefault(x => x.Viewports.Contains(vp));
+            lista.Add($"{f?.Nome} #{vp.Indice} ({(l.Perfil ? "perfil" : "planta")})");
+        }
+        return string.Join("; ", lista);
+    }
+
+    private void VincularMarcados(bool perfil, bool girar)
+    {
+        List<ViewFrameItem> frames = _vfs.Where(v => v.Tipo == "Frame" && _vfsMarcados.Contains(v.Id)).ToList();
+        if (frames.Count != 1)
+        {
+            Say("Marque exatamente um view frame na lista.");
+            return;
+        }
+        if (_vpsMarcadas.Count == 0)
+        {
+            Say("Marque as viewports na miniatura.");
+            return;
+        }
+        if (Doc is not Document doc)
+            return;
+        Executar(() =>
+        {
+            int ok = 0, falhas = 0;
+            foreach (ObjectId vpId in _vpsMarcadas)
+            {
+                ObjectId pv = ObjectId.Null;
+                if (perfil)
+                {
+                    pv = ProfileViewNaViewport(doc, vpId);
+                    if (pv.IsNull)
+                    {
+                        falhas++;
+                        continue;
+                    }
+                }
+                ok += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, perfil, pv, girar).Ok;
+            }
+            return new OpResult(ok, falhas, $"{ok} viewport(s) vinculada(s) a {frames[0].Nome}" + (falhas > 0 ? $"; {falhas} sem profile view visivel." : "."));
+        });
+    }
+
+    /// <summary>Profile view cujo centro cai dentro da viewport (pela regiao da viewport no Model).</summary>
+    private static ObjectId ProfileViewNaViewport(Document doc, ObjectId vpId)
+    {
+        try
+        {
+            Database db = doc.Database;
+            var civ = Autodesk.Civil.ApplicationServices.CivilDocument.GetCivilDocument(db);
+            if (civ.GetType().GetMethod("GetProfileViewIds", Type.EmptyTypes)?.Invoke(civ, null) is not ObjectIdCollection ids)
+                return ObjectId.Null;
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            if (tr.GetObject(vpId, OpenMode.ForRead) is not Viewport vp || vp.CustomScale <= 0)
+                return ObjectId.Null;
+            Autodesk.AutoCAD.Geometry.Matrix3d dcs2wcs =
+                Autodesk.AutoCAD.Geometry.Matrix3d.Rotation(-vp.TwistAngle, vp.ViewDirection, vp.ViewTarget) *
+                Autodesk.AutoCAD.Geometry.Matrix3d.Displacement(vp.ViewTarget - Autodesk.AutoCAD.Geometry.Point3d.Origin) *
+                Autodesk.AutoCAD.Geometry.Matrix3d.PlaneToWorld(vp.ViewDirection);
+            Autodesk.AutoCAD.Geometry.Matrix3d wcs2dcs = dcs2wcs.Inverse();
+            double hw = vp.Width / vp.CustomScale / 2, hh = vp.Height / vp.CustomScale / 2;
+            foreach (ObjectId id in ids)
+            {
+                if (tr.GetObject(id, OpenMode.ForRead) is not Entity e)
+                    continue;
+                Extents3d ext = e.GeometricExtents;
+                var c = new Autodesk.AutoCAD.Geometry.Point3d((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2, 0).TransformBy(wcs2dcs);
+                if (Math.Abs(c.X - vp.ViewCenter.X) <= hw && Math.Abs(c.Y - vp.ViewCenter.Y) <= hh)
+                    return id;
+            }
+            tr.Commit();
+        }
+        catch (System.Exception)
+        {
+        }
+        return ObjectId.Null;
     }
 
     private void RotulosVf(bool ligar)

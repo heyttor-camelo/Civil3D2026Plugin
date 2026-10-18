@@ -22,6 +22,12 @@ internal sealed class SheetViewport
     public bool Travada { get; init; }
     public double EscalaCustom { get; init; }
 
+    /// <summary>Vista em planta (direcao de vista paralela a Z).</summary>
+    public bool Planta { get; init; } = true;
+
+    /// <summary>Numero da viewport dentro do layout (1 = primeira de modelo).</summary>
+    public int Indice { get; init; }
+
     /// <summary>Layer state aplicado nesta sessao da janela (so para mostrar).</summary>
     public string? Aplicado { get; set; }
 }
@@ -47,6 +53,12 @@ internal sealed class SheetData
     public List<WPoint[]> Linhas { get; } = new();
     public List<SheetText> Textos { get; } = new();
     public List<WPoint[]> Preenchimentos { get; } = new();
+
+    /// <summary>Molduras de imagem raster e OLE (retangulo + diagonal), para a miniatura.</summary>
+    public List<WPoint[]> Imagens { get; } = new();
+
+    /// <summary>Fator mm de papel por unidade de desenho (INSUNITS); 1000 para metros.</summary>
+    public double FatorUnidade { get; init; } = 1000;
 
     /// <summary>Cache da geometria desenhada (montado pela vista grafica).</summary>
     public object? Cache { get; set; }
@@ -144,6 +156,7 @@ internal static class LayoutReader
             string atual = LayoutManager.Current.CurrentLayout;
             var folha = new SheetData
             {
+                FatorUnidade = FatorUnidade(db),
                 Nome = layout.LayoutName,
                 Ordem = layout.TabOrder,
                 Id = layout.ObjectId,
@@ -167,7 +180,7 @@ internal static class LayoutReader
                 if (ent is Viewport vp)
                 {
                     if (!papel.Contains(id))
-                        folha.Viewports.Add(LerViewport(tr, vp, folha));
+                        folha.Viewports.Add(LerViewport(tr, vp, folha, folha.Viewports.Count + 1));
                     continue;
                 }
 
@@ -221,7 +234,21 @@ internal static class LayoutReader
         return set;
     }
 
-    private static SheetViewport LerViewport(Transaction tr, Viewport vp, SheetData folha)
+    /// <summary>mm de papel por unidade de desenho, pelo INSUNITS (sem unidade: metros).</summary>
+    public static double FatorUnidade(Database db) => db.Insunits switch
+    {
+        UnitsValue.Millimeters => 1.0,
+        UnitsValue.Centimeters => 10.0,
+        UnitsValue.Decimeters => 100.0,
+        UnitsValue.Meters => 1000.0,
+        UnitsValue.Kilometers => 1_000_000.0,
+        UnitsValue.Inches => 25.4,
+        UnitsValue.Feet => 304.8,
+        UnitsValue.Yards => 914.4,
+        _ => 1000.0
+    };
+
+    private static SheetViewport LerViewport(Transaction tr, Viewport vp, SheetData folha, int indice)
     {
         WPoint[] contorno;
         if (vp.NonRectClipOn && !vp.NonRectClipEntityId.IsNull &&
@@ -262,7 +289,9 @@ internal static class LayoutReader
             Escala = escala,
             Ligada = vp.On,
             Travada = vp.Locked,
-            EscalaCustom = vp.CustomScale
+            EscalaCustom = vp.CustomScale,
+            Planta = vp.ViewDirection.IsParallelTo(Vector3d.ZAxis),
+            Indice = indice
         };
     }
 
@@ -315,6 +344,31 @@ internal static class LayoutReader
                 case Dimension d when nivel < MaxProfundidadeBloco && !d.DimBlockId.IsNull:
                     return Bloco(tr, d.DimBlockId, xf, folha, nivel);
 
+                case RasterImage img:
+                {
+                    Point3dCollection v = img.GetVertices();
+                    if (v.Count < 4)
+                        return 0;
+                    var pts = new[] { v[0], v[1], v[2], v[3] }.Select(p => p.TransformBy(xf)).Select(p => new WPoint(p.X, p.Y)).ToArray();
+                    folha.Imagens.Add(pts);
+                    foreach (WPoint p in pts)
+                        folha.Incluir(p);
+                    return 4;
+                }
+
+                case Ole2Frame ole:
+                {
+                    Rectangle3d r = ole.Position3d;
+                    var pts = new[] { r.LowerLeft, r.LowerRight, r.UpperRight, r.UpperLeft }.Select(p => p.TransformBy(xf)).Select(p => new WPoint(p.X, p.Y)).ToArray();
+                    folha.Imagens.Add(pts);
+                    foreach (WPoint p in pts)
+                        folha.Incluir(p);
+                    return 4;
+                }
+
+                case MLeader or Leader when nivel < MaxProfundidadeBloco:
+                    return Explodido(ent, xf, folha, nivel);
+
                 case BlockReference br when nivel < MaxProfundidadeBloco:
                 {
                     // Tabela tambem e BlockReference: o bloco anonimo tem as linhas e os textos.
@@ -333,6 +387,34 @@ internal static class LayoutReader
         {
             return 0;
         }
+    }
+
+    /// <summary>Multileader e similares: desenha as partes explodidas (copias temporarias).</summary>
+    private static int Explodido(Entity ent, Matrix3d xf, SheetData folha, int nivel)
+    {
+        int total = 0;
+        var partes = new DBObjectCollection();
+        try
+        {
+            ent.Explode(partes);
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return 0;
+        }
+        foreach (DBObject o in partes)
+        {
+            try
+            {
+                if (o is Entity e && e is not BlockReference and not MLeader and not Dimension)
+                    total += Desenhar(null!, e, xf, folha, nivel + 1);
+            }
+            finally
+            {
+                o.Dispose();
+            }
+        }
+        return total;
     }
 
     private static int Bloco(Transaction tr, ObjectId defId, Matrix3d xf, SheetData folha, int nivel)

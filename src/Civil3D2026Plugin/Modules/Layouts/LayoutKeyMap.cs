@@ -25,6 +25,24 @@ internal sealed class KeyMapConfig
     public short CorDestaque { get; set; } = 1;
     public int Transparencia { get; set; } = 50;
 
+    /// <summary>Padrao da hachura da folha atual: SOLID, ANSI31, ANSI37, DOTS...</summary>
+    public string Padrao { get; set; } = "SOLID";
+    public double EscalaHachura { get; set; } = 1.0;
+    public double AnguloHachura { get; set; }       // graus, somado ao giro da folha
+
+    /// <summary>Cor de fundo da hachura de padrao (-1 = sem fundo).</summary>
+    public short CorFundo { get; set; } = -1;
+
+    /// <summary>Multiplica a altura do texto calculada como na LISP (1 = igual).</summary>
+    public double FatorTexto { get; set; } = 1.0;
+
+    /// <summary>Numero/total dos textos marcados do carimbo (senao ordem/quantidade de layouts).</summary>
+    public bool UsarCarimbo { get; set; } = true;
+
+    /// <summary>Total informado a mao (0 = quantidade de layouts com folha).</summary>
+    public int TotalManual { get; set; }
+    public bool Titulo { get; set; } = true;
+
     public bool TemCaixa => CaixaMin.HasValue && CaixaMax.HasValue;
 }
 
@@ -70,6 +88,14 @@ internal static class LayoutKeyMap
                     case 71: cfg.Automatico = Convert.ToInt32(tv.Value) != 0; break;
                     case 62: cfg.CorDestaque = Convert.ToInt16(tv.Value); break;
                     case 72: cfg.Transparencia = Convert.ToInt32(tv.Value); break;
+                    case 2: cfg.Padrao = Convert.ToString(tv.Value) ?? "SOLID"; break;
+                    case 40: cfg.EscalaHachura = Convert.ToDouble(tv.Value); break;
+                    case 50: cfg.AnguloHachura = Convert.ToDouble(tv.Value); break;
+                    case 63: cfg.CorFundo = Convert.ToInt16(tv.Value); break;
+                    case 41: cfg.FatorTexto = Convert.ToDouble(tv.Value); break;
+                    case 73: cfg.UsarCarimbo = Convert.ToInt32(tv.Value) != 0; break;
+                    case 74: cfg.TotalManual = Convert.ToInt32(tv.Value); break;
+                    case 75: cfg.Titulo = Convert.ToInt32(tv.Value) != 0; break;
                     case 10: { var p = (Point3d)tv.Value; cfg.CaixaMin = new Point2d(p.X, p.Y); break; }
                     case 11: { var p = (Point3d)tv.Value; cfg.CaixaMax = new Point2d(p.X, p.Y); break; }
                     case 330: cfg.Base.Add((ObjectId)tv.Value); break;
@@ -113,7 +139,15 @@ internal static class LayoutKeyMap
             new(70, (short)cfg.Rotulo),
             new(71, (short)(cfg.Automatico ? 1 : 0)),
             new(62, cfg.CorDestaque),
-            new(72, (short)cfg.Transparencia)
+            new(72, (short)cfg.Transparencia),
+            new(2, cfg.Padrao),
+            new(40, cfg.EscalaHachura),
+            new(50, cfg.AnguloHachura),
+            new(63, cfg.CorFundo),
+            new(41, cfg.FatorTexto),
+            new(73, (short)(cfg.UsarCarimbo ? 1 : 0)),
+            new(74, (short)cfg.TotalManual),
+            new(75, (short)(cfg.Titulo ? 1 : 0))
         };
         if (cfg.CaixaMin is Point2d a && cfg.CaixaMax is Point2d b)
         {
@@ -164,6 +198,7 @@ internal static class LayoutKeyMap
 
             // Regioes (area do Model mostrada) de cada folha, na ordem das abas.
             List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
+            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
 
             Point2d c0 = cfg.CaixaMin!.Value, c1 = cfg.CaixaMax!.Value;
             double bw = Math.Abs(c1.X - c0.X), bh = Math.Abs(c1.Y - c0.Y);
@@ -173,7 +208,6 @@ internal static class LayoutKeyMap
             var centroCaixa = new Point2d((c0.X + c1.X) / 2, (c0.Y + c1.Y) / 2);
             var centroBase = new Point2d((ext.Value.MinPoint.X + ext.Value.MaxPoint.X) / 2, (ext.Value.MinPoint.Y + ext.Value.MaxPoint.Y) / 2);
             Point2d Papel(Point2d p) => new(centroCaixa.X + (p.X - centroBase.X) * s, centroCaixa.Y + (p.Y - centroBase.Y) * s);
-            double alturaTexto = Math.Min(bw, bh) * 0.045;
 
             foreach (var folha in folhas)
             {
@@ -190,7 +224,9 @@ internal static class LayoutKeyMap
                 };
                 Adicionar(tr, btr, br);
 
-                // Contorno e rotulo de todas as folhas.
+                // Contorno e rotulo de todas as folhas (rotulo como na LISP: MTEXT acima da aresta
+                // superior da viewport, centralizado e girado com a folha).
+                int totalFolhas = cfg.TotalManual > 0 ? cfg.TotalManual : folhas.Count(f => f.Regioes.Count > 0);
                 foreach (var outra in folhas.Where(f => f.Regioes.Count > 0))
                 {
                     foreach (Point2d[] reg in outra.Regioes)
@@ -201,27 +237,38 @@ internal static class LayoutKeyMap
                         Adicionar(tr, btr, pl);
                     }
 
-                    Point2d[] maior = outra.Regioes.OrderByDescending(Area).First();
-                    Point2d centro = Papel(Centroide(maior));
-                    var txt = new DBText
+                    Point2d[] maior = outra.Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
+                    (Point2d pos, double ang, double alt, double larg) = GeometriaRotulo(maior, cfg.Rotulo == 2);
+                    alt *= Math.Max(0.1, cfg.FatorTexto);
+                    string texto = RotuloFolha(tr, dic, cfg, outra.Nome, outra.Ordem, totalFolhas);
+                    var mt = new MText
                     {
-                        TextString = Rotulo(cfg.Rotulo, outra.Ordem, outra.Nome),
-                        Height = alturaTexto,
+                        Contents = texto,
+                        TextHeight = alt,
                         Layer = LayerTexto,
-                        Justify = AttachmentPoint.MiddleCenter,
-                        AlignmentPoint = new Point3d(centro.X, centro.Y, 0),
-                        Position = new Point3d(centro.X, centro.Y, 0)
+                        Attachment = AttachmentPoint.BottomCenter,
+                        Location = new Point3d(pos.X, pos.Y, 0),
+                        Rotation = ang,
+                        Width = Math.Max(larg, alt * 4)
                     };
-                    Adicionar(tr, btr, txt);
-                    txt.AdjustAlignment(db);
+                    Adicionar(tr, btr, mt);
                 }
 
                 // Hachura da propria folha.
                 var h = new Hatch { Layer = LayerDestaque };
                 Adicionar(tr, btr, h);
-                h.SetHatchPattern(HatchPatternType.PreDefined, "SOLID");
+                bool solida = string.Equals(cfg.Padrao, "SOLID", StringComparison.OrdinalIgnoreCase);
+                h.SetHatchPattern(HatchPatternType.PreDefined, solida ? "SOLID" : cfg.Padrao.ToUpperInvariant());
                 h.Associative = false;
                 h.Color = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorDestaque);
+                if (!solida)
+                {
+                    Point2d[] ref0 = folha.Regioes[0].Select(Papel).ToArray();
+                    h.PatternScale = Math.Max(0.001, cfg.EscalaHachura * Math.Max(ref0[0].GetDistanceTo(ref0[1]) / 25.0, 0.05) * 0.25);
+                    h.PatternAngle = AnguloMaior(ref0) + cfg.AnguloHachura * Math.PI / 180.0;
+                    if (cfg.CorFundo >= 0)
+                        h.BackgroundColor = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorFundo);
+                }
                 h.Transparency = new Autodesk.AutoCAD.Colors.Transparency((byte)Math.Round(255 * (1 - Math.Clamp(cfg.Transparencia, 0, 90) / 100.0)));
                 foreach (Point2d[] reg in folha.Regioes)
                 {
@@ -230,6 +277,23 @@ internal static class LayoutKeyMap
                     h.AppendLoop(HatchLoopTypes.Default, pts, bulges);
                 }
                 h.EvaluateHatch(true);
+
+                if (cfg.Titulo)
+                {
+                    double tituloAlt = Math.Min(bw, bh) * 0.05;
+                    var titulo = new MText
+                    {
+                        Contents = "MAPA CHAVE",
+                        TextHeight = tituloAlt,
+                        Layer = LayerTexto,
+                        Attachment = AttachmentPoint.TopCenter,
+                        Location = new Point3d(centroCaixa.X, Math.Max(c0.Y, c1.Y) - tituloAlt * 0.3, 0),
+                        Width = Math.Min(bw * 0.62, tituloAlt * 14)
+                    };
+                    Adicionar(tr, btr, titulo);
+                    double y = Math.Max(c0.Y, c1.Y) - tituloAlt * 1.75;
+                    Adicionar(tr, btr, new Line(new Point3d(centroCaixa.X - titulo.Width / 2, y, 0), new Point3d(centroCaixa.X + titulo.Width / 2, y, 0)) { Layer = LayerTexto });
+                }
 
                 layouts++;
                 regioesTotal += folha.Regioes.Count;
@@ -511,11 +575,64 @@ internal static class LayoutKeyMap
     // Utilitarios
     // ------------------------------------------------------------------
 
-    private static string Rotulo(int modo, int ordem, string nome)
+    /// <summary>
+    /// Posicao, rotacao, altura e largura do rotulo, como na LISP (MK:ViewportLabelGeom):
+    /// os pontos vem na ordem BL, BR, TR, TL do papel; a aresta TL-TR e o topo da folha.
+    /// </summary>
+    private static (Point2d Pos, double Ang, double Alt, double Larg) GeometriaRotulo(Point2d[] p, bool ambos)
     {
-        string numero = ordem < 10 ? "0" + ordem : ordem.ToString();
-        return modo switch { 1 => nome, 2 => $"{numero} - {nome}", _ => numero };
+        if (p.Length < 4)
+        {
+            Point2d c = Centroide(p);
+            double d = Math.Sqrt(Area(p));
+            return (c, 0, Math.Max(d * 0.08, 1e-3), d);
+        }
+        Point2d p0 = p[0], p1 = p[1], p2 = p[2], p3 = p[3];
+        double l1 = p0.GetDistanceTo(p1), l2 = p0.GetDistanceTo(p3);
+        double major = Math.Max(l1, l2), minor = Math.Min(l1, l2);
+        if (major < 1e-12) major = 1;
+        if (minor < 1e-12) minor = major * 0.2;
+
+        var top = new Vector2d(p2.X - p3.X, p2.Y - p3.Y);
+        if (top.Length < 1e-12) top = new Vector2d(p1.X - p0.X, p1.Y - p0.Y);
+        double ang = Math.Atan2(top.Y, top.X);
+        var topMid = new Point2d((p3.X + p2.X) / 2, (p3.Y + p2.Y) / 2);
+        Point2d centro = Centroide(p);
+        var fora = new Vector2d(topMid.X - centro.X, topMid.Y - centro.Y);
+        fora = fora.Length < 1e-12 ? new Vector2d(-top.Y, top.X).GetNormal() : fora.GetNormal();
+
+        double h = Math.Min(minor * (ambos ? 0.145 : 0.18), major * (ambos ? 0.065 : 0.08));
+        h = Math.Max(h, major * 0.012);
+        double offset = h * 0.22;
+        var pos = new Point2d(topMid.X + fora.X * offset, topMid.Y + fora.Y * offset);
+        return (pos, ang, h, Math.Max(major * 0.92, h * 4));
     }
+
+    private static double AnguloMaior(Point2d[] p)
+    {
+        if (p.Length < 4) return 0;
+        double l1 = p[0].GetDistanceTo(p[1]), l2 = p[0].GetDistanceTo(p[3]);
+        Point2d a = p[0], b = l1 >= l2 ? p[1] : p[3];
+        return Math.Atan2(b.Y - a.Y, b.X - a.X);
+    }
+
+    /// <summary>Numero/total do carimbo (textos marcados) ou ordem/quantidade de layouts.</summary>
+    private static string RotuloFolha(Transaction tr, DBDictionary dic, KeyMapConfig cfg, string nome, int ordem, int total)
+    {
+        string numero = Fmt(ordem), tot = "/" + Fmt(total);
+        if (cfg.UsarCarimbo && dic.Contains(nome))
+        {
+            var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(nome), OpenMode.ForRead);
+            (string? n, string? t) = LayoutNumbering.LerNumeracao(tr, lay);
+            if (!string.IsNullOrWhiteSpace(n)) numero = n.Trim();
+            if (!string.IsNullOrWhiteSpace(t))
+                tot = t.Trim().StartsWith('/') ? t.Trim() : "/" + t.Trim();
+        }
+        string num = numero + tot;
+        return cfg.Rotulo switch { 1 => nome, 2 => nome + "\\P" + num, _ => num };
+    }
+
+    private static string Fmt(int n) => n < 10 ? "0" + n : n.ToString();
 
     private static double Area(Point2d[] p)
     {

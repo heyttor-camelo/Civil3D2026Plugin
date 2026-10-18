@@ -1,3 +1,17 @@
+## 2.48.0 - Layouts v1.2.0 / numeracao abrangente, menu da viewport, prancha, mapa-chave configuravel, view frame -> viewport
+
+- **divisor da janela** (vista grafica x lista) corrigido: a barra da vista entrou na mesma linha da grade e o splitter passou a redimensionar as duas linhas vizinhas;
+- **escala no formato Custom scale** do AutoCAD (unidades de papel por unidade de desenho, ex.: 2 = 1:500 em metros): lista, dica, propriedades e aba Escala; aceita 2, 0.5, 1:500, 1/500 ou 4:1, convertido pelo fator de unidade (INSUNITS, editavel);
+- **zoom na vista "Todos"** (Ctrl+roda muda o tamanho dos cartoes) alem do zoom/pan na vista de um layout;
+- **hachura da viewport por estado**: travada (verde), desligada (cinza, tracejada), vista 3D/inclinada (laranja), marcada (azul);
+- **miniatura** tambem mostra imagens raster e OLE (moldura com diagonal), multileaders e leaders (alem de cotas e tabelas);
+- **botao direito na viewport**: informacoes, marcar, repetir nos demais, travar/destravar, ligar/desligar, escala, aplicar o layer state escolhido, abrir o layout com zoom na viewport, selecionar no desenho, propriedades;
+- **Numeracao abrangente** (categoria Numeracao): busca de textos em todos os layouts (TEXT, MTEXT e atributos, inclusive dentro do carimbo) com filtros de layer (curinga), conteudo (texto ou regex), altura, quantidade de caracteres, "cara de numero" e tipo; marcar como NUMERO/TOTAL (marca em XData C3D_PRANCHA e, opcionalmente, layer PRANCHA_*); regra com prefixo, sufixo, inicio, digitos (zeros a esquerda), total sugerido pela quantidade de layouts e editavel, formato do total (/NN, NN, de NN), numerar so os marcados; aba Editar texto, com "aplicar nos layouts marcados" para trocar um campo do carimbo em varias pranchas. NP [Configurar/Atualizar] usa as mesmas marcas;
+- **Inserir prancha** (`C3DPRANCHA` e aba Prancha): bloco A0..A4 ou tamanho livre, estendimentos (quantidade e tamanho), margens, marcas de dobra, retrato; na origem ou no ponto clicado;
+- **Carimbo**: quando o desenho nao tem bloco com atributos, a aba explica e leva para a busca de textos;
+- **Mapa-chave**: hachura com padrao (SOLID, ANSI31...), escala, angulo (somado ao giro da folha, como na LISP), cor, cor de fundo e transparencia; rotulo como na LISP (MTEXT acima da aresta superior da folha, centralizado, girado com a folha, altura pelas proporcoes da viewport, com fator de ajuste); numero/total dos textos marcados do carimbo (ou ordem das abas), total informado a mao, titulo MAPA CHAVE; `C3DMAPACHAVE Inserir` e botao "Inserir no layout atual";
+- **View frames -> viewports**: vincular viewport existente a um view frame (automatico pela folha do Civil e pela geometria, ou marcando frame + viewports; planta ou perfil); atualizar: planta recebe centro (e giro pela tangente) do eixo no meio do frame; perfil recebe o intervalo de estacas do frame no profile view mostrado e a viewport e recentrada. Coluna "Viewports vinculadas" na lista.
+
 ## 2.47.0 - Layouts v1.1.0 / montagem de pranchas: todos os layouts, page setup em lote, mapa-chave automatico, view frames
 
 - **vista "Todos"** no explorador (C3DLAYOUT): todos os layouts lado a lado como cartoes (numero, nome, viewports marcadas, caixa para marcar o layout), com as viewports clicaveis; clique escolhe o layout, duplo clique abre na vista grande. Cada cartao vira bitmap em cache para rolar sem travar;

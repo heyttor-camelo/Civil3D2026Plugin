@@ -286,8 +286,10 @@ public static class CommandCatalog
                         "[Base/Area/Gerar/Atualizar/Remover]: mapa-chave em cada layout com contorno e numero das folhas e hachura da folha atual, atualizado sozinho."),
                     new CommandDefinition(C3DCommands.Layouts.ViewFrames, "View frames",
                         "Abre o explorador na categoria View frames: frames e match lines do Civil com estacas, layout ligado, zoom e rotulos."),
+                    new CommandDefinition(C3DCommands.Layouts.Prancha, "Inserir prancha",
+                        "Bloco de prancha (A0 a A4 ou livre) com estendimentos, margens e dobras, na origem ou no ponto clicado; configuracao na aba Prancha do explorador."),
                     new CommandDefinition(C3DCommands.Layouts.Numerar, "Numerar pranchas",
-                        "[Configurar/Atualizar]: numero (01, 02...) e total (/NN) nos textos das layers PRANCHA_NUMERO e PRANCHA_TOTAL, na ordem das abas.")
+                        "[Configurar/Atualizar]: numero e total nos textos marcados (busca com filtros no explorador ou clique no Configurar), na ordem das abas.")
                 }),
 
             new(

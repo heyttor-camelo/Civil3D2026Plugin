@@ -25,6 +25,7 @@ internal static class SheetGraphics
     {
         public WM.StreamGeometry Linhas = null!;
         public WM.StreamGeometry Preenchimentos = null!;
+        public WM.StreamGeometry Imagens = null!;
         public WM.DrawingGroup? TextosTodos;
         public WM.DrawingGroup? TextosGrandes;
         public SW.Rect Limites;
@@ -63,6 +64,17 @@ internal static class SheetGraphics
             {
                 Data = Envolver(c.Preenchimentos, mt),
                 Fill = Preenchimento,
+                IsHitTestVisible = false
+            });
+
+        if (!c.Imagens.IsEmpty())
+            canvas.Children.Add(new System.Windows.Shapes.Path
+            {
+                Data = Envolver(c.Imagens, mt),
+                Fill = ToolTheme.Brush(90, 110, 130, 90),
+                Stroke = ToolTheme.GraphicLine,
+                StrokeThickness = 0.7,
+                StrokeDashArray = new WM.DoubleCollection { 2, 2 },
                 IsHitTestVisible = false
             });
 
@@ -113,6 +125,7 @@ internal static class SheetGraphics
         {
             Linhas = Geometria(folha.Linhas, fechar: false),
             Preenchimentos = Geometria(folha.Preenchimentos, fechar: true),
+            Imagens = Molduras(folha.Imagens),
             Limites = new SW.Rect(folha.MinX, -folha.MaxY, Math.Max(folha.Largura, 1e-6), Math.Max(folha.Altura, 1e-6))
         };
         folha.Cache = c;
@@ -130,6 +143,26 @@ internal static class SheetGraphics
                     continue;
                 ctx.BeginFigure(new SW.Point(pts[0].X, -pts[0].Y), fechar, fechar);
                 ctx.PolyLineTo(pts.Skip(1).Select(p => new SW.Point(p.X, -p.Y)).ToList(), true, false);
+            }
+        }
+        geo.Freeze();
+        return geo;
+    }
+
+    /// <summary>Retangulo fechado mais a diagonal (marca de imagem/OLE).</summary>
+    private static WM.StreamGeometry Molduras(List<WPoint[]> lista)
+    {
+        var geo = new WM.StreamGeometry();
+        using (WM.StreamGeometryContext ctx = geo.Open())
+        {
+            foreach (WPoint[] pts in lista)
+            {
+                if (pts.Length < 4)
+                    continue;
+                ctx.BeginFigure(new SW.Point(pts[0].X, -pts[0].Y), true, true);
+                ctx.PolyLineTo(pts.Skip(1).Select(p => new SW.Point(p.X, -p.Y)).ToList(), true, false);
+                ctx.BeginFigure(new SW.Point(pts[0].X, -pts[0].Y), false, false);
+                ctx.LineTo(new SW.Point(pts[2].X, -pts[2].Y), true, false);
             }
         }
         geo.Freeze();

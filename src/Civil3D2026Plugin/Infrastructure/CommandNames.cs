@@ -147,6 +147,7 @@ public static class CommandNames
         public const string PageSetup = "C3DLAYOUTPS";
         public const string ViewFrames = "C3DLAYOUTVF";
         public const string MapaChave = "C3DMAPACHAVE";
+        public const string Prancha = "C3DPRANCHA";
         public const string Numerar = "NP";
     }
 

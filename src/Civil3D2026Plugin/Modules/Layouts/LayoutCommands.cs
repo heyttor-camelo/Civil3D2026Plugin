@@ -49,8 +49,8 @@ public sealed class LayoutCommands
             return;
         Editor ed = doc.Editor;
 
-        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Gerar/Atualizar/Remover/Painel] <Painel>: ",
-            "Base Area Gerar Atualizar Remover Painel") { AllowNone = true };
+        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Inserir/Gerar/Atualizar/Remover/Painel] <Painel>: ",
+            "Base Area Inserir Gerar Atualizar Remover Painel") { AllowNone = true };
         PromptResult pr = ed.GetKeywords(pko);
         if (pr.Status == PromptStatus.Cancel || pr.Status == PromptStatus.Error)
             return;
@@ -72,6 +72,14 @@ public sealed class LayoutCommands
                 r = LayoutKeyMap.Ler(doc.Database).Base.Count > 0 ? LayoutKeyMap.Gerar(doc, false) : null;
                 if (r is null)
                     ed.WriteMessage("\nArea guardada. Agora escolha a base no Model (C3DMAPACHAVE > Base).");
+                break;
+            case "Inserir":
+                // Escolhe a area no layout atual e gera na hora (base ja escolhida).
+                if (LayoutKeyMap.Ler(doc.Database).Base.Count == 0 && !EscolherBase(doc))
+                    return;
+                if (!EscolherArea(doc))
+                    return;
+                r = LayoutKeyMap.Gerar(doc, true);
                 break;
             case "Gerar":
                 r = LayoutKeyMap.Gerar(doc, true);
@@ -157,6 +165,25 @@ public sealed class LayoutCommands
         return true;
     }
 
+    /// <summary>Insere o bloco de prancha configurado no painel (ou A1) no ponto clicado.</summary>
+    [CommandMethod(C3DCommands.Layouts.Prancha, CommandFlags.Modal)]
+    public void Prancha()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        SheetBlockOptions o = LayoutPanel.PranchaAtual ?? new SheetBlockOptions();
+        var ppo = new PromptPointOptions($"\nPonto de insercao da prancha {o.NomeBloco()} [Origem] <0,0>: ", "Origem") { AllowNone = true };
+        PromptPointResult ppr = doc.Editor.GetPoint(ppo);
+        Point3d p = Point3d.Origin;
+        if (ppr.Status == PromptStatus.OK)
+            p = ppr.Value.TransformBy(doc.Editor.CurrentUserCoordinateSystem);
+        else if (ppr.Status != PromptStatus.None && ppr.Status != PromptStatus.Keyword)
+            return;
+        OpResult r = LayoutSheetBlock.Inserir(doc, o, p);
+        doc.Editor.WriteMessage("\n" + r.Mensagem);
+    }
+
     /// <summary>
     /// Numeracao de pranchas direto na linha de comando (ex-NP):
     /// [Configurar/Atualizar] como na LISP original.
@@ -180,7 +207,7 @@ public sealed class LayoutCommands
                 return;
         }
 
-        OpResult r = LayoutOps.Numerar(doc);
+        OpResult r = LayoutNumbering.Numerar(doc, new NumberingRule());
         ed.WriteMessage("\n" + r.Mensagem);
         ed.Regen();
     }
@@ -205,8 +232,8 @@ public sealed class LayoutCommands
             tr.Commit();
         }
 
-        LayoutOps.AssociarTexto(doc, res.ObjectId, numero);
-        doc.Editor.WriteMessage($"\nTexto associado a {(numero ? LayoutOps.LayerNumero : LayoutOps.LayerTotal)}.");
+        LayoutNumbering.Marcar(doc, new[] { res.ObjectId }, numero ? "Numero" : "Total", moverLayer: true);
+        doc.Editor.WriteMessage($"\nTexto marcado como {(numero ? "numero" : "total")} (layer {(numero ? LayoutOps.LayerNumero : LayoutOps.LayerTotal)}).");
         return true;
     }
 }

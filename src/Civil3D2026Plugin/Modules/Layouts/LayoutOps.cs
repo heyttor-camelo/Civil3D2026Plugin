@@ -228,23 +228,61 @@ internal static class LayoutOps
     public static OpResult Ligar(Document doc, IEnumerable<ObjectId> viewports, bool ligar) =>
         PorViewport(doc, viewports, vp => vp.On = ligar, ligar ? "ligada(s)" : "desligada(s)");
 
-    /// <summary>Escala como 1:N (N = unidades de desenho por unidade de papel).</summary>
-    public static OpResult Escalar(Document doc, IEnumerable<ObjectId> viewports, double denominador)
+    /// <summary>
+    /// Aplica a escala da viewport no formato da propriedade "Custom scale" do AutoCAD
+    /// (unidades de papel por unidade de desenho; 2 = 1:500 num desenho em metros).
+    /// A escala de anotacao 1:N equivalente (N = fatorUnidade / custom) e aplicada se existir.
+    /// </summary>
+    public static OpResult Escalar(Document doc, IEnumerable<ObjectId> viewports, double custom, double fatorUnidade)
     {
-        if (denominador <= 0)
+        if (custom <= 0)
             return new OpResult(0, 0, "Escala invalida.");
 
-        AnnotationScale? anot = EscalaAnotacao(doc.Database, denominador);
+        AnnotationScale? anot = EscalaAnotacao(doc.Database, fatorUnidade / custom);
         return PorViewport(doc, viewports, vp =>
         {
             bool travada = vp.Locked;
             vp.Locked = false;
             vp.StandardScale = StandardScaleType.CustomScale;
-            vp.CustomScale = 1.0 / denominador;
+            vp.CustomScale = custom;
             if (anot is not null)
                 vp.AnnotationScale = anot;
             vp.Locked = travada;
-        }, $"com escala 1:{denominador:0.###}");
+        }, $"com escala {EscalaTexto(custom, fatorUnidade)}");
+    }
+
+    /// <summary>Texto da escala como o AutoCAD mostra (custom) mais o 1:N equivalente.</summary>
+    public static string EscalaTexto(double custom, double fatorUnidade)
+    {
+        if (custom <= 0)
+            return "";
+        string c = custom.ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+        double n = fatorUnidade / custom;
+        string eq = n >= 1 ? $"1:{n:0.##}" : $"{1 / n:0.##}:1";
+        return $"{c}  ({eq})";
+    }
+
+    /// <summary>
+    /// Interpreta "2", "0,5", "1:500", "1/500", "4:1" ou "1000/100" -> custom scale.
+    /// a:b = a unidades de papel (mm) para b unidades de desenho em mm, logo custom = a/b * fator.
+    /// </summary>
+    public static bool TentarEscala(string texto, double fatorUnidade, out double custom)
+    {
+        custom = 0;
+        texto = (texto ?? "").Trim().Replace(',', '.');
+        var ci = System.Globalization.CultureInfo.InvariantCulture;
+        var ns = System.Globalization.NumberStyles.Float;
+        int sep = texto.IndexOfAny(new[] { ':', '/' });
+        if (sep > 0)
+        {
+            if (!double.TryParse(texto[..sep].Trim(), ns, ci, out double a) || !double.TryParse(texto[(sep + 1)..].Trim(), ns, ci, out double b) || a <= 0 || b <= 0)
+                return false;
+            custom = a / b * fatorUnidade;
+            return true;
+        }
+        if (!double.TryParse(texto, ns, ci, out custom) || custom <= 0)
+            return false;
+        return true;
     }
 
     private static OpResult PorViewport(Document doc, IEnumerable<ObjectId> viewports, Action<Viewport> acao, string feito)
