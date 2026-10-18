@@ -165,6 +165,54 @@ public sealed class LayoutCommands
         return true;
     }
 
+    /// <summary>
+    /// Pranchas do eixo: [Painel/Atualizar/PontoPerfis]. O assistente fica no explorador; aqui
+    /// ficam o que pede contexto de comando (clicar o ponto dos perfis) e a atualizacao.
+    /// </summary>
+    [CommandMethod(C3DCommands.Layouts.Pranchas, CommandFlags.Modal)]
+    public void Pranchas()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        var pko = new PromptKeywordOptions("\nPranchas do eixo [Painel/Atualizar/PontoPerfis] <Painel>: ", "Painel Atualizar PontoPerfis") { AllowNone = true };
+        PromptResult pr = ed.GetKeywords(pko);
+        if (pr.Status == PromptStatus.Cancel || pr.Status == PromptStatus.Error)
+            return;
+        string op = pr.Status == PromptStatus.OK ? pr.StringResult : "Painel";
+
+        switch (op)
+        {
+            case "Atualizar":
+                try
+                {
+                    ed.WriteMessage("\n" + LayoutSheetSeries.AtualizarTodas(doc).Mensagem);
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage("\n[Pranchas] " + ex.Message);
+                }
+                break;
+            case "PontoPerfis":
+            {
+                var ppo = new PromptPointOptions("\nPonto do primeiro perfil no Model (origem do grafico; os demais vao para baixo): ");
+                PromptPointResult ppr = ed.GetPoint(ppo);
+                if (ppr.Status != PromptStatus.OK)
+                    return;
+                Point3d p = ppr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                LayoutSettings.Set("pp_base", p.X.ToString("R", System.Globalization.CultureInfo.InvariantCulture) + ";" +
+                                              p.Y.ToString("R", System.Globalization.CultureInfo.InvariantCulture));
+                ed.WriteMessage($"\nOs perfis das proximas pranchas comecam em {p.X:0.##}, {p.Y:0.##}.");
+                LayoutPanel.ShowPanel("PRANCHAS");
+                break;
+            }
+            default:
+                LayoutPanel.ShowPanel("PRANCHAS");
+                break;
+        }
+    }
+
     /// <summary>Insere o bloco de prancha configurado no painel (ou A1) no ponto clicado.</summary>
     [CommandMethod(C3DCommands.Layouts.Prancha, CommandFlags.Modal)]
     public void Prancha()

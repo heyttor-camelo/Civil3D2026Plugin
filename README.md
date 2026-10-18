@@ -250,13 +250,15 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.3.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.4.0)
 
 Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e View frames.
 
 Vista grafica: um layout (miniatura com textos, cotas, tabelas e hachuras; zoom e pan) ou todos os layouts como cartoes. Clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts; botao direito na viewport abre informacoes e edicoes rapidas (travar, ligar, escala, layer state, zoom, selecionar). Escalas no formato Custom scale do AutoCAD (2 = 1:500 em metros). Zoom na vista "Todos" com Ctrl+roda.
 
 Numeracao: busca de textos (TEXT/MTEXT/atributos, com filtros) para marcar o campo NUMERO e TOTAL do carimbo, regra com prefixo/sufixo/digitos/total e edicao de texto em lote. Prancha: bloco AX com estendimentos guardados por formato, inserido nos layouts marcados sem abri-los (`C3DPRANCHA` para clicar o ponto). Modo leve: desliga/religa as viewports dos layouts para montar as pranchas sem regenerar. Mapa-chave com hachura configuravel e rotulo como na LISP. View frames: vincular viewports a frames e atualizar a vista (centro e giro; redimensionar a viewport ao frame ou ajustar a escala; intervalo de estacas do perfil).
+
+Pranchas do eixo (`C3DPRANCHAS`): escolha o layout modelo (viewport de planta e de perfil), o eixo e o estilo do perfil; o plugin cria frames no tamanho da viewport de planta, uma prancha por frame e um profile view por folha no tamanho da viewport de perfil (calibrado pelo estilo), com linhas de corte. Mover, girar ou esticar um frame no Model, ou editar o eixo, atualiza planta, estacas e cotas do perfil e as linhas de corte.
 
 ```text
 C3DLAYOUT          -> explorador de layouts
@@ -266,6 +268,7 @@ C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo
 C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
 C3DLAYOUTVF        -> explorador na categoria View frames
 C3DMAPACHAVE       -> [Base/Area/Inserir/Gerar/Atualizar/Remover/Painel] mapa-chave automatico
+C3DPRANCHAS        -> [Painel/Atualizar/PontoPerfis] pranchas planta e perfil ao longo do eixo (frames proprios)
 C3DPRANCHA         -> insere bloco de prancha (A0..A4 ou livre, com estendimentos) na origem ou no ponto clicado
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```

@@ -652,7 +652,7 @@ internal static class LayoutOps
         return lista.OrderBy(e => e.Ordem).Select(e => e.Nome).ToList();
     }
 
-    private static void GravarOrdem(Database db, List<string> ordem)
+    internal static void GravarOrdem(Database db, List<string> ordem)
     {
         using Transaction tr = db.TransactionManager.StartTransaction();
         var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);

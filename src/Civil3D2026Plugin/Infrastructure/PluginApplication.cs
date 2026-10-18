@@ -55,6 +55,10 @@ public sealed class PluginApplication : IExtensionApplication
         if (ModuleSettings.IsCategoryEnabled("Layouts"))
             Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Initialize();
 
+        // Pranchas do eixo (C3DPRANCHAS): mover um frame ou editar o eixo realinha as folhas.
+        if (ModuleSettings.IsCategoryEnabled("Layouts"))
+            Civil3D2026Plugin.Modules.Layouts.SheetSeriesSync.Initialize();
+
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
         if (ModuleSettings.IsCategoryEnabled("LISPs"))
             LispModule.Initialize();
@@ -67,6 +71,7 @@ public sealed class PluginApplication : IExtensionApplication
     public void Terminate()
     {
         LispModule.Terminate();
+        Civil3D2026Plugin.Modules.Layouts.SheetSeriesSync.Terminate();
         Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Terminate();
         Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Terminate();
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();

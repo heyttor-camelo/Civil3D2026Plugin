@@ -1,3 +1,17 @@
+## 2.50.0 - Layouts v1.4.0 / Pranchas do eixo (C3DPRANCHAS): frames proprios, perfil no tamanho da viewport, atualizacao automatica
+
+Substitui o caminho pelos view frames do Civil (a API nao cria nem move view frames) por frames proprios do plugin:
+
+- **categoria "Pranchas do eixo"** no explorador (`C3DPRANCHAS`), com assistente em 4 passos: (1) layout modelo e viewports de planta e perfil (palpite automatico; a vista grafica mostra PLANTA/PERFIL; botao direito na viewport tambem define), (2) eixo, trecho, cortes em multiplos de 20 m e folga alem do corte, planta girada pelo eixo ou norte para cima, (3) estilo e band set do profile view e ajuste de cotas, (4) nome/numero das pranchas, numeracao pelos textos marcados e atualizacao automatica. Resumo ao vivo: quantos metros cabem por folha na planta e no perfil e quantas folhas;
+- **frames**: polilinhas na layer PRANCHA_FRAME (nao plota) do tamanho da viewport de planta / escala; cada frame vai o mais longe possivel com o eixo dentro da area util e sem passar do que cabe no perfil; rotulo com nome e estacas;
+- **perfil no tamanho da viewport de perfil**: antes de gerar, um profile view de teste mede a margem dos eixos/rotulos, as bandas e o exagero vertical do estilo escolhido; com isso o comprimento das folhas respeita a largura da viewport de perfil e as cotas abrem ate encher a altura (ou avisam quando o perfil nao cabe);
+- **pranchas**: um layout por frame copiado do modelo (logo depois dele), viewport de planta centrada e girada no frame, um profile view por folha com o intervalo de estacas do frame (empilhados abaixo do desenho ou a partir de um ponto escolhido), viewport de perfil com o inicio na borda esquerda; numeracao e mapa-chave refeitos;
+- **linhas de corte** na layer PRANCHA_CORTE com estaca e "VER FOLHA";
+- **atualizacao automatica**: mover, girar ou esticar um frame, ou editar o eixo, realinha a viewport de planta, as estacas e cotas do perfil, a viewport de perfil e as linhas de corte (no Idle, fora de comando). Botao Atualizar e `C3DPRANCHAS Atualizar` para fazer na mao;
+- **aba Folha**: mudar as estacas de uma folha (os cortes andam dentro do frame), zoom no frame, abrir a prancha; a lista mostra lacunas e sobreposicoes entre folhas, folhas sem prancha/perfil e perfis que nao cabem;
+- coluna "Viewports vinculadas" da categoria View frames voltou a aparecer (a lista so tinha 5 colunas ligadas);
+- ao trocar de categoria o painel abre na aba principal dela.
+
 ## 2.49.1 - Layouts v1.3.1 / aba View frames enxuta, perfil alinhado pelo inicio
 
 - aba View frames com 4 botoes (vincular automaticamente, vincular marcados, desvincular, atualizar): "vincular marcados" decide sozinho planta ou perfil por viewport; rotulos e zoom ficaram so na barra de comandos; sem combo de modo: atualizar sempre centra, gira e redimensiona a viewport de planta pelo frame na escala atual;

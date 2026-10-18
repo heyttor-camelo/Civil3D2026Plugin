@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.Layouts;
 /// (miniatura do layout com as viewports clicaveis), lista em colunas e abas de detalhe.
 /// Janela flutuante; segue o tema claro/escuro do painel viario.
 /// </summary>
-internal sealed class LayoutPanel : SW.Window
+internal sealed partial class LayoutPanel : SW.Window
 {
     private static LayoutPanel? _instance;
 
@@ -137,6 +137,7 @@ internal sealed class LayoutPanel : SW.Window
     private static readonly (string Id, string Icon, string Title)[] Categories =
     {
         ("LAYOUTS", "layouts", "Layouts"),
+        ("PRANCHAS", "prancha", "Pranchas do eixo"),
         ("VIEWPORTS", "ligar", "Viewports"),
         ("PAGESETUP", "imprimir", "Page setup"),
         ("NUMERACAO", "numero", "Numeracao"),
@@ -206,6 +207,14 @@ internal sealed class LayoutPanel : SW.Window
         new("MCGERAR", "atualizar", "Gerar mapa-chave", "Mapa-chave",
             "Refaz o mapa-chave em todos os layouts: base, contorno e numero de cada folha e hachura da folha atual.",
             new[] { "Sem perguntas." }, p => p.Executar(() => LayoutKeyMap.Gerar(p.Doc!, true))),
+        new("PPGERAR", "prancha", "Pranchas do eixo", "Pranchas do eixo",
+            "Gera frames ao longo de um eixo no tamanho da viewport de planta do layout modelo, uma prancha por frame e um perfil por folha no tamanho da viewport de perfil.",
+            new[] { "1. Escolha o layout modelo e as viewports de planta e perfil.", "2. Escolha o eixo.", "3. Estilo do perfil.", "4. Nome das pranchas e Gerar." }, p => p.SelectCategory("PRANCHAS", "Gerar")),
+        new("PPATUALIZAR", "atualizar", "Atualizar pranchas do eixo", "Pranchas do eixo",
+            "Realinha todas as series: estacas pelos frames, viewport de planta, intervalo e cotas do perfil, viewport de perfil e linhas de corte.",
+            new[] { "Mova, gire ou estique os frames no Model e clique aqui (ou deixe o automatico ligado)." }, p => p.AtualizarTodasSeries()),
+        new("PPZOOM", "viewframe", "Zoom no frame da folha", "Pranchas do eixo",
+            "Mostra no Model o frame da folha selecionada.", new[] { "Selecione a folha na categoria Pranchas do eixo." }, p => p.ZoomFrame(null)),
         new("VFZOOM", "viewframe", "Zoom no view frame", "View frames",
             "Mostra no Model o view frame ou match line selecionado.", new[] { "Selecione na categoria View frames." }, p => p.ZoomViewFrame()),
         new("VFROTULOS", "ligar", "Rotulos dos view frames", "View frames",
@@ -233,11 +242,13 @@ internal sealed class LayoutPanel : SW.Window
                 _instance = null;
                 AcApp.DocumentManager.DocumentActivated -= OnDocumentActivated;
                 LayoutKeyMap.Changed -= OnKeyMapChanged;
+                SheetSeriesSync.Changed -= OnKeyMapChanged;
                 foreach (Document d in fechado._docsLigados)
                     d.CommandEnded -= OnCommandEnded;
                 fechado._docsLigados.Clear();
             };
             LayoutKeyMap.Changed += OnKeyMapChanged;
+            SheetSeriesSync.Changed += OnKeyMapChanged;
             AcApp.DocumentManager.DocumentActivated += OnDocumentActivated;
             AcApp.ShowModelessWindow(_instance);
         }
@@ -265,7 +276,8 @@ internal sealed class LayoutPanel : SW.Window
     {
         string nome = e.GlobalCommandName ?? "";
         if (ComandosQueMudam.Contains(nome) || nome.StartsWith("C3DLAYOUT", StringComparison.OrdinalIgnoreCase) ||
-            nome.StartsWith("C3DMAPACHAVE", StringComparison.OrdinalIgnoreCase))
+            nome.StartsWith("C3DMAPACHAVE", StringComparison.OrdinalIgnoreCase) ||
+            nome.StartsWith("C3DPRANCHA", StringComparison.OrdinalIgnoreCase))
             _instance?.AgendarRefresh();
     }
 
@@ -718,6 +730,16 @@ internal sealed class LayoutPanel : SW.Window
             return;
         }
 
+        try
+        {
+            LerPranchas(doc.Database);
+        }
+        catch (System.Exception ex)
+        {
+            // Sem Civil ou serie ilegivel: o resto do painel funciona.
+            Say("Pranchas do eixo: " + ex.Message);
+        }
+
         LigarDocumento(doc);
         _vfsMarcados.RemoveWhere(id => !_vfs.Any(v => v.Id == id));
         _textosMarcados.RemoveWhere(id => !_textos.Any(t => t.Id == id));
@@ -758,6 +780,7 @@ internal sealed class LayoutPanel : SW.Window
         "PAGESETUP" => _pageSetups.Count,
         "MAPACHAVE" => _kmResumo.Count(r => r.Regioes > 0),
         "VIEWFRAMES" => _vfs.Count,
+        "PRANCHAS" => _framesPP.Count,
         _ => -1
     };
 
@@ -796,7 +819,7 @@ internal sealed class LayoutPanel : SW.Window
     private void SelectCategory(string id, string? tab = null)
     {
         _category = id;
-        _tab = tab ?? "Propriedades";
+        _tab = tab ?? "";
         FillCategories();
         FillList();
         BuildTabs();
@@ -901,6 +924,27 @@ internal sealed class LayoutPanel : SW.Window
                 }).ToList();
                 break;
 
+            case "PRANCHAS":
+                headers = new[] { "Folha", "Eixo", "Estaca inicial", "Estaca final", "Extensao", "Perfil", "Situacao" };
+                widths = new[] { 110.0, 120, 85, 85, 70, 90, 220 };
+                comCheck = false;
+                rows = _framesPP.Where(f => Match(f.LayoutNome) || Match(f.EixoNome) || Match(f.Situacao)).Select(f => new Row
+                {
+                    Icon = LayoutSheetSeries.Valido(f.Layout) ? "prancha" : "viewframe",
+                    Data = f,
+                    Cells = new[]
+                    {
+                        f.LayoutNome.Length > 0 ? f.LayoutNome : "(sem prancha)",
+                        f.EixoNome,
+                        LayoutViewFrames.Estaca(f.E0),
+                        LayoutViewFrames.Estaca(f.E1),
+                        f.Extensao.ToString("0.##", CultureInfo.InvariantCulture),
+                        f.PerfilNome.Length > 0 ? f.PerfilNome : "-",
+                        f.Situacao
+                    }
+                }).ToList();
+                break;
+
             case "VIEWFRAMES":
                 headers = new[] { "View frame", "Eixo", "Estaca inicial", "Estaca final", "Layout", "Viewports vinculadas" };
                 widths = new[] { 170.0, 130, 85, 85, 120, 140 };
@@ -992,6 +1036,8 @@ internal sealed class LayoutPanel : SW.Window
             C2 = c.Length > 2 ? c[2] : "";
             C3 = c.Length > 3 ? c[3] : "";
             C4 = c.Length > 4 ? c[4] : "";
+            C5 = c.Length > 5 ? c[5] : "";
+            C6 = c.Length > 6 ? c[6] : "";
         }
 
         public bool Checked { get; set; }
@@ -1001,6 +1047,8 @@ internal sealed class LayoutPanel : SW.Window
         public string C2 { get; }
         public string C3 { get; }
         public string C4 { get; }
+        public string C5 { get; }
+        public string C6 { get; }
     }
 
     private void OnCheckClick(object sender, SW.RoutedEventArgs e)
@@ -1061,6 +1109,12 @@ internal sealed class LayoutPanel : SW.Window
             case SheetText2 tx:
                 MostrarFolha(_folhas.FirstOrDefault(f => f.Nome == tx.Layout));
                 break;
+            case SheetFrameInfo fr:
+                _frameSel = fr;
+                _tab = "Folha";
+                if (fr.LayoutNome.Length > 0)
+                    MostrarFolha(_folhas.FirstOrDefault(f => f.Nome.Equals(fr.LayoutNome, StringComparison.OrdinalIgnoreCase)));
+                break;
         }
         BuildTabs();
     }
@@ -1076,6 +1130,9 @@ internal sealed class LayoutPanel : SW.Window
                 break;
             case ViewFrameItem:
                 ZoomViewFrame();
+                break;
+            case SheetFrameInfo fr:
+                ZoomFrame(fr);
                 break;
             case SheetViewport v:
                 if (!_vpsMarcadas.Remove(v.Id))
@@ -1283,12 +1340,13 @@ internal sealed class LayoutPanel : SW.Window
             {
                 SW.Point c = mapa.Tela(vp.Centro);
                 string rot = vp.Aplicado ?? (vp.EscalaCustom > 0 ? vp.EscalaCustom.ToString("0.####", CultureInfo.InvariantCulture) : vp.Escala);
+                string? papel = PapelNoModelo(folha, vp);
                 var rotulo = new WC.TextBlock
                 {
-                    Text = $"#{i}  {rot}",
-                    Foreground = ToolTheme.GraphicText,
-                    FontSize = 10,
-                    FontWeight = vp.Aplicado is null ? SW.FontWeights.Normal : SW.FontWeights.Bold,
+                    Text = papel is null ? $"#{i}  {rot}" : $"{papel}  #{i}  {rot}",
+                    Foreground = papel is null ? ToolTheme.GraphicText : ToolTheme.Brush(120, 220, 140),
+                    FontSize = papel is null ? 10 : 12,
+                    FontWeight = vp.Aplicado is null && papel is null ? SW.FontWeights.Normal : SW.FontWeights.Bold,
                     IsHitTestVisible = false,
                     TextAlignment = SW.TextAlignment.Center,
                     Width = Math.Max(40, vp.Largura * mapa.Escala),
@@ -1460,6 +1518,12 @@ internal sealed class LayoutPanel : SW.Window
                 vp.Aplicado = _layerState;
             }, "camadas");
         menu.Items.Add(new WC.Separator());
+        if (vp.Planta)
+        {
+            Item("Pranchas do eixo: modelo com esta viewport de PLANTA", () => DefinirModelo(folha, vp, planta: true), "prancha");
+            Item("Pranchas do eixo: modelo com esta viewport de PERFIL", () => DefinirModelo(folha, vp, planta: false), "prancha");
+            menu.Items.Add(new WC.Separator());
+        }
         Item("Abrir layout e dar zoom nesta viewport", () => ZoomViewport(folha, vp), "abrir");
         Item("Selecionar no desenho", () => SelecionarViewport(folha, vp));
         Item("Propriedades", () =>
@@ -1549,6 +1613,11 @@ internal sealed class LayoutPanel : SW.Window
                 break;
             case "VIEWFRAMES":
                 tabs.Insert(0, ("ViewFrames", "View frames", BuildViewFrames));
+                break;
+            case "PRANCHAS":
+                tabs.Clear();
+                tabs.Add(("Gerar", "Gerar pranchas", BuildSheetSeries));
+                tabs.Add(("Folha", "Folha selecionada", BuildSheetFrame));
                 break;
         }
 
