@@ -36,9 +36,11 @@ internal static class LayoutViewportPower
         if (_iniciado)
             return;
         _iniciado = true;
-        LayoutManager.Current.LayoutSwitching += OnSwitching;
         LayoutManager.Current.LayoutSwitched += OnSwitched;
+        AcApp.DocumentManager.DocumentActivated += OnDocumentActivated;
         AcApp.Idle += OnIdle;
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        _anterior = doc is null ? null : LayoutManager.Current.CurrentLayout;
     }
 
     public static void Terminate()
@@ -46,8 +48,8 @@ internal static class LayoutViewportPower
         if (!_iniciado)
             return;
         _iniciado = false;
-        LayoutManager.Current.LayoutSwitching -= OnSwitching;
         LayoutManager.Current.LayoutSwitched -= OnSwitched;
+        AcApp.DocumentManager.DocumentActivated -= OnDocumentActivated;
         AcApp.Idle -= OnIdle;
     }
 
@@ -159,38 +161,27 @@ internal static class LayoutViewportPower
     }
 
     // ------------------------------------------------------------------
-    // Automatico
+    // Automatico (a API so avisa depois da troca: LayoutSwitched; o layout anterior e lembrado aqui)
     // ------------------------------------------------------------------
 
-    private static void OnSwitching(object? sender, Autodesk.AutoCAD.DatabaseServices.LayoutEventArgs e)
+    private static string? _anterior;
+    private static string? _saindo;
+
+    private static void OnDocumentActivated(object? sender, DocumentCollectionEventArgs e)
     {
-        if (!Automatico || _executando)
-            return;
-        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null)
-            return;
-        try
-        {
-            _executando = true;
-            string saindo = LayoutManager.Current.CurrentLayout;
-            if (!string.Equals(saindo, "Model", StringComparison.OrdinalIgnoreCase) &&
-                !string.Equals(saindo, e.Name, StringComparison.OrdinalIgnoreCase))
-                Executar(doc.Database, new[] { saindo }, null, desligar: true);
-        }
-        catch (System.Exception)
-        {
-            // Melhor esforco: nunca impede a troca de layout.
-        }
-        finally
-        {
-            _executando = false;
-        }
+        _anterior = e.Document is null ? null : LayoutManager.Current.CurrentLayout;
+        Pendentes.Clear();
     }
 
     private static void OnSwitched(object? sender, Autodesk.AutoCAD.DatabaseServices.LayoutEventArgs e)
     {
+        string? saindo = _anterior;
+        _anterior = e.Name;
         if (!Automatico)
             return;
+        if (saindo is not null && !string.Equals(saindo, e.Name, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(saindo, "Model", StringComparison.OrdinalIgnoreCase))
+            _saindo = saindo;
         Pendentes.Add(e.Name);
     }
 
@@ -206,18 +197,23 @@ internal static class LayoutViewportPower
         if (!Pendentes.Contains(atual))
         {
             Pendentes.Clear();
+            _saindo = null;
             return;
         }
         Pendentes.Clear();
+        string? saindo = _saindo;
+        _saindo = null;
         try
         {
             _executando = true;
             using DocumentLock _ = doc.LockDocument();
+            if (saindo is not null)
+                Executar(doc.Database, new[] { saindo }, null, desligar: true);
             Executar(doc.Database, new[] { atual }, null, desligar: false);
         }
         catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage($"\n[Layouts] Modo leve: nao foi possivel religar as viewports: {ex.Message}");
+            doc.Editor.WriteMessage($"\n[Layouts] Modo leve: nao foi possivel ajustar as viewports: {ex.Message}");
         }
         finally
         {
