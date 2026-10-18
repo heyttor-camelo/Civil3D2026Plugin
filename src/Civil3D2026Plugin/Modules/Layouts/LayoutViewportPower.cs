@@ -162,7 +162,7 @@ internal static class LayoutViewportPower
     // Automatico
     // ------------------------------------------------------------------
 
-    private static void OnSwitching(object? sender, LayoutEventArgs e)
+    private static void OnSwitching(object? sender, Autodesk.AutoCAD.DatabaseServices.LayoutEventArgs e)
     {
         if (!Automatico || _executando)
             return;
@@ -187,7 +187,7 @@ internal static class LayoutViewportPower
         }
     }
 
-    private static void OnSwitched(object? sender, LayoutEventArgs e)
+    private static void OnSwitched(object? sender, Autodesk.AutoCAD.DatabaseServices.LayoutEventArgs e)
     {
         if (!Automatico)
             return;
