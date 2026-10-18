@@ -48,6 +48,12 @@ internal static class ViarioSync
 
         /// <summary>Versao que o painel ja recebeu (atualizacao manual: so avisa quando muda).</summary>
         public long NotifiedVersion = -1;
+
+        /// <summary>Eixos mexidos desde a ultima concordancia (atualizacao manual: so esses sao refeitos).</summary>
+        public readonly HashSet<AcadDb.ObjectId> Dirty = new();
+
+        /// <summary>Linhas geradas mexidas fora da regeneracao (UNDO, edicao manual).</summary>
+        public bool LinesTouched;
     }
 
     private sealed class Snapshot
@@ -199,11 +205,12 @@ internal static class ViarioSync
             if (tag == ViarioStore.TagAxis)
             {
                 state.Axes.Add(obj.ObjectId);
-                MarkPending(state);
+                MarkPending(state, obj.ObjectId);
             }
             else if (tag == ViarioStore.TagGenerated)
             {
                 state.Generated.Add(obj.ObjectId);
+                TouchLines(state);
             }
         }
         catch
@@ -248,6 +255,7 @@ internal static class ViarioSync
             if (tag == ViarioStore.TagGenerated)
             {
                 state.Generated.Add(obj.ObjectId);
+                TouchLines(state);
                 return;
             }
 
@@ -260,7 +268,7 @@ internal static class ViarioSync
                 state.Axes.Remove(obj.ObjectId);
 
             if (isAxis || wasAxis)
-                MarkPending(state);
+                MarkPending(state, obj.ObjectId);
         }
         catch
         {
@@ -284,13 +292,14 @@ internal static class ViarioSync
                 // Linha gerada que volta por UNDO/REDO precisa voltar ao controle.
                 if (!e.Erased)
                     state.Generated.Add(obj.ObjectId);
+                TouchLines(state);
                 return;
             }
 
             if (state.Axes.Contains(obj.ObjectId) || tag == ViarioStore.TagAxis)
             {
                 state.Axes.Add(obj.ObjectId);
-                MarkPending(state);
+                MarkPending(state, obj.ObjectId);
             }
         }
         catch
@@ -299,12 +308,20 @@ internal static class ViarioSync
         }
     }
 
-    private static void MarkPending(DbState state)
+    private static void MarkPending(DbState state, AcadDb.ObjectId axis)
     {
         if (_syncing)
             return;
         state.Pending = true;
         state.Version++;
+        state.Dirty.Add(axis);
+        ViarioGripPreview.Invalidate();
+    }
+
+    private static void TouchLines(DbState state)
+    {
+        if (!_syncing)
+            state.LinesTouched = true;
     }
 
     // ------------------------------------------------------------------
@@ -315,9 +332,21 @@ internal static class ViarioSync
     public static bool IsAuto(AcadDb.Database db)
     {
         DbState state = State(db);
-        state.Auto ??= ViarioStore.LoadAutoUpdate(db);
+        if (state.Auto is null)
+        {
+            state.Auto = ViarioStore.LoadAutoUpdate(db);
+
+            // Desenho aberto com a atualizacao desligada: nao se sabe se as linhas
+            // acompanham os eixos (a pendencia nao fica no DWG), entao conta como pendente.
+            if (!state.Auto.Value && state.Last is null)
+                state.Pending = true;
+        }
+
         return state.Auto.Value;
     }
+
+    /// <summary>Rede com mudancas ainda nao aplicadas ao desenho.</summary>
+    public static bool IsPending(AcadDb.Database db) => State(db).Pending;
 
     /// <summary>
     /// Liga/desliga a atualizacao automatica do desenho (fica salvo no DWG). Ao religar
@@ -336,9 +365,9 @@ internal static class ViarioSync
         state.Auto = on;
         if (on)
         {
+            // Sempre refaz: as linhas podem estar atrasadas mesmo sem pendencia nesta sessao.
             doc.Editor.WriteMessage("\n  Atualizacao automatica da rede ligada.");
-            if (state.Pending)
-                Regenerate(doc, quiet: false, force: true);
+            Regenerate(doc, quiet: false, force: true);
         }
         else
         {
@@ -360,33 +389,46 @@ internal static class ViarioSync
         try
         {
             DbState state = State(doc.Database);
-            if (!state.Pending)
-                return;
+            bool linesTouched = state.LinesTouched;
+            state.LinesTouched = false;
 
             if (UndoCommands.Contains(e.GlobalCommandName))
             {
-                // O desfazer restaurou eixos e linhas juntos (com a atualizacao manual,
-                // a rede pode continuar pendente). A opcao salva pode ter sido desfeita.
+                // A opcao salva pode ter sido desfeita junto.
                 state.Auto = null;
-                if (IsAuto(doc.Database))
+                bool auto = IsAuto(doc.Database);
+                state.Dirty.Clear();
+                ViarioGripPreview.Invalidate();
+                if (auto)
+                {
+                    // O desfazer restaurou eixos e linhas juntos.
                     state.Pending = false;
+                }
+                else if (linesTouched)
+                {
+                    // Atualizacao manual: o desfazer pode ter trazido linhas de outra rede
+                    // (um "Atualizar rede" desfeito, por exemplo).
+                    state.Pending = true;
+                }
+
                 ViarioPanel.NotifyChanged(doc);
                 return;
             }
 
             if (!IsAuto(doc.Database))
             {
-                // Sem refazer a rede; so a concordancia dos eixos que a mantem (barato).
-                using (doc.LockDocument())
-                    Rechain(doc, state);
-                if (state.NotifiedVersion != state.Version)
-                {
-                    state.NotifiedVersion = state.Version;
+                // Linha gerada apagada/mexida a mao: o "Atualizar rede" a refaz.
+                bool wasPending = state.Pending;
+                if (linesTouched)
+                    state.Pending = true;
+                ManualIdle(doc, state);
+                if (!wasPending && state.Pending)
                     ViarioPanel.NotifyChanged(doc);
-                }
-
                 return;
             }
+
+            if (!state.Pending)
+                return;
 
             using (doc.LockDocument())
                 Regenerate(doc, quiet: true);
@@ -409,7 +451,11 @@ internal static class ViarioSync
         try
         {
             DbState state = State(doc.Database);
-            if (!state.Pending || !IsAuto(doc.Database))
+            if (!state.Pending)
+                return;
+
+            bool auto = IsAuto(doc.Database);
+            if (!auto && state.Dirty.Count == 0 && state.NotifiedVersion == state.Version)
                 return;
 
             if (!doc.Editor.IsQuiescent ||
@@ -417,6 +463,13 @@ internal static class ViarioSync
                 Convert.ToInt32(AcApp.GetSystemVariable("CMDACTIVE")) != 0 ||
                 System.Windows.Forms.Control.MouseButtons != System.Windows.Forms.MouseButtons.None)
             {
+                return;
+            }
+
+            if (!auto)
+            {
+                // Edicao pela paleta de propriedades com a atualizacao manual.
+                ManualIdle(doc, state);
                 return;
             }
 
@@ -595,10 +648,10 @@ internal static class ViarioSync
     /// refaz a cadeia (retas na direcao corrente, arcos tangentes) a partir dos
     /// vertices atuais. Devolve quantos eixos foram reescritos.
     /// </summary>
-    private static int EnforceChains(AcadDb.Transaction tr, DbState state)
+    private static int EnforceChains(AcadDb.Transaction tr, DbState state, HashSet<AcadDb.ObjectId>? only = null)
     {
         int count = 0;
-        foreach (AcadDb.ObjectId id in state.Axes.ToList())
+        foreach (AcadDb.ObjectId id in only is null ? state.Axes.ToList() : state.Axes.Where(only.Contains).ToList())
         {
             if (id.IsNull || id.IsErased)
                 continue;
@@ -629,26 +682,40 @@ internal static class ViarioSync
         return count;
     }
 
-    /// <summary>Refaz so a concordancia dos eixos editados (atualizacao manual).</summary>
-    private static void Rechain(Document doc, DbState state)
+    /// <summary>
+    /// Atualizacao manual, fim de comando ou Idle: refaz so a concordancia dos eixos mexidos
+    /// (barato) e avisa o painel quando os eixos mudaram.
+    /// </summary>
+    private static void ManualIdle(Document doc, DbState state)
     {
-        if (_syncing)
-            return;
-
-        _syncing = true;
-        try
+        if (state.Dirty.Count > 0 && !_syncing)
         {
-            AcadDb.Database db = doc.Database;
-            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-            EnsureScanned(db, tr, state);
-            int count = EnforceChains(tr, state);
-            tr.Commit();
-            if (count > 0)
-                state.Version++;
+            HashSet<AcadDb.ObjectId> dirty = new(state.Dirty);
+            state.Dirty.Clear();
+            _syncing = true;
+            try
+            {
+                AcadDb.Database db = doc.Database;
+                using (doc.LockDocument())
+                {
+                    using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+                    EnsureScanned(db, tr, state);
+                    int count = EnforceChains(tr, state, dirty);
+                    tr.Commit();
+                    if (count > 0)
+                        state.Version++;
+                }
+            }
+            finally
+            {
+                _syncing = false;
+            }
         }
-        finally
+
+        if (state.NotifiedVersion != state.Version)
         {
-            _syncing = false;
+            state.NotifiedVersion = state.Version;
+            ViarioPanel.NotifyChanged(doc);
         }
     }
 
@@ -670,7 +737,7 @@ internal static class ViarioSync
         if (!force && !IsAuto(db))
         {
             // Avisa uma vez, quando a rede passa a ficar pendente.
-            if (!state.Pending || !quiet)
+            if (!state.Pending)
                 doc.Editor.WriteMessage("\n  Atualizacao automatica desligada: a rede fica pendente ate \"Atualizar rede\" (C3DVIARIO > ATUalizar).");
             state.Pending = true;
             ViarioPanel.NotifyChanged(doc);
@@ -692,6 +759,7 @@ internal static class ViarioSync
             {
                 EnsureScanned(db, tr, state);
                 int rechained = EnforceChains(tr, state);
+                state.Dirty.Clear();
                 if (rechained > 0 && !quiet)
                     doc.Editor.WriteMessage($"\n  Concordancia refeita em {rechained} eixo(s).");
 
@@ -777,6 +845,7 @@ internal static class ViarioSync
             }
 
             state.Pending = false;
+            state.LinesTouched = false;
             ViarioGripPreview.Invalidate();
 
             // Objetos do Civil acompanham a rede quando ja foram gerados.

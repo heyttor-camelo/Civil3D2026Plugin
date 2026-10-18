@@ -811,8 +811,10 @@ internal static class ViarioStore
         WriteRecord(tr, db, AutoKey, new AcadDb.ResultBuffer(new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, on ? 1 : 0)));
 
     /// <summary>
-    /// Assinatura (hash) de todos os registros do modulo no desenho - secoes, configuracao,
-    /// raios, faixas livres, ilhas...: muda quando qualquer um deles muda (inclusive por UNDO).
+    /// Assinatura (hash) dos registros do modulo que mudam a rede - secoes, raios de esquina,
+    /// faixas livres, ilhas eliminadas e raios de ilha, e tolerancias da configuracao: muda
+    /// quando qualquer um deles muda (inclusive por UNDO). Sinalizacao, linhas desvinculadas,
+    /// cotas, hachura e a atualizacao automatica ficam de fora (nao mudam o calculo).
     /// </summary>
     public static string RecordsSignature(AcadDb.Database db)
     {
@@ -834,27 +836,29 @@ internal static class ViarioStore
             hash *= 1099511628211UL;
         }
 
-        void Walk(AcadDb.DBDictionary dict, int depth)
+        foreach (AcadDb.DBDictionaryEntry entry in root)
         {
-            foreach (AcadDb.DBDictionaryEntry entry in dict)
+            bool config = entry.Key == SettingsKey;
+            bool engine = config || entry.Key.StartsWith(SectionPrefix, StringComparison.Ordinal) ||
+                          entry.Key is RadiiKey or SlipKey or RemovedIslandsKey or IslandRadiiKey;
+            if (!engine || tr.GetObject(entry.Value, AcadDb.OpenMode.ForRead) is not AcadDb.Xrecord xr ||
+                xr.Data is not AcadDb.ResultBuffer data)
             {
-                if (depth == 0 && entry.Key == AutoKey)
-                    continue; // ligar/desligar a atualizacao nao muda a rede
-                Mix(entry.Key);
-                AcadDb.DBObject obj = tr.GetObject(entry.Value, AcadDb.OpenMode.ForRead);
-                if (obj is AcadDb.Xrecord xr && xr.Data is AcadDb.ResultBuffer data)
-                {
-                    foreach (AcadDb.TypedValue tv in data.AsArray())
-                        Mix(tv.TypeCode.ToString(CultureInfo.InvariantCulture) + ":" + Convert.ToString(tv.Value, CultureInfo.InvariantCulture));
-                }
-                else if (obj is AcadDb.DBDictionary sub && depth < 4)
-                {
-                    Walk(sub, depth + 1);
-                }
+                continue;
+            }
+
+            Mix(entry.Key);
+            AcadDb.TypedValue[] values = data.AsArray();
+            for (int i = 0; i < values.Length; i++)
+            {
+                // CONFIG: so a marca, tolerancia, captura e recuo do canteiro (0, 2 a 4) entram no motor.
+                if (config && (i == 1 || i > 4))
+                    continue;
+                Mix(values[i].TypeCode.ToString(CultureInfo.InvariantCulture) + ":" +
+                    Convert.ToString(values[i].Value, CultureInfo.InvariantCulture));
             }
         }
 
-        Walk(root, 0);
         return hash.ToString("X16", CultureInfo.InvariantCulture);
     }
 

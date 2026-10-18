@@ -95,6 +95,9 @@ internal sealed class ViarioPanel : SW.Window
     private bool _signExists;
     private bool _refreshQueued;
 
+    /// <summary>Quantas vezes o painel foi atualizado (o aviso na fila pula se ja houve uma depois dele).</summary>
+    private int _refreshCount;
+
     private string _category = "EIXOS";
     private string? _selectedRow;
     private string _tab = "Propriedades";
@@ -261,10 +264,11 @@ internal sealed class ViarioPanel : SW.Window
             return;
 
         panel._refreshQueued = true;
+        int seen = panel._refreshCount;
         panel.Dispatcher.BeginInvoke(new Action(() =>
         {
             panel._refreshQueued = false;
-            if (_instance == panel)
+            if (_instance == panel && panel._refreshCount == seen)
                 panel.Refresh();
         }), System.Windows.Threading.DispatcherPriority.Background);
     }
@@ -773,10 +777,10 @@ internal sealed class ViarioPanel : SW.Window
         if (doc is null)
             return;
 
-        bool on = !_auto;
+        bool on = !ViarioSync.IsAuto(doc.Database);
         try
         {
-            if (on && _stale)
+            if (on)
                 Say("Atualizando a rede...");
             using (doc.LockDocument())
             {
@@ -1235,6 +1239,7 @@ internal sealed class ViarioPanel : SW.Window
 
     private void Refresh()
     {
+        _refreshCount++;
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
         {
@@ -3645,21 +3650,55 @@ internal sealed class ViarioPanel : SW.Window
     // Linhas da rede ja amostradas para a vista (refeitas so quando a rede, os eixos ou o
     // "Eixos" mudam - nao a cada zoom/arraste).
     private Shapes? _netShapes;
-    private object? _netShapesResult, _netShapesAxes;
+    private object? _netShapesResult;
+    private ulong _netShapesAxes;
     private bool _netShapesWithAxes;
 
     private Shapes NetworkShapes()
     {
-        if (_netShapes is null || !ReferenceEquals(_netShapesResult, _result) || !ReferenceEquals(_netShapesAxes, _axes) ||
+        ulong axesStamp = _showAxes ? AxesStamp(_axes) : 0;
+        if (_netShapes is null || !ReferenceEquals(_netShapesResult, _result) || _netShapesAxes != axesStamp ||
             _netShapesWithAxes != _showAxes)
         {
             _netShapes = BuildNetworkShapes();
             _netShapesResult = _result;
-            _netShapesAxes = _axes;
+            _netShapesAxes = axesStamp;
             _netShapesWithAxes = _showAxes;
         }
 
         return new Shapes(_netShapes);
+    }
+
+    /// <summary>Marca da geometria dos eixos (chave, inicio, fim, comprimento e trechos de cada um).</summary>
+    private static ulong AxesStamp(List<AxisInput> axes)
+    {
+        ulong hash = 14695981039346656037UL;
+        void Mix(double v)
+        {
+            hash ^= (ulong)BitConverter.DoubleToInt64Bits(v);
+            hash *= 1099511628211UL;
+        }
+
+        foreach (AxisInput a in axes)
+        {
+            foreach (char c in a.Key)
+            {
+                hash ^= c;
+                hash *= 1099511628211UL;
+            }
+
+            Mix(a.Path.Length);
+            Mix(a.Path.Segs.Count);
+            if (!a.Path.IsEmpty)
+            {
+                Mix(a.Path.Start.X);
+                Mix(a.Path.Start.Y);
+                Mix(a.Path.End.X);
+                Mix(a.Path.End.Y);
+            }
+        }
+
+        return hash;
     }
 
     private Shapes BuildNetworkShapes()
@@ -3833,12 +3872,57 @@ internal sealed class ViarioPanel : SW.Window
             }
         }
 
-        // Linhas da rede: um Path por estilo (cor, espessura, tracejado, preenchimento), so o
-        // que aparece na tela e sem pontos a menos de 0,7 px um do outro - em redes de centenas
-        // de vias, milhares de polilinhas WPF travavam a vista a cada zoom/arraste.
+        // Linhas da rede: itens seguidos do mesmo estilo (cor, espessura, tracejado) num Path
+        // so, so o que aparece na tela e sem pontos a menos de 0,7 px um do outro - em redes de
+        // centenas de vias, milhares de polilinhas WPF travavam a vista a cada zoom/arraste.
+        // Itens preenchidos (ilhas) ficam um por Path; a ordem de desenho e a mesma de antes.
         Box2 visible = new Box2(x0, y0, x1, y1).Inflate(4.0 / scale);
-        List<(WM.Color, double, bool, WM.Color?)> order = new();
-        Dictionary<(WM.Color, double, bool, WM.Color?), (WM.StreamGeometry Geometry, WM.StreamGeometryContext Context, WM.Brush Stroke, WM.Brush? Fill)> groups = new();
+        WM.StreamGeometry? runGeometry = null;
+        WM.StreamGeometryContext? runContext = null;
+        (WM.Color Color, double Thickness, bool Dashed) runKey = default;
+        WM.Brush? runBrush = null;
+
+        void AddPath(WM.StreamGeometry geometry, WM.Brush stroke, WM.Brush? fill, double thickness, bool dashed)
+        {
+            geometry.Freeze();
+            WS.Path path = new()
+            {
+                Data = geometry,
+                Stroke = stroke,
+                Fill = fill,
+                StrokeThickness = thickness,
+                StrokeLineJoin = WM.PenLineJoin.Miter
+            };
+            if (dashed)
+                path.StrokeDashArray = new WM.DoubleCollection { 12, 4, 2, 4 };
+            _graphic.Children.Add(path);
+        }
+
+        void FlushRun()
+        {
+            if (runGeometry is null || runContext is null || runBrush is null)
+                return;
+            runContext.Close();
+            AddPath(runGeometry, runBrush, null, runKey.Thickness, runKey.Dashed);
+            runGeometry = null;
+            runContext = null;
+            runBrush = null;
+        }
+
+        void Figure(WM.StreamGeometryContext context, List<V2> pts, bool filled, bool closed)
+        {
+            SW.Point last = P(pts[0]);
+            context.BeginFigure(last, filled, closed);
+            for (int k = 1; k < pts.Count; k++)
+            {
+                SW.Point q = P(pts[k]);
+                if (k < pts.Count - 1 && Math.Abs(q.X - last.X) < 0.7 && Math.Abs(q.Y - last.Y) < 0.7)
+                    continue;
+                context.LineTo(q, true, false);
+                last = q;
+            }
+        }
+
         for (int i = 0; i < sh.Items.Count; i++)
         {
             (List<V2> pts, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) = sh.Items[i];
@@ -3846,44 +3930,30 @@ internal sealed class ViarioPanel : SW.Window
                 continue;
 
             double th = thickness < 0 ? Math.Max(0.6, -thickness * scale) : thickness;
-            (WM.Color, double, bool, WM.Color?) key = (ColorOf(brush), Math.Round(th, 3), dashed, fill is null ? null : ColorOf(fill));
-            if (!groups.TryGetValue(key, out var group))
+            if (fill is not null)
             {
-                WM.StreamGeometry geometry = new() { FillRule = WM.FillRule.EvenOdd };
-                group = (geometry, geometry.Open(), brush, fill);
-                groups[key] = group;
-                order.Add(key);
+                FlushRun();
+                WM.StreamGeometry single = new();
+                using (WM.StreamGeometryContext context = single.Open())
+                    Figure(context, pts, true, closed);
+                AddPath(single, brush, fill, th, dashed);
+                continue;
             }
 
-            SW.Point last = P(pts[0]);
-            group.Context.BeginFigure(last, fill is not null, closed);
-            for (int k = 1; k < pts.Count; k++)
+            (WM.Color, double, bool) key = (ColorOf(brush), Math.Round(th, 3), dashed);
+            if (runGeometry is null || key != runKey)
             {
-                SW.Point q = P(pts[k]);
-                if (k < pts.Count - 1 && Math.Abs(q.X - last.X) < 0.7 && Math.Abs(q.Y - last.Y) < 0.7)
-                    continue;
-                group.Context.LineTo(q, true, false);
-                last = q;
+                FlushRun();
+                runGeometry = new WM.StreamGeometry();
+                runContext = runGeometry.Open();
+                runKey = key;
+                runBrush = brush;
             }
+
+            Figure(runContext!, pts, false, closed);
         }
 
-        foreach ((WM.Color, double, bool, WM.Color?) key in order)
-        {
-            var group = groups[key];
-            group.Context.Close();
-            group.Geometry.Freeze();
-            WS.Path path = new()
-            {
-                Data = group.Geometry,
-                Stroke = group.Stroke,
-                Fill = group.Fill,
-                StrokeThickness = key.Item2,
-                StrokeLineJoin = WM.PenLineJoin.Miter
-            };
-            if (key.Item3)
-                path.StrokeDashArray = new WM.DoubleCollection { 12, 4, 2, 4 };
-            _graphic.Children.Add(path);
-        }
+        FlushRun();
 
         // Estacas ao longo dos eixos.
         double stStep = new[] { 20.0, 100.0, 200.0, 500.0, 1000.0, 2000.0, 5000.0 }.First(v => v * scale >= 40 || v >= 5000);

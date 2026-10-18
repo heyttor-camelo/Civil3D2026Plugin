@@ -247,8 +247,21 @@ public sealed class ViarioCommands
 
         ViarioSync.Initialize();
 
-        bool hints = command != C3DCommands.Viario.Teste && command != C3DCommands.Viario.Diag && command != C3DCommands.Viario.Painel;
+        // Recomendacoes antes/depois pedem a rede calculada: com a atualizacao manual (rede
+        // grande) ficam so no painel, para o comando nao calcular a rede inteira.
+        bool auto = ViarioSync.IsAuto(doc.Database);
+        bool hints = auto && command != C3DCommands.Viario.Teste && command != C3DCommands.Viario.Diag && command != C3DCommands.Viario.Painel;
         HashSet<string> before = hints ? HintKeys(doc) : new HashSet<string>();
+
+        // Saidas (Civil, sinalizacao, hachura, cotas) seguem os eixos atuais; com a rede
+        // pendente, as linhas no desenho ainda sao as de antes.
+        if (!auto && ViarioSync.IsPending(doc.Database) &&
+            (command == C3DCommands.Viario.Civil || command == C3DCommands.Viario.Sinal ||
+             command == C3DCommands.Viario.Hachura || command == C3DCommands.Viario.Cotar))
+        {
+            doc.Editor.WriteMessage("\n  [AVISO] Rede pendente (atualizacao automatica desligada): esta saida segue os eixos atuais, " +
+                                    "mas as linhas no desenho ainda sao as de antes. Use \"Atualizar rede\" (C3DVIARIO > ATUalizar).");
+        }
 
         try
         {
@@ -1761,10 +1774,13 @@ internal static class ViarioPreview
         return axes.Where(a => a.Path.Bounds().Intersects(box)).ToList();
     }
 
-    public static void DrawChanges(WorldDraw draw, ViarioResult result, HashSet<string> existingKeys)
+    /// <summary>Linhas que mudam em relacao as existentes (com "within", so as que passam pela janela).</summary>
+    public static void DrawChanges(WorldDraw draw, ViarioResult result, HashSet<string> existingKeys, Box2? within = null)
     {
         foreach (OutputLine line in result.Lines)
         {
+            if (within is Box2 box && !new GPath(line.Segs).Bounds().Intersects(box))
+                continue;
             if (existingKeys.Contains(ViarioStore.GeometryKey(line)))
                 continue;
 
@@ -2119,8 +2135,10 @@ internal sealed class ValueJig : DrawJig
         try
         {
             (List<AxisInput> axes, EngineSettings settings) = _apply(Value);
-            ViarioResult result = ViarioEngine.Compute(ViarioPreview.Near(axes, _base), settings);
-            ViarioPreview.DrawChanges(draw, result, _existingKeys);
+            List<AxisInput> near = ViarioPreview.Near(axes, _base);
+            ViarioResult result = ViarioEngine.Compute(near, settings);
+            ViarioPreview.DrawChanges(draw, result, _existingKeys,
+                near.Count < axes.Count ? Box2.Empty.Add(_base).Inflate(300.0) : null);
         }
         catch
         {
