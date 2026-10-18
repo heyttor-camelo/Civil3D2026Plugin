@@ -231,7 +231,11 @@ internal sealed class Seg
         return (t, q, V2.Dist(p, q));
     }
 
-    public Box2 Bounds()
+    private Box2? _bounds;
+
+    public Box2 Bounds() => _bounds ??= ComputeBounds();
+
+    private Box2 ComputeBounds()
     {
         if (!IsArc)
             return Box2.Empty.Add(A).Add(B);
@@ -335,6 +339,15 @@ internal sealed class Seg
 internal sealed class GPath
 {
     private readonly double[] _cum;
+
+    // Caixas em cache (o caminho nao muda depois de criado): a do caminho, a de cada
+    // segmento e a de cada bloco de segmentos seguidos. Os blocos deixam intersecoes e
+    // projecoes em eixos longos (polilinhas de GIS com milhares de vertices) perto de
+    // lineares, com o mesmo resultado da varredura completa.
+    private const int ChunkSize = 16;
+    private Box2? _box;
+    private Box2[]? _segBoxes;
+    private Box2[]? _chunkBoxes;
 
     public IReadOnlyList<Seg> Segs { get; }
     public double Length { get; }
@@ -453,26 +466,144 @@ internal sealed class GPath
     {
         double bestS = 0, bestD = double.MaxValue;
         V2 bestP = default;
-        for (int i = 0; i < Segs.Count; i++)
+        int n = Segs.Count;
+        if (n <= 2 * ChunkSize)
         {
-            (double t, V2 q, double d) = Segs[i].Closest(p);
-            if (d < bestD)
+            for (int i = 0; i < n; i++)
             {
-                bestD = d;
-                bestS = SAt(i, t);
-                bestP = q;
+                (double t, V2 q, double d) = Segs[i].Closest(p);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    bestS = SAt(i, t);
+                    bestP = q;
+                }
+            }
+
+            return (bestS, bestP, bestD);
+        }
+
+        // Limite superior pelo bloco mais perto; depois a varredura na ordem, pulando os
+        // blocos que nao podem ter nada mais perto que o limite (mesmo desempate).
+        Box2[] chunks = ChunkBoxes;
+        int nearest = 0;
+        double nearestBox = double.MaxValue;
+        for (int c = 0; c < chunks.Length; c++)
+        {
+            double d = BoxDistance(chunks[c], p);
+            if (d < nearestBox)
+            {
+                nearestBox = d;
+                nearest = c;
+            }
+        }
+
+        double upper = double.MaxValue;
+        for (int i = nearest * ChunkSize, end = Math.Min(n, i + ChunkSize); i < end; i++)
+            upper = Math.Min(upper, Segs[i].Closest(p).Dist);
+        double limit = upper + 1e-6 + (upper * 1e-9);
+
+        for (int c = 0; c < chunks.Length; c++)
+        {
+            if (BoxDistance(chunks[c], p) > limit)
+                continue;
+
+            for (int i = c * ChunkSize, end = Math.Min(n, i + ChunkSize); i < end; i++)
+            {
+                (double t, V2 q, double d) = Segs[i].Closest(p);
+                if (d < bestD)
+                {
+                    bestD = d;
+                    bestS = SAt(i, t);
+                    bestP = q;
+                }
             }
         }
 
         return (bestS, bestP, bestD);
     }
 
+    /// <summary>Primeiro e ultimo segmento cuja caixa toca a janela ((-1, -1) se nenhum).</summary>
+    public (int First, int Last) SegmentRange(Box2 window)
+    {
+        int first = -1, last = -1;
+        Box2[] chunks = ChunkBoxes;
+        Box2[] boxes = SegBoxes;
+        for (int c = 0; c < chunks.Length; c++)
+        {
+            if (!chunks[c].Intersects(window))
+                continue;
+            for (int i = c * ChunkSize, end = Math.Min(boxes.Length, i + ChunkSize); i < end; i++)
+            {
+                if (!boxes[i].Intersects(window))
+                    continue;
+                if (first < 0)
+                    first = i;
+                last = i;
+            }
+        }
+
+        return (first, last);
+    }
+
+    private static double BoxDistance(Box2 b, V2 p)
+    {
+        double dx = Math.Max(Math.Max(b.MinX - p.X, p.X - b.MaxX), 0.0);
+        double dy = Math.Max(Math.Max(b.MinY - p.Y, p.Y - b.MaxY), 0.0);
+        return Math.Sqrt((dx * dx) + (dy * dy));
+    }
+
     public Box2 Bounds()
     {
+        if (_box is Box2 cached)
+            return cached;
+
         Box2 box = Box2.Empty;
-        foreach (Seg s in Segs)
-            box = box.Union(s.Bounds());
+        foreach (Box2 b in SegBoxes)
+            box = box.Union(b);
+        _box = box;
         return box;
+    }
+
+    /// <summary>Caixa de cada segmento (em cache).</summary>
+    private Box2[] SegBoxes
+    {
+        get
+        {
+            if (_segBoxes is null)
+            {
+                Box2[] boxes = new Box2[Segs.Count];
+                for (int i = 0; i < boxes.Length; i++)
+                    boxes[i] = Segs[i].Bounds();
+                _segBoxes = boxes;
+            }
+
+            return _segBoxes;
+        }
+    }
+
+    /// <summary>Caixa de cada bloco de ChunkSize segmentos seguidos (em cache).</summary>
+    private Box2[] ChunkBoxes
+    {
+        get
+        {
+            if (_chunkBoxes is null)
+            {
+                Box2[] segs = SegBoxes;
+                Box2[] chunks = new Box2[(segs.Length + ChunkSize - 1) / ChunkSize];
+                for (int c = 0; c < chunks.Length; c++)
+                {
+                    Box2 box = Box2.Empty;
+                    for (int i = c * ChunkSize, end = Math.Min(segs.Length, i + ChunkSize); i < end; i++)
+                        box = box.Union(segs[i]);
+                    chunks[c] = box;
+                }
+
+                _chunkBoxes = chunks;
+            }
+
+            return _chunkBoxes;
+        }
     }
 
     /// <summary>Intersecoes com outro caminho: (s neste, s no outro, ponto).</summary>
@@ -482,26 +613,70 @@ internal sealed class GPath
         if (IsEmpty || other.IsEmpty || !Bounds().Inflate(eps).Intersects(other.Bounds()))
             return result;
 
-        Box2[] boxesB = other.Segs.Select(s => s.Bounds().Inflate(eps)).ToArray();
+        Box2[] boxesA = SegBoxes;
+        Box2[] boxesB = other.SegBoxes;
 
-        for (int i = 0; i < Segs.Count; i++)
+        void Test(int i, int j)
         {
-            Box2 boxA = Segs[i].Bounds().Inflate(eps);
-            for (int j = 0; j < other.Segs.Count; j++)
+            foreach ((double t1, double t2, V2 p) in Seg.Intersect(Segs[i], other.Segs[j], eps))
             {
-                if (!boxA.Intersects(boxesB[j]))
+                double s1 = SAt(i, t1);
+                double s2 = other.SAt(j, t2);
+                bool duplicate = result.Any(r => V2.Dist(r.Item3, p) < 1e-6);
+                if (!duplicate)
+                    result.Add((s1, s2, p));
+            }
+        }
+
+        if ((long)Segs.Count * other.Segs.Count <= 4L * ChunkSize * ChunkSize)
+        {
+            for (int i = 0; i < Segs.Count; i++)
+            {
+                Box2 boxA = boxesA[i].Inflate(eps);
+                for (int j = 0; j < other.Segs.Count; j++)
+                {
+                    if (boxA.Intersects(boxesB[j].Inflate(eps)))
+                        Test(i, j);
+                }
+            }
+
+            return result;
+        }
+
+        // Pares de segmentos pelos blocos que se tocam, testados na mesma ordem (i, j) da
+        // varredura completa: o resultado (e o descarte de repetidos) e o mesmo.
+        Box2[] chunksA = ChunkBoxes;
+        Box2[] chunksB = other.ChunkBoxes;
+        double margin = (4.0 * eps) + 1e-6;
+        Box2 otherBox = other.Bounds().Inflate(margin);
+        List<(int I, int J)> pairs = new();
+        for (int a = 0; a < chunksA.Length; a++)
+        {
+            Box2 ca = chunksA[a].Inflate(margin);
+            if (!ca.Intersects(otherBox))
+                continue;
+
+            for (int b = 0; b < chunksB.Length; b++)
+            {
+                if (!ca.Intersects(chunksB[b]))
                     continue;
 
-                foreach ((double t1, double t2, V2 p) in Seg.Intersect(Segs[i], other.Segs[j], eps))
+                int j0 = b * ChunkSize, j1 = Math.Min(boxesB.Length, j0 + ChunkSize);
+                for (int i = a * ChunkSize, i1 = Math.Min(boxesA.Length, i + ChunkSize); i < i1; i++)
                 {
-                    double s1 = SAt(i, t1);
-                    double s2 = other.SAt(j, t2);
-                    bool duplicate = result.Any(r => V2.Dist(r.Item3, p) < 1e-6);
-                    if (!duplicate)
-                        result.Add((s1, s2, p));
+                    Box2 boxA = boxesA[i].Inflate(eps);
+                    for (int j = j0; j < j1; j++)
+                    {
+                        if (boxA.Intersects(boxesB[j].Inflate(eps)))
+                            pairs.Add((i, j));
+                    }
                 }
             }
         }
+
+        pairs.Sort();
+        foreach ((int i, int j) in pairs)
+            Test(i, j);
 
         return result;
     }

@@ -18,6 +18,10 @@ namespace Civil3D2026Plugin.Modules.Viario;
 /// - A regeneracao compara as linhas desejadas com as existentes pela
 ///   geometria: so cria/apaga o que mudou.
 /// - UNDO/REDO nao disparam regeneracao (o desfazer ja restaura tudo).
+/// - Atualizacao automatica pode ser desligada por desenho (redes grandes): os eixos
+///   mudam, a rede fica pendente e so e refeita no "Atualizar rede".
+/// - A ultima rede calculada fica guardada enquanto nem os eixos nem os registros do
+///   modulo mudarem: o painel e os comandos nao recalculam a mesma rede de novo.
 /// </summary>
 internal static class ViarioSync
 {
@@ -29,7 +33,36 @@ internal static class ViarioSync
         public readonly Dictionary<AcadDb.ObjectId, (List<V2> Pts, List<double> Bulges)> ChainSnapshot = new();
         public bool Scanned;
         public bool Pending;
+
+        /// <summary>Muda a cada alteracao de eixo (fora da propria regeneracao).</summary>
+        public long Version;
+
+        /// <summary>Ultima rede calculada e de que estado ela veio.</summary>
+        public Snapshot? Last;
+
+        /// <summary>Atualizacao automatica (null = ainda nao lida do desenho).</summary>
+        public bool? Auto;
+
+        /// <summary>Ja avisou que a rede e pesada para a atualizacao automatica.</summary>
+        public bool SlowHinted;
+
+        /// <summary>Versao que o painel ja recebeu (atualizacao manual: so avisa quando muda).</summary>
+        public long NotifiedVersion = -1;
     }
+
+    private sealed class Snapshot
+    {
+        public long Version;
+        public string Signature = "";
+        public List<AxisInput> Axes = new();
+        public ViarioResult Result = new();
+    }
+
+    /// <summary>
+    /// Rede para o painel: eixos e a rede calculada. Stale = ha mudancas nos eixos ainda nao
+    /// aplicadas ao desenho; Missing = a rede ainda nao foi calculada nesta sessao (atualizacao manual).
+    /// </summary>
+    public readonly record struct NetworkView(List<AxisInput> Axes, ViarioResult Result, bool Stale, bool Missing);
 
     private static readonly Dictionary<AcadDb.Database, DbState> States = new();
     private static readonly HashSet<Document> Attached = new();
@@ -268,8 +301,51 @@ internal static class ViarioSync
 
     private static void MarkPending(DbState state)
     {
-        if (!_syncing)
-            state.Pending = true;
+        if (_syncing)
+            return;
+        state.Pending = true;
+        state.Version++;
+    }
+
+    // ------------------------------------------------------------------
+    // Atualizacao automatica
+    // ------------------------------------------------------------------
+
+    /// <summary>Atualizacao automatica ligada neste desenho (padrao: sim).</summary>
+    public static bool IsAuto(AcadDb.Database db)
+    {
+        DbState state = State(db);
+        state.Auto ??= ViarioStore.LoadAutoUpdate(db);
+        return state.Auto.Value;
+    }
+
+    /// <summary>
+    /// Liga/desliga a atualizacao automatica do desenho (fica salvo no DWG). Ao religar
+    /// com mudancas pendentes, a rede e refeita na hora. O documento precisa estar travado.
+    /// </summary>
+    public static void SetAuto(Document doc, bool on)
+    {
+        AcadDb.Database db = doc.Database;
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            ViarioStore.SaveAutoUpdate(tr, db, on);
+            tr.Commit();
+        }
+
+        DbState state = State(db);
+        state.Auto = on;
+        if (on)
+        {
+            doc.Editor.WriteMessage("\n  Atualizacao automatica da rede ligada.");
+            if (state.Pending)
+                Regenerate(doc, quiet: false, force: true);
+        }
+        else
+        {
+            doc.Editor.WriteMessage("\n  Atualizacao automatica da rede desligada: mexa nos eixos a vontade e use \"Atualizar rede\" (C3DVIARIO > ATUalizar) quando quiser ver o resultado.");
+        }
+
+        ViarioPanel.NotifyChanged(doc);
     }
 
     // ------------------------------------------------------------------
@@ -289,8 +365,26 @@ internal static class ViarioSync
 
             if (UndoCommands.Contains(e.GlobalCommandName))
             {
-                // O desfazer restaurou eixos e linhas juntos.
-                state.Pending = false;
+                // O desfazer restaurou eixos e linhas juntos (com a atualizacao manual,
+                // a rede pode continuar pendente). A opcao salva pode ter sido desfeita.
+                state.Auto = null;
+                if (IsAuto(doc.Database))
+                    state.Pending = false;
+                ViarioPanel.NotifyChanged(doc);
+                return;
+            }
+
+            if (!IsAuto(doc.Database))
+            {
+                // Sem refazer a rede; so a concordancia dos eixos que a mantem (barato).
+                using (doc.LockDocument())
+                    Rechain(doc, state);
+                if (state.NotifiedVersion != state.Version)
+                {
+                    state.NotifiedVersion = state.Version;
+                    ViarioPanel.NotifyChanged(doc);
+                }
+
                 return;
             }
 
@@ -315,7 +409,7 @@ internal static class ViarioSync
         try
         {
             DbState state = State(doc.Database);
-            if (!state.Pending)
+            if (!state.Pending || !IsAuto(doc.Database))
                 return;
 
             if (!doc.Editor.IsQuiescent ||
@@ -392,14 +486,62 @@ internal static class ViarioSync
         };
     }
 
-    /// <summary>Calcula a rede atual sem alterar o desenho.</summary>
+    /// <summary>
+    /// Calcula a rede atual sem alterar o desenho (reaproveita a ultima rede calculada
+    /// se nada mudou desde entao).
+    /// </summary>
     public static (List<AxisInput> Axes, ViarioResult Result, HashSet<string> ExistingKeys) ComputeCurrent(AcadDb.Database db)
     {
+        DbState state = State(db);
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        if (Valid(db, state) is Snapshot last)
+            return (new List<AxisInput>(last.Axes), last.Result, ExistingKeys(db, tr));
+
         List<AxisInput> axes = CollectAxes(db, tr, SectionMap(db));
         ViarioResult result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
-        return (axes, result, ExistingKeys(db, tr));
+        Remember(db, state, axes, result);
+        return (new List<AxisInput>(axes), result, ExistingKeys(db, tr));
     }
+
+    /// <summary>Eixos atuais e chaves das linhas existentes, sem calcular a rede.</summary>
+    public static (List<AxisInput> Axes, HashSet<string> ExistingKeys) CurrentAxes(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        return (CollectAxes(db, tr, SectionMap(db)), ExistingKeys(db, tr));
+    }
+
+    /// <summary>
+    /// Rede para o painel. Com a atualizacao automatica, a atual (calculada se preciso);
+    /// desligada, os eixos atuais com a ultima rede calculada, sem recalcular.
+    /// </summary>
+    public static NetworkView View(AcadDb.Database db)
+    {
+        DbState state = State(db);
+        bool auto = IsAuto(db);
+        if (Valid(db, state) is Snapshot last)
+            return new NetworkView(new List<AxisInput>(last.Axes), last.Result, !auto && state.Pending, false);
+
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        List<AxisInput> axes = CollectAxes(db, tr, SectionMap(db));
+        if (!auto)
+            return new NetworkView(axes, state.Last?.Result ?? new ViarioResult(), state.Pending, state.Last is null);
+
+        ViarioResult result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
+        Remember(db, state, axes, result);
+        return new NetworkView(new List<AxisInput>(axes), result, false, false);
+    }
+
+    /// <summary>Esquece a rede guardada (o proximo calculo e completo).</summary>
+    public static void Forget(AcadDb.Database db) => State(db).Last = null;
+
+    private static Snapshot? Valid(AcadDb.Database db, DbState state) =>
+        state.Last is Snapshot last && last.Version == state.Version &&
+        string.Equals(last.Signature, ViarioStore.RecordsSignature(db), StringComparison.Ordinal)
+            ? last
+            : null;
+
+    private static void Remember(AcadDb.Database db, DbState state, List<AxisInput> axes, ViarioResult result) =>
+        state.Last = new Snapshot { Version = state.Version, Signature = ViarioStore.RecordsSignature(db), Axes = axes, Result = result };
 
     /// <summary>Chaves geometricas das linhas geradas que existem hoje no desenho.</summary>
     public static HashSet<string> ExistingKeys(AcadDb.Database db, AcadDb.Transaction tr)
@@ -487,20 +629,55 @@ internal static class ViarioSync
         return count;
     }
 
+    /// <summary>Refaz so a concordancia dos eixos editados (atualizacao manual).</summary>
+    private static void Rechain(Document doc, DbState state)
+    {
+        if (_syncing)
+            return;
+
+        _syncing = true;
+        try
+        {
+            AcadDb.Database db = doc.Database;
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            EnsureScanned(db, tr, state);
+            int count = EnforceChains(tr, state);
+            tr.Commit();
+            if (count > 0)
+                state.Version++;
+        }
+        finally
+        {
+            _syncing = false;
+        }
+    }
+
     public static Dictionary<string, RoadSection> SectionMap(AcadDb.Database db) =>
         ViarioStore.LoadSections(db).GroupBy(p => p.Id).ToDictionary(g => g.Key, g => g.First());
 
     /// <summary>
     /// Refaz a rede inteira e aplica so as diferencas. O documento precisa estar
-    /// travado (comando em andamento ou LockDocument).
+    /// travado (comando em andamento ou LockDocument). Com a atualizacao automatica
+    /// desligada, so marca a rede como pendente (salvo com force: o "Atualizar rede").
     /// </summary>
-    public static ViarioResult? Regenerate(Document doc, bool quiet)
+    public static ViarioResult? Regenerate(Document doc, bool quiet, bool force = false)
     {
         if (_syncing)
             return null;
 
         AcadDb.Database db = doc.Database;
         DbState state = State(db);
+        if (!force && !IsAuto(db))
+        {
+            // Avisa uma vez, quando a rede passa a ficar pendente.
+            if (!state.Pending || !quiet)
+                doc.Editor.WriteMessage("\n  Atualizacao automatica desligada: a rede fica pendente ate \"Atualizar rede\" (C3DVIARIO > ATUalizar).");
+            state.Pending = true;
+            ViarioPanel.NotifyChanged(doc);
+            return null;
+        }
+
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         _syncing = true;
 
         try
@@ -518,8 +695,18 @@ internal static class ViarioSync
                 if (rechained > 0 && !quiet)
                     doc.Editor.WriteMessage($"\n  Concordancia refeita em {rechained} eixo(s).");
 
-                axes = CollectAxes(db, tr, sections);
-                result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
+                if (rechained == 0 && Valid(db, state) is Snapshot last)
+                {
+                    axes = new List<AxisInput>(last.Axes);
+                    result = last.Result;
+                }
+                else
+                {
+                    axes = CollectAxes(db, tr, sections);
+                    result = ViarioEngine.Compute(axes, EngineSettingsFor(db));
+                    Remember(db, state, axes, result);
+                    axes = new List<AxisInput>(axes);
+                }
 
                 // Linhas desejadas por chave (multiconjunto).
                 Dictionary<string, List<OutputLine>> wanted = new();
@@ -626,6 +813,10 @@ internal static class ViarioSync
                 doc.Editor.WriteMessage("\n  [AVISO] Hachura nao atualizada: " + ex.Message);
             }
 
+            // O que as saidas gravaram nos registros do modulo nao muda a rede.
+            if (state.Last is Snapshot done && ReferenceEquals(done.Result, result))
+                done.Signature = ViarioStore.RecordsSignature(db);
+
             ViarioPanel.NotifyChanged(doc);
 
             if (civil is not null)
@@ -639,6 +830,15 @@ internal static class ViarioSync
                 doc.Editor.WriteMessage(
                     $"\n  Rede viaria: {result.Nodes.Count} no(s), {result.Lines.Count} linha(s) | criadas {created}, removidas {erased}.");
                 WriteWarnings(doc, result);
+            }
+
+            // Rede pesada para refazer a cada edicao: sugere a atualizacao manual uma vez.
+            if (!force && !state.SlowHinted && clock.Elapsed.TotalSeconds > 4.0)
+            {
+                state.SlowHinted = true;
+                doc.Editor.WriteMessage(
+                    $"\n  A rede levou {clock.Elapsed.TotalSeconds:0} s para ser refeita. Em redes grandes, desligue a atualizacao automatica " +
+                    "(botao Auto no explorador ou C3DVIARIO > AUtomatico) e use \"Atualizar rede\" quando quiser.");
             }
 
             return result;

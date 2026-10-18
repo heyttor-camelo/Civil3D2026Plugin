@@ -787,6 +787,77 @@ internal static class ViarioStore
             : null;
     }
 
+    // ------------------------------------------------------------------
+    // Atualizacao automatica e assinatura dos registros
+    // ------------------------------------------------------------------
+
+    private const string AutoKey = "AUTO";
+
+    /// <summary>Atualizacao automatica da rede neste desenho (padrao ligada).</summary>
+    public static bool LoadAutoUpdate(AcadDb.Database db)
+    {
+        AcadDb.TypedValue[]? v = ReadRecord(db, AutoKey);
+        if (v is null || v.Length < 1)
+            return true;
+        return v[0].Value switch
+        {
+            int i => i != 0,
+            short s => s != 0,
+            _ => true
+        };
+    }
+
+    public static void SaveAutoUpdate(AcadDb.Transaction tr, AcadDb.Database db, bool on) =>
+        WriteRecord(tr, db, AutoKey, new AcadDb.ResultBuffer(new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, on ? 1 : 0)));
+
+    /// <summary>
+    /// Assinatura (hash) de todos os registros do modulo no desenho - secoes, configuracao,
+    /// raios, faixas livres, ilhas...: muda quando qualquer um deles muda (inclusive por UNDO).
+    /// </summary>
+    public static string RecordsSignature(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.DBDictionary? root = TryRoot(tr, db);
+        if (root is null)
+            return "";
+
+        ulong hash = 14695981039346656037UL;
+        void Mix(string text)
+        {
+            foreach (char c in text)
+            {
+                hash ^= c;
+                hash *= 1099511628211UL;
+            }
+
+            hash ^= 0x1F;
+            hash *= 1099511628211UL;
+        }
+
+        void Walk(AcadDb.DBDictionary dict, int depth)
+        {
+            foreach (AcadDb.DBDictionaryEntry entry in dict)
+            {
+                if (depth == 0 && entry.Key == AutoKey)
+                    continue; // ligar/desligar a atualizacao nao muda a rede
+                Mix(entry.Key);
+                AcadDb.DBObject obj = tr.GetObject(entry.Value, AcadDb.OpenMode.ForRead);
+                if (obj is AcadDb.Xrecord xr && xr.Data is AcadDb.ResultBuffer data)
+                {
+                    foreach (AcadDb.TypedValue tv in data.AsArray())
+                        Mix(tv.TypeCode.ToString(CultureInfo.InvariantCulture) + ":" + Convert.ToString(tv.Value, CultureInfo.InvariantCulture));
+                }
+                else if (obj is AcadDb.DBDictionary sub && depth < 4)
+                {
+                    Walk(sub, depth + 1);
+                }
+            }
+        }
+
+        Walk(root, 0);
+        return hash.ToString("X16", CultureInfo.InvariantCulture);
+    }
+
     private static AcadDb.TypedValue[]? ReadRecord(AcadDb.Database db, string key)
     {
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();

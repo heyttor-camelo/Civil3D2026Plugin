@@ -452,6 +452,9 @@ internal static class ViarioEngine
         public HashSet<string> RepeatedKeys = new();
         public double[] ExtStartLen = Array.Empty<double>();
         public List<Node> Nodes = new();
+        public Dictionary<int, List<(Node, double)>> NodesByAxis = new();
+        public List<Node>? NodesByAxisSource;
+        public int NodesByAxisCount = -1;
         public Dictionary<(int Axis, int Dir, long S, int Side), (double Extent, bool AtNode)> SideExtentCache = new();
 
         /// <summary>Tangencias do no em processamento, por linha: a remocao e decidida ao fim do no.</summary>
@@ -874,15 +877,41 @@ internal static class ViarioEngine
 
         double merge = Math.Max(snap, 1e-3);
         int[] parent = Enumerable.Range(0, hits.Count).ToArray();
-        int Find(int x) => parent[x] == x ? x : parent[x] = Find(parent[x]);
+        int Find(int x)
+        {
+            while (parent[x] != x)
+            {
+                parent[x] = parent[parent[x]];
+                x = parent[x];
+            }
 
+            return x;
+        }
+
+        // Pontos a ate "merge" um do outro viram o mesmo no (grade com celula = merge: so
+        // as 9 celulas em volta podem ter vizinhos). Os grupos sao os mesmos da comparacao
+        // de todos com todos.
+        Dictionary<(long, long), List<int>> cells = new();
         for (int i = 0; i < hits.Count; i++)
         {
-            for (int j = i + 1; j < hits.Count; j++)
+            long cx = (long)Math.Floor(hits[i].P.X / merge), cy = (long)Math.Floor(hits[i].P.Y / merge);
+            for (long gx = cx - 1; gx <= cx + 1; gx++)
             {
-                if (V2.Dist(hits[i].P, hits[j].P) <= merge)
-                    parent[Find(i)] = Find(j);
+                for (long gy = cy - 1; gy <= cy + 1; gy++)
+                {
+                    if (!cells.TryGetValue((gx, gy), out List<int>? near))
+                        continue;
+                    foreach (int j in near)
+                    {
+                        if (V2.Dist(hits[i].P, hits[j].P) <= merge)
+                            parent[Find(i)] = Find(j);
+                    }
+                }
             }
+
+            if (!cells.TryGetValue((cx, cy), out List<int>? own))
+                cells[(cx, cy)] = own = new List<int>();
+            own.Add(i);
         }
 
         List<Node> nodes = new();
@@ -1034,12 +1063,25 @@ internal static class ViarioEngine
 
         // No do outro lado que so continua o eixo em linha reta nao disputa espaco de esquina.
         double straight = ctx.Settings.StraightToleranceDeg * Math.PI / 180.0;
+        Dictionary<int, List<(Node Node, double S)>> byAxis = new();
+        foreach (Node node in nodes)
+        {
+            foreach ((int axis, double s) in node.Items)
+            {
+                if (!byAxis.TryGetValue(axis, out List<(Node, double)>? list))
+                    byAxis[axis] = list = new List<(Node, double)>();
+                list.Add((node, s));
+            }
+        }
+
         foreach (Node node in nodes)
         {
             foreach (Leg leg in node.Legs.Where(l => l.ExtentEndsAtNode && !ctx.Axes[l.Axis].Path.Closed))
             {
                 double target = leg.S + (leg.Dir * leg.Extent);
-                Node? far = nodes.FirstOrDefault(n => n != node && n.Items.Any(it => it.Axis == leg.Axis && Math.Abs(it.S - target) <= snap + 1e-6));
+                Node? far = byAxis.TryGetValue(leg.Axis, out List<(Node Node, double S)>? onAxis)
+                    ? onAxis.FirstOrDefault(x => x.Node != node && Math.Abs(x.S - target) <= snap + 1e-6).Node
+                    : null;
                 if (far is not null && far.Legs.Count == 2 &&
                     Math.Abs(GMath.Norm(far.Legs[1].Angle - far.Legs[0].Angle) - Math.PI) <= straight)
                 {
@@ -1513,6 +1555,30 @@ internal static class ViarioEngine
         return path;
     }
 
+    /// <summary>
+    /// Paralela so do trecho da linha que passa pela janela (mais dois segmentos de cada
+    /// lado): dentro da janela e igual a paralela da linha inteira, sem o custo de
+    /// refazer eixos de quilometros a cada raio tentado. Se o trecho for a linha toda,
+    /// usa a paralela inteira (em cache).
+    /// </summary>
+    private static GPath LocalOffset(Ctx ctx, Curve curve, double distance, Box2 window)
+    {
+        IReadOnlyList<Seg> segs = curve.P.Segs;
+        (int first, int last) = curve.P.SegmentRange(window);
+        if (first < 0)
+            return new GPath(Array.Empty<Seg>());
+
+        first = Math.Max(0, first - 2);
+        last = Math.Min(segs.Count - 1, last + 2);
+        if (first == 0 && last == segs.Count - 1)
+            return CurveOffset(ctx, curve, distance);
+
+        List<Seg> part = new(last - first + 1);
+        for (int i = first; i <= last; i++)
+            part.Add(segs[i]);
+        return new GPath(part).Offset(curve.Side * distance);
+    }
+
     /// <summary>Motivo pelo qual o ultimo raio tentado nao coube (para a mensagem ao usuario).</summary>
     [ThreadStatic] private static string? _fitReason;
 
@@ -1529,16 +1595,21 @@ internal static class ViarioEngine
         // perto do maior raio que cabe - bicos agudos (narizes de ilha) precisam disso.
         for (int attempt = 0; attempt < 14; attempt++, r *= 0.8)
         {
-            // Centro: encontro das paralelas (a distancia r) das proprias linhas,
-            // que ja incluem alargamentos e tapers.
-            GPath o1 = CurveOffset(ctx, c1, r);
-            GPath o2 = CurveOffset(ctx, c2, r);
-
             // Candidatos a centro, do mais perto da esquina para o mais longe: o primeiro que
             // tangencia as duas linhas depois da esquina e cabe nos ramos vale (em alcas e
-            // curvas, o encontro mais proximo nem sempre e o certo).
+            // curvas, o encontro mais proximo nem sempre e o certo). Alem de 3x o limite
+            // nenhum centro serve, entao so o trecho das linhas perto da esquina entra.
             double limit = Math.Max((3.0 * r) + d1 + d2 + 5.0, (1.2 * r / sinHalf) + 1.0);
-            List<V2> candidates = o1.Intersections(o2).Select(x => x.P).OrderBy(p => V2.Dist(p, corner)).ToList();
+            double reach = limit * 3.0;
+
+            // Centro: encontro das paralelas (a distancia r) das proprias linhas,
+            // que ja incluem alargamentos e tapers.
+            Box2 window = Box2.Empty.Add(corner).Inflate(reach + (11.0 * r) + 5.0);
+            GPath o1 = LocalOffset(ctx, c1, r, window);
+            GPath o2 = LocalOffset(ctx, c2, r, window);
+            List<V2> candidates = o1.Intersections(o2).Select(x => x.P)
+                .Where(p => V2.Dist(p, corner) <= reach)
+                .OrderBy(p => V2.Dist(p, corner)).ToList();
             if (candidates.Count == 0)
             {
                 Debug?.Invoke($"fillet r={r:0.##}: sem centro (paralelas nao se cruzam)");
@@ -1664,8 +1735,7 @@ internal static class ViarioEngine
         if (!path.Closed)
         {
             // Nos deste eixo adiante do ramo, na ordem.
-            IEnumerable<(Node Node, double S)> ahead = ctx.Nodes
-                .SelectMany(n => n.Items.Where(it => it.Axis == leg.Axis).Select(it => (n, it.S)))
+            IEnumerable<(Node Node, double S)> ahead = NodesOnAxis(ctx, leg.Axis)
                 .Where(x => (x.S - leg.S) * leg.Dir > snap)
                 .OrderBy(x => (x.S - leg.S) * leg.Dir);
 
@@ -1701,6 +1771,29 @@ internal static class ViarioEngine
 
         ctx.SideExtentCache[key] = result;
         return result;
+    }
+
+    /// <summary>Nos que passam por um eixo, na ordem da lista de nos (indice montado uma vez por lista).</summary>
+    private static IReadOnlyList<(Node Node, double S)> NodesOnAxis(Ctx ctx, int axis)
+    {
+        if (!ReferenceEquals(ctx.NodesByAxisSource, ctx.Nodes) || ctx.NodesByAxisCount != ctx.Nodes.Count)
+        {
+            ctx.NodesByAxis.Clear();
+            foreach (Node n in ctx.Nodes)
+            {
+                foreach ((int a, double s) in n.Items)
+                {
+                    if (!ctx.NodesByAxis.TryGetValue(a, out List<(Node, double)>? list))
+                        ctx.NodesByAxis[a] = list = new List<(Node, double)>();
+                    list.Add((n, s));
+                }
+            }
+
+            ctx.NodesByAxisSource = ctx.Nodes;
+            ctx.NodesByAxisCount = ctx.Nodes.Count;
+        }
+
+        return ctx.NodesByAxis.TryGetValue(axis, out List<(Node, double)>? found) ? found : Array.Empty<(Node, double)>();
     }
 
     private static void AddRemoval(Ctx ctx, Curve curve, Leg leg, double sT)

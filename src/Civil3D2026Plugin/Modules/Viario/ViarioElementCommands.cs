@@ -222,7 +222,7 @@ internal static class ViarioElementCommands
             return;
 
         V2 p = ToWcs(ed, pick.Value);
-        (List<AxisInput> axes, _, HashSet<string> keys) = ViarioSync.ComputeCurrent(doc.Database);
+        (List<AxisInput> axes, HashSet<string> keys) = ViarioSync.CurrentAxes(doc.Database);
         AxisInput? axis = axes
             .Where(a => a.Section.Canteiro > 1e-3)
             .OrderBy(a => a.Path.Project(p).Dist)

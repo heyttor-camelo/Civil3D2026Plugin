@@ -71,6 +71,12 @@ internal sealed class ViarioPanel : SW.Window
 
     private List<AxisInput> _axes = new();
     private ViarioResult _result = new();
+
+    /// <summary>Atualizacao automatica da rede neste desenho; desligada, a rede pode estar pendente (_stale).</summary>
+    private bool _auto = true;
+    private bool _stale;
+    private bool _missing;
+    private WC.Button? _autoButton;
     private List<RoadSection> _sections = new();
     private ViarioStore.Settings _settings = new();
     private EngineSettings _engine = new();
@@ -704,10 +710,92 @@ internal sealed class ViarioPanel : SW.Window
                 }
 
                 bar.Children.Add(button);
+                if (c.Key == "ATUALIZAR")
+                    bar.Children.Add(BuildAutoButton());
             }
         }
 
         return tray;
+    }
+
+    /// <summary>Botao liga/desliga da atualizacao automatica (ao lado do Atualizar rede).</summary>
+    private WC.Button BuildAutoButton()
+    {
+        _autoButton = new WC.Button
+        {
+            Padding = new SW.Thickness(4, 1, 4, 1),
+            Margin = new SW.Thickness(2, 0, 0, 0),
+            Background = WM.Brushes.Transparent,
+            BorderBrush = T.Line,
+            VerticalAlignment = SW.VerticalAlignment.Center
+        };
+        WC.ToolTipService.SetInitialShowDelay(_autoButton, 250);
+        WC.ToolTipService.SetShowDuration(_autoButton, 30000);
+        _autoButton.Click += (_, _) => ToggleAuto();
+        UpdateAutoButton();
+        return _autoButton;
+    }
+
+    private void UpdateAutoButton()
+    {
+        if (_autoButton is null)
+            return;
+
+        WM.Brush dot = _auto ? Brush(60, 170, 75) : _stale ? T.Warn : T.Muted;
+        _autoButton.Content = new WC.StackPanel
+        {
+            Orientation = WC.Orientation.Horizontal,
+            Children =
+            {
+                new WC.TextBlock { Text = "\u25CF", Foreground = dot, FontSize = 11, Margin = new SW.Thickness(0, 0, 3, 0), VerticalAlignment = SW.VerticalAlignment.Center },
+                new WC.TextBlock { Text = _auto ? "Auto" : _stale ? "Manual (pendente)" : "Manual", Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center }
+            }
+        };
+        _autoButton.ToolTip = new WC.ToolTip
+        {
+            Content = new WC.TextBlock
+            {
+                MaxWidth = 380,
+                TextWrapping = SW.TextWrapping.Wrap,
+                Text = _auto
+                    ? "Atualizacao automatica: LIGADA.\n\nA rede e refeita ao fim de cada comando que mexe nos eixos.\n\n" +
+                      "Clique para desligar em redes grandes (centenas de vias): os eixos mudam a vontade e a rede so e refeita no \"Atualizar rede\". Fica salvo no desenho."
+                    : "Atualizacao automatica: DESLIGADA" + (_stale ? " - ha mudancas nos eixos ainda nao aplicadas" : "") + ".\n\n" +
+                      "Os eixos mudam sem refazer a rede (sem previa da rede no arraste de grips; a concordancia dos eixos continua). " +
+                      "Use \"Atualizar rede\" (botao ao lado) para ver o resultado. Clique para religar (com mudancas pendentes, a rede e refeita na hora)."
+            }
+        };
+    }
+
+    private void ToggleAuto()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+
+        bool on = !_auto;
+        try
+        {
+            if (on && _stale)
+                Say("Atualizando a rede...");
+            using (doc.LockDocument())
+            {
+                ViarioSync.Initialize();
+                ViarioSync.SetAuto(doc, on);
+                doc.Editor.UpdateScreen();
+                AcApp.UpdateScreen();
+            }
+
+            Refresh();
+            Say(on
+                ? "Atualizacao automatica ligada."
+                : "Atualizacao automatica desligada: use Atualizar rede quando quiser ver o resultado.");
+        }
+        catch (Exception ex)
+        {
+            Refresh();
+            Say("Erro: " + ex.Message);
+        }
     }
 
     /// <summary>Escalas (DIMSCALE) oferecidas no menu das cotas; 0 = a do estilo/desenho.</summary>
@@ -1158,7 +1246,12 @@ internal sealed class ViarioPanel : SW.Window
         try
         {
             ViarioSync.Initialize();
-            (_axes, _result, _) = ViarioSync.ComputeCurrent(db);
+            ViarioSync.NetworkView view = ViarioSync.View(db);
+            _axes = view.Axes;
+            _result = view.Result;
+            _stale = view.Stale;
+            _missing = view.Missing;
+            _auto = ViarioSync.IsAuto(db);
             _sections = ViarioStore.LoadSections(db);
             _settings = ViarioStore.LoadSettings(db);
             _engine = ViarioSync.EngineSettingsFor(db);
@@ -1176,6 +1269,7 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         Title = $"Rede viaria - Explorador [{System.IO.Path.GetFileName(doc.Name)}]";
+        UpdateAutoButton();
         FillCategories();
         FillList();
     }
@@ -1510,7 +1604,9 @@ internal sealed class ViarioPanel : SW.Window
         OnRowSelected();
 
         int warn = _hints.Count(h => h.Level == HintLevel.Atencao);
-        Say($"{_axes.Count} eixo(s){(_checked.Count > 0 ? $" ({_checked.Count} marcado(s))" : "")}, {_result.Nodes.Count} no(s), {_result.Corners.Count} esquina(s) | " +
+        Say((_stale ? "REDE PENDENTE (atualizacao manual: clique em Atualizar rede) | " :
+             _missing ? "Rede ainda nao calculada nesta sessao (atualizacao manual): Atualizar rede mostra nos e esquinas | " : "") +
+            $"{_axes.Count} eixo(s){(_checked.Count > 0 ? $" ({_checked.Count} marcado(s))" : "")}, {_result.Nodes.Count} no(s), {_result.Corners.Count} esquina(s) | " +
             $"DNIT: {warn} atencao, {_hints.Count - warn} info | Civil: {(_civilActive ? "ativo" : "-")} | " +
             $"Sinalizacao: {(_signExists ? "sim" : "-")} | v{C3DVersions.Viario}");
     }
@@ -3258,7 +3354,8 @@ internal sealed class ViarioPanel : SW.Window
                 tr.Commit();
             }
 
-            count = ViarioSignageSync.Sync(AcApp.DocumentManager.MdiActiveDocument, _axes, _result, create: true);
+            (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
+            count = ViarioSignageSync.Sync(AcApp.DocumentManager.MdiActiveDocument, axes, result, create: true);
         }, regenerate: false);
         if (count >= 0)
             Say($"Sinalizacao: {count} marca(s) no bloco {ViarioSignageSync.BlockName}.");
@@ -3515,17 +3612,57 @@ internal sealed class ViarioPanel : SW.Window
     private sealed class Shapes
     {
         public readonly List<(List<V2> Points, WM.Brush Brush, double Thickness, bool Closed, WM.Brush? Fill, bool Dashed)> Items = new();
+        public readonly List<Box2> Boxes = new();
         public readonly List<V2> Markers = new();
 
-        public void Add(IEnumerable<Seg> segs, WM.Brush brush, double thickness, bool closed = false, WM.Brush? fill = null, bool dashed = false) =>
-            Items.Add((Sample(segs), brush, thickness, closed, fill, dashed));
+        public Shapes()
+        {
+        }
+
+        /// <summary>Copia (as listas de pontos sao compartilhadas).</summary>
+        public Shapes(Shapes from)
+        {
+            Items.AddRange(from.Items);
+            Boxes.AddRange(from.Boxes);
+            Markers.AddRange(from.Markers);
+        }
+
+        public void Add(IEnumerable<Seg> segs, WM.Brush brush, double thickness, bool closed = false, WM.Brush? fill = null, bool dashed = false)
+        {
+            List<V2> pts = Sample(segs);
+            Box2 box = Box2.Empty;
+            foreach (V2 p in pts)
+                box = box.Add(p);
+            Items.Add((pts, brush, thickness, closed, fill, dashed));
+            Boxes.Add(box);
+        }
 
         public void Highlight(IEnumerable<Seg> segs) => Add(segs, HighlightBrush, 2.5);
 
         public void Marker(V2 p) => Markers.Add(p);
     }
 
+    // Linhas da rede ja amostradas para a vista (refeitas so quando a rede, os eixos ou o
+    // "Eixos" mudam - nao a cada zoom/arraste).
+    private Shapes? _netShapes;
+    private object? _netShapesResult, _netShapesAxes;
+    private bool _netShapesWithAxes;
+
     private Shapes NetworkShapes()
+    {
+        if (_netShapes is null || !ReferenceEquals(_netShapesResult, _result) || !ReferenceEquals(_netShapesAxes, _axes) ||
+            _netShapesWithAxes != _showAxes)
+        {
+            _netShapes = BuildNetworkShapes();
+            _netShapesResult = _result;
+            _netShapesAxes = _axes;
+            _netShapesWithAxes = _showAxes;
+        }
+
+        return new Shapes(_netShapes);
+    }
+
+    private Shapes BuildNetworkShapes()
     {
         Shapes sh = new();
         foreach (OutputLine line in _result.Lines)
@@ -3636,10 +3773,16 @@ internal sealed class ViarioPanel : SW.Window
         _sectionView = false;
         _graphic.Children.Clear();
         double w = _graphic.ActualWidth, h = _graphic.ActualHeight;
-        List<V2> all = sh.Items.SelectMany(i => i.Points).ToList();
+        Box2 extents = Box2.Empty;
+        for (int i = 0; i < sh.Items.Count; i++)
+        {
+            if (sh.Items[i].Points.Count > 0)
+                extents = extents.Union(sh.Boxes[i]);
+        }
+
         if (w < 20 || h < 20)
             return;
-        if (all.Count == 0)
+        if (extents.IsEmpty)
         {
             _vScale = 0;
             Label("Sem eixos na rede.", 10, 10);
@@ -3647,7 +3790,7 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         double dw = w - RulerLeft, dh = h - RulerBottom;
-        Box2 box = focus ?? new Box2(all.Min(p => p.X), all.Min(p => p.Y), all.Max(p => p.X), all.Max(p => p.Y));
+        Box2 box = focus ?? extents;
         _vScale = 0.90 * Math.Min(dw / Math.Max(box.MaxX - box.MinX, 1e-6), dh / Math.Max(box.MaxY - box.MinY, 1e-6)) * _zoom;
         _vCx = ((box.MinX + box.MaxX) / 2.0) + _pan.X;
         _vCy = ((box.MinY + box.MaxY) / 2.0) + _pan.Y;
@@ -3690,19 +3833,56 @@ internal sealed class ViarioPanel : SW.Window
             }
         }
 
-        // Linhas da rede.
-        foreach ((List<V2> pts, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) in sh.Items)
+        // Linhas da rede: um Path por estilo (cor, espessura, tracejado, preenchimento), so o
+        // que aparece na tela e sem pontos a menos de 0,7 px um do outro - em redes de centenas
+        // de vias, milhares de polilinhas WPF travavam a vista a cada zoom/arraste.
+        Box2 visible = new Box2(x0, y0, x1, y1).Inflate(4.0 / scale);
+        List<(WM.Color, double, bool, WM.Color?)> order = new();
+        Dictionary<(WM.Color, double, bool, WM.Color?), (WM.StreamGeometry Geometry, WM.StreamGeometryContext Context, WM.Brush Stroke, WM.Brush? Fill)> groups = new();
+        for (int i = 0; i < sh.Items.Count; i++)
         {
-            if (pts.Count < 2)
+            (List<V2> pts, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) = sh.Items[i];
+            if (pts.Count < 2 || !sh.Boxes[i].Intersects(visible))
                 continue;
-            WM.PointCollection points = new(pts.Select(P));
-            WS.Shape shape = closed ? new WS.Polygon { Points = points, Fill = fill } : new WS.Polyline { Points = points };
-            shape.Stroke = brush;
-            shape.StrokeThickness = thickness < 0 ? Math.Max(0.6, -thickness * scale) : thickness;
-            shape.StrokeLineJoin = WM.PenLineJoin.Miter;
-            if (dashed)
-                shape.StrokeDashArray = new WM.DoubleCollection { 12, 4, 2, 4 };
-            _graphic.Children.Add(shape);
+
+            double th = thickness < 0 ? Math.Max(0.6, -thickness * scale) : thickness;
+            (WM.Color, double, bool, WM.Color?) key = (ColorOf(brush), Math.Round(th, 3), dashed, fill is null ? null : ColorOf(fill));
+            if (!groups.TryGetValue(key, out var group))
+            {
+                WM.StreamGeometry geometry = new() { FillRule = WM.FillRule.EvenOdd };
+                group = (geometry, geometry.Open(), brush, fill);
+                groups[key] = group;
+                order.Add(key);
+            }
+
+            SW.Point last = P(pts[0]);
+            group.Context.BeginFigure(last, fill is not null, closed);
+            for (int k = 1; k < pts.Count; k++)
+            {
+                SW.Point q = P(pts[k]);
+                if (k < pts.Count - 1 && Math.Abs(q.X - last.X) < 0.7 && Math.Abs(q.Y - last.Y) < 0.7)
+                    continue;
+                group.Context.LineTo(q, true, false);
+                last = q;
+            }
+        }
+
+        foreach ((WM.Color, double, bool, WM.Color?) key in order)
+        {
+            var group = groups[key];
+            group.Context.Close();
+            group.Geometry.Freeze();
+            WS.Path path = new()
+            {
+                Data = group.Geometry,
+                Stroke = group.Stroke,
+                Fill = group.Fill,
+                StrokeThickness = key.Item2,
+                StrokeLineJoin = WM.PenLineJoin.Miter
+            };
+            if (key.Item3)
+                path.StrokeDashArray = new WM.DoubleCollection { 12, 4, 2, 4 };
+            _graphic.Children.Add(path);
         }
 
         // Estacas ao longo dos eixos.
@@ -4179,6 +4359,8 @@ internal sealed class ViarioPanel : SW.Window
             box = box.Union(s.Bounds());
         return box;
     }
+
+    private static WM.Color ColorOf(WM.Brush brush) => brush is WM.SolidColorBrush solid ? solid.Color : WM.Colors.Gray;
 
     private static List<V2> Sample(IEnumerable<Seg> segs)
     {

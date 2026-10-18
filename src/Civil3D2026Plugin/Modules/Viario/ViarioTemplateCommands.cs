@@ -33,7 +33,7 @@ internal static class ViarioTemplateCommands
         foreach (string note in build.Notes)
             ed.WriteMessage("\n  " + note);
 
-        (List<AxisInput> existing, _, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        (List<AxisInput> existing, HashSet<string> keys) = ViarioSync.CurrentAxes(db);
         EngineSettings engine = ViarioSync.EngineSettingsFor(db);
 
         // 1) Ponto da intersecao.

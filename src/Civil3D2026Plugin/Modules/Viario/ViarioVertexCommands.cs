@@ -389,7 +389,7 @@ internal static class ViarioVertexCommands
         if (seeds.Count == 0)
             return -1;
 
-        (List<AxisInput> axes, _, _) = ViarioSync.ComputeCurrent(db);
+        (List<AxisInput> axes, _) = ViarioSync.CurrentAxes(db);
         EngineSettings engine = ViarioSync.EngineSettingsFor(db);
         for (int i = 0; i < seeds.Count; i++)
         {

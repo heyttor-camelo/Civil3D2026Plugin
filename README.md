@@ -185,7 +185,7 @@ Log comum a todos os modulos: comandos do plugin (inicio, fim, falha e tempo), a
 
 Operacoes longas mostram uma janela de progresso (etapa, tempo, estimativa) que continua desenhando enquanto o AutoCAD trabalha; **Cancelar** para depois da etapa atual e o que ja foi feito fica.
 
-## Rede viaria (C3DVIARIO v0.8.0)
+## Rede viaria (C3DVIARIO v0.9.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -207,7 +207,7 @@ C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/COtar/HAchura/PAinel/Config]
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/COtar/HAchura/PAinel/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas); sarjeta, meio-fio e calcada podem existir so a esquerda, so a direita ou nos dois lados (no sentido do eixo);
@@ -218,6 +218,7 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 - modelos: cruzamento, T, Y, T/cruz com gotas, T/cruz com faixas livres, cruz com conversao a esquerda (canteiro ou alargamento), T com faixas de conversao, rotatorias de 3, 4 e 5 ramos com gotas;
 - raio: faixa livre > especifico da esquina > especifico do eixo > da secao;
 - associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram);
+- atualizacao automatica liga/desliga por desenho (botao "Auto" no explorador ou `C3DVIARIO > AUtomatico`): em redes grandes (centenas de vias de quilometros), desligue; os eixos mudam sem refazer a rede, que fica pendente ate "Atualizar rede" (`C3DVIARIO > ATUalizar`). A ultima rede calculada fica guardada enquanto nada muda (o explorador e os comandos nao recalculam a mesma rede);
 - explorador (`C3DVIARIOPAINEL`), categoria Eixos: caixinhas para marcar varios eixos; com marcados (ou varios selecionados) as propriedades viram edicao em lote (secao, raio, concordancia, nome, inverter, selecionar, remover da rede);
 - nome do eixo (XData `C3DVIARIONOME`): editavel no explorador ou tirado dos TEXT/MTEXT proximos ("Nomear pelos textos...": filtro por layer e distancia, preferencia por texto alinhado com o eixo, previa antes de aplicar); vai para os alinhamentos do Civil.
 

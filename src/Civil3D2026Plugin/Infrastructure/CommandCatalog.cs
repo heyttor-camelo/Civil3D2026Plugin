@@ -210,7 +210,7 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Viario.ElemRemover, "Remover elemento",
                         "Remove alargamento, gota, conversao, abertura ou faixa livre clicando perto dele."),
                     new CommandDefinition(C3DCommands.Viario.Rede, "Rede viaria",
-                        "Secoes (pista, canteiro, sarjeta, meio-fio, calcada, raio), rotatoria, adicionar/atribuir/remover eixos, desvincular/revincular linhas e atualizar."),
+                        "Secoes (pista, canteiro, sarjeta, meio-fio, calcada, raio), rotatoria, adicionar/atribuir/remover eixos, desvincular/revincular linhas, atualizar e ligar/desligar a atualizacao automatica (redes grandes)."),
                     new CommandDefinition(C3DCommands.Viario.Civil, "Objetos do Civil",
                         "Gera e mantem alinhamentos do Civil: eixos, bordos LD/LE por trecho e curb returns (sem site)."),
                     new CommandDefinition(C3DCommands.Viario.Ilha, "Eliminar ilha",

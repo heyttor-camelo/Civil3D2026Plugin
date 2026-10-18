@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/CIvil/SInalizacao/COtar/HAchura/PAinel/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar CIvil SInalizacao COtar HAchura PAinel Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/COtar/HAchura/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar AUtomatico CIvil SInalizacao COtar HAchura PAinel Config")
             {
                 AllowNone = true
             };
@@ -53,7 +53,8 @@ public sealed class ViarioCommands
                 case "ELementos": ViarioElementCommands.Menu(doc); break;
                 case "DEsvincular": Release(doc); break;
                 case "REmover": RemoveAxes(doc); break;
-                case "ATUalizar": ViarioSync.Regenerate(doc, quiet: false); break;
+                case "ATUalizar": ViarioSync.Forget(doc.Database); ViarioSync.Regenerate(doc, quiet: false, force: true); break;
+                case "AUtomatico": ToggleAuto(doc); break;
                 case "CIvil": CivilMenu(doc); break;
                 case "SInalizacao": ViarioSignageSync.Command(doc); break;
                 case "COtar": ViarioDimensions.Command(doc); break;
@@ -63,6 +64,27 @@ public sealed class ViarioCommands
                 default: DrawAxes(doc); break;
             }
         });
+    }
+
+    /// <summary>Liga/desliga a atualizacao automatica da rede neste desenho.</summary>
+    private static void ToggleAuto(Document doc)
+    {
+        bool on = ViarioSync.IsAuto(doc.Database);
+        PromptKeywordOptions options = new(
+            $"\nAtualizacao automatica da rede (agora {(on ? "ligada" : "desligada")}) [Ligar/Desligar] <{(on ? "Desligar" : "Ligar")}>: ",
+            "Ligar Desligar")
+        {
+            AllowNone = true
+        };
+        PromptResult result = doc.Editor.GetKeywords(options);
+        if (result.Status == PromptStatus.Cancel || result.Status == PromptStatus.Error)
+            return;
+
+        bool want = result.Status == PromptStatus.OK ? result.StringResult == "Ligar" : !on;
+        if (want != on)
+            ViarioSync.SetAuto(doc, want);
+        else
+            doc.Editor.WriteMessage($"\n  Atualizacao automatica ja esta {(on ? "ligada" : "desligada")}.");
     }
 
     [CommandMethod(C3DCommands.Viario.Painel, CommandFlags.Modal)]
@@ -338,7 +360,7 @@ public sealed class ViarioCommands
             bool arcMode = false;
             bool chained = _chainMode;
 
-            (List<AxisInput> existing, _, HashSet<string> existingKeys) = ViarioSync.ComputeCurrent(db);
+            (List<AxisInput> existing, HashSet<string> existingKeys) = ViarioSync.CurrentAxes(db);
             EngineSettings engine = ViarioSync.EngineSettingsFor(db);
 
             bool finished = false;
@@ -1095,7 +1117,7 @@ public sealed class ViarioCommands
             handle = obj.Handle.ToString() ?? string.Empty;
         }
 
-        (List<AxisInput> axes, _, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        (List<AxisInput> axes, HashSet<string> keys) = ViarioSync.CurrentAxes(db);
         AxisInput? target = axes.FirstOrDefault(a => a.Key == handle);
         if (target is null)
             return;
@@ -1727,6 +1749,18 @@ public sealed class ViarioCommands
 /// <summary>Desenho comum dos jigs: linhas da rede que mudam em relacao ao desenho atual.</summary>
 internal static class ViarioPreview
 {
+    /// <summary>
+    /// Eixos que entram na previa ao vivo: todos em rede pequena; em rede grande, so os
+    /// que passam perto do ponto (a previa de cada movimento do mouse nao refaz a cidade toda).
+    /// </summary>
+    public static List<AxisInput> Near(List<AxisInput> axes, V2 point, double reach = 300.0)
+    {
+        if (axes.Count <= 150)
+            return axes;
+        Box2 box = Box2.Empty.Add(point).Inflate(reach);
+        return axes.Where(a => a.Path.Bounds().Intersects(box)).ToList();
+    }
+
     public static void DrawChanges(WorldDraw draw, ViarioResult result, HashSet<string> existingKeys)
     {
         foreach (OutputLine line in result.Lines)
@@ -2085,7 +2119,7 @@ internal sealed class ValueJig : DrawJig
         try
         {
             (List<AxisInput> axes, EngineSettings settings) = _apply(Value);
-            ViarioResult result = ViarioEngine.Compute(axes, settings);
+            ViarioResult result = ViarioEngine.Compute(ViarioPreview.Near(axes, _base), settings);
             ViarioPreview.DrawChanges(draw, result, _existingKeys);
         }
         catch

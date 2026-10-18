@@ -86,8 +86,10 @@ internal sealed class ViarioGripPreview : DrawableOverrule
             if (doc is null || !IsDragCommand(doc.CommandInProgress))
                 return result;
 
+
             _busy = true;
-            Preview(doc, pl, wd);
+            // Atualizacao automatica desligada (rede grande): so a concordancia, sem a rede.
+            Preview(doc, pl, wd, ViarioSync.IsAuto(doc.Database));
         }
         catch
         {
@@ -120,7 +122,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
             return _cache;
         }
 
-        (List<AxisInput> axes, _, HashSet<string> keys) = ViarioSync.ComputeCurrent(db);
+        (List<AxisInput> axes, HashSet<string> keys) = ViarioSync.CurrentAxes(db);
         _cache = new Cache
         {
             Db = db,
@@ -133,7 +135,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         return _cache;
     }
 
-    private static void Preview(Document doc, AcadDb.Polyline clone, WorldDraw wd)
+    private static void Preview(Document doc, AcadDb.Polyline clone, WorldDraw wd, bool network)
     {
         Cache cache = Current(doc);
         if (cache.Axes.Count == 0)
@@ -163,7 +165,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         }
 
         GPath path = AxisJig.PathOf(pts, bulges);
-        if (path.IsEmpty)
+        if (path.IsEmpty || !network)
             return;
 
         List<AxisInput> axes = new(cache.Axes.Count);
