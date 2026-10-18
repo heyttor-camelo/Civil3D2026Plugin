@@ -237,6 +237,102 @@ public sealed class LayoutCommands
     }
 
     /// <summary>
+    /// Seta do norte: clica o ponto no layout; gira pela viewport embaixo (ou a mais perto).
+    /// [Tamanho] muda a altura em mm; [Girar] acerta todos os nortes pelas viewports.
+    /// </summary>
+    [CommandMethod(C3DCommands.Layouts.Norte, CommandFlags.Modal)]
+    public void Norte()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        bool model = Convert.ToInt32(AcApp.GetSystemVariable("TILEMODE")) == 1;
+        if (!model && Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
+            ed.SwitchToPaperSpace();
+        while (true)
+        {
+            double tam = LayoutSettings.GetDouble("norte_mm", 20);
+            var ppo = new PromptPointOptions($"\nPonto da seta do norte ({LayoutNorte.Mm(tam)} mm) [Tamanho/Girar]: ", "Tamanho Girar");
+            PromptPointResult ppr = ed.GetPoint(ppo);
+            if (ppr.Status == PromptStatus.Keyword && ppr.StringResult == "Tamanho")
+            {
+                var pdo = new PromptDoubleOptions("\nAltura da seta do norte no papel (mm)") { DefaultValue = tam, UseDefaultValue = true, AllowNegative = false, AllowZero = false };
+                PromptDoubleResult pdr = ed.GetDouble(pdo);
+                if (pdr.Status == PromptStatus.OK)
+                    LayoutSettings.Set("norte_mm", pdr.Value);
+                continue;
+            }
+            if (ppr.Status == PromptStatus.Keyword && ppr.StringResult == "Girar")
+            {
+                OpResult g = LayoutNorte.Girar(doc);
+                ed.WriteMessage("\n" + g.Mensagem);
+                PluginLog.Info("Layouts", "Norte: " + g.Mensagem);
+                return;
+            }
+            if (ppr.Status != PromptStatus.OK)
+                return;
+            Point3d p = ppr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+            OpResult r = LayoutNorte.Inserir(doc, doc.Database.CurrentSpaceId, p, tam, ObjectId.Null);
+            ed.WriteMessage("\n" + r.Mensagem);
+            PluginLog.Info("Layouts", "Norte: " + r.Mensagem);
+            return;
+        }
+    }
+
+    /// <summary>
+    /// Escala grafica (ex-ESCALAGRAF_V2.LSP, mesmo nome e mesmo fluxo): viewport, ate quantos
+    /// metros, altura do texto e o canto inferior esquerdo da barra.
+    /// </summary>
+    [CommandMethod(C3DCommands.Layouts.EscalaGrafica, CommandFlags.Modal)]
+    public void EscalaGrafica()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        if (Convert.ToInt32(AcApp.GetSystemVariable("TILEMODE")) == 1)
+        {
+            ed.WriteMessage("\nExecute o comando em um Layout (Paper Space).");
+            return;
+        }
+        if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
+            ed.SwitchToPaperSpace();
+
+        var peo = new PromptEntityOptions("\nSelecione a viewport: ");
+        peo.SetRejectMessage("\nO objeto selecionado nao e uma viewport.");
+        peo.AddAllowedClass(typeof(Viewport), true);
+        PromptEntityResult per = ed.GetEntity(peo);
+        if (per.Status != PromptStatus.OK)
+            return;
+
+        var pmax = new PromptDoubleOptions("\nAte quantos metros deve ir a escala grafica")
+        {
+            DefaultValue = LayoutEscalaGrafica.UltimoMaximo, UseDefaultValue = true, AllowNegative = false, AllowZero = false
+        };
+        PromptDoubleResult rmax = ed.GetDouble(pmax);
+        if (rmax.Status != PromptStatus.OK)
+            return;
+        var ptx = new PromptDoubleOptions("\nAltura do texto em mm")
+        {
+            DefaultValue = LayoutEscalaGrafica.UltimaAltura, UseDefaultValue = true, AllowNegative = false, AllowZero = false
+        };
+        PromptDoubleResult rtx = ed.GetDouble(ptx);
+        if (rtx.Status != PromptStatus.OK)
+            return;
+        LayoutEscalaGrafica.UltimoMaximo = rmax.Value;
+        LayoutEscalaGrafica.UltimaAltura = rtx.Value;
+
+        PromptPointResult ppr = ed.GetPoint("\nClique no ponto inferior esquerdo da barra: ");
+        if (ppr.Status != PromptStatus.OK)
+            return;
+        Point3d p = ppr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+        OpResult r = LayoutEscalaGrafica.Inserir(doc, per.ObjectId, rmax.Value, rtx.Value, p);
+        ed.WriteMessage("\n" + r.Mensagem);
+        PluginLog.Info("Layouts", "Escala grafica: " + r.Mensagem);
+    }
+
+    /// <summary>
     /// Numeracao de pranchas direto na linha de comando (ex-NP):
     /// [Configurar/Atualizar] como na LISP original.
     /// </summary>

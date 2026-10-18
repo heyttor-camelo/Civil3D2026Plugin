@@ -263,7 +263,7 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.7.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.8.0)
 
 Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
 
@@ -282,6 +282,8 @@ C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
 C3DMAPACHAVE       -> [Base/Area/Inserir/Gerar/Atualizar/Remover/Painel] mapa-chave automatico
 C3DPRANCHAS        -> [Painel/Atualizar/PontoPerfis] pranchas planta e perfil ao longo do eixo (frames proprios)
 C3DPRANCHA         -> insere bloco de prancha (A0..A4 ou livre, com estendimentos) na origem ou no ponto clicado
+C3DNORTE           -> [Tamanho/Girar] seta do norte no layout, girada pela viewport (Girar acerta todas)
+ESCALAGRAF         -> escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.LSP, mesmo fluxo)
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```
 

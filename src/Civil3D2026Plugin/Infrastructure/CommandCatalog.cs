@@ -294,7 +294,11 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Layouts.Prancha, "Inserir prancha",
                         "Bloco de prancha (A0 a A4 ou livre) com estendimentos, margens e dobras, na origem ou no ponto clicado; configuracao na aba Prancha do explorador."),
                     new CommandDefinition(C3DCommands.Layouts.Numerar, "Numerar pranchas",
-                        "[Configurar/Atualizar]: numero e total nos textos marcados (busca com filtros no explorador ou clique no Configurar), na ordem das abas.")
+                        "[Configurar/Atualizar]: numero e total nos textos marcados (busca com filtros no explorador ou clique no Configurar), na ordem das abas."),
+                    new CommandDefinition(C3DCommands.Layouts.Norte, "Seta do norte",
+                        "[Tamanho/Girar]: insere a seta do norte (Arrow10 do Civil) no ponto clicado do layout, girada pela viewport embaixo dela; Girar acerta todos os nortes pelas viewports (as sheets do Plan & Profile fazem sozinhas)."),
+                    new CommandDefinition(C3DCommands.Layouts.EscalaGrafica, "Escala grafica",
+                        "Escala grafica pela escala da viewport escolhida (ex-ESCALAGRAF_V2.LSP): ate quantos metros, altura do texto e o canto inferior esquerdo da barra.")
                 }),
 
             new(

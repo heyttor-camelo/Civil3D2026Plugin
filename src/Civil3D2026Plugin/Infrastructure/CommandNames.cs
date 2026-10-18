@@ -150,6 +150,9 @@ public static class CommandNames
         public const string Prancha = "C3DPRANCHA";
         public const string Pranchas = "C3DPRANCHAS";
         public const string Numerar = "NP";
+        public const string Norte = "C3DNORTE";
+        /// <summary>Mesmo nome da LISP ESCALAGRAF_V2 (convertida para C#).</summary>
+        public const string EscalaGrafica = "ESCALAGRAF";
     }
 
     public static class Peds

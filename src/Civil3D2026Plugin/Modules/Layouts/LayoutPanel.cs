@@ -183,6 +183,12 @@ internal sealed partial class LayoutPanel : SW.Window
         new("ESCALA", "escala", "Escala das viewports", "Viewports",
             "Aplica a escala 1:N nas viewports marcadas (e a escala de anotacao, se existir no desenho).",
             new[] { "Marque as viewports.", "Escolha a escala na aba Escala." }, p => p.SelectCategory("VIEWPORTS", "Escala")),
+        new("NORTE", "mapa", "Seta do norte", "Viewports",
+            "Insere a seta do norte (Arrow10 do Civil) nas viewports marcadas ou no ponto clicado, girada pela viewport; Girar acerta todos os nortes (as sheets do Plan & Profile acertam sozinhas ao atualizar).",
+            new[] { "Marque as viewports de planta.", "Aba Norte e escala grafica: tamanho e canto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
+        new("ESCALAGRAF", "escala", "Escala grafica", "Viewports",
+            "Escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.LSP): nas viewports marcadas ou clicando o ponto (comando ESCALAGRAF).",
+            new[] { "Marque as viewports.", "Aba Norte e escala grafica: ate quantos metros e altura do texto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
         new("NUMERAR", "numero", "Numerar pranchas", "Numeracao",
             "Escreve numero e total nos textos marcados (busca na aba Numeracao), na ordem das abas, com prefixo, sufixo, digitos e total configuraveis.",
             new[] { "Busque e marque os textos do numero e do total (uma vez).", "Clique para renumerar depois de criar, apagar ou reordenar layouts." }, p => p.Numerar()),
@@ -1617,6 +1623,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
             case "VIEWPORTS":
                 tabs.Add(("Escala", "Escala", BuildScale));
+                tabs.Add(("Norte", "Norte e escala grafica", BuildNorteEscala));
                 tabs.Add(("Leve", "Modo leve", BuildViewportPower));
                 break;
             case "NUMERACAO":
@@ -1876,6 +1883,83 @@ internal sealed partial class LayoutPanel : SW.Window
 
     /// <summary>Textos escolhidos na Busca (caixinha marcada), na ordem das abas.</summary>
     private List<SheetText2> TextosEscolhidos() => _textos.Where(t => _textosMarcados.Contains(t.Id)).OrderBy(t => t.Ordem).ToList();
+
+    /// <summary>Aba Norte e escala grafica (categoria Viewports).</summary>
+    private SW.UIElement BuildNorteEscala()
+    {
+        WC.StackPanel p = Form();
+        int n = _vpsMarcadas.Count;
+        double D(WC.TextBox tb, double padrao) =>
+            double.TryParse(tb.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v > 0 ? v : padrao;
+        WC.StackPanel Campo(string rotulo, SW.UIElement c)
+        {
+            var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) };
+            sp.Children.Add(Label(rotulo));
+            sp.Children.Add(c);
+            return sp;
+        }
+
+        // ---- Norte ----
+        p.Children.Add(Label("Seta do norte", true));
+        p.Children.Add(Label("Rosa dos ventos Arrow10 do Civil 3D (bloco C3D_NORTE). Fica girada pela viewport em que esta: o norte do Model (+Y) como aparece no papel."));
+        var tam = new WC.TextBox { Width = 60, Text = LayoutSettings.GetDouble("norte_mm", 20).ToString("0.##", CultureInfo.InvariantCulture), ToolTip = "Altura total da seta no papel (do S ao N), em mm." };
+        var canto = new WC.ComboBox { Width = 170 };
+        foreach (string c in new[] { "superior direito", "superior esquerdo", "inferior direito", "inferior esquerdo" })
+            canto.Items.Add(c);
+        canto.SelectedItem = LayoutSettings.Get("norte_canto", "superior direito");
+        if (canto.SelectedIndex < 0)
+            canto.SelectedIndex = 0;
+        canto.ToolTip = "Canto da viewport (por dentro) onde a seta entra.";
+        var afast = new WC.TextBox { Width = 60, Text = LayoutSettings.GetDouble("norte_afast", 8).ToString("0.##", CultureInfo.InvariantCulture), ToolTip = "Distancia da seta ate as bordas da viewport, em mm." };
+        var l1 = new WC.WrapPanel();
+        l1.Children.Add(Campo("Altura (mm)", tam));
+        l1.Children.Add(Campo("Canto", canto));
+        l1.Children.Add(Campo("Afastamento (mm)", afast));
+        p.Children.Add(l1);
+        void LerNorte()
+        {
+            LayoutSettings.Set("norte_mm", D(tam, 20));
+            LayoutSettings.Set("norte_canto", canto.SelectedItem as string ?? "superior direito");
+            LayoutSettings.Set("norte_afast", D(afast, 8));
+        }
+        var b1 = new WC.WrapPanel();
+        b1.Children.Add(ActionButton($"Inserir nas viewports marcadas ({n})", () =>
+        {
+            LerNorte();
+            Executar(() => LayoutNorte.InserirNasViewports(Doc!, VpsMarcadas(), D(tam, 20), canto.SelectedItem as string ?? "superior direito", D(afast, 8)));
+        }));
+        b1.Children.Add(ActionButton("Clicar o ponto...", () => { LerNorte(); Enviar(C3DCommands.Layouts.Norte); }));
+        b1.Children.Add(ActionButton("Girar todos pelas viewports", () => Executar(() => LayoutNorte.Girar(Doc!))));
+        p.Children.Add(b1);
+        p.Children.Add(Label("Nas sheets do Plan & Profile: ponha a seta no layout base, dentro da viewport de planta. Cada sheet copia a seta e o Atualizar gira pela viewport dela."));
+
+        // ---- Escala grafica ----
+        p.Children.Add(Label("Escala grafica", true));
+        p.Children.Add(Label("Mesmo desenho da ESCALAGRAF (barra em duas faixas, metragem a cada 10 m, \"ESCALA GRAFICA\" e 1:N), pela escala da viewport. Sai como bloco."));
+        var max = new WC.TextBox { Width = 60, Text = LayoutEscalaGrafica.UltimoMaximo.ToString("0.##", CultureInfo.InvariantCulture), ToolTip = "Ate quantos metros vai a barra." };
+        var txt = new WC.TextBox { Width = 60, Text = LayoutEscalaGrafica.UltimaAltura.ToString("0.##", CultureInfo.InvariantCulture), ToolTip = "Altura do texto no papel, em mm (a altura da barra acompanha)." };
+        var afastE = new WC.TextBox { Width = 60, Text = LayoutSettings.GetDouble("eg_afast", 8).ToString("0.##", CultureInfo.InvariantCulture), ToolTip = "Distancia ate as bordas da viewport (canto inferior esquerdo), em mm." };
+        var l2 = new WC.WrapPanel();
+        l2.Children.Add(Campo("Ate (m)", max));
+        l2.Children.Add(Campo("Texto (mm)", txt));
+        l2.Children.Add(Campo("Afastamento (mm)", afastE));
+        p.Children.Add(l2);
+        void LerEscala()
+        {
+            LayoutEscalaGrafica.UltimoMaximo = D(max, 25);
+            LayoutEscalaGrafica.UltimaAltura = D(txt, 4);
+            LayoutSettings.Set("eg_afast", D(afastE, 8));
+        }
+        var b2 = new WC.WrapPanel();
+        b2.Children.Add(ActionButton($"Inserir nas viewports marcadas ({n})", () =>
+        {
+            LerEscala();
+            Executar(() => LayoutEscalaGrafica.InserirNasViewports(Doc!, VpsMarcadas(), D(max, 25), D(txt, 4), D(afastE, 8)));
+        }));
+        b2.Children.Add(ActionButton("Clicar o ponto... (ESCALAGRAF)", () => { LerEscala(); Enviar(C3DCommands.Layouts.EscalaGrafica); }));
+        p.Children.Add(b2);
+        return p;
+    }
 
     private SW.UIElement BuildNumbering()
     {

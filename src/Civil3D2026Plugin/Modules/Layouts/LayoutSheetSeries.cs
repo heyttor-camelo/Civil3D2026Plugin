@@ -1698,6 +1698,19 @@ internal static class LayoutSheetSeries
             if (escalaPlanta <= 0)
                 escalaPlanta = EscalaDeQualquerPlanta(tr, frames);
             RefazerCortes(tr, db, s, frames, ax, escalaPlanta);
+            try
+            {
+                // Seta do norte das sheets (copiada do layout base) acompanha o giro da viewport de planta.
+                var espacos = alvos.Where(f => Valido(f.Layout))
+                    .Select(f => ((Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(f.Layout, OpenMode.ForRead)).BlockTableRecordId).ToList();
+                (int girados, _) = LayoutNorte.Girar(tr, espacos);
+                if (girados > 0)
+                    PluginLog.Diag(Mod, $"Pranchas: {s.EixoNome}: {girados} seta(s) do norte girada(s) pela viewport.");
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Erro(Mod, "Pranchas: seta do norte", ex);
+            }
             s.Frames.Clear();
             s.Frames.AddRange(frames.OrderBy(f => f.E0).Select(f => f.Id));
             Gravar(tr, db, s);
