@@ -46,6 +46,8 @@ internal sealed class SheetSeries
 
     public List<ObjectId> Frames { get; } = new();
     public List<ObjectId> Cortes { get; } = new();
+    /// <summary>Frames da lista que o usuario apagou (para limpar os rotulos deles).</summary>
+    public List<ObjectId> FramesApagados { get; } = new();
 
     public bool ComPerfil => !VpPerfil.IsNull;
 
@@ -63,7 +65,10 @@ internal sealed class SheetFrameInfo
     public int Indice { get; set; }
     public double E0 { get; set; }
     public double E1 { get; set; }
-    /// <summary>Posicao dos cortes no frame, em fracao das arestas (u ao longo, v atravessado).</summary>
+    /// <summary>
+    /// Posicao dos cortes no frame: X = distancia a ponta do frame (inicio: aresta 3-0; fim: aresta
+    /// 1-2), Y = fracao no sentido transversal. Esticar uma ponta nao mexe no corte da outra.
+    /// </summary>
     public Point2d F0 { get; set; }
     public Point2d F1 { get; set; }
     public ObjectId Layout { get; set; }
@@ -182,6 +187,8 @@ internal static class LayoutSheetSeries
                     ObjectId id = DoHandle(db, v);
                     if (Valido(id))
                         s.Frames.Add(id);
+                    else if (!id.IsNull && id.IsErased)
+                        s.FramesApagados.Add(id);
                     break;
                 }
                 case "C":
@@ -206,7 +213,7 @@ internal static class LayoutSheetSeries
         DBDictionary dic;
         if (nod.Contains(Dicionario))
         {
-            dic = (DBDictionary)tr.GetObject(nod.GetAt(Dicionario), OpenMode.ForWrite);
+            dic = (DBDictionary)tr.GetObject(nod.GetAt(Dicionario), OpenMode.ForWrite, false, true);
         }
         else
         {
@@ -245,7 +252,7 @@ internal static class LayoutSheetSeries
 
         if (dic.Contains(s.Chave))
         {
-            var xr = (Xrecord)tr.GetObject(dic.GetAt(s.Chave), OpenMode.ForWrite);
+            var xr = (Xrecord)tr.GetObject(dic.GetAt(s.Chave), OpenMode.ForWrite, false, true);
             xr.Data = new ResultBuffer(dados.ToArray());
         }
         else
@@ -267,8 +274,8 @@ internal static class LayoutSheetSeries
         if (gravada is null)
             return;
         CopiarOpcoes(s, gravada);
+        using IDisposable __ = SheetSeriesSync.Suspender();
         using DocumentLock _ = doc.LockDocument();
-        using (SheetSeriesSync.Suspender())
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             Gravar(tr, db, gravada);
@@ -354,6 +361,7 @@ internal static class LayoutSheetSeries
         Dictionary<string, string> kv = Kv(pl.GetXDataForApplication(App));
         if (kv.Count == 0)
             return null;
+        bool distancias = kv.GetValueOrDefault("FV", "") == "2";
         var f = new SheetFrameInfo
         {
             Id = id,
@@ -370,6 +378,13 @@ internal static class LayoutSheetSeries
             Rotulo = DoHandle(db, kv.GetValueOrDefault("T", "")),
             Aviso = kv.GetValueOrDefault("AV", "")
         };
+        if (!distancias && Vertices(pl) is Point3d[] vv)
+        {
+            // Formato antigo (fracoes do comprimento): converte para distancia a ponta.
+            double w = vv[0].DistanceTo(vv[1]);
+            f.F0 = new Point2d(f.F0.X * w, f.F0.Y);
+            f.F1 = new Point2d((1 - f.F1.X) * w, f.F1.Y);
+        }
         if (Valido(f.Layout) && tr.GetObject(f.Layout, OpenMode.ForRead) is Autodesk.AutoCAD.DatabaseServices.Layout lay)
             f.LayoutNome = lay.LayoutName;
         else
@@ -394,6 +409,7 @@ internal static class LayoutSheetSeries
         Add("N", f.Indice.ToString(Inv));
         Add("E0", D(f.E0));
         Add("E1", D(f.E1));
+        Add("FV", "2");
         Add("F0", D(f.F0.X) + ";" + D(f.F0.Y));
         Add("F1", D(f.F1.X) + ";" + D(f.F1.Y));
         Add("L", H(f.Layout));
@@ -567,12 +583,38 @@ internal static class LayoutSheetSeries
         return (planta, perfil);
     }
 
+    /// <summary>
+    /// Profile views do desenho com o eixo de cada um. A lista vem de Alignment.GetProfileViewIds
+    /// (CivilDocument nao tem esse metodo).
+    /// </summary>
+    public static List<(ObjectId Id, ObjectId Eixo)> ProfileViewsDoDesenho(Database db)
+    {
+        var lista = new List<(ObjectId, ObjectId)>();
+        try
+        {
+            CivilDocument civ = CivilDocument.GetCivilDocument(db);
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            foreach (ObjectId aid in civ.GetAlignmentIds())
+            {
+                DBObject al = tr.GetObject(aid, OpenMode.ForRead);
+                if (al.GetType().GetMethod("GetProfileViewIds", Type.EmptyTypes)?.Invoke(al, null) is ObjectIdCollection ids)
+                    foreach (ObjectId id in ids)
+                        if (Valido(id))
+                            lista.Add((id, aid));
+            }
+            tr.Commit();
+        }
+        catch (System.Exception)
+        {
+            // Sem Civil: lista vazia.
+        }
+        return lista;
+    }
+
     private static List<Extents3d> ExtensoesDePerfis(Database db)
     {
         var lista = new List<Extents3d>();
-        CivilDocument civ = CivilDocument.GetCivilDocument(db);
-        if (civ.GetType().GetMethod("GetProfileViewIds", Type.EmptyTypes)?.Invoke(civ, null) is not ObjectIdCollection ids)
-            return lista;
+        List<ObjectId> ids = ProfileViewsDoDesenho(db).Select(p => p.Id).ToList();
         using Transaction tr = db.TransactionManager.StartTransaction();
         foreach (ObjectId id in ids)
         {
@@ -600,8 +642,8 @@ internal static class LayoutSheetSeries
     public static OpResult Gerar(Document doc, SheetSeries s, bool criarPranchas, Point3d? basePerfis)
     {
         Database db = doc.Database;
-        using DocumentLock _ = doc.LockDocument();
         using IDisposable __ = SheetSeriesSync.Suspender();
+        using DocumentLock _ = doc.LockDocument();
 
         SheetTemplate m = LerModelo(db, s);
         var avisos = new List<string>();
@@ -638,8 +680,11 @@ internal static class LayoutSheetSeries
 
         if (frames.Count == 0)
         {
+            Calibracao = "";
             if (s.ComPerfil && m.TemPerfil)
                 Calibrar(db, s, m, ini, fim, origemPerfis, avisos);
+            if (Calibracao.Length > 0)
+                doc.Editor.WriteMessage("\n[Pranchas] " + Calibracao);
             double maxPerfil = s.ComPerfil && m.TemPerfil ? CapacidadePerfil(s, m) : double.PositiveInfinity;
             if (maxPerfil < 5)
                 throw new InvalidOperationException("A viewport de perfil comporta menos de 5 m de eixo: aumente a viewport ou mude a escala dela.");
@@ -652,7 +697,7 @@ internal static class LayoutSheetSeries
             GarantirApp(tr, db);
             GarantirLayer(tr, db, LayerFrame, 30, plotar: false);
             GarantirLayer(tr, db, LayerCorte, 1, plotar: true);
-            var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+            var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite, false, true);
             s.Frames.Clear();
             for (int i = 0; i < geos.Count; i++)
             {
@@ -671,8 +716,8 @@ internal static class LayoutSheetSeries
                     Indice = i,
                     E0 = g.E0,
                     E1 = g.E1,
-                    F0 = Local(v, ax.Ponto(g.E0)),
-                    F1 = Local(v, ax.Ponto(g.E1)),
+                    F0 = CorteLocal(v, ax.Ponto(g.E0), inicio: true),
+                    F1 = CorteLocal(v, ax.Ponto(g.E1), inicio: false),
                     LayoutNome = s.NomeFolha(i)
                 };
                 f.Rotulo = Rotulo(tr, ms, f, v, m.EscalaPlanta, ObjectId.Null);
@@ -708,7 +753,7 @@ internal static class LayoutSheetSeries
                 NumerarSerie(doc, s);
             try
             {
-                if (LayoutKeyMap.Existe(db))
+                if (LayoutKeyMap.Existe(db) && !LayoutKeyMap.Ler(db).Automatico)
                     LayoutKeyMap.Gerar(doc, false);
             }
             catch (System.Exception ex)
@@ -721,7 +766,7 @@ internal static class LayoutSheetSeries
         if (novosFrames > 0)
             msg.Add($"{novosFrames} frame(s) ao longo de {s.EixoNome}");
         if (criarPranchas)
-            msg.Add(novas > 0 ? $"{novas} prancha(s) ({nomesNovos.First()} a {nomesNovos.Last()})" : "nenhuma prancha nova (todas as folhas ja tinham)");
+            msg.Add(novas > 0 ? $"{novas} prancha(s) ({nomesNovos.First()} a {nomesNovos.Last()})" : "nenhuma prancha nova");
         if (perfis > 0)
             msg.Add($"{perfis} perfil(is)");
         string texto = string.Join(", ", msg) + ".";
@@ -742,66 +787,88 @@ internal static class LayoutSheetSeries
         LayoutManager lm = LayoutManager.Current;
         List<string> ordem = LayoutOps.OrdemAtual(db);
         var existentes = new HashSet<string>(ordem, StringComparer.OrdinalIgnoreCase);
-        string ancora = frames.Where(f => f.LayoutNome.Length > 0).Select(f => f.LayoutNome).LastOrDefault() ?? s.Modelo;
         int pranchas = 0, perfis = 0;
         var nomes = new List<string>();
         double passo = m.TemPerfil ? m.AlturaPerfil * 1.6 : 0;
+        List<SheetFrameInfo> lista = frames.OrderBy(f => f.E0).ToList();
 
-        foreach (SheetFrameInfo f in frames.OrderBy(f => f.E0))
+        for (int i = 0; i < lista.Count; i++)
         {
-            if (Valido(f.Layout))
+            SheetFrameInfo f = lista[i];
+            bool precisaLayout = !Valido(f.Layout);
+            bool precisaPerfil = s.ComPerfil && m.TemPerfil && !Valido(f.Perfil);
+            if (!precisaLayout && !precisaPerfil)
                 continue;
 
-            string nome = s.NomeFolha(f.Indice);
-            for (int k = 2; existentes.Contains(nome); k++)
-                nome = $"{s.NomeFolha(f.Indice)} ({k})";
+            string nome = f.LayoutNome;
+            if (precisaLayout)
+            {
+                nome = s.NomeFolha(f.Indice);
+                for (int k = 2; existentes.Contains(nome); k++)
+                    nome = $"{s.NomeFolha(f.Indice)} ({k})";
+                try
+                {
+                    lm.CopyLayout(s.Modelo, nome);
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception ex)
+                {
+                    avisos.Add($"copiar o modelo para {nome}: {ex.Message}");
+                    continue;
+                }
+                existentes.Add(nome);
+                f.LayoutNome = nome;
+                nomes.Add(nome);
+                pranchas++;
+
+                // Aba logo depois da folha anterior da serie (ou antes da seguinte, ou depois do modelo).
+                ordem.Remove(nome);
+                string? antes = lista.Take(i).Select(x => x.LayoutNome).LastOrDefault(n => n.Length > 0 && ordem.Contains(n, StringComparer.OrdinalIgnoreCase));
+                string? depois = lista.Skip(i + 1).Select(x => x.LayoutNome).FirstOrDefault(n => n.Length > 0 && ordem.Contains(n, StringComparer.OrdinalIgnoreCase));
+                int pos;
+                if (antes is not null)
+                    pos = ordem.FindIndex(n => n.Equals(antes, StringComparison.OrdinalIgnoreCase)) + 1;
+                else if (depois is not null)
+                    pos = ordem.FindIndex(n => n.Equals(depois, StringComparison.OrdinalIgnoreCase));
+                else
+                    pos = ordem.FindIndex(n => n.Equals(s.Modelo, StringComparison.OrdinalIgnoreCase)) + 1;
+                ordem.Insert(pos <= 0 ? ordem.Count : Math.Min(pos, ordem.Count), nome);
+            }
+
             try
             {
-                lm.CopyLayout(s.Modelo, nome);
-            }
-            catch (Autodesk.AutoCAD.Runtime.Exception ex)
-            {
-                avisos.Add($"copiar o modelo para {nome}: {ex.Message}");
-                continue;
-            }
-            existentes.Add(nome);
-            ordem.Remove(nome);
-            int pos = ordem.FindIndex(n => n.Equals(ancora, StringComparison.OrdinalIgnoreCase));
-            ordem.Insert(pos < 0 ? ordem.Count : pos + 1, nome);
-            ancora = nome;
-            nomes.Add(nome);
-            pranchas++;
-
-            using (Transaction tr = db.TransactionManager.StartTransaction())
-            {
+                using Transaction tr = db.TransactionManager.StartTransaction();
                 var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-                var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(nome), OpenMode.ForRead);
+                var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(precisaLayout ? dic.GetAt(nome) : f.Layout, OpenMode.ForRead);
                 var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForRead);
                 f.Layout = lay.ObjectId;
-                f.VpPlanta = Correspondente(tr, btr, (Viewport)tr.GetObject(m.VpPlanta, OpenMode.ForRead));
-                f.VpPerfil = m.TemPerfil ? Correspondente(tr, btr, (Viewport)tr.GetObject(m.VpPerfil, OpenMode.ForRead)) : ObjectId.Null;
+                if (!Valido(f.VpPlanta))
+                    f.VpPlanta = Correspondente(tr, btr, (Viewport)tr.GetObject(m.VpPlanta, OpenMode.ForRead));
+                if (m.TemPerfil && !Valido(f.VpPerfil))
+                    f.VpPerfil = Correspondente(tr, btr, (Viewport)tr.GetObject(m.VpPerfil, OpenMode.ForRead));
                 if (f.VpPlanta.IsNull)
-                    avisos.Add($"{nome}: viewport de planta nao encontrada na copia");
-                var pl = (Polyline)tr.GetObject(f.Id, OpenMode.ForWrite);
-                GravarFrame(pl, f);
+                    avisos.Add($"{nome}: viewport de planta nao encontrada na prancha");
+                GravarFrame((Polyline)tr.GetObject(f.Id, OpenMode.ForWrite, false, true), f);
                 tr.Commit();
             }
+            catch (System.Exception ex)
+            {
+                avisos.Add($"{nome}: vinculo da prancha nao gravado ({ex.Message})");
+                continue;
+            }
 
-            if (s.ComPerfil && m.TemPerfil && Valido(f.VpPerfil))
+            if (precisaPerfil && Valido(f.VpPerfil))
             {
                 try
                 {
                     Point3d origem = origemPerfis + new Vector3d(0, -passo * f.Indice, 0);
-                    ObjectId pv;
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
-                        pv = CriarProfileView(tr, db, s.Eixo, origem, nome, s.EstiloPerfil, s.BandasPerfil);
+                        f.Perfil = CriarProfileView(tr, db, s.Eixo, origem, nome, s.EstiloPerfil, s.BandasPerfil);
                         tr.Commit();
                     }
-                    f.Perfil = pv;
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
-                        GravarFrame((Polyline)tr.GetObject(f.Id, OpenMode.ForWrite), f);
+                        GravarFrame((Polyline)tr.GetObject(f.Id, OpenMode.ForWrite, false, true), f);
                         tr.Commit();
                     }
                     perfis++;
@@ -878,8 +945,8 @@ internal static class LayoutSheetSeries
     /// </summary>
     public static OpResult Atualizar(Document doc, ObjectId eixo, ICollection<ObjectId>? soFrames)
     {
-        using DocumentLock _ = doc.LockDocument();
         using IDisposable __ = SheetSeriesSync.Suspender();
+        using DocumentLock _ = doc.LockDocument();
         var avisos = new List<string>();
         OpResult r = AtualizarInterno(doc, eixo, soFrames, avisos);
         if (avisos.Count > 0)
@@ -924,41 +991,55 @@ internal static class LayoutSheetSeries
         List<SheetFrameInfo> frames = LerFrames(db, s);
         bool Alvo(SheetFrameInfo f) => soFrames is null || soFrames.Contains(f.Id);
         int ok = 0, falhas = 0;
+        double escalaPlanta = m?.EscalaPlanta ?? 0;
+        foreach (SheetFrameInfo f in frames.Where(f => f.LayoutNome.Length == 0))
+            f.LayoutNome = s.NomeFolha(f.Indice);
 
         // 1. Estacas e planta.
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             var al = (CivilDb.Alignment)tr.GetObject(s.Eixo, OpenMode.ForRead);
             var ax = new Eixo(al);
-            var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+            var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite, false, true);
             foreach (SheetFrameInfo f in frames.Where(Alvo))
             {
-                var pl = (Polyline)tr.GetObject(f.Id, OpenMode.ForWrite);
-                Point3d[]? v = Vertices(pl);
-                if (v is null)
+                try
                 {
-                    avisos.Add($"{f.LayoutNome}: o frame precisa ter 4 vertices");
+                    var pl = (Polyline)tr.GetObject(f.Id, OpenMode.ForWrite, false, true);
+                    Point3d[]? v = Vertices(pl);
+                    if (v is null)
+                    {
+                        avisos.Add($"{f.LayoutNome}: o frame precisa ter 4 vertices");
+                        falhas++;
+                        continue;
+                    }
+                    double e0 = Encaixe(ax.Estaca(CorteMundo(v, f.F0, inicio: true)), s.Arredondar);
+                    double e1 = Encaixe(ax.Estaca(CorteMundo(v, f.F1, inicio: false)), s.Arredondar);
+                    if (e1 < e0)
+                        (e0, e1) = (e1, e0);
+                    f.E0 = e0;
+                    f.E1 = e1;
+                    f.Aviso = "";
+                    double escala = escalaPlanta;
+                    if (Valido(f.VpPlanta) && tr.GetObject(f.VpPlanta, OpenMode.ForWrite, false, true) is Viewport vp)
+                    {
+                        AlinharPlanta(vp, v);
+                        escala = vp.CustomScale;
+                        if (escalaPlanta <= 0)
+                            escalaPlanta = escala;
+                    }
+                    f.Rotulo = Rotulo(tr, ms, f, v, escala, f.Rotulo);
+                    GravarFrame(pl, f);
+                    ok++;
+                }
+                catch (System.Exception ex)
+                {
+                    avisos.Add($"{f.LayoutNome}: planta nao atualizada ({ex.Message})");
                     falhas++;
-                    continue;
                 }
-                double e0 = ax.Estaca(Mundo(v, f.F0)), e1 = ax.Estaca(Mundo(v, f.F1));
-                if (e1 < e0)
-                    (e0, e1) = (e1, e0);
-                f.E0 = e0;
-                f.E1 = e1;
-                f.Aviso = "";
-                double escala = m?.EscalaPlanta ?? 0;
-                if (Valido(f.VpPlanta) && tr.GetObject(f.VpPlanta, OpenMode.ForWrite) is Viewport vp)
-                {
-                    AlinharPlanta(vp, v);
-                    escala = vp.CustomScale;
-                }
-                if (f.LayoutNome.Length == 0)
-                    f.LayoutNome = s.NomeFolha(f.Indice);
-                f.Rotulo = Rotulo(tr, ms, f, v, escala, f.Rotulo);
-                GravarFrame(pl, f);
-                ok++;
             }
+            foreach (ObjectId apagado in s.FramesApagados)
+                Apagar(tr, RotuloDeApagado(tr, db, apagado));
             tr.Commit();
         }
 
@@ -991,8 +1072,19 @@ internal static class LayoutSheetSeries
             var al = (CivilDb.Alignment)tr.GetObject(s.Eixo, OpenMode.ForRead);
             var ax = new Eixo(al);
             foreach (SheetFrameInfo f in frames.Where(Alvo))
-                GravarFrame((Polyline)tr.GetObject(f.Id, OpenMode.ForWrite), f);
-            RefazerCortes(tr, db, s, frames, ax, m?.EscalaPlanta ?? 0);
+            {
+                try
+                {
+                    GravarFrame((Polyline)tr.GetObject(f.Id, OpenMode.ForWrite, false, true), f);
+                }
+                catch (System.Exception)
+                {
+                    // Aviso fica so na linha de comando.
+                }
+            }
+            if (escalaPlanta <= 0)
+                escalaPlanta = EscalaDeQualquerPlanta(tr, frames);
+            RefazerCortes(tr, db, s, frames, ax, escalaPlanta);
             s.Frames.Clear();
             s.Frames.AddRange(frames.OrderBy(f => f.E0).Select(f => f.Id));
             Gravar(tr, db, s);
@@ -1010,20 +1102,20 @@ internal static class LayoutSheetSeries
         Database db = doc.Database;
         ObjectId eixo;
         string aviso = "";
-        using (doc.LockDocument())
         using (SheetSeriesSync.Suspender())
+        using (doc.LockDocument())
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             SheetFrameInfo f = LerFrame(tr, db, frame) ?? throw new InvalidOperationException("Frame nao encontrado.");
             var al = (CivilDb.Alignment)tr.GetObject(f.Eixo, OpenMode.ForRead);
             var ax = new Eixo(al);
-            var pl = (Polyline)tr.GetObject(frame, OpenMode.ForWrite);
+            var pl = (Polyline)tr.GetObject(frame, OpenMode.ForWrite, false, true);
             Point3d[] v = Vertices(pl) ?? throw new InvalidOperationException("O frame precisa ter 4 vertices.");
             f.E0 = ax.Limitar(e0);
             f.E1 = ax.Limitar(e1);
-            f.F0 = Local(v, ax.Ponto(f.E0));
-            f.F1 = Local(v, ax.Ponto(f.E1));
-            if (Fora(f.F0) || Fora(f.F1))
+            f.F0 = CorteLocal(v, ax.Ponto(f.E0), inicio: true);
+            f.F1 = CorteLocal(v, ax.Ponto(f.E1), inicio: false);
+            if (Fora(v, f.F0) || Fora(v, f.F1))
                 aviso = " Atencao: o corte ficou fora do frame; mova ou estique o frame.";
             GravarFrame(pl, f);
             eixo = f.Eixo;
@@ -1033,7 +1125,11 @@ internal static class LayoutSheetSeries
         return r with { Mensagem = r.Mensagem + aviso };
     }
 
-    private static bool Fora(Point2d f) => f.X < -0.02 || f.X > 1.02 || f.Y < -0.02 || f.Y > 1.02;
+    private static bool Fora(Point3d[] v, Point2d f)
+    {
+        double w = v[0].DistanceTo(v[1]);
+        return f.X < -0.02 * w || f.X > 1.02 * w || f.Y < -0.02 || f.Y > 1.02;
+    }
 
     /// <summary>Remove a serie: frames, rotulos e linhas de corte; com tudo=true tambem perfis e layouts.</summary>
     public static OpResult Remover(Document doc, ObjectId eixo, bool tudo)
@@ -1044,11 +1140,13 @@ internal static class LayoutSheetSeries
             return new OpResult(0, 0, "Serie nao encontrada.");
         List<SheetFrameInfo> frames = LerFrames(db, s);
         var layouts = new List<string>();
-        using (doc.LockDocument())
         using (SheetSeriesSync.Suspender())
+        using (doc.LockDocument())
         {
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
+                foreach (ObjectId apagado in s.FramesApagados)
+                    Apagar(tr, RotuloDeApagado(tr, db, apagado));
                 foreach (SheetFrameInfo f in frames)
                 {
                     Apagar(tr, f.Rotulo);
@@ -1063,7 +1161,7 @@ internal static class LayoutSheetSeries
                 var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
                 if (nod.Contains(Dicionario))
                 {
-                    var dic = (DBDictionary)tr.GetObject(nod.GetAt(Dicionario), OpenMode.ForWrite);
+                    var dic = (DBDictionary)tr.GetObject(nod.GetAt(Dicionario), OpenMode.ForWrite, false, true);
                     if (dic.Contains(s.Chave))
                     {
                         ObjectId xr = dic.GetAt(s.Chave);
@@ -1081,18 +1179,51 @@ internal static class LayoutSheetSeries
         return new OpResult(frames.Count, 0, $"Serie de {s.EixoNome} removida ({frames.Count} frame(s)).{extra}");
     }
 
-    private static void Apagar(Transaction tr, ObjectId id)
+    /// <summary>Apaga se puder (mesmo em layer travada). Retorna true se o objeto nao existe mais.</summary>
+    private static bool Apagar(Transaction tr, ObjectId id)
     {
         if (!Valido(id))
-            return;
+            return true;
         try
         {
-            tr.GetObject(id, OpenMode.ForWrite).Erase();
+            tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
+            return true;
         }
         catch (Autodesk.AutoCAD.Runtime.Exception)
         {
-            // Objeto travado ou ja apagado: segue.
+            return false;
         }
+    }
+
+    /// <summary>Rotulo de um frame que o usuario apagou (le o XData do objeto apagado).</summary>
+    private static ObjectId RotuloDeApagado(Transaction tr, Database db, ObjectId frame)
+    {
+        try
+        {
+            if (tr.GetObject(frame, OpenMode.ForRead, true) is Polyline pl)
+                return DoHandle(db, Kv(pl.GetXDataForApplication(App)).GetValueOrDefault("T", ""));
+        }
+        catch (System.Exception)
+        {
+        }
+        return ObjectId.Null;
+    }
+
+    private static double EscalaDeQualquerPlanta(Transaction tr, List<SheetFrameInfo> frames)
+    {
+        foreach (SheetFrameInfo f in frames)
+            if (Valido(f.VpPlanta) && tr.GetObject(f.VpPlanta, OpenMode.ForRead) is Viewport vp && vp.CustomScale > 0)
+                return vp.CustomScale;
+        return 0;
+    }
+
+    /// <summary>Estaca a menos de 1 mm de um multiplo do arredondamento vira o multiplo (projecao do Civil tem ruido).</summary>
+    private static double Encaixe(double estaca, double arred)
+    {
+        if (arred <= 0)
+            return estaca;
+        double r = Math.Round(estaca / arred) * arred;
+        return Math.Abs(r - estaca) < 1e-3 ? r : estaca;
     }
 
     // ------------------------------------------------------------------
@@ -1121,7 +1252,7 @@ internal static class LayoutSheetSeries
         using Transaction tr = db.TransactionManager.StartTransaction();
         var pv = (Entity)tr.GetObject(pvId, OpenMode.ForRead);
         Extents3d ext = pv.GeometricExtents;
-        var vp = (Viewport)tr.GetObject(vpId, OpenMode.ForWrite);
+        var vp = (Viewport)tr.GetObject(vpId, OpenMode.ForWrite, false, true);
         if (vp.CustomScale <= 0)
         {
             tr.Commit();
@@ -1189,7 +1320,7 @@ internal static class LayoutSheetSeries
                     {
                         if (documento && !estilo.IsNull)
                         {
-                            DBObject pv = tr.GetObject(id, OpenMode.ForWrite);
+                            DBObject pv = tr.GetObject(id, OpenMode.ForWrite, false, true);
                             pv.GetType().GetProperty("StyleId")?.SetValue(pv, estilo);
                         }
                         return id;
@@ -1207,7 +1338,7 @@ internal static class LayoutSheetSeries
     private static void DefinirEstacasPerfil(Database db, ObjectId pvId, double e0, double e1)
     {
         using Transaction tr = db.TransactionManager.StartTransaction();
-        DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite);
+        DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite, false, true);
         PropertyInfo modo = Prop(pv, "StationRangeMode") ?? throw Faltando(pv, "StationRangeMode", "Station");
         PropertyInfo ini = Prop(pv, "StationStart", "StartStation") ?? throw Faltando(pv, "StationStart", "Station");
         PropertyInfo fim = Prop(pv, "StationEnd", "EndStation") ?? throw Faltando(pv, "StationEnd", "Station");
@@ -1225,7 +1356,7 @@ internal static class LayoutSheetSeries
         PropertyInfo? modo, pMin, pMax;
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
-            DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite);
+            DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite, false, true);
             modo = Prop(pv, "ElevationRangeMode");
             pMin = Prop(pv, "ElevationMin", "MinimumElevation");
             pMax = Prop(pv, "ElevationMax", "MaximumElevation");
@@ -1234,11 +1365,15 @@ internal static class LayoutSheetSeries
                 tr.Commit();
                 return s.AjustarCotas ? "cotas automaticas (API sem ElevationRangeMode)" : null;
             }
+            if (!s.AjustarCotas || !m.TemPerfil)
+            {
+                // Opcao desligada: as cotas do profile view ficam como o usuario deixou.
+                tr.Commit();
+                return null;
+            }
             Chamar(() => DefinirEnum(pv, modo, "Auto"), "modo de cotas");
             tr.Commit();
         }
-        if (!s.AjustarCotas || !m.TemPerfil)
-            return null;
 
         double emin, emax;
         using (Transaction tr = db.TransactionManager.StartTransaction())
@@ -1252,7 +1387,7 @@ internal static class LayoutSheetSeries
         double a = s.SobraVertical, b = s.Exagero;
         if (double.IsNaN(a) || double.IsNaN(b) || b <= 0)
             return "cotas automaticas (perfil nao calibrado)";
-        double disponivel = m.AlturaPerfil * 0.96;
+        double disponivel = m.AlturaPerfil * 0.94;
         double faixa = (disponivel - a) / b;
         double dados = emax - emin;
         if (faixa < dados - 1e-6)
@@ -1265,9 +1400,14 @@ internal static class LayoutSheetSeries
             lo = Math.Floor(emin);
         if (hi < emax)
             hi = Math.Ceiling(emax);
+        if (hi - lo > faixa + 1e-6 && faixa >= dados)
+        {
+            lo = emin;
+            hi = emin + faixa;
+        }
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
-            DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite);
+            DBObject pv = tr.GetObject(pvId, OpenMode.ForWrite, false, true);
             Chamar(() => DefinirEnum(pv, modo, "User"), "modo de cotas");
             Chamar(() => DefinirIntervalo(pv, pMin, pMax, lo, hi), "intervalo de cotas");
             tr.Commit();
@@ -1296,7 +1436,7 @@ internal static class LayoutSheetSeries
             PropertyInfo? modo = null, pMin = null, pMax = null;
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
-                DBObject o = tr.GetObject(pv, OpenMode.ForWrite);
+                DBObject o = tr.GetObject(pv, OpenMode.ForWrite, false, true);
                 modo = Prop(o, "ElevationRangeMode");
                 pMin = Prop(o, "ElevationMin", "MinimumElevation");
                 pMax = Prop(o, "ElevationMax", "MaximumElevation");
@@ -1327,7 +1467,7 @@ internal static class LayoutSheetSeries
                 // Sem exagero no estilo: mede abrindo a faixa de cotas em 10 m.
                 using (Transaction tr = db.TransactionManager.StartTransaction())
                 {
-                    DBObject o = tr.GetObject(pv, OpenMode.ForWrite);
+                    DBObject o = tr.GetObject(pv, OpenMode.ForWrite, false, true);
                     Chamar(() => DefinirEnum(o, modo, "User"), "modo de cotas");
                     Chamar(() => DefinirIntervalo(o, pMin, pMax, emin, emax + 10), "intervalo de cotas");
                     tr.Commit();
@@ -1350,6 +1490,7 @@ internal static class LayoutSheetSeries
             {
                 avisos.Add("exagero vertical nao identificado: cotas ficam automaticas");
             }
+            Calibracao = $"calibracao do perfil: {lt:0} m de eixo ocupam {w:0.#} m (margem {s.MargemPerfil:0.#} m), altura {h:0.#} m, exagero {(double.IsNaN(s.Exagero) ? "?" : s.Exagero.ToString("0.##", Inv))}";
         }
         catch (System.Exception ex)
         {
@@ -1365,6 +1506,9 @@ internal static class LayoutSheetSeries
             }
         }
     }
+
+    /// <summary>Ultima medicao da calibracao (mostrada na linha de comando ao gerar).</summary>
+    private static string Calibracao = "";
 
     private static double ExageroDoEstilo(Transaction tr, DBObject pv)
     {
@@ -1525,6 +1669,7 @@ internal static class LayoutSheetSeries
 
         var lista = new List<FrameGeo>();
         double s0 = ini;
+        double minimo = Math.Max(1.0, Math.Min(uw * 0.05, arred > 0 ? arred : 5));
         for (int guarda = 0; fim - s0 > 0.01 && guarda < 5000; guarda++)
         {
             double teto = Math.Min(fim, s0 + Math.Min(maxPerfil, uw * 2.5));
@@ -1553,6 +1698,17 @@ internal static class LayoutSheetSeries
                 if (r > s0 + 1)
                     s1 = r;
             }
+            // Sobra pequena no fim: estica este frame ate o fim se couber; senao recua um modulo
+            // para a ultima folha nao sair quase vazia.
+            if (fim - s1 > 0.01 && fim - s1 < minimo)
+            {
+                if (fim - s0 <= Math.Min(maxPerfil, uw * 2.5) && Cabe(ax, s0, fim, uw, uh, girar, out _))
+                    s1 = fim;
+                else if (arred > 0 && s1 - arred > s0 + 1)
+                    s1 -= arred;
+            }
+            if (s1 - s0 < 1 && fim - s0 < 1)
+                break;
             if (s1 - s0 < 1)
                 throw new InvalidOperationException($"O eixo nao cabe no frame a partir da estaca {LayoutViewFrames.Estaca(s0)}: aumente a viewport de planta, reduza a escala ou a folga.");
 
@@ -1608,13 +1764,29 @@ internal static class LayoutSheetSeries
         return new[] { pl.GetPoint3dAt(0), pl.GetPoint3dAt(1), pl.GetPoint3dAt(2), pl.GetPoint3dAt(3) };
     }
 
-    private static Point2d Local(Point3d[] v, Point3d p)
+    /// <summary>Coordenadas (s, t) de p no paralelogramo v0 + s(v1-v0) + t(v3-v0) (sistema 2x2 exato).</summary>
+    private static (double S, double T) Parametros(Point3d[] v, Point3d p)
     {
         Vector3d a = v[1] - v[0], b = v[3] - v[0], d = p - v[0];
-        return new Point2d(d.DotProduct(a) / a.DotProduct(a), d.DotProduct(b) / b.DotProduct(b));
+        double det = a.X * b.Y - a.Y * b.X;
+        if (Math.Abs(det) < 1e-12)
+            return (0, 0.5);
+        return ((d.X * b.Y - d.Y * b.X) / det, (a.X * d.Y - a.Y * d.X) / det);
     }
 
-    private static Point3d Mundo(Point3d[] v, Point2d f) => v[0] + (v[1] - v[0]) * f.X + (v[3] - v[0]) * f.Y;
+    private static Point2d CorteLocal(Point3d[] v, Point3d p, bool inicio)
+    {
+        (double sp, double tp) = Parametros(v, p);
+        double w = v[0].DistanceTo(v[1]);
+        return new Point2d(inicio ? sp * w : (1 - sp) * w, tp);
+    }
+
+    private static Point3d CorteMundo(Point3d[] v, Point2d f, bool inicio)
+    {
+        double w = Math.Max(v[0].DistanceTo(v[1]), 1e-9);
+        double sp = inicio ? f.X / w : 1 - f.X / w;
+        return v[0] + (v[1] - v[0]) * sp + (v[3] - v[0]) * f.Y;
+    }
 
     // ------------------------------------------------------------------
     // Rotulos e linhas de corte
@@ -1625,7 +1797,7 @@ internal static class LayoutSheetSeries
         Vector3d u = (v[1] - v[0]).GetNormal(), n = (v[3] - v[0]).GetNormal();
         double alt = escala > 0 ? 3.0 / escala : v[0].DistanceTo(v[3]) / 60;
         MText t;
-        if (Valido(existente) && tr.GetObject(existente, OpenMode.ForWrite) is MText mt)
+        if (Valido(existente) && tr.GetObject(existente, OpenMode.ForWrite, false, true) is MText mt)
         {
             t = mt;
         }
@@ -1645,11 +1817,11 @@ internal static class LayoutSheetSeries
 
     private static void RefazerCortes(Transaction tr, Database db, SheetSeries s, List<SheetFrameInfo> frames, Eixo ax, double escala)
     {
-        foreach (ObjectId id in s.Cortes)
-            Apagar(tr, id);
+        var restantes = s.Cortes.Where(id => !Apagar(tr, id) && Valido(id)).ToList();
         s.Cortes.Clear();
+        s.Cortes.AddRange(restantes);
         GarantirLayer(tr, db, LayerCorte, 1, plotar: true);
-        var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);
+        var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite, false, true);
         List<SheetFrameInfo> ordem = frames.OrderBy(f => f.E0).ToList();
 
         for (int i = 0; i + 1 < ordem.Count; i++)
@@ -1898,7 +2070,34 @@ internal static class SheetSeriesSync
             return;
         db.ObjectModified += OnObjeto;
         db.ObjectErased += OnApagado;
+        doc.CommandEnded += OnComando;
+        doc.BeginDocumentClose += (_, _) => Desligar(doc);
         Recarregar(db);
+    }
+
+    private static void Desligar(Document doc)
+    {
+        Database db = doc.Database;
+        if (!Ligados.Remove(db))
+            return;
+        db.ObjectModified -= OnObjeto;
+        db.ObjectErased -= OnApagado;
+        doc.CommandEnded -= OnComando;
+        FramesPorDb.Remove(db);
+        EixosPorDb.Remove(db);
+        Sujos.Remove(db);
+    }
+
+    // Desfazer/refazer pode trazer de volta (ou tirar) uma serie inteira: rele o que observar.
+    private static readonly HashSet<string> Desfazer = new(StringComparer.OrdinalIgnoreCase) { "U", "UNDO", "REDO", "MREDO", "OOPS" };
+
+    private static void OnComando(object? sender, CommandEventArgs e)
+    {
+        if (sender is Document doc && Desfazer.Contains(e.GlobalCommandName ?? ""))
+        {
+            Recarregar(doc.Database);
+            Changed?.Invoke(null, EventArgs.Empty);
+        }
     }
 
     private static void Marcar(Database db, ObjectId eixo, ObjectId? frame)
@@ -1920,7 +2119,8 @@ internal static class SheetSeriesSync
 
     private static void OnObjeto(object? sender, ObjectEventArgs e)
     {
-        if (_suspenso > 0 || sender is not Database db)
+        // Durante o UNDO o banco volta a um estado coerente sozinho: nao refaz nada.
+        if (_suspenso > 0 || sender is not Database db || e.DBObject.IsUndoing)
             return;
         ObjectId id = e.DBObject.ObjectId;
         if (FramesPorDb.TryGetValue(db, out Dictionary<ObjectId, ObjectId>? frames) && frames.TryGetValue(id, out ObjectId eixo))
@@ -1931,7 +2131,7 @@ internal static class SheetSeriesSync
 
     private static void OnApagado(object? sender, ObjectErasedEventArgs e)
     {
-        if (_suspenso > 0 || sender is not Database db)
+        if (_suspenso > 0 || sender is not Database db || e.DBObject.IsUndoing)
             return;
         ObjectId id = e.DBObject.ObjectId;
         if (FramesPorDb.TryGetValue(db, out Dictionary<ObjectId, ObjectId>? frames) && frames.TryGetValue(id, out ObjectId eixo))

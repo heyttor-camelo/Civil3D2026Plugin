@@ -60,7 +60,13 @@ internal sealed partial class LayoutPanel
         _serie.Frames.Clear();
         _serie.Cortes.Clear();
         if (gravada is null)
+        {
+            // Serie removida: a calibracao era do estilo antigo.
+            _serie.MargemPerfil = double.NaN;
+            _serie.SobraVertical = double.NaN;
+            _serie.Exagero = double.NaN;
             return;
+        }
         _serie.Frames.AddRange(gravada.Frames);
         _serie.Cortes.AddRange(gravada.Cortes);
         _serie.MargemPerfil = gravada.MargemPerfil;
@@ -216,7 +222,7 @@ internal sealed partial class LayoutPanel
 
         List<SheetFrameInfo> frames = _framesPP.Where(f => f.Eixo == s.Eixo).OrderBy(f => f.E0).ToList();
         bool temSerie = frames.Count > 0;
-        int semPrancha = frames.Count(f => !LayoutSheetSeries.Valido(f.Layout));
+        int semPrancha = frames.Count(f => !LayoutSheetSeries.Valido(f.Layout) || (s.ComPerfil && !LayoutSheetSeries.Valido(f.Perfil)));
 
         p.Children.Add(Label("Frames no tamanho da viewport de planta, uma prancha por frame (copia do layout modelo) e um perfil por folha no tamanho da viewport de perfil. " +
                              "Depois, mover, girar ou esticar um frame no Model (ou editar o eixo) atualiza a prancha e o intervalo do perfil."));
@@ -225,7 +231,7 @@ internal sealed partial class LayoutPanel
             string nomes = frames.Any(f => f.LayoutNome.Length > 0)
                 ? $" ({frames.First(f => f.LayoutNome.Length > 0).LayoutNome} a {frames.Last(f => f.LayoutNome.Length > 0).LayoutNome})" : "";
             p.Children.Add(Destaque($"Serie de {s.EixoNome}: {frames.Count} folha(s){nomes}" +
-                                    (semPrancha > 0 ? $", {semPrancha} ainda sem prancha" : "") +
+                                    (semPrancha > 0 ? $", {semPrancha} sem prancha ou sem perfil" : "") +
                                     $". {(s.Automatico ? "Atualiza sozinha ao mover os frames." : "Atualizacao manual.")}"));
         }
 
@@ -355,8 +361,17 @@ internal sealed partial class LayoutPanel
         chAuto.Click += (_, _) =>
         {
             s.Automatico = chAuto.IsChecked == true;
-            if (_series.Any(x => x.Eixo == s.Eixo) && Doc is Document d)
+            if (!_series.Any(x => x.Eixo == s.Eixo) || Doc is not Document d)
+                return;
+            try
+            {
                 LayoutSheetSeries.Salvar(d, s);
+                Say(s.Automatico ? "Atualizacao automatica ligada." : "Atualizacao automatica desligada.");
+            }
+            catch (System.Exception ex)
+            {
+                Say("Nao foi possivel gravar: " + ex.Message);
+            }
         };
         p.Children.Add(chNum);
         p.Children.Add(chAuto);
@@ -376,8 +391,19 @@ internal sealed partial class LayoutPanel
 
         void Ler()
         {
-            s.EstacaInicial = tbIni.Text.Trim().Length == 0 ? double.NaN : LayoutSheetSeries.TentarEstaca(tbIni.Text, out double a) ? a : s.EstacaInicial;
-            s.EstacaFinal = tbFim.Text.Trim().Length == 0 ? double.NaN : LayoutSheetSeries.TentarEstaca(tbFim.Text, out double b) ? b : s.EstacaFinal;
+            var invalidos = new List<string>();
+            if (tbIni.Text.Trim().Length == 0)
+                s.EstacaInicial = double.NaN;
+            else if (LayoutSheetSeries.TentarEstaca(tbIni.Text, out double a))
+                s.EstacaInicial = a;
+            else
+                invalidos.Add("estaca inicial");
+            if (tbFim.Text.Trim().Length == 0)
+                s.EstacaFinal = double.NaN;
+            else if (LayoutSheetSeries.TentarEstaca(tbFim.Text, out double b))
+                s.EstacaFinal = b;
+            else
+                invalidos.Add("estaca final");
             s.Arredondar = Num(tbArred.Text, s.Arredondar);
             s.Folga = Num(tbFolga.Text, s.Folga);
             s.Girar = rbGirar.IsChecked == true;
@@ -385,7 +411,7 @@ internal sealed partial class LayoutPanel
             s.Inicio = (int)Num(tbIniN.Text, s.Inicio);
             s.Digitos = Math.Clamp((int)Num(tbDig.Text, s.Digitos), 0, 6);
             lbNomes.Text = $"{s.NomeFolha(0)}, {s.NomeFolha(1)}, ...";
-            resumo.Text = Resumo(db, s, temSerie);
+            resumo.Text = (invalidos.Count > 0 ? $"Corrija: {string.Join(" e ", invalidos)} (use 17+10,00 ou metros). " : "") + Resumo(db, s, temSerie);
         }
         foreach (WC.TextBox tb in new[] { tbIni, tbFim, tbArred, tbFolga, tbPref, tbIniN, tbDig })
             tb.TextChanged += (_, _) => Ler();
@@ -402,7 +428,7 @@ internal sealed partial class LayoutPanel
         else
         {
             if (semPrancha > 0)
-                acoes.Children.Add(Principal($"Gerar as {semPrancha} prancha(s) que faltam", () => GerarSerie(pranchas: true)));
+                acoes.Children.Add(Principal($"Completar {semPrancha} folha(s) (prancha/perfil)", () => GerarSerie(pranchas: true)));
             acoes.Children.Add(semPrancha > 0
                 ? ActionButton("Atualizar", AtualizarSerie)
                 : Principal("Atualizar", AtualizarSerie));
@@ -576,9 +602,20 @@ internal sealed partial class LayoutPanel
             Say("Frame nao encontrado (apagado?). Clique em Atualizar.");
             return;
         }
-        double mx = (e.MaxPoint.X - e.MinPoint.X) * 0.1, my = (e.MaxPoint.Y - e.MinPoint.Y) * 0.1;
-        string P(double x, double y) => $"{x.ToString("0.###", InvPP)},{y.ToString("0.###", InvPP)}";
-        Enviar($"_.TILEMODE 1 _.ZOOM _W {P(e.MinPoint.X - mx, e.MinPoint.Y - my)} {P(e.MaxPoint.X + mx, e.MaxPoint.Y + my)}");
+        // ZOOM le as coordenadas no UCS atual: o centro vai convertido e a janela vira C(entro)+altura.
+        double mx = (e.MaxPoint.X - e.MinPoint.X) * 1.2, my = (e.MaxPoint.Y - e.MinPoint.Y) * 1.2;
+        var centro = new Point3d((e.MinPoint.X + e.MaxPoint.X) / 2, (e.MinPoint.Y + e.MaxPoint.Y) / 2, 0);
+        Point3d c = centro;
+        try
+        {
+            c = centro.TransformBy(doc.Editor.CurrentUserCoordinateSystem.Inverse());
+        }
+        catch (System.Exception)
+        {
+            // Sem acesso ao UCS: usa WCS.
+        }
+        double altura = Math.Max(my, mx * 0.6);
+        Enviar($"_.TILEMODE 1 _.ZOOM _C {c.X.ToString("0.###", InvPP)},{c.Y.ToString("0.###", InvPP)} {altura.ToString("0.###", InvPP)}");
     }
 
     // ------------------------------------------------------------------

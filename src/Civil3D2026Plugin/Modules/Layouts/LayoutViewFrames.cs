@@ -116,7 +116,9 @@ internal static class LayoutViewFrames
     {
         if (double.IsNaN(v))
             return "";
-        // Estaqueamento de 20 m: E + fracao (ex.: 12+5,30), como no QTO.
+        // Estaqueamento de 20 m: E + fracao (ex.: 12+5,30), como no QTO. Arredonda ao centimetro
+        // antes de separar a estaca, senao 239,99999 vira "11+20,00".
+        v = Math.Round(v, 2);
         int est = (int)Math.Floor(v / 20.0 + 1e-9);
         double resto = v - est * 20.0;
         return $"{est}+{resto.ToString("0.00", CultureInfo.GetCultureInfo("pt-BR"))}";

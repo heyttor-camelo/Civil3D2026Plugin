@@ -1,3 +1,15 @@
+## 2.50.1 - Layouts v1.4.1 / Pranchas do eixo: correcoes da revisao
+
+- viewports, frames, rotulos e linhas de corte em layer travada sao atualizados (antes a atualizacao inteira abortava); uma folha com erro nao derruba as outras; linha de corte que nao pode ser apagada continua na lista (nao duplica);
+- desfazer (U) depois de uma atualizacao automatica nao dispara outra atualizacao; U/REDO de Gerar/Remover religa a observacao da serie; desenho fechado deixa de ser observado;
+- esticar uma ponta do frame nao mexe mais no corte da outra ponta (corte guardado como distancia a ponta; frames do formato anterior sao convertidos);
+- sobra pequena no fim do eixo nao aborta mais a geracao (o ultimo frame estica ate o fim ou recua uma estaca);
+- "Ajustar as cotas" desligado nao mexe nas cotas do profile view;
+- "Completar folhas" recria perfil apagado e reaproveita o perfil quando so o layout foi apagado; pranchas repostas entram na ordem certa das abas;
+- linhas de corte sempre com o nome das duas folhas; estacas encaixadas no multiplo de 20 m (sem "11+20,00"); rotulo de frame apagado e removido;
+- profile views do desenho lidos pelos eixos (Alignment.GetProfileViewIds): o palpite da viewport de perfil e o vinculo de perfil da categoria View frames passam a encontrar os perfis; o vinculo escolhe o profile view com maior area dentro da viewport (nao exige mais o centro dentro);
+- zoom no frame correto com UCS girado; estaca invalida no assistente e avisada; calibracao do perfil mostrada na linha de comando.
+
 ## 2.50.0 - Layouts v1.4.0 / Pranchas do eixo (C3DPRANCHAS): frames proprios, perfil no tamanho da viewport, atualizacao automatica
 
 Substitui o caminho pelos view frames do Civil (a API nao cria nem move view frames) por frames proprios do plugin:

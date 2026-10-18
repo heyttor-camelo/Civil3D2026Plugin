@@ -574,9 +574,7 @@ internal static class LayoutViewFrameSync
         var lista = new List<(ObjectId, ObjectId, Extents3d)>();
         try
         {
-            CivilDocument civ = CivilDocument.GetCivilDocument(db);
-            if (civ.GetType().GetMethod("GetProfileViewIds", Type.EmptyTypes)?.Invoke(civ, null) is not ObjectIdCollection ids)
-                return lista;
+            List<ObjectId> ids = LayoutSheetSeries.ProfileViewsDoDesenho(db).Select(p => p.Id).ToList();
             using Transaction tr = db.TransactionManager.StartTransaction();
             foreach (ObjectId id in ids)
             {

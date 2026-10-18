@@ -2899,15 +2899,13 @@ internal sealed partial class LayoutPanel : SW.Window
         });
     }
 
-    /// <summary>Profile view cujo centro cai dentro da viewport (pela regiao da viewport no Model).</summary>
+    /// <summary>Profile view que mais aparece na viewport (maior area em comum com a regiao dela no Model).</summary>
     private static ObjectId ProfileViewNaViewport(Document doc, ObjectId vpId)
     {
         try
         {
             Database db = doc.Database;
-            var civ = Autodesk.Civil.ApplicationServices.CivilDocument.GetCivilDocument(db);
-            if (civ.GetType().GetMethod("GetProfileViewIds", Type.EmptyTypes)?.Invoke(civ, null) is not ObjectIdCollection ids)
-                return ObjectId.Null;
+            List<ObjectId> ids = LayoutSheetSeries.ProfileViewsDoDesenho(db).Select(p => p.Id).ToList();
             using Transaction tr = db.TransactionManager.StartTransaction();
             if (tr.GetObject(vpId, OpenMode.ForRead) is not Viewport vp || vp.CustomScale <= 0)
                 return ObjectId.Null;
@@ -2917,16 +2915,37 @@ internal sealed partial class LayoutPanel : SW.Window
                 Autodesk.AutoCAD.Geometry.Matrix3d.PlaneToWorld(vp.ViewDirection);
             Autodesk.AutoCAD.Geometry.Matrix3d wcs2dcs = dcs2wcs.Inverse();
             double hw = vp.Width / vp.CustomScale / 2, hh = vp.Height / vp.CustomScale / 2;
+            double x0 = vp.ViewCenter.X - hw, x1 = vp.ViewCenter.X + hw, y0 = vp.ViewCenter.Y - hh, y1 = vp.ViewCenter.Y + hh;
+            ObjectId melhor = ObjectId.Null;
+            double melhorArea = 0;
             foreach (ObjectId id in ids)
             {
                 if (tr.GetObject(id, OpenMode.ForRead) is not Entity e)
                     continue;
-                Extents3d ext = e.GeometricExtents;
-                var c = new Autodesk.AutoCAD.Geometry.Point3d((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2, 0).TransformBy(wcs2dcs);
-                if (Math.Abs(c.X - vp.ViewCenter.X) <= hw && Math.Abs(c.Y - vp.ViewCenter.Y) <= hh)
-                    return id;
+                Extents3d ext;
+                try
+                {
+                    ext = e.GeometricExtents;
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                    continue;
+                }
+                var cantos = new[]
+                {
+                    new Autodesk.AutoCAD.Geometry.Point3d(ext.MinPoint.X, ext.MinPoint.Y, 0), new Autodesk.AutoCAD.Geometry.Point3d(ext.MaxPoint.X, ext.MinPoint.Y, 0),
+                    new Autodesk.AutoCAD.Geometry.Point3d(ext.MaxPoint.X, ext.MaxPoint.Y, 0), new Autodesk.AutoCAD.Geometry.Point3d(ext.MinPoint.X, ext.MaxPoint.Y, 0)
+                }.Select(q => q.TransformBy(wcs2dcs)).ToArray();
+                double ax0 = cantos.Min(q => q.X), ax1 = cantos.Max(q => q.X), ay0 = cantos.Min(q => q.Y), ay1 = cantos.Max(q => q.Y);
+                double area = Math.Max(0, Math.Min(x1, ax1) - Math.Max(x0, ax0)) * Math.Max(0, Math.Min(y1, ay1) - Math.Max(y0, ay0));
+                if (area > melhorArea)
+                {
+                    melhorArea = area;
+                    melhor = id;
+                }
             }
             tr.Commit();
+            return melhor;
         }
         catch (System.Exception)
         {
