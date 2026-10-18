@@ -13,7 +13,11 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace Civil3D2026Plugin.Modules.Layouts;
 
 /// <summary>Resultado simples das operacoes em lote.</summary>
-internal sealed record OpResult(int Ok, int Falhas, string Mensagem);
+internal sealed record OpResult(int Ok, int Falhas, string Mensagem)
+{
+    /// <summary>A operacao alterou o desenho (false = estava tudo certo; a atualizacao automatica fica quieta).</summary>
+    public bool Mudou { get; init; } = true;
+}
 
 /// <summary>Regra de renomeacao em lote.</summary>
 internal sealed record RenameRule(string Prefixo, string Base, string Sufixo, int Inicio, int Digitos, bool Numerar)

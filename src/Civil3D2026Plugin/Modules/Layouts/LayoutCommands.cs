@@ -259,7 +259,7 @@ public sealed class LayoutCommands
                 return;
         }
 
-        OpResult r = LayoutNumbering.Numerar(doc, new NumberingRule());
+        OpResult r = LayoutNumbering.Numerar(doc, LayoutNumbering.FormatoGravado(doc.Database) ?? NumberingRule.Padrao(2));
         ed.WriteMessage("\n" + r.Mensagem);
         PluginLog.Info("Layouts", "NP: " + r.Mensagem);
         ed.Regen();

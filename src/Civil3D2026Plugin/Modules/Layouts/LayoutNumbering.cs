@@ -41,21 +41,51 @@ internal sealed class TextFilter
     public bool SoMarcados { get; set; }
 }
 
-/// <summary>Regra de numeracao.</summary>
+/// <summary>
+/// Regra de numeracao. O texto vem de um modelo: {000} e o numero da prancha com 3 algarismos
+/// (zeros a esquerda), {T000} o total com 3 algarismos; {0} e {T} sem zeros. Ex.:
+/// "PRANCHA: {000}/{T000}" vira "PRANCHA: 008/012".
+/// </summary>
 internal sealed class NumberingRule
 {
-    public string Prefixo { get; set; } = "";
-    public string Sufixo { get; set; } = "";
+    /// <summary>Modelo dos textos de numero (e dos textos escolhidos na busca).</summary>
+    public string Modelo { get; set; } = "{00}";
+    /// <summary>Modelo dos textos gravados como TOTAL (total num texto separado).</summary>
+    public string ModeloTotal { get; set; } = "/{T00}";
     public int Inicio { get; set; } = 1;
-    public int Digitos { get; set; } = 2;
-    public int? Total { get; set; }              // null = quantidade de layouts
-    public string FormatoTotal { get; set; } = "/{0}";   // "/{0}", "{0}", "de {0}"
+    public int? Total { get; set; }              // null = quantidade de layouts numerados
     public bool SoLayoutsMarcados { get; set; }
     public IReadOnlyList<string> Marcados { get; set; } = Array.Empty<string>();
+    /// <summary>Textos escolhidos na busca: so eles recebem (e ficam gravados como NUMERO). null = os ja gravados como NUMERO/TOTAL.</summary>
+    public IReadOnlyCollection<ObjectId>? Textos { get; set; }
 
-    public string Numero(int n) => Prefixo + n.ToString().PadLeft(Math.Max(1, Digitos), '0') + Sufixo;
+    private static readonly Regex Campo = new(@"\{([NnTt]?)(0*)\}", RegexOptions.Compiled);
 
-    public string TotalTexto(int total) => string.Format(CultureInfo.InvariantCulture, FormatoTotal, total.ToString().PadLeft(Math.Max(1, Digitos), '0'));
+    /// <summary>Modelo com {0...} e {T0...} trocados pelo numero e pelo total.</summary>
+    public static string Formatar(string modelo, int numero, int total) =>
+        Campo.Replace(modelo ?? "", m =>
+        {
+            string qual = m.Groups[1].Value, zeros = m.Groups[2].Value;
+            if (qual.Length == 0 && zeros.Length == 0)
+                return m.Value; // "{}" fica como esta
+            int v = qual is "T" or "t" ? total : numero;
+            return v.ToString(CultureInfo.InvariantCulture).PadLeft(Math.Max(1, zeros.Length), '0');
+        });
+
+    /// <summary>O modelo tem algum campo de numero ou de total.</summary>
+    public static bool TemCampo(string modelo) =>
+        Campo.Matches(modelo ?? "").Any(m => m.Groups[1].Length > 0 || m.Groups[2].Length > 0);
+
+    public string Numero(int n, int total) => Formatar(Modelo, n, total);
+
+    public string TotalTexto(int n, int total) => Formatar(ModeloTotal, n, total);
+
+    /// <summary>Equivalente ao formato antigo (prefixo, digitos e "/total").</summary>
+    public static NumberingRule Padrao(int digitos)
+    {
+        string z = new('0', Math.Clamp(digitos, 1, 6));
+        return new NumberingRule { Modelo = "{" + z + "}", ModeloTotal = "/{T" + z + "}" };
+    }
 }
 
 /// <summary>
@@ -231,33 +261,37 @@ internal static class LayoutNumbering
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Escreve numero e total nos textos marcados de cada layout, na ordem das abas.
-    /// Layouts sem texto marcado sao contados (entram no total) mas nao recebem nada.
+    /// Escreve numero e total na ordem das abas. Com regra.Textos, so nesses textos (os escolhidos
+    /// na busca), e o total e a quantidade de layouts que eles ocupam; sem, nos textos gravados
+    /// como NUMERO/TOTAL (layouts sem texto contam no total, mas nao recebem nada). O formato fica
+    /// gravado no desenho para o auto-update das sheets e o NP usarem o mesmo.
     /// </summary>
     public static OpResult Numerar(Document doc, NumberingRule regra)
     {
-        int textos = 0, layoutsComTexto = 0;
+        int textos = 0, layoutsComTexto = 0, iguais = 0;
         using DocumentLock _ = doc.LockDocument();
         Database db = doc.Database;
+        HashSet<ObjectId>? escolhidos = regra.Textos is null ? null : new HashSet<ObjectId>(regra.Textos);
+        int total;
+        string primeiro = "", ultimo = "";
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
+            GarantirApp(tr, db);
             List<string> ordem = LayoutOps.OrdemAtual(db);
+            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
             List<string> alvo = regra.SoLayoutsMarcados
                 ? ordem.Where(n => regra.Marcados.Contains(n, StringComparer.OrdinalIgnoreCase)).ToList()
                 : ordem;
-            int total = regra.Total ?? alvo.Count;
-            string totalTexto = regra.TotalTexto(total);
-            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
 
-            for (int i = 0; i < alvo.Count; i++)
+            // Textos de cada layout que vao receber o numero/total.
+            var porLayout = new List<(string Layout, List<Entity> Textos)>();
+            foreach (string nome in alvo)
             {
-                if (!dic.Contains(alvo[i]))
+                if (!dic.Contains(nome))
                     continue;
-                var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(alvo[i]), OpenMode.ForRead);
+                var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(nome), OpenMode.ForRead);
                 var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
-                string numero = regra.Numero(regra.Inicio + i);
-                int n = 0;
-
+                var lista = new List<Entity>();
                 foreach (ObjectId id in btr)
                 {
                     DBObject obj = tr.GetObject(id, OpenMode.ForRead);
@@ -266,43 +300,160 @@ internal static class LayoutNumbering
                         case AttributeDefinition:
                             break;
                         case DBText or MText:
-                            n += Escrever(tr, (Entity)obj, numero, totalTexto);
+                            if (Entra((Entity)obj, escolhidos))
+                                lista.Add((Entity)obj);
                             break;
                         case BlockReference br:
                             foreach (ObjectId aid in br.AttributeCollection)
-                                if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference att)
-                                    n += Escrever(tr, att, numero, totalTexto);
+                                if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference att && Entra(att, escolhidos))
+                                    lista.Add(att);
                             break;
                     }
                 }
-                textos += n;
-                if (n > 0)
+                // Escolhidos na busca: so os layouts com texto escolhido entram na sequencia.
+                if (escolhidos is null || lista.Count > 0)
+                    porLayout.Add((nome, lista));
+            }
+
+            total = regra.Total ?? porLayout.Count;
+            for (int i = 0; i < porLayout.Count; i++)
+            {
+                int n = regra.Inicio + i;
+                string numero = regra.Numero(n, total), totalTexto = regra.TotalTexto(n, total);
+                if (i == 0)
+                    primeiro = numero;
+                ultimo = numero;
+                int k = 0;
+                foreach (Entity ent in porLayout[i].Textos)
+                {
+                    // Escolhido na busca sem papel gravado vira NUMERO.
+                    string papel = Papel(ent) is { Length: > 0 } p ? p : "Numero";
+                    switch (Escrever(tr, ent, papel, papel == "Total" ? totalTexto : numero, n, total))
+                    {
+                        case true: k++; break;
+                        case false: iguais++; break;
+                    }
+                }
+                textos += k;
+                if (porLayout[i].Textos.Count > 0)
                     layoutsComTexto++;
             }
+            GravarFormato(tr, db, regra);
             tr.Commit();
         }
 
+        if (textos + iguais == 0)
+            return new OpResult(0, 0, escolhidos is null
+                ? "Nenhum texto marcado como numero/total. Na Busca, selecione os textos da prancha e marque a caixinha."
+                : "Os textos escolhidos nao estao nos layouts a numerar.") { Mudou = false };
+        string faixa = primeiro.Length > 0 ? $" ({primeiro} a {ultimo}, total {total})" : "";
         return new OpResult(textos, 0,
-            textos > 0
-                ? $"{textos} texto(s) atualizado(s) em {layoutsComTexto} layout(s)."
-                : "Nenhum texto marcado como numero/total. Use a busca para localizar os textos e marque-os.");
+            $"{textos} texto(s) atualizado(s) em {layoutsComTexto} layout(s){faixa}" + (iguais > 0 ? $"; {iguais} ja estavam certos." : "."))
+        { Mudou = textos > 0 };
     }
 
-    private static int Escrever(Transaction tr, Entity ent, string numero, string total)
+    private static bool Entra(Entity ent, HashSet<ObjectId>? escolhidos) =>
+        escolhidos is null ? Papel(ent).Length > 0 : escolhidos.Contains(ent.ObjectId);
+
+    /// <summary>
+    /// Grava o texto e a marca (papel, numero e total em XData, para o mapa-chave ler so o numero).
+    /// true = escreveu, false = ja estava igual, null = nao e texto.
+    /// </summary>
+    private static bool? Escrever(Transaction tr, Entity ent, string papel, string valor, int numero, int total)
     {
-        string papel = Papel(ent);
-        if (papel.Length == 0)
-            return 0;
-        string valor = papel == "Numero" ? numero : total;
+        string atual = ent switch { AttributeReference a => a.TextString, DBText t => t.TextString, MText m => m.Text, _ => "" };
+        bool marcado = Papel(ent) == papel && ValorGravado(ent, "N=") == numero.ToString(CultureInfo.InvariantCulture) && ValorGravado(ent, "T=") == total.ToString(CultureInfo.InvariantCulture);
+        if (atual == valor && marcado)
+            return false;
         // Mesmo em layer travada (o carimbo costuma ficar travado).
-        switch (tr.GetObject(ent.ObjectId, OpenMode.ForWrite, false, true))
+        DBObject w = tr.GetObject(ent.ObjectId, OpenMode.ForWrite, false, true);
+        switch (w)
         {
-            case AttributeReference a: a.TextString = valor; break;
-            case DBText t: t.TextString = valor; break;
-            case MText m: m.Contents = valor; break;
-            default: return 0;
+            case AttributeReference a: if (a.TextString != valor) a.TextString = valor; break;
+            case DBText t: if (t.TextString != valor) t.TextString = valor; break;
+            case MText m:
+                if (m.Text != valor)
+                {
+                    // Com formatacao (cor, fonte) em volta do texto: troca so o texto, mantendo os codigos.
+                    // O valor entra escapado (\\, { e } do modelo viram texto, nao codigo de formatacao).
+                    string c = m.Contents, novo = EscaparMText(valor), velho = EscaparMText(m.Text);
+                    int i = velho.Length > 0 ? c.IndexOf(velho, StringComparison.Ordinal) : -1;
+                    m.Contents = i >= 0 && c.IndexOf(velho, i + 1, StringComparison.Ordinal) < 0
+                        ? c[..i] + novo + c[(i + velho.Length)..]
+                        : novo;
+                }
+                break;
+            default: return null;
         }
-        return 1;
+        ((Entity)w).XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, App),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, papel),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, "N=" + numero.ToString(CultureInfo.InvariantCulture)),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, "T=" + total.ToString(CultureInfo.InvariantCulture)));
+        return true;
+    }
+
+    private static string EscaparMText(string s) =>
+        s.Replace("\\", "\\\\").Replace("{", "\\{").Replace("}", "\\}").Replace("\r\n", "\\P").Replace("\n", "\\P");
+
+    private static string? ValorGravado(Entity ent, string chave)
+    {
+        using ResultBuffer? rb = ent.GetXDataForApplication(App);
+        if (rb is null)
+            return null;
+        foreach (TypedValue tv in rb)
+            if (tv.Value is string s && s.StartsWith(chave, StringComparison.Ordinal))
+                return s[chave.Length..];
+        return null;
+    }
+
+    // ------------------------------------------------------------------
+    // Formato gravado no desenho
+    // ------------------------------------------------------------------
+
+    private const string DicFormato = "C3D_NUMERACAO";
+
+    /// <summary>Formato da ultima numeracao feita neste desenho (o auto-update das sheets e o NP usam o mesmo). null = nunca numerado pelo painel.</summary>
+    public static NumberingRule? FormatoGravado(Database db)
+    {
+        try
+        {
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            NumberingRule? r = null;
+            var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+            if (nod.Contains(DicFormato) && tr.GetObject(nod.GetAt(DicFormato), OpenMode.ForRead) is Xrecord { Data: not null } xr)
+            {
+                TypedValue[] v = xr.Data.AsArray();
+                if (v.Length >= 2 && v[0].Value is string a && v[1].Value is string b)
+                    r = new NumberingRule { Modelo = a, ModeloTotal = b };
+            }
+            tr.Commit();
+            return r;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static void GravarFormato(Transaction tr, Database db, NumberingRule regra)
+    {
+        var dados = new ResultBuffer(new TypedValue((int)DxfCode.Text, regra.Modelo), new TypedValue((int)DxfCode.Text, regra.ModeloTotal));
+        var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+        if (nod.Contains(DicFormato))
+        {
+            var xr = (Xrecord)tr.GetObject(nod.GetAt(DicFormato), OpenMode.ForRead);
+            TypedValue[]? atual = xr.Data?.AsArray();
+            if (atual is { Length: >= 2 } && Equals(atual[0].Value, regra.Modelo) && Equals(atual[1].Value, regra.ModeloTotal))
+                return;
+            xr.UpgradeOpen();
+            xr.Data = dados;
+            return;
+        }
+        nod.UpgradeOpen();
+        var novo = new Xrecord { Data = dados };
+        nod.SetAt(DicFormato, novo);
+        tr.AddNewlyCreatedDBObject(novo, true);
     }
 
     /// <summary>Numero e total atuais de um layout (textos marcados), para o mapa-chave e a lista.</summary>
@@ -324,11 +475,31 @@ internal static class LayoutNumbering
                 string p = Papel(e);
                 if (p.Length == 0)
                     continue;
-                string v = e switch { DBText t => t.TextString, MText m => m.Text, _ => "" };
-                if (p == "Numero") numero ??= v; else total ??= v;
+                // Numero e total puros (gravados ao numerar); senao, o texto como esta.
+                string v = e switch { AttributeReference a => a.TextString, DBText t => t.TextString, MText m => m.Text, _ => "" };
+                string? n = ValorGravado(e, "N="), tt = ValorGravado(e, "T=");
+                if (p == "Numero")
+                {
+                    numero ??= n is not null ? Digitos(n, v) : v;
+                    if (tt is not null && v.Contains(tt, StringComparison.Ordinal))
+                        total ??= Digitos(tt, v);
+                }
+                else
+                {
+                    total ??= tt is not null ? Digitos(tt, v) : v;
+                }
             }
         }
         return (numero, total);
+    }
+
+    /// <summary>O numero com os zeros com que aparece no texto (008 em "PRANCHA: 008/012").</summary>
+    private static string Digitos(string n, string texto)
+    {
+        foreach (Match m in Regex.Matches(texto, @"\d+"))
+            if (int.TryParse(m.Value, out int a) && int.TryParse(n, out int b) && a == b)
+                return m.Value;
+        return n;
     }
 
     private static void GarantirApp(Transaction tr, Database db)

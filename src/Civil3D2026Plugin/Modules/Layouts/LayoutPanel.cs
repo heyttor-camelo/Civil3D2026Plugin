@@ -56,6 +56,7 @@ internal sealed partial class LayoutPanel : SW.Window
     private List<SheetText2> _textos = new();
     private readonly HashSet<ObjectId> _textosMarcados = new();
     private readonly NumberingRule _regra = new();
+    private Database? _regraDb;
     private readonly SheetBlockOptions _prancha = SheetBlockOptions.Carregar();
     private readonly HashSet<Document> _docsLigados = new();
     private readonly Dictionary<string, string> _valoresCarimbo = new(StringComparer.OrdinalIgnoreCase);
@@ -85,6 +86,10 @@ internal sealed partial class LayoutPanel : SW.Window
     private double CardW = 250;
     private double ThumbH => CardW * 0.7;
     private WC.ListView _list = new();
+    /// <summary>A lista atual tem a coluna de caixinhas (a barra de espaco so marca nessas).</summary>
+    private bool _listaComCheck;
+    /// <summary>Contagem de textos escolhidos na aba Busca (atualizada sem reconstruir a aba).</summary>
+    private WC.TextBlock? _lbEscolhidos;
     private WC.TextBox _find = new();
     private WC.StackPanel _tabStrip = new();
     private WC.ContentControl _tabContent = new();
@@ -92,6 +97,7 @@ internal sealed partial class LayoutPanel : SW.Window
     private readonly Dictionary<string, WM.ImageSource> _icons = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly WM.Brush _vpTraco = ToolTheme.Brush(200, 200, 200);
+    private readonly WM.Brush _vpTracoPapel = ToolTheme.Brush(90, 96, 110); // sobre a folha branca
     private readonly WM.Brush _vpHover = ToolTheme.Brush(80, 160, 255, 45);
     private readonly WM.Brush _vpSel = ToolTheme.Brush(80, 160, 255, 110);
     private readonly WM.Brush _vpSelTraco = ToolTheme.Brush(80, 160, 255);
@@ -445,6 +451,23 @@ internal sealed partial class LayoutPanel : SW.Window
         };
         WC.DockPanel.SetDock(textos, WC.Dock.Right);
         graphicBar.Children.Add(textos);
+        SheetGraphics.MostrarPapel = LayoutSettings.GetBool("vista_papel", true);
+        var folhaPapel = new WC.CheckBox
+        {
+            Content = "Folha",
+            IsChecked = SheetGraphics.MostrarPapel,
+            VerticalAlignment = SW.VerticalAlignment.Center,
+            Margin = new SW.Thickness(8, 0, 0, 0),
+            ToolTip = "Mostra a folha do page setup: papel branco no tamanho do papel e a area de impressao (margens do dispositivo) tracejada"
+        };
+        folhaPapel.Click += (_, _) =>
+        {
+            SheetGraphics.MostrarPapel = folhaPapel.IsChecked == true;
+            LayoutSettings.Set("vista_papel", SheetGraphics.MostrarPapel);
+            RenderGraphic();
+        };
+        WC.DockPanel.SetDock(folhaPapel, WC.Dock.Right);
+        graphicBar.Children.Add(folhaPapel);
         graphicBar.Children.Add(_graphicInfo);
         // Vista + barra na mesma linha: o GridSplitter redimensiona as duas linhas estrela vizinhas.
         WC.DockPanel graphicRow = new();
@@ -478,6 +501,17 @@ internal sealed partial class LayoutPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1.15, SW.GridUnitType.Star), MinWidth = 300 });
         _list.SelectionChanged += (_, _) => OnRowSelected();
+        _list.SelectionMode = WC.SelectionMode.Extended;
+        _list.PreviewKeyDown += (_, e) =>
+        {
+            // Barra de espaco: marca/desmarca as linhas selecionadas (pela primeira).
+            if (e.Key != WI.Key.Space || _list.SelectedItems.Count == 0 || (_list.SelectedItems[0] as WC.ListViewItem)?.Content is not RowView rv0)
+                return;
+            if (WI.Keyboard.FocusedElement is WC.TextBox || !_listaComCheck)
+                return;
+            e.Handled = true;
+            MarcarSelecionados(!rv0.Checked);
+        };
         _list.MouseDoubleClick += (_, _) => OnRowDoubleClick();
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, VerticalAlignment = SW.VerticalAlignment.Stretch, Background = T.Back, ResizeDirection = WC.GridResizeDirection.Columns, ResizeBehavior = WC.GridResizeBehavior.PreviousAndNext, Cursor = WI.Cursors.SizeWE };
@@ -905,6 +939,7 @@ internal sealed partial class LayoutPanel : SW.Window
         }
 
         _linhasBase = rows;
+        _listaComCheck = comCheck;
         rows = AplicarFiltrosColuna(rows);
 
         var view = new WC.GridView();
@@ -959,7 +994,7 @@ internal sealed partial class LayoutPanel : SW.Window
     }
 
     /// <summary>Objeto ligado as colunas (binding por nome C0..C4, Checked e IconImage).</summary>
-    private sealed class RowView
+    private sealed class RowView : System.ComponentModel.INotifyPropertyChanged
     {
         public RowView(Row row, WM.ImageSource icon)
         {
@@ -975,7 +1010,21 @@ internal sealed partial class LayoutPanel : SW.Window
             C6 = c.Length > 6 ? c[6] : "";
         }
 
-        public bool Checked { get; set; }
+        private bool _checked;
+
+        public bool Checked
+        {
+            get => _checked;
+            set
+            {
+                if (_checked == value)
+                    return;
+                _checked = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Checked)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
         public WM.ImageSource IconImage { get; }
         public string C0 { get; }
         public string C1 { get; }
@@ -988,10 +1037,63 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private void OnCheckClick(object sender, SW.RoutedEventArgs e)
     {
-        if (sender is not WC.CheckBox cb || ItemDe(cb)?.Tag is not Row row)
+        if (sender is not WC.CheckBox cb || ItemDe(cb) is not { Tag: Row row } item)
             return;
         bool marcar = cb.IsChecked == true;
-        switch (row.Data)
+        // Caixinha de uma linha selecionada, com varias selecionadas (Shift/Ctrl): vale para todas.
+        if (item.IsSelected && _list.SelectedItems.Count > 1)
+        {
+            MarcarSelecionados(marcar);
+            return;
+        }
+        Marcar(row.Data, marcar);
+        if (row.Data is SheetText2)
+            EscolhidosMudaram();
+        Status();
+    }
+
+    /// <summary>Marca (ou desmarca) as linhas selecionadas na lista.</summary>
+    private void MarcarSelecionados(bool marcar)
+    {
+        var itens = _list.SelectedItems.OfType<WC.ListViewItem>().ToList();
+        if (itens.Count == 0)
+        {
+            Say("Selecione linhas na lista (Shift e Ctrl para varias).");
+            return;
+        }
+        bool texto = false;
+        foreach (WC.ListViewItem it in itens)
+        {
+            if (it.Tag is not Row r)
+                continue;
+            Marcar(r.Data, marcar);
+            if (it.Content is RowView rv)
+                rv.Checked = marcar;
+            texto |= r.Data is SheetText2;
+        }
+        if (texto)
+            EscolhidosMudaram();
+        Status();
+    }
+
+    /// <summary>Contagem na aba Busca; a aba Numerar (se aberta) e refeita. A Busca nao, para nao perder filtros digitados.</summary>
+    private void EscolhidosMudaram()
+    {
+        if (_tab == "Numeracao")
+        {
+            BuildTabs();
+            return;
+        }
+        if (_lbEscolhidos is not null)
+            _lbEscolhidos.Text = TextoEscolhidos();
+    }
+
+    private string TextoEscolhidos() =>
+        $"Escolhidos na lista: {_textosMarcados.Count} texto(s) em {TextosEscolhidos().Select(t => t.Layout).Distinct().Count()} layout(s)";
+
+    private void Marcar(object? dado, bool marcar)
+    {
+        switch (dado)
         {
             case SheetData f:
                 if (marcar) _layoutsMarcados.Add(f.Nome); else _layoutsMarcados.Remove(f.Nome);
@@ -1004,7 +1106,6 @@ internal sealed partial class LayoutPanel : SW.Window
                 if (marcar) _textosMarcados.Add(tx.Id); else _textosMarcados.Remove(tx.Id);
                 break;
         }
-        Status();
     }
 
     private static WC.ListViewItem? ItemDe(SW.DependencyObject? d)
@@ -1270,7 +1371,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 var rotulo = new WC.TextBlock
                 {
                     Text = papel is null ? $"#{i}  {rot}" : $"{papel}  #{i}  {rot}",
-                    Foreground = papel is null ? ToolTheme.GraphicText : ToolTheme.Brush(120, 220, 140),
+                    Foreground = papel is null ? SheetGraphics.TextoSobre(folha) : SheetGraphics.ComPapel(folha) ? ToolTheme.Brush(20, 140, 60) : ToolTheme.Brush(120, 220, 140),
                     FontSize = papel is null ? 10 : 12,
                     FontWeight = vp.Aplicado is null && papel is null ? SW.FontWeights.Normal : SW.FontWeights.Bold,
                     IsHitTestVisible = false,
@@ -1296,7 +1397,7 @@ internal sealed partial class LayoutPanel : SW.Window
             {
                 SheetViewport? vpi = _vpPorId.GetValueOrDefault(id);
                 forma.Fill = marcada ? _vpSel : vpi is null ? WM.Brushes.Transparent : FillEstado(vpi);
-                forma.Stroke = marcada ? _vpSelTraco : vpi is { Planta: false } ? _vp3dTraco : _vpTraco;
+                forma.Stroke = marcada ? _vpSelTraco : vpi is { Planta: false } ? _vp3dTraco : SheetGraphics.MostrarPapel ? _vpTracoPapel : _vpTraco;
                 forma.StrokeThickness = marcada ? 2.0 : 1.2;
             }
         }
@@ -1773,69 +1874,120 @@ internal sealed partial class LayoutPanel : SW.Window
         return p;
     }
 
+    /// <summary>Textos escolhidos na Busca (caixinha marcada), na ordem das abas.</summary>
+    private List<SheetText2> TextosEscolhidos() => _textos.Where(t => _textosMarcados.Contains(t.Id)).OrderBy(t => t.Ordem).ToList();
+
     private SW.UIElement BuildNumbering()
     {
         WC.StackPanel p = Form();
-        int nNum = _textos.Count(t => t.Papel == "Numero"), nTot = _textos.Count(t => t.Papel == "Total");
-        var layoutsComNum = _textos.Where(t => t.Papel == "Numero").Select(t => t.Layout).Distinct().Count();
+        if (Doc?.Database is Database dbAtual && !ReferenceEquals(_regraDb, dbAtual))
+        {
+            // Formato da ultima numeracao deste desenho.
+            _regraDb = dbAtual;
+            if (LayoutNumbering.FormatoGravado(dbAtual) is NumberingRule gravada)
+            {
+                _regra.Modelo = gravada.Modelo;
+                _regra.ModeloTotal = gravada.ModeloTotal;
+            }
+        }
         p.Children.Add(Label("Numerar pranchas", true));
-        p.Children.Add(Label($"{nNum} texto(s) marcado(s) como numero em {layoutsComNum} layout(s); {nTot} como total. Layouts sem texto marcado contam no total, mas nao recebem numero. Use a aba Buscar textos para marcar."));
 
-        var prefixo = new WC.TextBox { Width = 120, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Prefixo };
-        var sufixo = new WC.TextBox { Width = 120, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Sufixo };
-        var inicio = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Inicio.ToString() };
-        var digitos = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Digitos.ToString() };
-        int totalPadrao = _regra.SoLayoutsMarcados ? Marcados().Count : _folhas.Count;
-        var total = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = (_regra.Total ?? totalPadrao).ToString(), ToolTip = "Sugerido: quantidade de layouts. Edite se o conjunto tiver mais folhas." };
-        var fmtTotal = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left };
-        foreach (string f in new[] { "/{0}", "{0}", "de {0}", "/ {0}" })
-            fmtTotal.Items.Add(f);
-        fmtTotal.SelectedItem = _regra.FormatoTotal;
+        List<SheetText2> escolhidos = TextosEscolhidos();
+        bool daBusca = escolhidos.Count > 0;
+        List<SheetText2> fonte = daBusca ? escolhidos : _textos.Where(t => t.Papel.Length > 0).OrderBy(t => t.Ordem).ToList();
+        List<string> layouts = fonte.GroupBy(t => t.Layout).OrderBy(g => g.First().Ordem).Select(g => g.Key).ToList();
+        int nTotal = fonte.Count(t => t.Papel == "Total");
+        string origem = daBusca
+            ? $"{escolhidos.Count} texto(s) escolhido(s) na Busca, em {layouts.Count} layout(s)" + (layouts.Count > 0 ? $": {layouts.First()} a {layouts.Last()}, na ordem das abas." : ".")
+            : fonte.Count > 0
+                ? $"Nenhum texto escolhido na Busca: numera os {fonte.Count} texto(s) ja gravados como NUMERO/TOTAL ({layouts.Count} layout(s))."
+                : "Nenhum texto escolhido: na aba Busca, busque os textos da prancha, selecione os que valem (Shift/Ctrl) e marque a caixinha.";
+        p.Children.Add(Destaque(origem));
+        if (daBusca && escolhidos.Count > layouts.Count)
+            p.Children.Add(Label($"Ha layouts com mais de um texto escolhido: todos os textos do mesmo layout recebem o mesmo numero."));
+
+        WC.ComboBox Modelo(string atual, string[] sugestoes, double largura)
+        {
+            var cb = new WC.ComboBox { Width = largura, IsEditable = true, IsTextSearchEnabled = false, HorizontalAlignment = SW.HorizontalAlignment.Left };
+            foreach (string s in sugestoes)
+                cb.Items.Add(s);
+            cb.Text = atual;
+            return cb;
+        }
+        WC.ComboBox modelo = Modelo(_regra.Modelo, new[] { "{00}", "{000}", "PRANCHA: {000}", "{00}/{T00}", "{000}/{T000}", "PRANCHA: {000}/{T000}", "{000} de {T000}" }, 220);
+        modelo.ToolTip = Dica("Texto que vai no lugar do numero. {000} = numero com 3 algarismos (008); {T000} = total com 3 algarismos (012); {0} e {T} sem zeros a esquerda.",
+            "Ex.: PRANCHA: {000}/{T000} vira PRANCHA: 008/012.");
+        WC.ComboBox modeloTotal = Modelo(_regra.ModeloTotal, new[] { "/{T00}", "{T00}", "/{T000}", "{T000}", "de {T000}" }, 140);
+        modeloTotal.ToolTip = "So para textos gravados como TOTAL (o total num texto separado do numero).";
+        var inicio = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _regra.Inicio.ToString(CultureInfo.InvariantCulture) };
+        // Layouts que vao receber numero, na ordem: com escolhidos, os deles; sem, todos (ou os marcados), como o Numerar faz.
+        List<string> Alvo(bool soMarcados)
+        {
+            List<string> marcados = Marcados();
+            List<string> baseLista = daBusca ? layouts : _folhas.OrderBy(f => f.Ordem).Select(f => f.Nome).ToList();
+            return soMarcados ? baseLista.Where(l => marcados.Contains(l, StringComparer.OrdinalIgnoreCase)).ToList() : baseLista;
+        }
+        int sugerido = Alvo(_regra.SoLayoutsMarcados).Count;
+        var total = new WC.TextBox
+        {
+            Width = 60,
+            HorizontalAlignment = SW.HorizontalAlignment.Left,
+            Text = (_regra.Total ?? sugerido).ToString(CultureInfo.InvariantCulture),
+            ToolTip = "Sugerido: quantidade de layouts que vao ser numerados. Edite se o conjunto tiver mais folhas (ex.: outras disciplinas)."
+        };
         var soMarcados = new WC.CheckBox { Content = "Numerar so os layouts marcados (os outros nao mudam)", IsChecked = _regra.SoLayoutsMarcados, Margin = new SW.Thickness(0, 8, 0, 0) };
-        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 8, 0, 0), TextWrapping = SW.TextWrapping.Wrap };
+        var previa = new WC.TextBlock { Foreground = T.Text, Margin = new SW.Thickness(0, 8, 0, 0), TextWrapping = SW.TextWrapping.Wrap };
+        var aviso = new WC.TextBlock { Foreground = T.Muted, TextWrapping = SW.TextWrapping.Wrap };
 
         void Ler()
         {
-            _regra.Prefixo = prefixo.Text;
-            _regra.Sufixo = sufixo.Text;
+            _regra.Modelo = modelo.Text;
+            _regra.ModeloTotal = modeloTotal.Text;
             _regra.Inicio = int.TryParse(inicio.Text, out int i0) ? i0 : 1;
-            _regra.Digitos = int.TryParse(digitos.Text, out int d0) ? Math.Clamp(d0, 1, 6) : 2;
-            _regra.Total = int.TryParse(total.Text, out int t0) && t0 > 0 ? t0 : null;
-            _regra.FormatoTotal = fmtTotal.SelectedItem as string ?? "/{0}";
             _regra.SoLayoutsMarcados = soMarcados.IsChecked == true;
             _regra.Marcados = Marcados();
-            int tot = _regra.Total ?? (_regra.SoLayoutsMarcados ? _regra.Marcados.Count : _folhas.Count);
-            previa.Text = $"Previa: {_regra.Numero(_regra.Inicio)}{_regra.TotalTexto(tot)}, {_regra.Numero(_regra.Inicio + 1)}{_regra.TotalTexto(tot)} ... (total {_regra.TotalTexto(tot).Trim()})";
+            List<string> alvo = Alvo(_regra.SoLayoutsMarcados);
+            int auto = alvo.Count;
+            // Total igual ao sugerido = automatico (acompanha a selecao).
+            _regra.Total = int.TryParse(total.Text, out int t0) && t0 > 0 && t0 != auto ? t0 : null;
+            int tot = _regra.Total ?? auto;
+            var linhas = alvo.Take(3).Select((l, i) => $"{l}:  {_regra.Numero(_regra.Inicio + i, tot)}").ToList();
+            if (alvo.Count > 3)
+                linhas.Add($"...  {alvo.Last()}:  {_regra.Numero(_regra.Inicio + alvo.Count - 1, tot)}");
+            previa.Text = linhas.Count > 0 ? "Previa:  " + string.Join("     ", linhas) : $"Previa:  {_regra.Numero(_regra.Inicio, tot)}, {_regra.Numero(_regra.Inicio + 1, tot)} ...";
+            if (nTotal > 0)
+                previa.Text += $"     (total separado: {_regra.TotalTexto(_regra.Inicio, tot)})";
+            aviso.Text = NumberingRule.TemCampo(_regra.Modelo) ? "" : "O texto do numero nao tem {0}/{000}: todas as pranchas recebem o mesmo texto.";
         }
-        foreach (WC.TextBox tb in new[] { prefixo, sufixo, inicio, digitos, total })
+        foreach (WC.TextBox tb in new[] { inicio, total })
             tb.TextChanged += (_, _) => Ler();
-        fmtTotal.SelectionChanged += (_, _) => Ler();
-        soMarcados.Click += (_, _) => { total.Text = (soMarcados.IsChecked == true ? Marcados().Count : _folhas.Count).ToString(); Ler(); };
+        foreach (WC.ComboBox cb in new[] { modelo, modeloTotal })
+        {
+            cb.AddHandler(WC.Primitives.TextBoxBase.TextChangedEvent, new WC.TextChangedEventHandler((_, _) => Ler()));
+            cb.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(Ler));
+        }
+        soMarcados.Click += (_, _) => { _regra.Total = null; total.Text = Alvo(soMarcados.IsChecked == true).Count.ToString(CultureInfo.InvariantCulture); Ler(); };
 
-        var g = new WC.Grid();
-        for (int i = 0; i < 3; i++) g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
-        g.RowDefinitions.Add(new WC.RowDefinition()); g.RowDefinitions.Add(new WC.RowDefinition());
-        void Campo(int col, string rotulo, SW.UIElement c)
+        var g = new WC.WrapPanel();
+        void Campo(string rotulo, SW.UIElement c)
         {
             var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) };
             sp.Children.Add(Label(rotulo));
             sp.Children.Add(c);
-            WC.Grid.SetColumn(sp, col);
             g.Children.Add(sp);
         }
-        Campo(0, "Prefixo", prefixo); Campo(1, "Inicio", inicio); Campo(2, "Digitos (zeros a esquerda)", digitos);
+        Campo("Texto do numero", modelo);
+        Campo("Primeiro numero", inicio);
+        Campo("Total de folhas", total);
+        Campo("Texto do total separado", modeloTotal);
         p.Children.Add(g);
-        var g2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        var c1 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) }; c1.Children.Add(Label("Sufixo")); c1.Children.Add(sufixo);
-        var c2 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 14, 0) }; c2.Children.Add(Label("Total de folhas")); c2.Children.Add(total);
-        var c3 = new WC.StackPanel(); c3.Children.Add(Label("Formato do total")); c3.Children.Add(fmtTotal);
-        g2.Children.Add(c1); g2.Children.Add(c2); g2.Children.Add(c3);
-        p.Children.Add(g2);
+        p.Children.Add(Label("{000} = numero com 3 algarismos, {T000} = total com 3 algarismos ({0} e {T}: sem zeros a esquerda)."));
         p.Children.Add(soMarcados);
         p.Children.Add(previa);
+        p.Children.Add(aviso);
         Ler();
         p.Children.Add(ActionButton("Numerar agora", Numerar));
-        p.Children.Add(Label("O NP da linha de comando continua funcionando: [Configurar/Atualizar] usa os mesmos textos marcados."));
+        p.Children.Add(Label("Os textos escolhidos ficam gravados como NUMERO, com este formato: o NP e a numeracao automatica das sheets (Plan & Profile) usam os mesmos."));
         return p;
     }
 
@@ -1843,7 +1995,7 @@ internal sealed partial class LayoutPanel : SW.Window
     {
         WC.StackPanel p = Form();
         p.Children.Add(Label("Buscar textos nos layouts (TEXT, MTEXT e atributos de bloco, inclusive dentro do carimbo)", true));
-        p.Children.Add(Label("Filtre ate sobrar o texto que numera a prancha, marque-o como numero (e o do total como total). O plugin grava a marca no proprio texto; nos outros layouts, o texto com a mesma layer/posicao e encontrado com os mesmos filtros."));
+        p.Children.Add(Label("Filtre ate aparecer o texto que numera a prancha em cada layout. Na lista, selecione os que valem (Shift e Ctrl para varios) e marque a caixinha de um deles: vale para todos os selecionados (barra de espaco tambem). A aba Numerar usa os textos marcados, na ordem das abas, e ja sabe o total."));
 
         var layer = new WC.TextBox { Width = 160, Text = _filtro.Layer, ToolTip = "Curinga: PR-*,CARIMBO" };
         var contem = new WC.TextBox { Width = 160, Text = _filtro.Contem };
@@ -1911,20 +2063,33 @@ internal sealed partial class LayoutPanel : SW.Window
         }));
         p.Children.Add(botoes);
 
-        p.Children.Add(Label($"Com os textos marcados na lista ({_textosMarcados.Count}):", true));
-        var moverLayer = new WC.CheckBox { Content = $"Tambem mover para a layer {LayoutOps.LayerNumero} / {LayoutOps.LayerTotal} (compativel com o NP antigo)", IsChecked = true };
-        p.Children.Add(moverLayer);
-        var acoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        acoes.Children.Add(ActionButton("Marcar como NUMERO", () => MarcarTextos("Numero", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
-        acoes.Children.Add(ActionButton("Marcar como TOTAL", () => MarcarTextos("Total", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
-        acoes.Children.Add(ActionButton("Desmarcar", () => MarcarTextos("", _textosMarcados.ToList())));
-        p.Children.Add(acoes);
-        p.Children.Add(ActionButton("Marcar todos da lista", () =>
+        _lbEscolhidos = Label(TextoEscolhidos(), true);
+        p.Children.Add(_lbEscolhidos);
+        var escolha = new WC.WrapPanel();
+        escolha.Children.Add(ActionButton("Marcar os selecionados", () => MarcarSelecionados(true)));
+        escolha.Children.Add(ActionButton("Marcar todos da lista", () =>
         {
             foreach (SheetText2 t in _textos) _textosMarcados.Add(t.Id);
             FillList();
             BuildTabs();
         }));
+        escolha.Children.Add(ActionButton("Limpar", () =>
+        {
+            _textosMarcados.Clear();
+            FillList();
+            BuildTabs();
+        }));
+        p.Children.Add(escolha);
+        p.Children.Add(ActionButton("Ir para Numerar", () => SelectCategory("NUMERACAO", "Numeracao")));
+
+        p.Children.Add(Label("Gravar o papel no desenho (opcional: Numerar ja grava os escolhidos como NUMERO; use TOTAL so se o total fica num texto separado):", true));
+        var moverLayer = new WC.CheckBox { Content = $"Tambem mover para a layer {LayoutOps.LayerNumero} / {LayoutOps.LayerTotal} (compativel com o NP antigo)", IsChecked = false };
+        p.Children.Add(moverLayer);
+        var acoes = new WC.WrapPanel();
+        acoes.Children.Add(ActionButton("Gravar como NUMERO", () => MarcarTextos("Numero", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
+        acoes.Children.Add(ActionButton("Gravar como TOTAL", () => MarcarTextos("Total", _textosMarcados.ToList(), moverLayer.IsChecked == true)));
+        acoes.Children.Add(ActionButton("Tirar o papel", () => MarcarTextos("", _textosMarcados.ToList())));
+        p.Children.Add(acoes);
         return p;
     }
 
@@ -2099,25 +2264,39 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private void Numerar()
     {
-        if (_textos.Count(t => t.Papel.Length > 0) == 0)
+        List<SheetText2> escolhidos = TextosEscolhidos();
+        if (escolhidos.Count == 0 && _textos.Count(t => t.Papel.Length > 0) == 0)
         {
             SelectCategory("NUMERACAO", "Busca");
-            Say("Nenhum texto marcado como NUMERO/TOTAL: busque os textos abaixo, marque o do numero (e o do total) e clique em Numerar de novo.");
+            Say("Nenhum texto escolhido: busque os textos da prancha, selecione os que valem (Shift/Ctrl) e marque a caixinha.");
             SW.MessageBox.Show(
-                "Ainda nao ha texto marcado como numero da prancha.\n\n" +
-                "1. Na aba Busca, filtre e localize o texto que numera a prancha (pode estar dentro do bloco do carimbo).\n" +
-                "2. Marque-o como NUMERO (e o do total como TOTAL). Isso fica gravado no desenho.\n" +
-                "3. Confira prefixo, digitos e total na aba Numeracao e clique em Numerar.",
+                "Ainda nao ha texto escolhido para o numero da prancha.\n\n" +
+                "1. Na aba Busca, filtre ate aparecer o texto que numera a prancha em cada layout (pode estar dentro do bloco do carimbo).\n" +
+                "2. Selecione na lista os que valem (Shift e Ctrl para varios) e marque a caixinha de um deles: vale para todos os selecionados.\n" +
+                "3. Na aba Numerar, escreva o texto (ex.: PRANCHA: {000}/{T000}) e clique em Numerar agora.",
                 "Numerar pranchas", SW.MessageBoxButton.OK, SW.MessageBoxImage.Information);
             return;
         }
+        if (!NumberingRule.TemCampo(_regra.Modelo) && escolhidos.Count > 1)
+        {
+            Say("O texto do numero precisa de {0}, {00} ou {000} (o lugar do numero).");
+            return;
+        }
+        _regra.Textos = escolhidos.Count > 0 ? escolhidos.Select(t => t.Id).ToList() : null;
         _regra.Marcados = Marcados();
         if (_regra.SoLayoutsMarcados && _regra.Marcados.Count == 0)
         {
             Say("Marque os layouts que devem ser numerados.");
             return;
         }
-        ExecutarLongo("Numerando as pranchas", () => LayoutNumbering.Numerar(Doc!, _regra));
+        ExecutarLongo("Numerando as pranchas", () =>
+        {
+            OpResult r = LayoutNumbering.Numerar(Doc!, _regra);
+            // A lista mostra o texto novo e o papel gravado.
+            if (Doc is Document d)
+                _textos = LayoutNumbering.Buscar(d.Database, _filtro);
+            return r;
+        });
     }
 
     /// <summary>Opcoes de prancha atuais (para o comando C3DPRANCHA).</summary>

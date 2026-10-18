@@ -55,10 +55,34 @@ internal sealed class SheetSeries
     public ObjectId Profile1 { get; set; }
     public ObjectId Profile2 { get; set; }
 
+    /// <summary>Mm de papel da borda esquerda da viewport de perfil ate a origem do profile view (inicio do grafico; os titulos das bandas ficam nesse espaco).</summary>
+    public double MargemOrigem { get; set; } = LayoutSheetSeries.MargemOrigemPadrao;
+
     // Calibracao do profile view (medida ao criar os frames).
     public double MargemPerfil { get; set; } = double.NaN;   // largura alem das estacas (eixos, rotulos), unidades de desenho
+    public double MargemDireita { get; set; } = double.NaN;  // largura alem do fim do grafico (cotas a direita), unidades de desenho
     public double SobraVertical { get; set; } = double.NaN;  // altura alem do grafico (bandas, titulos)
     public double Exagero { get; set; } = double.NaN;        // unidades de desenho por metro de cota
+    /// <summary>Estilo e band set com que a calibracao foi medida (e que os profile views da serie tem).</summary>
+    public ObjectId CalEstilo { get; set; }
+    public ObjectId CalBandas { get; set; }
+
+    /// <summary>Copia a calibracao (e com que estilo/band set ela foi feita).</summary>
+    public void CopiarCalibracao(SheetSeries de)
+    {
+        MargemPerfil = de.MargemPerfil;
+        MargemDireita = de.MargemDireita;
+        SobraVertical = de.SobraVertical;
+        Exagero = de.Exagero;
+        CalEstilo = de.CalEstilo;
+        CalBandas = de.CalBandas;
+    }
+
+    public void LimparCalibracao()
+    {
+        MargemPerfil = MargemDireita = SobraVertical = Exagero = double.NaN;
+        CalEstilo = CalBandas = ObjectId.Null;
+    }
 
     public List<ObjectId> Frames { get; } = new();
     public List<ObjectId> Cortes { get; } = new();
@@ -189,6 +213,7 @@ internal static class LayoutSheetSeries
         if (xr.Data is null)
             return null;
         var s = new SheetSeries();
+        bool temCal = false;
         foreach (TypedValue tv in xr.Data.AsArray())
         {
             if (tv.Value is not string t)
@@ -224,6 +249,10 @@ internal static class LayoutSheetSeries
                 case "MP": s.MargemPerfil = Num(v); break;
                 case "SV": s.SobraVertical = Num(v); break;
                 case "EX": s.Exagero = Num(v); break;
+                case "MD": s.MargemDireita = Num(v); break;
+                case "MO": s.MargemOrigem = Num(v, MargemOrigemPadrao); break;
+                case "CE": s.CalEstilo = DoHandle(db, v); temCal = true; break;
+                case "CB": s.CalBandas = DoHandle(db, v); temCal = true; break;
                 case "B1": s.Profile1 = SoValido(DoHandle(db, v)); break;
                 case "B2": s.Profile2 = SoValido(DoHandle(db, v)); break;
                 case "PO":
@@ -261,6 +290,12 @@ internal static class LayoutSheetSeries
         }
         if (!Valido(s.Eixo))
             return null;
+        if (!temCal)
+        {
+            // Serie de antes da 1.7: os profile views foram criados com o estilo e o band set gravados.
+            s.CalEstilo = s.EstiloPerfil;
+            s.CalBandas = s.BandasPerfil;
+        }
         if (tr.GetObject(s.Eixo, OpenMode.ForRead) is CivilDb.Alignment al)
             s.EixoNome = al.Name;
         return s;
@@ -309,6 +344,10 @@ internal static class LayoutSheetSeries
         Add("MP", D(s.MargemPerfil));
         Add("SV", D(s.SobraVertical));
         Add("EX", D(s.Exagero));
+        Add("MD", D(s.MargemDireita));
+        Add("MO", D(s.MargemOrigem));
+        Add("CE", H(s.CalEstilo));
+        Add("CB", H(s.CalBandas));
         Add("B1", H(s.Profile1));
         Add("B2", H(s.Profile2));
         foreach (ProfileOption o in s.Perfis.Where(o => Valido(o.Perfil)))
@@ -377,6 +416,7 @@ internal static class LayoutSheetSeries
         para.PageSetup = de.PageSetup;
         para.Profile1 = de.Profile1;
         para.Profile2 = de.Profile2;
+        para.MargemOrigem = de.MargemOrigem;
         para.Perfis.Clear();
         para.Perfis.AddRange(de.Perfis.Select(o => o.Copia()));
     }
@@ -744,7 +784,7 @@ internal static class LayoutSheetSeries
             }
             double porFolha = Math.Min(planta, perfil);
             int n = porFolha > 1 ? (int)Math.Ceiling(comp / porFolha - 1e-9) : 0;
-            return new SheetCapacity(planta, perfil, !double.IsNaN(s.MargemPerfil), comp, n);
+            return new SheetCapacity(planta, perfil, !double.IsNaN(s.MargemDireita) || !double.IsNaN(s.MargemPerfil), comp, n);
         }
         catch (System.Exception)
         {
@@ -753,14 +793,17 @@ internal static class LayoutSheetSeries
     }
 
     /// <summary>
-    /// Metros de alignment por sheet no profile view: largura da viewport de perfil menos 10 mm de
-    /// cada lado, menos a margem do profile view (eixo de cotas e rotulos, medida na calibracao).
+    /// Metros de alignment por sheet no profile view: da origem (a MargemOrigem mm da borda
+    /// esquerda) ate 10 mm da borda direita, menos o que o profile view desenha depois do fim do
+    /// grafico (cotas do lado direito, medido na calibracao).
     /// </summary>
     private static double CapacidadePerfil(SheetSeries s, SheetTemplate m)
     {
-        double w = Math.Max(0, m.WPerfil - 2 * MargemPapel) / m.EscalaPerfil;
-        double margem = double.IsNaN(s.MargemPerfil) ? m.LarguraPerfil * 0.12 : s.MargemPerfil;
-        return w - margem;
+        double w = Math.Max(0, m.WPerfil - Math.Max(0, s.MargemOrigem) - MargemPapel) / m.EscalaPerfil;
+        double direita = !double.IsNaN(s.MargemDireita) ? s.MargemDireita
+            : !double.IsNaN(s.MargemPerfil) ? s.MargemPerfil / 2
+            : m.LarguraPerfil * 0.06;
+        return w - direita;
     }
 
     /// <summary>Palpite das viewports de planta e perfil de um layout: perfil = a que mostra um profile view; senao planta = a maior.</summary>
@@ -878,12 +921,8 @@ internal static class LayoutSheetSeries
             s.Frames.AddRange(gravada.Frames);
             s.Cortes.Clear();
             s.Cortes.AddRange(gravada.Cortes);
-            if (double.IsNaN(s.MargemPerfil))
-            {
-                s.MargemPerfil = gravada.MargemPerfil;
-                s.SobraVertical = gravada.SobraVertical;
-                s.Exagero = gravada.Exagero;
-            }
+            if (double.IsNaN(s.MargemPerfil) && double.IsNaN(s.Exagero))
+                s.CopiarCalibracao(gravada);
         }
 
         List<SheetFrameInfo> frames = LerFrames(db, s);
@@ -1398,14 +1437,12 @@ internal static class LayoutSheetSeries
             List<SheetText2> marcados = LayoutNumbering.Buscar(doc.Database, new TextFilter { SoMarcados = true });
             if (!marcados.Any(t => nomes.Contains(t.Layout, StringComparer.OrdinalIgnoreCase)))
                 return;
-            var regra = new NumberingRule
-            {
-                Inicio = s.Inicio,
-                Digitos = s.Digitos,
-                Total = nomes.Count,
-                SoLayoutsMarcados = true,
-                Marcados = nomes
-            };
+            // Mesmo formato da ultima numeracao do painel (ex.: "PRANCHA: {000}/{T000}"); sem ela, os digitos da serie.
+            NumberingRule regra = LayoutNumbering.FormatoGravado(doc.Database) ?? NumberingRule.Padrao(s.Digitos);
+            regra.Inicio = s.Inicio;
+            regra.Total = nomes.Count;
+            regra.SoLayoutsMarcados = true;
+            regra.Marcados = nomes;
             LayoutNumbering.Numerar(doc, regra);
         }
         catch (System.Exception ex)
@@ -1486,7 +1523,35 @@ internal static class LayoutSheetSeries
         Database db = doc.Database;
         SheetSeries? s = LerSerie(db, eixo);
         if (s is null)
-            return new OpResult(0, 0, "Serie de pranchas nao encontrada.");
+            return new OpResult(0, 0, "Serie de pranchas nao encontrada.") { Mudou = false };
+        // Conta o que a atualizacao mexeu de fato no desenho (a gravacao da serie nao conta).
+        int mexidos = 0;
+        void Mexeu(object? _, ObjectEventArgs e)
+        {
+            if (e.DBObject is not Xrecord and not DBDictionary)
+                mexidos++;
+        }
+        void Apagou(object? _, ObjectErasedEventArgs e) => mexidos++;
+        db.ObjectModified += Mexeu;
+        db.ObjectAppended += Mexeu;
+        db.ObjectErased += Apagou;
+        try
+        {
+            OpResult r = AtualizarSerie(doc, db, s, soFrames, avisos, cancelavel);
+            return mexidos == 0 && r.Falhas == 0
+                ? new OpResult(r.Ok, 0, $"{s.EixoNome}: {r.Ok} sheet(s) conferida(s), nada mudou.") { Mudou = false }
+                : r;
+        }
+        finally
+        {
+            db.ObjectModified -= Mexeu;
+            db.ObjectAppended -= Mexeu;
+            db.ObjectErased -= Apagou;
+        }
+    }
+
+    private static OpResult AtualizarSerie(Document doc, Database db, SheetSeries s, ICollection<ObjectId>? soFrames, List<string> avisos, bool cancelavel)
+    {
         SheetTemplate? m = null;
         try
         {
@@ -1594,7 +1659,7 @@ internal static class LayoutSheetSeries
                         tr.Commit();
                     }
                     if (Valido(f.VpPerfil))
-                        aviso = Juntar(aviso, AlinharPerfil(db, f.VpPerfil, f.Perfil));
+                        aviso = Juntar(aviso, AlinharPerfil(db, f.VpPerfil, f.Perfil, s.MargemOrigem));
                     if (aviso is not null)
                     {
                         f.Aviso = aviso;
@@ -1784,8 +1849,11 @@ internal static class LayoutSheetSeries
     // Viewports
     // ------------------------------------------------------------------
 
-    /// <summary>Folga (mm de papel) entre o profile view e as bordas da viewport de perfil.</summary>
+    /// <summary>Folga (mm de papel) entre o profile view e as bordas da viewport de perfil (em cima, embaixo e a direita).</summary>
     public const double MargemPapel = 10;
+
+    /// <summary>Padrao da distancia da borda esquerda ate a origem do profile view (mm de papel).</summary>
+    public const double MargemOrigemPadrao = 20;
 
     /// <summary>
     /// Centro do frame no centro da viewport; aresta 0-1 do frame na horizontal do papel. So escreve
@@ -1820,11 +1888,13 @@ internal static class LayoutSheetSeries
     }
 
     /// <summary>
-    /// Viewport de perfil: inicio do profile view a 10 mm (papel) da borda esquerda; na altura,
-    /// centrado se cabe com 10 mm de folga em cima e embaixo, senao encostado embaixo (bandas
-    /// visiveis) com o topo cortado. Retorna o aviso quando nao cabe.
+    /// Viewport de perfil: origem do profile view (inicio do grafico) a margemOrigem mm (papel) da
+    /// borda esquerda, deixando os titulos das bandas e as cotas da esquerda nesse espaco (as
+    /// extensoes do profile view nao incluem os titulos). Na altura, centrado se cabe com 10 mm de
+    /// folga em cima e embaixo, senao encostado embaixo (bandas visiveis) com o topo cortado.
+    /// Retorna o aviso quando nao cabe.
     /// </summary>
-    private static string? AlinharPerfil(Database db, ObjectId vpId, ObjectId pvId)
+    private static string? AlinharPerfil(Database db, ObjectId vpId, ObjectId pvId, double margemOrigem)
     {
         using Transaction tr = db.TransactionManager.StartTransaction();
         var pv = (Entity)tr.GetObject(pvId, OpenMode.ForRead);
@@ -1837,7 +1907,20 @@ internal static class LayoutSheetSeries
         }
         double esc = vp.CustomScale;
         double w = vp.Width / esc, h = vp.Height / esc, mg = MargemPapel / esc;
-        double altura = ext.MaxPoint.Y - ext.MinPoint.Y, largura = ext.MaxPoint.X - ext.MinPoint.X;
+        double mgOrigem = Math.Max(0, double.IsNaN(margemOrigem) ? MargemOrigemPadrao : margemOrigem) / esc;
+        double altura = ext.MaxPoint.Y - ext.MinPoint.Y;
+        double x0;
+        if (Ler(pv, "Location") is Point3d origem)
+        {
+            x0 = origem.X;
+        }
+        else
+        {
+            // Sem a origem pela API: o comeco das extensoes faz as vezes dela.
+            x0 = ext.MinPoint.X;
+            DiagUmaVez("pv-location", "ProfileView.Location ilegivel; a viewport de perfil usa o inicio das extensoes do profile view.");
+        }
+        double esquerda = x0 - mgOrigem;
         string? aviso = null;
         double y;
         if (altura <= h - 2 * mg + 1e-6)
@@ -1850,10 +1933,14 @@ internal static class LayoutSheetSeries
             aviso = $"profile view mais alto que a viewport ({altura * esc:0} mm, cabem {vp.Height - 2 * MargemPapel:0} mm): bandas visiveis e topo cortado; " +
                     "reduza o exagero vertical (estilo) ou aumente a viewport";
         }
-        if (largura > w - 2 * mg + 1e-6)
-            aviso = Juntar(aviso, $"profile view mais largo que a viewport ({largura * esc:0} mm, cabem {vp.Width - 2 * MargemPapel:0} mm)");
+        if (ext.MinPoint.X < esquerda - 1e-6)
+            aviso = Juntar(aviso, $"profile view passa da viewport a esquerda ({(esquerda - ext.MinPoint.X) * esc:0} mm); aumente o inicio do grafico (passo 3)");
+        double direita = ext.MaxPoint.X - esquerda; // da borda esquerda ate o fim do profile view
+        if (direita > w - mg + 1e-6)
+            aviso = Juntar(aviso, $"profile view passa da viewport a direita ({(direita - w + mg) * esc:0} mm alem da folga de {MargemPapel:0} mm); " +
+                                  "diminua o inicio do grafico (passo 3) ou o trecho da sheet");
 
-        var centro = new Point3d(ext.MinPoint.X - mg + w / 2, y, 0);
+        var centro = new Point3d(esquerda + w / 2, y, 0);
         Point3d c = centro.TransformBy(Dcs2Wcs(vp, 0).Inverse());
         var alvo = new Point2d(c.X, c.Y);
         if (Math.Abs(Math.IEEERemainder(vp.TwistAngle, 2 * Math.PI)) > 1e-9 || vp.ViewCenter.GetDistanceTo(alvo) > 1e-6)
@@ -2659,8 +2746,9 @@ internal static class LayoutSheetSeries
     }
 
     /// <summary>
-    /// Reaplica as opcoes dos profiles (Draw, label sets, Profile1/Profile2) em todos os profile
-    /// views da serie (so nos criados pelo plugin) e refaz as cotas e a viewport de perfil.
+    /// Reaplica o passo 3 em todos os profile views da serie (so nos criados pelo plugin): estilo,
+    /// band set, Draw, label sets e Profile1/Profile2; refaz as cotas e a viewport de perfil. Se o
+    /// estilo ou o band set mudou, mede o profile view de novo antes (exagero e altura das bandas).
     /// </summary>
     public static OpResult AplicarOpcoesPerfis(Document doc, ObjectId eixo)
     {
@@ -2679,48 +2767,146 @@ internal static class LayoutSheetSeries
         var avisos = new List<string>();
         int ok = 0;
         bool parou = false;
-        PluginLog.Info(Mod, $"Pranchas: opcoes dos profiles em {frames.Count} profile view(s) de {s.EixoNome}: " +
+        int incompletos = 0;
+        bool trocarEstilo = Valido(s.EstiloPerfil) && s.EstiloPerfil != s.CalEstilo;
+        bool trocarBandas = Valido(s.BandasPerfil) && s.BandasPerfil != s.CalBandas;
+        PluginLog.Info(Mod, $"Pranchas: passo 3 em {frames.Count} profile view(s) de {s.EixoNome}: " +
+                            $"estilo {NomeDe(db, s.EstiloPerfil)}{(trocarEstilo ? " (novo)" : "")}, band set {NomeDe(db, s.BandasPerfil)}{(trocarBandas ? " (novo)" : "")}; " +
                             string.Join("; ", s.Perfis.Select(o => $"{NomeDe(db, o.Perfil)} draw={(o.Draw ? 1 : 0)} labels={(o.SemLabels ? "nenhum" : Valido(o.LabelSet) ? NomeDe(db, o.LabelSet) : "do Civil")}")) +
-                            $"; Profile1={(Valido(s.Profile1) ? NomeDe(db, s.Profile1) : "do band set")}, Profile2={(Valido(s.Profile2) ? NomeDe(db, s.Profile2) : "do band set")}.");
+                            $"; Profile1={(Valido(s.Profile1) ? NomeDe(db, s.Profile1) : "do band set")}, Profile2={(Valido(s.Profile2) ? NomeDe(db, s.Profile2) : "do band set")}; " +
+                            $"inicio do grafico a {s.MargemOrigem:0.#} mm.");
         using (SheetSeriesSync.Suspender())
         using (doc.LockDocument())
-        using (PluginLog.Medir(Mod, $"Pranchas: opcoes dos profiles em {frames.Count} profile view(s)"))
+        using (PluginLog.Medir(Mod, $"Pranchas: passo 3 em {frames.Count} profile view(s)"))
         {
-            for (int i = 0; i < frames.Count; i++)
+            if ((trocarEstilo || trocarBandas) && m is { TemPerfil: true })
             {
-                SheetFrameInfo f = frames[i];
-                if (Progresso.Cancelado)
+                // Estilo ou band set novo: exagero e altura das bandas mudam, entao mede de novo.
+                using (Progresso.Faixa(0, 0.1))
+                using (PluginLog.Medir(Mod, "Pranchas: calibracao do profile view (estilo/band set novo)"))
                 {
-                    parou = true;
-                    break;
-                }
-                Progresso.Passo($"Profile view {f.LayoutNome} ({i + 1} de {frames.Count})", i, frames.Count);
-                try
-                {
-                    string? aviso;
+                    Progresso.Mostrar("Medindo o profile view com o estilo e o band set novos...", 0);
+                    double ini, fim;
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
-                        AplicarDrawEBandas(tr, f.Perfil, s, avisos, f.LayoutNome);
-                        aviso = AjustarCotas(tr, f.Perfil, s, m, f.E0, f.E1);
+                        var al = (CivilDb.Alignment)tr.GetObject(s.Eixo, OpenMode.ForRead);
+                        ini = double.IsNaN(s.EstacaInicial) ? al.StartingStation : Math.Clamp(s.EstacaInicial, al.StartingStation, al.EndingStation);
+                        fim = double.IsNaN(s.EstacaFinal) ? al.EndingStation : Math.Clamp(s.EstacaFinal, al.StartingStation, al.EndingStation);
                         tr.Commit();
                     }
-                    AplicarLabels(db, f.Perfil, s, avisos, f.LayoutNome);
-                    if (Valido(f.VpPerfil))
-                        aviso = Juntar(aviso, AlinharPerfil(db, f.VpPerfil, f.Perfil));
-                    if (aviso is not null)
-                        avisos.Add($"{f.LayoutNome}: {aviso}");
-                    ok++;
+                    Calibracao = "";
+                    Calibrar(db, s, m, ini, fim, BasePadraoPerfis(db, m), avisos);
+                    if (Calibracao.Length > 0)
+                        PluginLog.Info(Mod, "Pranchas: " + Calibracao);
                 }
-                catch (System.Exception ex)
+            }
+            using (Progresso.Faixa(trocarEstilo || trocarBandas ? 0.1 : 0, 1))
+            {
+                for (int i = 0; i < frames.Count; i++)
                 {
-                    avisos.Add($"{f.LayoutNome}: opcoes nao aplicadas ({ex.Message})");
-                    PluginLog.Erro(Mod, $"Pranchas: {f.LayoutNome}: opcoes dos profiles", ex);
+                    SheetFrameInfo f = frames[i];
+                    if (Progresso.Cancelado)
+                    {
+                        parou = true;
+                        break;
+                    }
+                    Progresso.Passo($"Profile view {f.LayoutNome} ({i + 1} de {frames.Count})", i, frames.Count);
+                    try
+                    {
+                        string? aviso;
+                        // Estilo e band set primeiro, gravados: as bandas importadas e que recebem Profile1/Profile2.
+                        using (Transaction tr = db.TransactionManager.StartTransaction())
+                        {
+                            if (!TrocarEstiloEBandas(tr, f.Perfil, s, trocarBandas, avisos, f.LayoutNome))
+                                incompletos++;
+                            tr.Commit();
+                        }
+                        using (Transaction tr = db.TransactionManager.StartTransaction())
+                        {
+                            AplicarDrawEBandas(tr, f.Perfil, s, avisos, f.LayoutNome);
+                            aviso = AjustarCotas(tr, f.Perfil, s, m, f.E0, f.E1);
+                            tr.Commit();
+                        }
+                        AplicarLabels(db, f.Perfil, s, avisos, f.LayoutNome);
+                        if (Valido(f.VpPerfil))
+                            aviso = Juntar(aviso, AlinharPerfil(db, f.VpPerfil, f.Perfil, s.MargemOrigem));
+                        f.Aviso = aviso ?? "";
+                        if (aviso is not null)
+                            avisos.Add($"{f.LayoutNome}: {aviso}");
+                        ok++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        incompletos++;
+                        avisos.Add($"{f.LayoutNome}: opcoes nao aplicadas ({ex.Message})");
+                        PluginLog.Erro(Mod, $"Pranchas: {f.LayoutNome}: opcoes dos profiles", ex);
+                    }
                 }
+            }
+            // Calibracao nova (e com que estilo/band set) e avisos das sheets.
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                foreach (SheetFrameInfo f in frames)
+                {
+                    try
+                    {
+                        GravarFrame(tr, f.Id, f);
+                    }
+                    catch (System.Exception)
+                    {
+                        // Aviso fica so no log.
+                    }
+                }
+                if (!parou && incompletos == 0)
+                {
+                    // Todos com o estilo e o band set da serie (cancelado ou com falha: tenta de novo no proximo Aplicar).
+                    s.CalEstilo = s.EstiloPerfil;
+                    s.CalBandas = s.BandasPerfil;
+                }
+                Gravar(tr, db, s);
+                tr.Commit();
             }
         }
         Relatar(doc, avisos);
-        return new OpResult(ok, avisos.Count, $"Opcoes dos profiles aplicadas em {ok} de {frames.Count} profile view(s)" +
+        return new OpResult(ok, avisos.Count, $"Passo 3 aplicado em {ok} de {frames.Count} profile view(s)" +
                                               (parou ? " (cancelado)" : "") + (avisos.Count > 0 ? $"; {avisos.Count} aviso(s) no log (Ctrl+Shift+L)." : "."));
+    }
+
+    /// <summary>
+    /// Estilo do profile view (se diferente do da serie) e, se o band set da serie mudou, importa o
+    /// band set novo (as bandas voltam as do band set; Profile1/Profile2 vem depois).
+    /// </summary>
+    /// <returns>false se o estilo ou o band set nao puderam ser aplicados (falta na API).</returns>
+    private static bool TrocarEstiloEBandas(Transaction tr, ObjectId pvId, SheetSeries s, bool importarBandas, List<string> avisos, string nome)
+    {
+        bool ok = true;
+        DBObject pv = tr.GetObject(pvId, OpenMode.ForRead);
+        if (Valido(s.EstiloPerfil) && Ler(pv, "StyleId") is ObjectId atual && atual != s.EstiloPerfil)
+        {
+            DBObject w = tr.GetObject(pvId, OpenMode.ForWrite, false, true);
+            PropertyInfo? estilo = Propriedade(w.GetType(), "StyleId");
+            if (estilo is null || !estilo.CanWrite)
+            {
+                AvisoUmaVez(avisos, nome, "estilo do profile view nao trocado: a API nao tem ProfileView.StyleId gravavel");
+                ok = false;
+            }
+            else
+            {
+                Chamar(() => estilo.SetValue(w, s.EstiloPerfil), "estilo do profile view");
+            }
+        }
+        if (!importarBandas || !Valido(s.BandasPerfil))
+            return ok;
+        DBObject pvW = tr.GetObject(pvId, OpenMode.ForWrite, false, true);
+        object? bandas = Ler(pvW, "Bands");
+        MethodInfo? importar = bandas?.GetType().GetMethod("ImportBandSetStyle", new[] { typeof(ObjectId) });
+        if (bandas is null || importar is null)
+        {
+            AvisoUmaVez(avisos, nome, "band set nao trocado: a API nao tem ProfileView.Bands.ImportBandSetStyle");
+            return false;
+        }
+        Chamar(() => importar.Invoke(bandas, new object[] { s.BandasPerfil }), "importar o band set");
+        return ok;
     }
 
     /// <summary>
@@ -2773,13 +2959,15 @@ internal static class LayoutSheetSeries
                 tr.Commit();
             }
 
-            double w, h, emin = double.NaN, emax = double.NaN, ve = double.NaN;
+            double w, h, emin = double.NaN, emax = double.NaN, ve = double.NaN, dir = double.NaN;
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 var e = (Entity)tr.GetObject(pv, OpenMode.ForRead);
                 Extents3d ext = e.GeometricExtents;
                 w = ext.MaxPoint.X - ext.MinPoint.X;
                 h = ext.MaxPoint.Y - ext.MinPoint.Y;
+                if (Ler(e, "Location") is Point3d loc)
+                    dir = Math.Max(0, ext.MaxPoint.X - (loc.X + lt)); // cotas e rotulos depois do fim do grafico
                 if (pMin is not null && pMax is not null)
                 {
                     emin = Convert.ToDouble(pMin.GetValue(e), Inv);
@@ -2789,13 +2977,21 @@ internal static class LayoutSheetSeries
                 tr.Commit();
             }
             s.MargemPerfil = Math.Max(0, w - lt);
+            s.MargemDireita = dir;
             if (s.MargemPerfil > m.LarguraPerfil * 0.5 || !EstacasConferem(db, pv, ini, ini + lt))
             {
                 // Medicao fora do esperado (o trecho de teste nao foi respeitado?): margem estimada.
-                avisos.Add($"calibracao do profile view: margem medida de {s.MargemPerfil:0.#} m fora do esperado; usando a estimativa (12% da viewport)");
+                avisos.Add($"calibracao do profile view: margem medida de {s.MargemPerfil:0.#} m fora do esperado; usando a estimativa");
                 PluginLog.Aviso(Mod, $"Pranchas: calibracao: largura {w:0.#} m para {lt:0} m de trecho; estacas do PV de teste {(EstacasConferem(db, pv, ini, ini + lt) ? "ok" : "diferentes do pedido")}.");
                 s.MargemPerfil = double.NaN;
+                s.MargemDireita = double.NaN;
             }
+            else if (!double.IsNaN(dir) && dir > m.LarguraPerfil * 0.3)
+            {
+                s.MargemDireita = double.NaN;
+            }
+            s.CalEstilo = s.EstiloPerfil;
+            s.CalBandas = s.BandasPerfil;
 
             if ((double.IsNaN(ve) || ve <= 0) && modo is not null && pMin is not null && pMax is not null && !double.IsNaN(emin))
             {
@@ -2825,7 +3021,8 @@ internal static class LayoutSheetSeries
             {
                 avisos.Add("exagero vertical nao identificado: cotas ficam automaticas");
             }
-            Calibracao = $"calibracao do perfil: {lt:0} m de eixo ocupam {w:0.#} m (margem {(double.IsNaN(s.MargemPerfil) ? "estimada" : s.MargemPerfil.ToString("0.#", Inv) + " m")}), altura {h:0.#} m, exagero {(double.IsNaN(s.Exagero) ? "?" : s.Exagero.ToString("0.##", Inv))}";
+            Calibracao = $"calibracao do perfil: {lt:0} m de eixo ocupam {w:0.#} m (margem {(double.IsNaN(s.MargemPerfil) ? "estimada" : s.MargemPerfil.ToString("0.#", Inv) + " m")}, " +
+                         $"depois do fim do grafico {(double.IsNaN(s.MargemDireita) ? "estimada" : s.MargemDireita.ToString("0.#", Inv) + " m")}), altura {h:0.#} m, exagero {(double.IsNaN(s.Exagero) ? "?" : s.Exagero.ToString("0.##", Inv))}";
         }
         catch (System.Exception ex)
         {
@@ -2985,6 +3182,58 @@ internal static class LayoutSheetSeries
     private sealed record FrameGeo(double E0, double E1, Point3d Centro, Vector3d U);
 
     /// <summary>Acesso ao eixo: ponto, tangente e estaca de um ponto.</summary>
+    /// <summary>
+    /// Resumo da geometria do alignment (estacas, comprimento e 33 pontos ao longo dele): muda
+    /// quando o eixo muda de verdade, e nao quando o Civil so regenera o objeto. "" = ilegivel.
+    /// </summary>
+    public static string AssinaturaEixo(Database db, ObjectId eixo)
+    {
+        try
+        {
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            string r = "";
+            if (Valido(eixo) && tr.GetObject(eixo, OpenMode.ForRead) is CivilDb.Alignment al)
+            {
+                var sb = new System.Text.StringBuilder();
+                double a = al.StartingStation, b = al.EndingStation;
+                sb.Append(a.ToString("F4", Inv)).Append('|').Append(b.ToString("F4", Inv)).Append('|').Append(al.Length.ToString("F4", Inv));
+                var ax = new Eixo(al);
+                const int n = 32;
+                for (int i = 0; i <= n; i++)
+                {
+                    Point3d p = ax.Ponto(a + (b - a) * i / n);
+                    sb.Append('|').Append(p.X.ToString("F4", Inv)).Append(',').Append(p.Y.ToString("F4", Inv));
+                }
+                // Profiles (greide, terreno): editar um deles tambem pede elevations novas.
+                foreach (ObjectId pid in al.GetProfileIds())
+                {
+                    if (tr.GetObject(pid, OpenMode.ForRead) is not CivilDb.Profile pf)
+                        continue;
+                    double p0 = pf.StartingStation, p1 = pf.EndingStation;
+                    sb.Append("|P").Append(pid.Handle.ToString()).Append(':').Append(p0.ToString("F3", Inv)).Append('-').Append(p1.ToString("F3", Inv));
+                    for (int i = 0; i <= n && p1 > p0; i++)
+                    {
+                        try
+                        {
+                            sb.Append(',').Append(pf.ElevationAt(p0 + (p1 - p0) * i / n).ToString("F4", Inv));
+                        }
+                        catch (System.Exception)
+                        {
+                            sb.Append(",-");
+                        }
+                    }
+                }
+                r = sb.ToString();
+            }
+            tr.Commit();
+            return r;
+        }
+        catch (System.Exception)
+        {
+            return "";
+        }
+    }
+
     private sealed class Eixo
     {
         private readonly CivilDb.Alignment _a;
@@ -3267,33 +3516,84 @@ internal static class LayoutSheetSeries
         return t.ObjectId;
     }
 
+    /// <summary>
+    /// Match lines entre sheets vizinhas. Monta o que deveria existir e so troca as entidades se
+    /// algo mudou (apagar e recriar sempre regenerava o Model a cada atualizacao).
+    /// </summary>
     private static void RefazerCortes(Transaction tr, Database db, SheetSeries s, List<SheetFrameInfo> frames, Eixo ax, double escala)
     {
+        // A layer tem que existir antes de montar as entidades (Layer de entidade fora do banco).
+        GarantirLayer(tr, db, LayerCorte, 1, plotar: true);
+        var novas = new List<Entity>();
+        List<SheetFrameInfo> ordem = frames.OrderBy(f => f.E0).ToList();
+        try
+        {
+            MontarCortes(tr, novas, ordem, ax, escala);
+        }
+        catch
+        {
+            // Entidade fora do banco sem Dispose e finalizada em outra thread (derruba o AutoCAD).
+            foreach (Entity e in novas)
+                e.Dispose();
+            throw;
+        }
+
+        List<ObjectId> atuais = s.Cortes.Where(Valido).ToList();
+        if (atuais.Count == novas.Count && atuais.Count == s.Cortes.Count &&
+            atuais.Zip(novas).All(p => IgualCorte(tr.GetObject(p.First, OpenMode.ForRead), p.Second)))
+        {
+            foreach (Entity e in novas)
+                e.Dispose();
+            return;
+        }
+
         var restantes = s.Cortes.Where(id => !Apagar(tr, id) && Valido(id)).ToList();
         s.Cortes.Clear();
         s.Cortes.AddRange(restantes);
-        GarantirLayer(tr, db, LayerCorte, 1, plotar: true);
+        if (novas.Count == 0)
+            return;
         var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite, false, true);
-        List<SheetFrameInfo> ordem = frames.OrderBy(f => f.E0).ToList();
+        foreach (Entity e in novas)
+            Marcar(tr, ms, s, e);
+    }
 
+    private static void MontarCortes(Transaction tr, List<Entity> novas, List<SheetFrameInfo> ordem, Eixo ax, double escala)
+    {
         for (int i = 0; i + 1 < ordem.Count; i++)
         {
             SheetFrameInfo a = ordem[i], b = ordem[i + 1];
             double altura = AlturaFrame(tr, a);
             if (Math.Abs(a.E1 - b.E0) <= 0.5)
             {
-                Corte(tr, ms, s, ax, (a.E1 + b.E0) / 2, a.LayoutNome, b.LayoutNome, altura, escala);
+                Corte(novas, ax, (a.E1 + b.E0) / 2, a.LayoutNome, b.LayoutNome, altura, escala);
             }
             else if (b.E0 < a.E1 && b.E1 > a.E1)
             {
                 // Sobreposicao (ex.: ultima folha cheia): o corte fica no fim da folha anterior.
-                Corte(tr, ms, s, ax, a.E1, a.LayoutNome, b.LayoutNome, altura, escala);
+                Corte(novas, ax, a.E1, a.LayoutNome, b.LayoutNome, altura, escala);
             }
             else
             {
-                Corte(tr, ms, s, ax, a.E1, a.LayoutNome, b.LayoutNome, altura, escala);
-                Corte(tr, ms, s, ax, b.E0, a.LayoutNome, b.LayoutNome, altura, escala);
+                Corte(novas, ax, a.E1, a.LayoutNome, b.LayoutNome, altura, escala);
+                Corte(novas, ax, b.E0, a.LayoutNome, b.LayoutNome, altura, escala);
             }
+        }
+    }
+
+    /// <summary>A entidade do desenho e igual a que seria criada (posicao, texto, tamanho e layer).</summary>
+    private static bool IgualCorte(DBObject atual, Entity nova)
+    {
+        const double tol = 1e-6;
+        switch (atual, nova)
+        {
+            case (Line a, Line b):
+                return a.Layer == b.Layer && a.StartPoint.DistanceTo(b.StartPoint) < tol && a.EndPoint.DistanceTo(b.EndPoint) < tol;
+            case (MText a, MText b):
+                return a.Layer == b.Layer && a.Contents == b.Contents && a.Attachment == b.Attachment &&
+                       a.Location.DistanceTo(b.Location) < tol && Math.Abs(a.TextHeight - b.TextHeight) < tol &&
+                       Math.Abs(Math.IEEERemainder(a.Rotation - b.Rotation, 2 * Math.PI)) < 1e-9;
+            default:
+                return false;
         }
     }
 
@@ -3304,7 +3604,7 @@ internal static class LayoutSheetSeries
         return 50;
     }
 
-    private static void Corte(Transaction tr, BlockTableRecord ms, SheetSeries s, Eixo ax, double estaca, string antes, string depois, double alturaFrame, double escala)
+    private static void Corte(List<Entity> novas, Eixo ax, double estaca, string antes, string depois, double alturaFrame, double escala)
     {
         Point3d p = ax.Ponto(estaca);
         Vector3d t = ax.Tangente(estaca);
@@ -3313,23 +3613,17 @@ internal static class LayoutSheetSeries
         double alt = escala > 0 ? 2.5 / escala : alturaFrame / 80;
         double rot = Math.Atan2(n.Y, n.X);
 
-        var linha = new Line(p - n * meia, p + n * meia) { Layer = LayerCorte };
-        Marcar(tr, ms, s, linha);
+        novas.Add(new Line(p - n * meia, p + n * meia) { Layer = LayerCorte });
 
-        MText Texto(string conteudo, Point3d onde)
+        void Texto(string conteudo, Point3d onde) => novas.Add(new MText
         {
-            var m = new MText
-            {
-                Layer = LayerCorte,
-                Attachment = AttachmentPoint.MiddleCenter,
-                TextHeight = alt,
-                Location = onde,
-                Rotation = rot,
-                Contents = conteudo
-            };
-            Marcar(tr, ms, s, m);
-            return m;
-        }
+            Layer = LayerCorte,
+            Attachment = AttachmentPoint.MiddleCenter,
+            TextHeight = alt,
+            Location = onde,
+            Rotation = rot,
+            Contents = conteudo
+        });
 
         Texto($"LINHA DE CORTE - EST. {Estaca(estaca)}", p + n * (meia + alt * 1.5));
         Texto($"VER FOLHA {antes}", p + n * (meia * 0.55) - t * (alt * 1.3));
@@ -3529,6 +3823,8 @@ internal static class SheetSeriesSync
     private static readonly Dictionary<Database, HashSet<ObjectId>> EixosPorDb = new();
     private static readonly Dictionary<Database, Dictionary<ObjectId, HashSet<ObjectId>?>> Sujos = new();
     private static readonly HashSet<Database> Ligados = new();
+    /// <summary>Geometria do alignment na ultima atualizacao: o Civil "mexe" no alignment ao regenerar profile views e labels (ao abrir um layout, por exemplo) sem mudar nada.</summary>
+    private static readonly Dictionary<Database, Dictionary<ObjectId, string>> Assinaturas = new();
     private static bool _iniciado;
     private static int _suspenso;
 
@@ -3594,6 +3890,12 @@ internal static class SheetSeriesSync
         }
         FramesPorDb[db] = frames;
         EixosPorDb[db] = eixos;
+        if (!Assinaturas.TryGetValue(db, out Dictionary<ObjectId, string>? ass))
+            Assinaturas[db] = ass = new Dictionary<ObjectId, string>();
+        foreach (ObjectId e in ass.Keys.Where(k => !eixos.Contains(k)).ToList())
+            ass.Remove(e);
+        foreach (ObjectId e in eixos.Where(k => !ass.ContainsKey(k)))
+            ass[e] = LayoutSheetSeries.AssinaturaEixo(db, e);
     }
 
     private static void Ligar(Document? doc)
@@ -3621,6 +3923,7 @@ internal static class SheetSeriesSync
         FramesPorDb.Remove(db);
         EixosPorDb.Remove(db);
         Sujos.Remove(db);
+        Assinaturas.Remove(db);
     }
 
     // Desfazer/refazer pode trazer de volta (ou tirar) uma serie inteira: rele o que observar.
@@ -3635,10 +3938,13 @@ internal static class SheetSeriesSync
         }
     }
 
-    private static void Marcar(Database db, ObjectId eixo, ObjectId? frame)
+    private static void Marcar(Database db, ObjectId eixo, ObjectId? frame, string motivo)
     {
         if (!Sujos.TryGetValue(db, out Dictionary<ObjectId, HashSet<ObjectId>?>? porEixo))
+        {
             Sujos[db] = porEixo = new Dictionary<ObjectId, HashSet<ObjectId>?>();
+            PluginLog.Diag("Layouts", "Pranchas (auto-update): disparado por " + motivo + ".");
+        }
         if (frame is null)
         {
             porEixo[eixo] = null; // tudo
@@ -3659,9 +3965,9 @@ internal static class SheetSeriesSync
             return;
         ObjectId id = e.DBObject.ObjectId;
         if (FramesPorDb.TryGetValue(db, out Dictionary<ObjectId, ObjectId>? frames) && frames.TryGetValue(id, out ObjectId eixo))
-            Marcar(db, eixo, id);
+            Marcar(db, eixo, id, $"frame {id.Handle} modificado");
         else if (EixosPorDb.TryGetValue(db, out HashSet<ObjectId>? eixos) && eixos.Contains(id))
-            Marcar(db, id, null);
+            Marcar(db, id, null, $"alignment {id.Handle} modificado");
     }
 
     private static void OnApagado(object? sender, ObjectErasedEventArgs e)
@@ -3669,8 +3975,9 @@ internal static class SheetSeriesSync
         if (_suspenso > 0 || sender is not Database db || e.DBObject.IsUndoing)
             return;
         ObjectId id = e.DBObject.ObjectId;
+        // Frame apagado: a atualizacao so dele limpa o rotulo e refaz as match lines.
         if (FramesPorDb.TryGetValue(db, out Dictionary<ObjectId, ObjectId>? frames) && frames.TryGetValue(id, out ObjectId eixo))
-            Marcar(db, eixo, null);
+            Marcar(db, eixo, id, $"frame {id.Handle} apagado");
     }
 
     private static void OnIdle(object? sender, EventArgs e)
@@ -3682,13 +3989,29 @@ internal static class SheetSeriesSync
             return;
         Sujos.Remove(doc.Database);
 
+        Assinaturas.TryGetValue(doc.Database, out Dictionary<ObjectId, string>? ass);
         foreach ((ObjectId eixo, HashSet<ObjectId>? frames) in porEixo)
         {
             try
             {
+                if (frames is null)
+                {
+                    // So o alignment foi tocado: segue so se a geometria mudou de verdade.
+                    string agora = LayoutSheetSeries.AssinaturaEixo(doc.Database, eixo);
+                    if (ass is not null && ass.TryGetValue(eixo, out string? antes) && antes == agora && agora.Length > 0)
+                    {
+                        PluginLog.Diag("Layouts", "Pranchas (auto-update): alignment modificado pelo Civil sem mudar a geometria nem os profiles; nada a fazer.");
+                        continue;
+                    }
+                }
                 OpResult r = LayoutSheetSeries.Atualizar(doc, eixo, frames);
+                // Geometria guardada so depois de uma atualizacao completa (com falha, a proxima tentativa refaz).
+                if (ass is not null && r.Falhas == 0)
+                    ass[eixo] = LayoutSheetSeries.AssinaturaEixo(doc.Database, eixo);
                 PluginLog.Info("Layouts", "Pranchas (auto-update): " + r.Mensagem);
-                doc.Editor.WriteMessage($"\n[Pranchas] {r.Mensagem}");
+                // Sem nada mudado, a linha de comando fica quieta (so o log registra).
+                if (r.Mudou || r.Falhas > 0)
+                    doc.Editor.WriteMessage($"\n[Pranchas] {r.Mensagem}");
             }
             catch (System.Exception ex)
             {

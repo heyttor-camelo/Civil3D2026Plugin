@@ -4,6 +4,7 @@ using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
+using Civil3D2026Plugin.Infrastructure;
 
 using WPoint = System.Windows.Point;
 
@@ -50,6 +51,9 @@ internal sealed class SheetData
     public string EstiloPlot { get; init; } = "";
     public double PapelLargura { get; init; }
     public double PapelAltura { get; init; }
+    /// <summary>Folha do page setup no espaco do papel (4 cantos) e a area de impressao (dentro das margens). null = sem page setup legivel.</summary>
+    public WPoint[]? Folha { get; set; }
+    public WPoint[]? AreaImpressao { get; set; }
     public List<WPoint[]> Linhas { get; } = new();
     public List<SheetText> Textos { get; } = new();
     public List<WPoint[]> Preenchimentos { get; } = new();
@@ -94,9 +98,9 @@ internal sealed record LayerStateItem(string Nome, string Descricao);
 /// </summary>
 internal static class LayoutReader
 {
-    private const int MaxPontosPorLayout = 40000;
-    private const int MaxTextosPorLayout = 4000;
-    private const int MaxProfundidadeBloco = 3;
+    private const int MaxPontosPorLayout = 150000;
+    private const int MaxTextosPorLayout = 6000;
+    private const int MaxProfundidadeBloco = 8;
 
     // ------------------------------------------------------------------
     // Layer states
@@ -172,10 +176,19 @@ internal static class LayoutReader
                 PapelLargura = layout.PlotPaperSize.X,
                 PapelAltura = layout.PlotPaperSize.Y
             };
+            try
+            {
+                FolhaDoPageSetup(layout, folha);
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Diag("Layouts", $"Miniatura: folha do page setup de {layout.LayoutName} ilegivel ({ex.Message}).");
+            }
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             HashSet<ObjectId> papel = ViewportsDoPapel(tr, layout, btr);
-            int pontos = 0, entidades = 0, semGeometria = 0, invisiveis = 0, erros = 0;
+            int pontos = 0, entidades = 0, semGeometria = 0, invisiveis = 0, erros = 0, resumidos = 0;
             var tipos = new Dictionary<string, int>();
+            var blocosVazios = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (ObjectId id in btr)
             {
@@ -216,7 +229,12 @@ internal static class LayoutReader
                 string tipo = id.ObjectClass?.DxfName ?? ent.GetType().Name;
                 tipos[tipo] = tipos.GetValueOrDefault(tipo) + 1;
                 if (pontos >= MaxPontosPorLayout)
+                {
+                    // Limite de pontos: o resto aparece como o retangulo das extensoes (nada some).
+                    if (Caixa(ent, folha))
+                        resumidos++;
                     continue;
+                }
                 int n;
                 try
                 {
@@ -225,18 +243,25 @@ internal static class LayoutReader
                 catch (System.Exception)
                 {
                     erros++;
-                    continue;
+                    n = Caixa(ent, folha) ? 5 : 0;
                 }
                 if (n == 0)
+                {
                     semGeometria++;
+                    if (ent is BlockReference br0)
+                        blocosVazios.Add(NomeDoBloco(tr, br0));
+                }
                 pontos += n;
             }
+            if (blocosVazios.Count > 0)
+                PluginLog.Diag("Layouts", $"Miniatura de {layout.LayoutName}: bloco(s) sem geometria desenhavel: {string.Join(", ", blocosVazios)}.");
 
             folha.Diagnostico = $"{entidades} entidade(s): {string.Join(", ", tipos.OrderByDescending(t => t.Value).Take(8).Select(t => $"{t.Key} {t.Value}"))}"
                 + (semGeometria > 0 ? $"; {semGeometria} sem geometria na miniatura" : "")
                 + (invisiveis > 0 ? $"; {invisiveis} invisivel(is)" : "")
                 + (erros > 0 ? $"; {erros} erro(s) de leitura" : "")
-                + (pontos >= MaxPontosPorLayout ? "; limite de pontos atingido" : "")
+                + (blocosVazios.Count > 0 ? $"; blocos sem geometria: {string.Join(", ", blocosVazios.Take(5))}" : "")
+                + (resumidos > 0 ? $"; limite de pontos atingido ({resumidos} objeto(s) como retangulo)" : "")
                 + $"; papel {layout.PlotPaperSize.X:0}x{layout.PlotPaperSize.Y:0}";
 
             if (folha.MinX > folha.MaxX)
@@ -360,7 +385,7 @@ internal static class LayoutReader
     /// Linhas, arcos, polilinhas, textos, atributos, cotas, tabelas e hachuras do papel,
     /// entrando em blocos (carimbo, margem). Retorna quantos pontos foram gerados.
     /// </summary>
-    private static int Desenhar(Transaction tr, Entity ent, Matrix3d xf, SheetData folha, int nivel)
+    private static int Desenhar(Transaction? tr, Entity ent, Matrix3d xf, SheetData folha, int nivel)
     {
         try
         {
@@ -402,8 +427,14 @@ internal static class LayoutReader
                     return 4;
                 }
 
-                case Dimension d when nivel < MaxProfundidadeBloco && !d.DimBlockId.IsNull:
+                case Dimension d when nivel < MaxProfundidadeBloco && !d.DimBlockId.IsNull && tr is not null:
                     return Bloco(tr, d.DimBlockId, xf, folha, nivel);
+
+                case Wipeout:
+                    return 1; // mascara: nao desenha (e nao conta como "sem geometria")
+
+                case AttributeDefinition or DBPoint:
+                    return 0;
 
                 case RasterImage img:
                 {
@@ -428,20 +459,34 @@ internal static class LayoutReader
                 }
 
                 case MLeader or Leader when nivel < MaxProfundidadeBloco:
-                    return Explodido(ent, xf, folha, nivel);
+                    return Explodido(tr, ent, xf, folha, nivel);
 
                 case BlockReference br when nivel < MaxProfundidadeBloco:
                 {
                     // Tabela tambem e BlockReference: o bloco anonimo tem as linhas e os textos.
-                    int total = Bloco(tr, br.BlockTableRecord, xf * br.BlockTransform, folha, nivel);
-                    foreach (ObjectId aid in br.AttributeCollection)
-                        if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference a && !a.Invisible)
-                            Texto(a, xf, folha);
+                    // Bloco dinamico: BlockTableRecord e a representacao anonima (*U) com o estado atual.
+                    int total = 0;
+                    if (tr is not null)
+                        total = Bloco(tr, br.BlockTableRecord, xf * br.BlockTransform, folha, nivel);
+                    // Nada pela definicao (representacao do bloco dinamico ainda nao gerada, por exemplo):
+                    // explode (respeita o estado de visibilidade); por ultimo, a definicao do bloco dinamico.
+                    if (total == 0)
+                        total = Explodido(tr, br, xf, folha, nivel);
+                    if (total == 0 && tr is not null && br.IsDynamicBlock && br.DynamicBlockTableRecord != br.BlockTableRecord)
+                        total = Bloco(tr, br.DynamicBlockTableRecord, xf * br.BlockTransform, folha, nivel);
+                    if (tr is not null)
+                        foreach (ObjectId aid in br.AttributeCollection)
+                            if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference a && !a.Invisible)
+                                Texto(a, xf, folha);
                     return total;
                 }
 
+                case Region or Face or PolyFaceMesh or PolygonMesh or Solid3d or Body when nivel < MaxProfundidadeBloco:
+                    return Explodido(tr, ent, xf, folha, nivel);
+
                 default:
-                    return 0;
+                    // Tipo sem desenho proprio (proxy, objeto do Civil no papel...): tenta explodir.
+                    return nivel < MaxProfundidadeBloco ? Explodido(tr, ent, xf, folha, nivel) : 0;
             }
         }
         catch (Autodesk.AutoCAD.Runtime.Exception)
@@ -450,8 +495,8 @@ internal static class LayoutReader
         }
     }
 
-    /// <summary>Multileader e similares: desenha as partes explodidas (copias temporarias).</summary>
-    private static int Explodido(Entity ent, Matrix3d xf, SheetData folha, int nivel)
+    /// <summary>Multileader, proxies e blocos sem definicao legivel: desenha as partes explodidas (copias temporarias).</summary>
+    private static int Explodido(Transaction? tr, Entity ent, Matrix3d xf, SheetData folha, int nivel)
     {
         int total = 0;
         var partes = new DBObjectCollection();
@@ -459,16 +504,23 @@ internal static class LayoutReader
         {
             ent.Explode(partes);
         }
-        catch (Autodesk.AutoCAD.Runtime.Exception)
+        catch (System.Exception)
         {
+            foreach (DBObject o in partes)
+                o.Dispose();
             return 0;
         }
         foreach (DBObject o in partes)
         {
             try
             {
-                if (o is Entity e && e is not BlockReference and not MLeader and not Dimension)
-                    total += Desenhar(null!, e, xf, folha, nivel + 1);
+                // Bloco explodido: as partes ja estao no espaco do pai (xf continua o mesmo).
+                if (o is Entity e && e.Visible && e is not AttributeDefinition && (tr is not null || e is not (BlockReference or Dimension)))
+                    total += Desenhar(tr, e, xf, folha, nivel + 1);
+            }
+            catch (System.Exception)
+            {
+                // Parte ilegivel: segue com as outras.
             }
             finally
             {
@@ -478,16 +530,117 @@ internal static class LayoutReader
         return total;
     }
 
+    private static string NomeDoBloco(Transaction tr, BlockReference br)
+    {
+        try
+        {
+            ObjectId id = br.IsDynamicBlock ? br.DynamicBlockTableRecord : br.BlockTableRecord;
+            return ((BlockTableRecord)tr.GetObject(id, OpenMode.ForRead)).Name;
+        }
+        catch (System.Exception)
+        {
+            return "?";
+        }
+    }
+
+    /// <summary>Retangulo das extensoes do objeto (quando o desenho dele nao sai ou passou do limite).</summary>
+    private static bool Caixa(Entity ent, SheetData folha)
+    {
+        try
+        {
+            Extents3d e = ent.GeometricExtents;
+            if (!double.IsFinite(e.MinPoint.X) || e.MaxPoint.X - e.MinPoint.X > 1e7)
+                return false;
+            var pts = new[]
+            {
+                new WPoint(e.MinPoint.X, e.MinPoint.Y), new WPoint(e.MaxPoint.X, e.MinPoint.Y),
+                new WPoint(e.MaxPoint.X, e.MaxPoint.Y), new WPoint(e.MinPoint.X, e.MaxPoint.Y), new WPoint(e.MinPoint.X, e.MinPoint.Y)
+            };
+            folha.Linhas.Add(pts);
+            foreach (WPoint p in pts)
+                folha.Incluir(p);
+            return true;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Folha do page setup no espaco do papel: tamanho do papel (mm, girado pelo PlotRotation),
+    /// margens nao imprimiveis do dispositivo e a origem da plotagem (o (0,0) do layout cai no
+    /// canto da area de impressao mais o PlotOrigin), na escala da plotagem.
+    /// </summary>
+    private static void FolhaDoPageSetup(Autodesk.AutoCAD.DatabaseServices.Layout layout, SheetData folha)
+    {
+        Point2d tam = layout.PlotPaperSize;
+        if (tam.X <= 0 || tam.Y <= 0)
+            return;
+        Extents2d mg = layout.PlotPaperMargins;
+        double w = tam.X, h = tam.Y;
+        double l = mg.MinPoint.X, b = mg.MinPoint.Y, r = mg.MaxPoint.X, t = mg.MaxPoint.Y;
+        switch (layout.PlotRotation)
+        {
+            case PlotRotation.Degrees090:
+                (w, h) = (h, w);
+                (l, b, r, t) = (t, l, b, r);
+                break;
+            case PlotRotation.Degrees180:
+                (l, b, r, t) = (r, t, l, b);
+                break;
+            case PlotRotation.Degrees270:
+                (w, h) = (h, w);
+                (l, b, r, t) = (b, r, t, l);
+                break;
+        }
+        // mm de papel por unidade do layout (layout em mm plotado 1:1 = 1).
+        double escala = 1;
+        try
+        {
+            if (layout.UseStandardScale)
+                escala = layout.StdScale;
+            else if (layout.CustomPrintScale.Denominator > 0)
+                escala = layout.CustomPrintScale.Numerator / layout.CustomPrintScale.Denominator;
+        }
+        catch (System.Exception)
+        {
+            escala = 1;
+        }
+        if (!(escala > 0) || !double.IsFinite(escala))
+            escala = 1;
+        double mmPorUnidade = layout.PlotPaperUnits == PlotPaperUnit.Inches ? escala * 25.4 : escala;
+        if (layout.PlotPaperUnits == PlotPaperUnit.Pixels)
+            return;
+        double k = 1 / mmPorUnidade;
+        Point2d o = layout.PlotOrigin;
+        double x0 = (-l - o.X) * k, y0 = (-b - o.Y) * k;
+        WPoint[] Ret(double xa, double ya, double xb, double yb) => new[] { new WPoint(xa, ya), new WPoint(xb, ya), new WPoint(xb, yb), new WPoint(xa, yb) };
+        folha.Folha = Ret(x0, y0, x0 + w * k, y0 + h * k);
+        if (w - l - r > 1 && h - b - t > 1)
+            folha.AreaImpressao = Ret(x0 + l * k, y0 + b * k, x0 + (w - r) * k, y0 + (h - t) * k);
+        foreach (WPoint p in folha.Folha)
+            folha.Incluir(p);
+    }
+
     private static int Bloco(Transaction tr, ObjectId defId, Matrix3d xf, SheetData folha, int nivel)
     {
         int total = 0;
-        var def = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);
+        if (defId.IsNull || tr.GetObject(defId, OpenMode.ForRead) is not BlockTableRecord def)
+            return 0;
         foreach (ObjectId id in def)
         {
             if (total > MaxPontosPorLayout)
                 break;
-            if (tr.GetObject(id, OpenMode.ForRead) is Entity filho && filho.Visible && filho is not AttributeDefinition)
-                total += Desenhar(tr, filho, xf, folha, nivel + 1);
+            try
+            {
+                if (tr.GetObject(id, OpenMode.ForRead) is Entity filho && filho.Visible && filho is not AttributeDefinition)
+                    total += Desenhar(tr, filho, xf, folha, nivel + 1);
+            }
+            catch (System.Exception)
+            {
+                // Um objeto ilegivel nao apaga o resto do bloco.
+            }
         }
         return total;
     }

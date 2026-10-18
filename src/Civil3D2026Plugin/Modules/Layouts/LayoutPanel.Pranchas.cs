@@ -75,16 +75,12 @@ internal sealed partial class LayoutPanel
         if (gravada is null)
         {
             // Serie removida: a calibracao era do estilo antigo.
-            _serie.MargemPerfil = double.NaN;
-            _serie.SobraVertical = double.NaN;
-            _serie.Exagero = double.NaN;
+            _serie.LimparCalibracao();
             return;
         }
         _serie.Frames.AddRange(gravada.Frames);
         _serie.Cortes.AddRange(gravada.Cortes);
-        _serie.MargemPerfil = gravada.MargemPerfil;
-        _serie.SobraVertical = gravada.SobraVertical;
-        _serie.Exagero = gravada.Exagero;
+        _serie.CopiarCalibracao(gravada);
         _serie.EixoNome = gravada.EixoNome;
     }
 
@@ -106,6 +102,7 @@ internal sealed partial class LayoutPanel
             s.AjustarCotas = baseSerie.AjustarCotas;
             s.Automatico = baseSerie.Automatico;
             s.Numerar = baseSerie.Numerar;
+            s.MargemOrigem = baseSerie.MargemOrigem;
             // Continua a numeracao de outra serie com o mesmo prefixo.
             int depois = _series.Where(x => x.Prefixo == s.Prefixo)
                 .Select(x => x.Inicio + _framesPP.Count(f => f.Eixo == x.Eixo)).DefaultIfEmpty(1).Max();
@@ -121,6 +118,7 @@ internal sealed partial class LayoutPanel
         s.AjustarCotas = LayoutSettings.GetBool("pp_cotas", true);
         s.Automatico = LayoutSettings.GetBool("pp_auto", true);
         s.Numerar = LayoutSettings.GetBool("pp_numerar", true);
+        s.MargemOrigem = LayoutSettings.GetDouble("pp_margem", LayoutSheetSeries.MargemOrigemPadrao);
         string modelo = LayoutSettings.Get("pp_modelo", "");
         SheetData? f = _folhas.FirstOrDefault(x => x.Nome.Equals(modelo, StringComparison.OrdinalIgnoreCase))
                        ?? _folhas.FirstOrDefault(x => x.Viewports.Count(v => v.Planta) >= 2);
@@ -149,6 +147,7 @@ internal sealed partial class LayoutPanel
         LayoutSettings.Set("pp_cotas", s.AjustarCotas);
         LayoutSettings.Set("pp_auto", s.Automatico);
         LayoutSettings.Set("pp_numerar", s.Numerar);
+        LayoutSettings.Set("pp_margem", s.MargemOrigem);
         LayoutSettings.Set("pp_modelo", s.Modelo);
         LayoutSettings.Set("pp_estilo", _estilosPv?.FirstOrDefault(e => e.Id == s.EstiloPerfil).Nome ?? "");
         LayoutSettings.Set("pp_bandas", _bandasPv?.FirstOrDefault(e => e.Id == s.BandasPerfil).Nome ?? "");
@@ -295,7 +294,7 @@ internal sealed partial class LayoutPanel
             var lf = Prop("Viewport perfil", modelo.TemPerfil
                 ? $"#{IndiceVp(folhaModelo, modelo.VpPerfil)}  |  {modelo.WPerfil:0} x {modelo.HPerfil:0} mm  |  {modelo.LarguraPerfil:0.#} x {modelo.AlturaPerfil:0.#} m"
                 : "nenhuma (so planta)");
-            lf.ToolTip = modelo.TemPerfil ? $"A largura (menos {LayoutSheetSeries.MargemPapel:0} mm de cada lado) limita quantos metros de profile view cabem por sheet." : null;
+            lf.ToolTip = modelo.TemPerfil ? $"A largura (menos o inicio do grafico, passo 3, e {LayoutSheetSeries.MargemPapel:0} mm a direita) limita quantos metros de profile view cabem por sheet." : null;
             lf.VerticalAlignment = SW.VerticalAlignment.Center;
             lf.Width = 330;
             if (modelo.TemPerfil)
@@ -396,9 +395,12 @@ internal sealed partial class LayoutPanel
             "Ajustar: abre a faixa de elevations ate o profile view encher a altura da viewport de perfil (avisa se nao couber). Automaticas: o Civil decide.");
         var cbDisp = Opcoes(new[] { "Empilhados (vertical)", "Lado a lado (horizontal)" }, s.PerfisHorizontal ? 1 : 0,
             "Como os profile views ficam no Model: um embaixo do outro ou um ao lado do outro, na ordem das sheets.");
-        cbEstilo.IsEnabled = cbBandas.IsEnabled = cbCotas.IsEnabled = cbDisp.IsEnabled = comPerfil;
+        var tbMargem = Caixa(s.MargemOrigem.ToString("0.##", InvPP), 55);
+        tbMargem.ToolTip = Dica($"Distancia, no papel, da borda esquerda da viewport de perfil ate a origem do profile view (inicio do grafico). Os titulos das bandas e as cotas da esquerda ficam nesse espaco. Padrao: {LayoutSheetSeries.MargemOrigemPadrao:0} mm.",
+            $"A direita ficam {LayoutSheetSeries.MargemPapel:0} mm depois das cotas. Nas sheets ja geradas vale ao Atualizar ou no Aplicar abaixo; os metros por sheet so mudam ao gerar de novo.");
+        cbEstilo.IsEnabled = cbBandas.IsEnabled = cbCotas.IsEnabled = cbDisp.IsEnabled = tbMargem.IsEnabled = comPerfil;
         p.Children.Add(Linha(Campo("Profile view style", cbEstilo), Campo("Band set", cbBandas)));
-        p.Children.Add(Linha(Campo("Elevations", cbCotas), Campo("Disposicao no Model", cbDisp)));
+        p.Children.Add(Linha(Campo("Elevations", cbCotas), Campo("Disposicao no Model", cbDisp), Campo("Inicio do grafico (mm)", tbMargem)));
         if (comPerfil && (_estilosPv.Count == 0 || _bandasPv.Count == 0))
             p.Children.Add(Aviso("Nao foi possivel ler os estilos de profile view do desenho" + (LayoutSheetSeries.ErroEstilos.Length > 0 ? $": {LayoutSheetSeries.ErroEstilos}" : ".")));
         Point3d? basePt = BasePerfis();
@@ -413,9 +415,18 @@ internal sealed partial class LayoutPanel
             b3.Children.Add(Botao("Automatica", () => { LayoutSettings.Set("pp_base", ""); BuildTabs(); }));
         b3.IsEnabled = comPerfil;
         p.Children.Add(b3);
-        SW.UIElement opcoesPerfis = OpcoesDosPerfis(db, s, temSerie);
+        SW.UIElement opcoesPerfis = OpcoesDosPerfis(db, s);
         opcoesPerfis.IsEnabled = comPerfil;
         p.Children.Add(opcoesPerfis);
+        if (temSerie && comPerfil)
+        {
+            // Editar o que ja foi gerado (so os profile views da serie, criados pelo plugin).
+            WC.Button aplicar = Botao("Aplicar o passo 3 nos profile views existentes", AplicarOpcoesPerfis);
+            aplicar.ToolTip = Dica("Leva estilo, band set, Draw e labels dos profiles, Profile1/Profile2, elevations e inicio do grafico para todos os profile views da serie (so os criados pelo plugin) e realinha as viewports de perfil.",
+                "Se o estilo ou o band set mudou, mede o profile view de novo antes. Trocar o band set volta as bandas as do band set.");
+            aplicar.HorizontalAlignment = SW.HorizontalAlignment.Left;
+            p.Children.Add(aplicar);
+        }
 
         // ---- 4. Sheets ----------------------------------------------------------
         p.Children.Add(Passo(4, "Sheets", s.Prefixo.Length > 0 || s.Digitos > 0));
@@ -478,13 +489,14 @@ internal sealed partial class LayoutPanel
             s.UltimaCheia = cbUltima.SelectedIndex == 0;
             s.AjustarCotas = cbCotas.SelectedIndex == 0;
             s.PerfisHorizontal = cbDisp.SelectedIndex == 1;
+            s.MargemOrigem = Math.Clamp(Num(tbMargem.Text, s.MargemOrigem), 0, 300);
             s.Prefixo = tbPref.Text;
             s.Inicio = (int)Num(tbIniN.Text, s.Inicio);
             s.Digitos = Math.Clamp((int)Num(tbDig.Text, s.Digitos), 0, 6);
             lbNomes.Text = $"{s.NomeFolha(0)}, {s.NomeFolha(1)}, ...";
             resumo.Text = (invalidos.Count > 0 ? $"Corrija: {string.Join(" e ", invalidos)} (17+10,00 ou metros). " : "") + Resumo(db, s, temSerie);
         }
-        foreach (WC.TextBox tb in new[] { tbArred, tbFolga, tbPref, tbIniN, tbDig })
+        foreach (WC.TextBox tb in new[] { tbArred, tbFolga, tbPref, tbIniN, tbDig, tbMargem })
             tb.TextChanged += (_, _) => Ler();
         foreach (WC.ComboBox cb in new[] { cbGiro, cbUltima, cbCotas, cbDisp, cbIni, cbFim })
             cb.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(Ler));
@@ -778,7 +790,8 @@ internal sealed partial class LayoutPanel
         if (_serie is null || Doc is not Document doc)
             return;
         SheetSeries s = _serie;
-        ExecutarLongo($"Profiles nos profile views de {s.EixoNome}", () =>
+        SalvarPreferenciasPP(s);
+        ExecutarLongo($"Passo 3 nos profile views de {s.EixoNome}", () =>
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.AplicarOpcoesPerfis(doc, s.Eixo);
@@ -870,14 +883,14 @@ internal sealed partial class LayoutPanel
     /// Passo 3: quais profiles aparecem nos profile views (Draw), o label set de cada um e quem e
     /// Profile1/Profile2 nas bandas. Vale para os profile views criados pelo plugin.
     /// </summary>
-    private SW.UIElement OpcoesDosPerfis(Database db, SheetSeries s, bool temSerie)
+    private SW.UIElement OpcoesDosPerfis(Database db, SheetSeries s)
     {
         var p = new WC.StackPanel { Margin = new SW.Thickness(0, 6, 0, 0) };
         List<(ObjectId Id, string Nome, string Tipo)> perfis = PerfisCache(db, s.Eixo);
         _labelSetsPv ??= LayoutSheetSeries.LabelSetsPerfil(db);
         var titulo = new WC.TextBlock { Text = "Profiles", FontWeight = SW.FontWeights.Bold, Foreground = T.Text, Margin = new SW.Thickness(0, 4, 0, 2) };
         titulo.ToolTip = Dica("Aba Profiles das propriedades do profile view: Draw liga ou desliga o profile; Labels escolhe o label set.",
-            "Vale so para os profile views criados pelo plugin (os da serie), ao gerar e no botao Aplicar.");
+            "Vale so para os profile views criados pelo plugin (os da serie), ao gerar e no botao \"Aplicar o passo 3\".");
         p.Children.Add(titulo);
         if (perfis.Count == 0)
         {
@@ -961,12 +974,6 @@ internal sealed partial class LayoutPanel
         var cbP1 = ComboPerfil(s.Profile1, id => s.Profile1 = id, "Profile1 das bandas do band set (aba Bands): normalmente o terreno (surface).");
         var cbP2 = ComboPerfil(s.Profile2, id => s.Profile2 = id, "Profile2 das bandas do band set (aba Bands): normalmente o greide (layout).");
         p.Children.Add(Linha(Campo("Band set: Profile1", cbP1), Campo("Profile2", cbP2)));
-        if (temSerie)
-        {
-            WC.Button aplicar = Botao("Aplicar nos profile views", AplicarOpcoesPerfis);
-            aplicar.ToolTip = "Aplica Draw, labels e Profile1/Profile2 em todos os profile views da serie (so os criados pelo plugin) e refaz as elevations e a viewport de perfil.";
-            p.Children.Add(aplicar);
-        }
         return p;
     }
 

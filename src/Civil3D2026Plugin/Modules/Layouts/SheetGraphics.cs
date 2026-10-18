@@ -21,6 +21,23 @@ internal static class SheetGraphics
     private static readonly WM.Typeface Fonte = new("Arial");
     private static readonly WM.Brush Preenchimento = ToolTheme.Brush(150, 152, 156, 140);
 
+    // Folha branca do page setup (como o layout do AutoCAD): desenho escuro sobre o papel.
+    private static readonly WM.Brush Papel = ToolTheme.Brush(255, 255, 255);
+    private static readonly WM.Brush Sombra = ToolTheme.Brush(0, 0, 0, 70);
+    private static readonly WM.Brush TintaLinha = ToolTheme.Brush(45, 45, 48);
+    private static readonly WM.Brush TintaTexto = ToolTheme.Brush(20, 20, 24);
+    private static readonly WM.Brush TintaPreenchimento = ToolTheme.Brush(70, 72, 76, 150);
+    private static readonly WM.Brush BordaArea = ToolTheme.Brush(150, 150, 155);
+
+    /// <summary>Mostra a folha do page setup (papel branco e area de impressao). Opcao da barra da vista grafica.</summary>
+    public static bool MostrarPapel { get; set; } = true;
+
+    /// <summary>A folha deste layout e desenhada (papel branco).</summary>
+    public static bool ComPapel(SheetData folha) => MostrarPapel && folha.Folha is { Length: 4 };
+
+    /// <summary>Cor de texto legivel sobre a miniatura (rotulos das viewports).</summary>
+    public static WM.Brush TextoSobre(SheetData folha) => ComPapel(folha) ? TintaTexto : ToolTheme.GraphicText;
+
     private sealed class Cache
     {
         public WM.StreamGeometry Linhas = null!;
@@ -28,6 +45,7 @@ internal static class SheetGraphics
         public WM.StreamGeometry Imagens = null!;
         public WM.DrawingGroup? TextosTodos;
         public WM.DrawingGroup? TextosGrandes;
+        public bool TextosNoPapel;
         public SW.Rect Limites;
     }
 
@@ -60,11 +78,44 @@ internal static class SheetGraphics
         var mt = new WM.MatrixTransform(new WM.Matrix(s, 0, 0, s, ox - folha.MinX * s, oy + folha.MaxY * s));
         mt.Freeze();
 
+        bool papel = ComPapel(folha);
+        if (papel)
+        {
+            // Folha do page setup: sombra, papel branco e a area de impressao tracejada.
+            SW.Point[] f = folha.Folha!.Select(mapa.Tela).ToArray();
+            var ret = new SW.Rect(f[0], f[2]);
+            var sombra = new System.Windows.Shapes.Rectangle { Width = ret.Width, Height = ret.Height, Fill = Sombra, IsHitTestVisible = false };
+            System.Windows.Controls.Canvas.SetLeft(sombra, ret.X + 3);
+            System.Windows.Controls.Canvas.SetTop(sombra, ret.Y + 3);
+            canvas.Children.Add(sombra);
+            var folhaBranca = new System.Windows.Shapes.Rectangle { Width = ret.Width, Height = ret.Height, Fill = Papel, IsHitTestVisible = false };
+            System.Windows.Controls.Canvas.SetLeft(folhaBranca, ret.X);
+            System.Windows.Controls.Canvas.SetTop(folhaBranca, ret.Y);
+            canvas.Children.Add(folhaBranca);
+            if (folha.AreaImpressao is { Length: 4 } area)
+            {
+                SW.Point[] a = area.Select(mapa.Tela).ToArray();
+                var ra = new SW.Rect(a[0], a[2]);
+                var borda = new System.Windows.Shapes.Rectangle
+                {
+                    Width = ra.Width,
+                    Height = ra.Height,
+                    Stroke = BordaArea,
+                    StrokeThickness = 0.8,
+                    StrokeDashArray = new WM.DoubleCollection { 4, 3 },
+                    IsHitTestVisible = false
+                };
+                System.Windows.Controls.Canvas.SetLeft(borda, ra.X);
+                System.Windows.Controls.Canvas.SetTop(borda, ra.Y);
+                canvas.Children.Add(borda);
+            }
+        }
+
         if (!c.Preenchimentos.IsEmpty())
             canvas.Children.Add(new System.Windows.Shapes.Path
             {
                 Data = Envolver(c.Preenchimentos, mt),
-                Fill = Preenchimento,
+                Fill = papel ? TintaPreenchimento : Preenchimento,
                 IsHitTestVisible = false
             });
 
@@ -82,13 +133,19 @@ internal static class SheetGraphics
         canvas.Children.Add(new System.Windows.Shapes.Path
         {
             Data = Envolver(c.Linhas, mt),
-            Stroke = ToolTheme.GraphicLine,
+            Stroke = papel ? TintaLinha : ToolTheme.GraphicLine,
             StrokeThickness = 0.7,
             IsHitTestVisible = false
         });
 
         if (textos && folha.Textos.Count > 0)
         {
+            if (c.TextosNoPapel != papel)
+            {
+                // Cor do texto mudou (papel ligado/desligado): refaz os grupos de texto.
+                c.TextosTodos = c.TextosGrandes = null;
+                c.TextosNoPapel = papel;
+            }
             WM.DrawingGroup? grupo = soTextosGrandes ? Grandes(folha, c) : Todos(folha, c);
             if (grupo is not null)
             {
@@ -124,6 +181,7 @@ internal static class SheetGraphics
 
         c = new Cache
         {
+            TextosNoPapel = ComPapel(folha),
             Linhas = Geometria(folha.Linhas, fechar: false),
             Preenchimentos = Geometria(folha.Preenchimentos, fechar: true),
             Imagens = Molduras(folha.Imagens),
@@ -197,7 +255,7 @@ internal static class SheetGraphics
             {
                 try
                 {
-                    Texto(dc, t);
+                    Texto(dc, t, c.TextosNoPapel ? TintaTexto : ToolTheme.GraphicText);
                 }
                 catch (ArgumentException)
                 {
@@ -210,11 +268,11 @@ internal static class SheetGraphics
         return grupo;
     }
 
-    private static void Texto(WM.DrawingContext dc, SheetText t)
+    private static void Texto(WM.DrawingContext dc, SheetText t, WM.Brush cor)
     {
         double em = t.Altura / 0.716; // altura de maiuscula da Arial ~ 0,716 em
         var ft = new WM.FormattedText(t.Texto, CultureInfo.InvariantCulture, SW.FlowDirection.LeftToRight,
-            Fonte, Math.Min(em, 30000), ToolTheme.GraphicText, 1.0);
+            Fonte, Math.Min(em, 30000), cor, 1.0);
 
         double dx;
         if (t.Multilinha)
