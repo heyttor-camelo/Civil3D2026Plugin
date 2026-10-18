@@ -433,8 +433,8 @@ internal static class LayoutReader
             else
             {
                 foreach (Curve2d c in loop.Curves)
-                    foreach (PointOnCurve2d pc in c.GetSamplePoints(c is LineSegment2d ? 2 : 12))
-                        pts.Add(new Point3d(pc.Point.X, pc.Point.Y, 0));
+                    foreach (Point2d pc in c.GetSamplePoints(c is LineSegment2d ? 2 : 12))
+                        pts.Add(new Point3d(pc.X, pc.Y, 0));
             }
 
             if (pts.Count < 3)
