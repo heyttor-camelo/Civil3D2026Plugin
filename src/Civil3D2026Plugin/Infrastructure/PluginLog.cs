@@ -267,7 +267,9 @@ internal static class PluginLog
             {
                 _arquivo?.Dispose();
                 Directory.CreateDirectory(Pasta);
-                var fs = new FileStream(Path.Combine(Pasta, $"plugin-{dia}.log"), FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
+                // Um arquivo por dia e por sessao do AutoCAD: duas sessoes no mesmo arquivo
+                // sobrescreveriam as linhas uma da outra (Append nao e atomico entre processos).
+                var fs = new FileStream(Path.Combine(Pasta, $"plugin-{dia}-{Environment.ProcessId}.log"), FileMode.Append, FileAccess.Write, FileShare.ReadWrite);
                 _arquivo = new StreamWriter(fs, new UTF8Encoding(false)) { AutoFlush = true };
                 _dia = dia;
             }
@@ -455,6 +457,9 @@ internal static class PluginLog
             int vistas;
             lock (Trava)
             {
+                // Cada mensagem diferente vira uma chave: limpa de vez em quando.
+                if (Repetidas.Count > 4000)
+                    Repetidas.Clear();
                 Repetidas.TryGetValue(previa, out vistas);
                 Repetidas[previa] = vistas + 1;
             }

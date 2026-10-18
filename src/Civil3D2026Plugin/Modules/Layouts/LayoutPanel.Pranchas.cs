@@ -751,7 +751,7 @@ internal sealed partial class LayoutPanel
         SalvarPreferenciasPP(s);
         MostrarStatus(pranchas ? "Gerando frames, sheets e profile views..." : "Gerando frames...");
         ExecutarLongo(pranchas ? $"Gerando as sheets de {s.EixoNome}" : $"Gerando os frames de {s.EixoNome}",
-            () => LayoutSheetSeries.Gerar(doc, s, pranchas, BasePerfis()));
+            () => LayoutSheetSeries.Gerar(doc, s, pranchas, BasePerfis()), cancelavel: pranchas);
     }
 
     private void AtualizarSerie()
@@ -763,14 +763,14 @@ internal sealed partial class LayoutPanel
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.Atualizar(doc, s.Eixo, null);
-        });
+        }, cancelavel: true);
     }
 
     private void AtualizarTodasSeries()
     {
         if (Doc is not Document doc)
             return;
-        ExecutarLongo("Atualizando todas as series", () => LayoutSheetSeries.AtualizarTodas(doc));
+        ExecutarLongo("Atualizando todas as series", () => LayoutSheetSeries.AtualizarTodas(doc), cancelavel: true);
     }
 
     private void AplicarOpcoesPerfis()
@@ -782,7 +782,7 @@ internal sealed partial class LayoutPanel
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.AplicarOpcoesPerfis(doc, s.Eixo);
-        });
+        }, cancelavel: true);
     }
 
     /// <summary>Muda a escala de uma viewport do layout base (passo 1).</summary>
@@ -798,50 +798,63 @@ internal sealed partial class LayoutPanel
         });
     }
 
-    /// <summary>Combo editavel de custom scale (escalas do desenho e as comuns); aplica ao escolher ou com Enter.</summary>
+    /// <summary>
+    /// Combo editavel de custom scale (escalas do desenho e as comuns). Aplica so ao escolher um
+    /// item da lista ou com Enter; cada item guarda o valor exato (o texto mostra arredondado).
+    /// </summary>
     private WC.ComboBox ComboEscala(double atual, Action<double> aplicar)
     {
         double f = Fator;
-        var cb = new WC.ComboBox { Width = 150, IsEditable = true, HorizontalAlignment = SW.HorizontalAlignment.Left, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 4, 0, 0) };
+        var cb = new WC.ComboBox
+        {
+            Width = 150,
+            IsEditable = true,
+            IsTextSearchEnabled = false,
+            HorizontalAlignment = SW.HorizontalAlignment.Left,
+            VerticalAlignment = SW.VerticalAlignment.Center,
+            Margin = new SW.Thickness(0, 4, 0, 0)
+        };
         var denominadores = new SortedSet<double>(_escalas.Select(e => e.Denominador).Where(d => d > 0));
         foreach (int d in new[] { 100, 200, 250, 500, 1000, 2000, 2500, 5000 })
             denominadores.Add(d);
         foreach (double d in denominadores)
-            cb.Items.Add(LayoutOps.EscalaTexto(f / d, f));
+            cb.Items.Add(new WC.ComboBoxItem { Content = LayoutOps.EscalaTexto(f / d, f), Tag = f / d });
         cb.Text = LayoutOps.EscalaTexto(atual, f);
-        bool aplicando = false;
-        void Aplicar()
+
+        void Aplicar(double c)
         {
-            if (aplicando)
+            // Mesma escala (a menos de arredondamento): nao mexe na viewport.
+            if (c <= 0 || Math.Abs(c - atual) <= Math.Abs(atual) * 1e-4)
                 return;
-            string t = (cb.Text ?? "").Trim();
-            int par = t.IndexOf("  (", StringComparison.Ordinal);
-            if (par > 0)
-                t = t[..par];
-            if (!LayoutOps.TentarEscala(t, f, out double c))
-            {
-                Say("Escala invalida: use o custom scale (1 = 1:1000 num desenho em metros) ou 1:N.");
-                return;
-            }
-            if (Math.Abs(c - atual) < 1e-9)
-                return;
-            aplicando = true;
-            try
-            {
-                aplicar(c);
-            }
-            finally
-            {
-                aplicando = false;
-            }
+            aplicar(c);
         }
-        cb.DropDownClosed += (_, _) => Dispatcher.BeginInvoke(new Action(Aplicar), SW.Threading.DispatcherPriority.Background);
+        // Vale so o que for escolhido com a lista aberta (abrir e fechar sem escolher nao aplica).
+        bool escolheu = false;
+        cb.DropDownOpened += (_, _) => escolheu = false;
+        cb.SelectionChanged += (_, _) => escolheu = true;
+        cb.DropDownClosed += (_, _) =>
+        {
+            if (!escolheu || cb.SelectedItem is not WC.ComboBoxItem { Tag: double c })
+                return;
+            escolheu = false;
+            Dispatcher.BeginInvoke(new Action(() => Aplicar(c)), SW.Threading.DispatcherPriority.Background);
+        };
         cb.PreviewKeyDown += (_, e) =>
         {
             if (e.Key != WI.Key.Enter)
                 return;
-            Aplicar();
             e.Handled = true;
+            if (cb.SelectedItem is WC.ComboBoxItem { Tag: double ci } item && Equals(item.Content, cb.Text))
+            {
+                Aplicar(ci);
+                return;
+            }
+            if (!LerEscala(cb.Text, f, out double c))
+            {
+                Say("Escala invalida: use o custom scale (1 = 1:1000 num desenho em metros) ou 1:N.");
+                return;
+            }
+            Aplicar(c);
         };
         return cb;
     }

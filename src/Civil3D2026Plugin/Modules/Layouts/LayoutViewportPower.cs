@@ -22,6 +22,8 @@ internal static class LayoutViewportPower
 {
     public const string App = "C3D_VPOFF";
     public const string AppLeve = "C3D_LEVE";
+    /// <summary>Xrecord no NOD com o que o modo leve escondeu ("L=layers;R=labels"); sem ele, nada a desfazer.</summary>
+    private const string ChaveNod = "C3D_LEVE";
     private const string ChaveAuto = "vp_modo_leve";
     private const string Mod = "Layouts";
 
@@ -65,8 +67,62 @@ internal static class LayoutViewportPower
         LayoutManager.Current.LayoutSwitched += OnSwitched;
         AcApp.DocumentManager.DocumentActivated += OnDocumentActivated;
         AcApp.Idle += OnIdle;
+        AcApp.DocumentManager.DocumentCreated += (_, e) => LigarPlot(e.Document);
+        foreach (Document d in AcApp.DocumentManager)
+            LigarPlot(d);
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         _anterior = doc is null ? null : LayoutManager.Current.CurrentLayout;
+    }
+
+    // ------------------------------------------------------------------
+    // Aviso ao plotar com o modo leve ativo (viewports desligadas, labels ocultas)
+    // ------------------------------------------------------------------
+
+    private static readonly HashSet<Document> DocsPlot = new();
+    private static readonly HashSet<string> ComandosPlot = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "PLOT", "-PLOT", "PUBLISH", "-PUBLISH", "EXPORTPDF", "-EXPORTPDF", "EXPORTLAYOUT", "PREVIEW"
+    };
+
+    private static void LigarPlot(Document? doc)
+    {
+        if (doc is null || !DocsPlot.Add(doc))
+            return;
+        doc.CommandWillStart += (_, e) =>
+        {
+            if (!_iniciado || !ComandosPlot.Contains(e.GlobalCommandName ?? ""))
+                return;
+            try
+            {
+                string aviso = AvisoPlot(doc.Database);
+                if (aviso.Length == 0)
+                    return;
+                PluginLog.Aviso(Mod, $"{e.GlobalCommandName}: {aviso}");
+                doc.Editor.WriteMessage($"\n[Layouts] ATENCAO: {aviso}\n");
+            }
+            catch (System.Exception)
+            {
+                // O aviso nunca atrapalha a plotagem.
+            }
+        };
+        doc.BeginDocumentClose += (_, _) => DocsPlot.Remove(doc);
+    }
+
+    /// <summary>Texto de aviso quando o modo leve deixaria a prancha incompleta ("" se esta tudo normal).</summary>
+    public static string AvisoPlot(Database db)
+    {
+        int vps = Desligadas(db);
+        (int layers, int labels) = Aliviados(db);
+        if (vps == 0 && layers == 0 && labels == 0)
+            return "";
+        var p = new List<string>();
+        if (vps > 0)
+            p.Add($"{vps} viewport(s) desligada(s)");
+        if (labels > 0)
+            p.Add($"{labels} label(s) do Civil oculta(s)");
+        if (layers > 0)
+            p.Add($"{layers} layer(s) congelada(s)");
+        return "modo leve ativo (" + string.Join(", ", p) + "): use \"Religar todas\" (C3DLAYOUT > Viewports > Modo leve) antes de plotar.";
     }
 
     public static void Terminate()
@@ -91,16 +147,27 @@ internal static class LayoutViewportPower
         Progresso.Mostrar("Desligando as viewports...", 0.05);
         int n = Executar(doc.Database, layouts, poupaAtual ? LayoutManager.Current.CurrentLayout : null, desligar: true);
         string msg = n > 0 ? $"{n} viewport(s) desligada(s) (marcadas para religar)" : "Nenhuma viewport ligada para desligar";
+        int falhas = 0;
         if (CongelarLayers || OcultarLabels)
         {
-            (int layersN, int labelsN, string nota) = AliviarModel(doc, CongelarLayers, OcultarLabels);
-            if (CongelarLayers)
-                msg += $"; {layersN} layer(s) congelada(s)";
-            if (OcultarLabels)
-                msg += $"; {labelsN} label(s) do Civil oculta(s)";
-            msg += nota;
+            try
+            {
+                (int layersN, int labelsN, string nota) = AliviarModel(doc, CongelarLayers, OcultarLabels);
+                if (CongelarLayers)
+                    msg += $"; {layersN} layer(s) congelada(s)";
+                if (OcultarLabels)
+                    msg += $"; {labelsN} label(s) do Civil oculta(s)";
+                msg += nota;
+            }
+            catch (System.Exception ex)
+            {
+                // As viewports ja estao desligadas (gravado); o Model fica como estava.
+                falhas++;
+                msg += $"; o Model nao foi aliviado ({ex.Message})";
+                PluginLog.Erro(Mod, "Modo leve: aliviar o Model", ex);
+            }
         }
-        return new OpResult(n, 0, msg + ".");
+        return new OpResult(n, falhas, msg + ".");
     }
 
     /// <summary>
@@ -138,28 +205,77 @@ internal static class LayoutViewportPower
                 continue;
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             foreach (ObjectId id in btr)
-                if (tr.GetObject(id, OpenMode.ForRead) is Viewport vp && Marcada(vp, App))
+                if (EhViewport(id) && tr.GetObject(id, OpenMode.ForRead) is Viewport vp && Marcada(vp, App))
                     n++;
         }
         tr.Commit();
         return n;
     }
 
-    /// <summary>Layers congeladas e labels ocultas pelo plugin (para o painel).</summary>
+    private static bool EhViewport(ObjectId id)
+    {
+        try
+        {
+            return string.Equals(id.ObjectClass?.DxfName, "VIEWPORT", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (System.Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>Layers congeladas e labels ocultas pelo plugin (do registro no NOD; nao varre o Model).</summary>
     public static (int Layers, int Labels) Aliviados(Database db)
     {
-        int layers = 0, labels = 0;
         using Transaction tr = db.TransactionManager.StartTransaction();
-        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-        foreach (ObjectId id in lt)
-            if (tr.GetObject(id, OpenMode.ForRead) is LayerTableRecord l && Marcada(l, AppLeve))
-                layers++;
-        var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForRead);
-        foreach (ObjectId id in ms)
-            if (EhLabelCivil(id) && tr.GetObject(id, OpenMode.ForRead) is Entity e && Marcada(e, AppLeve))
-                labels++;
+        (int, int) r = LerRegistro(tr, db) ?? (0, 0);
         tr.Commit();
+        return r;
+    }
+
+    private static (int Layers, int Labels)? LerRegistro(Transaction tr, Database db)
+    {
+        var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+        if (!nod.Contains(ChaveNod) || tr.GetObject(nod.GetAt(ChaveNod), OpenMode.ForRead) is not Xrecord xr || xr.Data is null)
+            return null;
+        int layers = 0, labels = 0;
+        foreach (TypedValue tv in xr.Data.AsArray())
+        {
+            if (tv.Value is not string t)
+                continue;
+            if (t.StartsWith("L=", StringComparison.Ordinal))
+                int.TryParse(t[2..], out layers);
+            else if (t.StartsWith("R=", StringComparison.Ordinal))
+                int.TryParse(t[2..], out labels);
+        }
         return (layers, labels);
+    }
+
+    /// <summary>Grava (ou apaga, com zeros) o registro do que o modo leve escondeu.</summary>
+    private static void GravarRegistro(Transaction tr, Database db, int layers, int labels)
+    {
+        var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
+        if (layers == 0 && labels == 0)
+        {
+            if (nod.Contains(ChaveNod))
+            {
+                ObjectId id = nod.GetAt(ChaveNod);
+                nod.UpgradeOpen();
+                nod.Remove(ChaveNod);
+                tr.GetObject(id, OpenMode.ForWrite).Erase();
+            }
+            return;
+        }
+        var dados = new ResultBuffer(new TypedValue((int)DxfCode.Text, "L=" + layers), new TypedValue((int)DxfCode.Text, "R=" + labels));
+        if (nod.Contains(ChaveNod))
+        {
+            ((Xrecord)tr.GetObject(nod.GetAt(ChaveNod), OpenMode.ForWrite)).Data = dados;
+            return;
+        }
+        nod.UpgradeOpen();
+        var xr = new Xrecord { Data = dados };
+        nod.SetAt(ChaveNod, xr);
+        tr.AddNewlyCreatedDBObject(xr, true);
     }
 
     private static int Executar(Database db, IEnumerable<string>? layouts, string? poupar, bool desligar)
@@ -239,10 +355,18 @@ internal static class LayoutViewportPower
                         notas.Add($"a layer atual {l.Name} nao pode ser congelada");
                         continue;
                     }
-                    var w = (LayerTableRecord)tr.GetObject(id, OpenMode.ForWrite);
-                    w.IsFrozen = true;
-                    w.XData = Marca();
-                    nLayers++;
+                    try
+                    {
+                        var w = (LayerTableRecord)tr.GetObject(id, OpenMode.ForWrite);
+                        w.IsFrozen = true;
+                        w.XData = Marca();
+                        nLayers++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        notas.Add($"layer {l.Name} nao congelada ({ex.Message})");
+                        PluginLog.Diag(Mod, $"Modo leve: layer {l.Name} nao congelada: {ex.Message}");
+                    }
                 }
                 if (achadas.Count == 0)
                     notas.Add($"nenhuma layer com o nome {Layers}");
@@ -273,6 +397,9 @@ internal static class LayoutViewportPower
                 }
                 PluginLog.Info(Mod, $"Modo leve: {nLabels} label(s) do Civil oculta(s): " + string.Join(", ", tipos.OrderByDescending(t => t.Value).Select(t => $"{t.Key} {t.Value}")));
             }
+            // Soma ao que ja estava escondido (desligar duas vezes nao perde a conta).
+            (int layersAntes, int labelsAntes) = LerRegistro(tr, db) ?? (0, 0);
+            GravarRegistro(tr, db, layersAntes + nLayers, labelsAntes + nLabels);
             tr.Commit();
         }
         if (nLayers > 0)
@@ -287,6 +414,12 @@ internal static class LayoutViewportPower
         int nLayers = 0, nLabels = 0;
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
+            if (LerRegistro(tr, db) is null)
+            {
+                // O modo leve nao escondeu nada neste desenho: nao varre o Model.
+                tr.Commit();
+                return (0, 0);
+            }
             var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
             foreach (ObjectId id in lt)
             {
@@ -315,6 +448,7 @@ internal static class LayoutViewportPower
                     PluginLog.Diag(Mod, $"Modo leve: label {id.Handle} nao restaurada: {ex.Message}");
                 }
             }
+            GravarRegistro(tr, db, 0, 0);
             tr.Commit();
         }
         if (nLayers + nLabels > 0)

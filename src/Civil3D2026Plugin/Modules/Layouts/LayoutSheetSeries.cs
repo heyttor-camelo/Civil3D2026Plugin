@@ -1167,26 +1167,49 @@ internal static class LayoutSheetSeries
                     {
                         // Cria ja com estacas, Draw dos profiles, bandas e cotas: o profile view so
                         // regenera uma vez, no trecho da sheet (criado sozinho ele nasce com o
-                        // alignment inteiro).
-                        bool opcoesAplicadas;
+                        // alignment inteiro). A configuracao vai numa transacao aninhada: se falhar,
+                        // o profile view criado fica, ligado ao frame, e e configurado de novo
+                        // depois de gravado (como era antes).
+                        bool configurado = false, opcoesAplicadas = false;
+                        string? aviso = null;
                         using (Transaction tr = db.TransactionManager.StartTransaction())
                         {
                             f.Perfil = CriarProfileView(tr, db, s.Eixo, origem, nome, s.EstiloPerfil, s.BandasPerfil);
-                            opcoesAplicadas = AplicarDrawEBandas(tr, f.Perfil, s, avisos, nome);
-                            string? aviso = ConfigurarPerfil(tr, f.Perfil, s, m, f.E0, f.E1);
-                            if (aviso is not null)
-                                avisos.Add($"{nome}: {aviso}");
+                            try
+                            {
+                                using Transaction cfg = db.TransactionManager.StartTransaction();
+                                opcoesAplicadas = AplicarDrawEBandas(cfg, f.Perfil, s, avisos, nome);
+                                aviso = ConfigurarPerfil(cfg, f.Perfil, s, m, f.E0, f.E1);
+                                cfg.Commit();
+                                configurado = true;
+                            }
+                            catch (System.Exception ex)
+                            {
+                                PluginLog.Diag(Mod, $"Pranchas: {nome}: configuracao junto com a criacao do profile view falhou ({Msg(ex)}); refazendo depois de gravar.");
+                            }
                             GravarFrame(tr, f.Id, f);
                             tr.Commit();
                         }
-                        if (!opcoesAplicadas)
+                        if (!configurado || !opcoesAplicadas)
                         {
-                            // O profile view recem-criado ainda nao listava os profiles: de novo, ja gravado.
-                            using Transaction tr = db.TransactionManager.StartTransaction();
-                            if (AplicarDrawEBandas(tr, f.Perfil, s, avisos, nome))
-                                ConfigurarPerfil(tr, f.Perfil, s, m, f.E0, f.E1);
-                            tr.Commit();
+                            // Falhou junto com a criacao, ou o profile view recem-criado ainda nao
+                            // listava os profiles: de novo, com ele ja gravado.
+                            try
+                            {
+                                using Transaction tr = db.TransactionManager.StartTransaction();
+                                AplicarDrawEBandas(tr, f.Perfil, s, avisos, nome);
+                                aviso = ConfigurarPerfil(tr, f.Perfil, s, m, f.E0, f.E1);
+                                tr.Commit();
+                            }
+                            catch (System.Exception ex)
+                            {
+                                aviso = $"profile view criado, mas sem estacas/opcoes ({Msg(ex)})";
+                                PluginLog.Erro(Mod, $"Pranchas: {nome}: configuracao do profile view", ex);
+                            }
                         }
+                        if (aviso is not null)
+                            avisos.Add($"{nome}: {aviso}");
+                        ConferirEstacas(db, f.Perfil, f.E0, f.E1, nome);
                     }
                     finally
                     {
@@ -1225,7 +1248,8 @@ internal static class LayoutSheetSeries
         if (pranchas + perfis > 0)
             PluginLog.Tempo(Mod, $"Pranchas: {pranchas} sheet(s): copia dos layouts {tCopia.Elapsed.TotalSeconds:0.00} s; {perfis} profile view(s): {tPerfil.Elapsed.TotalSeconds:0.00} s" +
                                  (tLabels.ElapsedMilliseconds > 0 ? $"; labels {tLabels.Elapsed.TotalSeconds:0.00} s" : "") + ".");
-        return new PranchasCriadas(pranchas, perfis, nomes, tocados, cancelado, total - feitos);
+        int pendentes = LerFrames(db, s).Count(Pendente);
+        return new PranchasCriadas(pranchas, perfis, nomes, tocados, cancelado, pendentes);
     }
 
     /// <summary>
@@ -1482,6 +1506,8 @@ internal static class LayoutSheetSeries
         foreach (SheetFrameInfo f in frames.Where(f => f.LayoutNome.Length == 0))
             f.LayoutNome = s.NomeFolha(f.Indice);
         List<SheetFrameInfo> alvos = frames.Where(Alvo).ToList();
+        // Avisos de antes: voltam nas sheets que a atualizacao nao chegar a conferir (cancelar).
+        Dictionary<ObjectId, string> avisosAntes = alvos.ToDictionary(f => f.Id, f => f.Aviso);
 
         // 1. Estacas e planta.
         using (Progresso.Faixa(0, 0.1))
@@ -1494,9 +1520,13 @@ internal static class LayoutSheetSeries
             ObjectId ms = SymbolUtilityServices.GetBlockModelSpaceId(db);
             foreach (SheetFrameInfo f in alvos)
             {
+                double e0Antes = f.E0, e1Antes = f.E1;
+                ObjectId rotuloAntes = f.Rotulo;
                 try
                 {
-                    var pl = (Polyline)tr.GetObject(f.Id, OpenMode.ForRead);
+                    // Uma transacao por sheet: se uma falhar no meio, nada dela fica pela metade.
+                    using Transaction tf = db.TransactionManager.StartTransaction();
+                    var pl = (Polyline)tf.GetObject(f.Id, OpenMode.ForRead);
                     Point3d[]? v = Vertices(pl);
                     if (v is null)
                     {
@@ -1514,16 +1544,18 @@ internal static class LayoutSheetSeries
                     double escala = escalaPlanta;
                     if (Valido(f.VpPlanta))
                     {
-                        escala = AlinharPlanta(tr, f.VpPlanta, v);
+                        escala = AlinharPlanta(tf, f.VpPlanta, v);
                         if (escalaPlanta <= 0)
                             escalaPlanta = escala;
                     }
-                    f.Rotulo = Rotulo(tr, ms, f, v, escala, f.Rotulo);
-                    GravarFrame(tr, f.Id, f);
+                    f.Rotulo = Rotulo(tf, ms, f, v, escala, f.Rotulo);
+                    GravarFrame(tf, f.Id, f);
+                    tf.Commit();
                     ok++;
                 }
                 catch (System.Exception ex)
                 {
+                    (f.E0, f.E1, f.Rotulo, f.Aviso) = (e0Antes, e1Antes, rotuloAntes, avisosAntes[f.Id]);
                     avisos.Add($"{f.LayoutNome}: planta nao atualizada ({ex.Message})");
                     falhas++;
                 }
@@ -1546,6 +1578,10 @@ internal static class LayoutSheetSeries
                     parou = true;
                     avisos.Add($"atualizacao cancelada: {comPerfil.Count - i} profile view(s) ficaram sem atualizar");
                     PluginLog.Aviso(Mod, $"Pranchas: atualizacao cancelada pelo usuario em {f.LayoutNome}.");
+                    // As que nao foram conferidas mantem os avisos de antes.
+                    foreach (SheetFrameInfo resto in comPerfil.Skip(i))
+                        if (resto.Aviso.Length == 0)
+                            resto.Aviso = avisosAntes.GetValueOrDefault(resto.Id, "");
                     break;
                 }
                 Progresso.Passo($"Profile view {f.LayoutNome} ({i + 1} de {comPerfil.Count})", i, comPerfil.Count);
@@ -1770,9 +1806,15 @@ internal static class LayoutSheetSeries
             vp = (Viewport)tr.GetObject(vpId, OpenMode.ForWrite, false, true);
             bool travada = vp.Locked;
             vp.Locked = false;
-            vp.TwistAngle = twist;
-            vp.ViewCenter = alvo;
-            vp.Locked = travada;
+            try
+            {
+                vp.TwistAngle = twist;
+                vp.ViewCenter = alvo;
+            }
+            finally
+            {
+                vp.Locked = travada;
+            }
         }
         return vp.CustomScale;
     }
@@ -1819,9 +1861,15 @@ internal static class LayoutSheetSeries
             vp = (Viewport)tr.GetObject(vpId, OpenMode.ForWrite, false, true);
             bool travada = vp.Locked;
             vp.Locked = false;
-            vp.TwistAngle = 0;
-            vp.ViewCenter = alvo;
-            vp.Locked = travada;
+            try
+            {
+                vp.TwistAngle = 0;
+                vp.ViewCenter = alvo;
+            }
+            finally
+            {
+                vp.Locked = travada;
+            }
         }
         tr.Commit();
         return aviso;
@@ -1923,6 +1971,34 @@ internal static class LayoutSheetSeries
         Chamar(() => DefinirEnum(w, modo, "User"), "modo de estacas");
         Chamar(() => DefinirIntervalo(w, ini, fim, e0, e1), "intervalo de estacas");
     }
+
+    /// <summary>O profile view esta com o trecho de estacas pedido (o Civil respeitou o intervalo).</summary>
+    private static bool EstacasConferem(Database db, ObjectId pvId, double e0, double e1)
+    {
+        try
+        {
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            DBObject pv = tr.GetObject(pvId, OpenMode.ForRead);
+            PropertyInfo? ini = Prop(pv, "StationStart", "StartStation"), fim = Prop(pv, "StationEnd", "EndStation");
+            bool ok = ini is not null && fim is not null && Math.Abs(Convert.ToDouble(ini.GetValue(pv), Inv) - e0) < 1e-3 && Math.Abs(Convert.ToDouble(fim.GetValue(pv), Inv) - e1) < 1e-3;
+            tr.Commit();
+            return ok;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Registra no log quando o profile view nao ficou com o trecho pedido (o Atualizar corrige).</summary>
+    private static void ConferirEstacas(Database db, ObjectId pvId, double e0, double e1, string nome)
+    {
+        if (!EstacasConferem(db, pvId, e0, e1))
+            DiagUmaVez("estacas:" + nome, $"{nome}: o profile view nao ficou com as estacas {Estaca(e0)} a {Estaca(e1)} na criacao; a atualizacao seguinte corrige.");
+    }
+
+    /// <summary>Mensagem da excecao (a de dentro, quando veio por reflexao).</summary>
+    private static string Msg(System.Exception ex) => (ex as TargetInvocationException)?.InnerException?.Message ?? ex.Message;
 
     /// <summary>
     /// Estacas e cotas do profile view na mesma transacao (uma regeneracao so). As cotas saem dos
@@ -2049,13 +2125,14 @@ internal static class LayoutSheetSeries
                 double a = Math.Max(e0, p.StartingStation), b = Math.Min(e1, p.EndingStation);
                 if (double.IsNaN(a) || double.IsNaN(b) || b < a)
                     continue;
-                int falhas = 0;
-                for (double st = a; ; st += passo)
+                int seguidas = 0, falhas = 0;
+                for (double st = a; ; st += seguidas > 0 ? passo * 8 : passo)
                 {
                     double x = Math.Min(st, b);
                     try
                     {
                         double z = p.ElevationAt(x);
+                        seguidas = 0;
                         if (!double.IsNaN(z) && Math.Abs(z) < 1e7)
                         {
                             min = Math.Min(min, z);
@@ -2064,8 +2141,10 @@ internal static class LayoutSheetSeries
                     }
                     catch (System.Exception)
                     {
-                        // Trecho sem dados (superficie com buraco): pula a amostra.
-                        if (++falhas > 2000)
+                        // Trecho sem dados (superficie com buraco): anda mais rapido ate voltar a ter cota;
+                        // muitas falhas, desiste deste profile (excecao em laco custa caro).
+                        seguidas++;
+                        if (++falhas > 60)
                             break;
                     }
                     if (x >= b)
@@ -2173,9 +2252,9 @@ internal static class LayoutSheetSeries
                                 if (!Equals(draw.GetValue(po), op.Draw))
                                     draw.SetValue(po, op.Draw);
                             }
-                            catch (TargetInvocationException ex)
+                            catch (System.Exception ex)
                             {
-                                avisos.Add($"{nome}: Draw de {Ler(po, "ProfileName")} recusado ({ex.InnerException?.Message ?? ex.Message})");
+                                avisos.Add($"{nome}: Draw de {Ler(po, "ProfileName")} recusado ({Msg(ex)})");
                             }
                         }
                     }
@@ -2204,7 +2283,8 @@ internal static class LayoutSheetSeries
             foreach (string lado in new[] { "Bottom", "Top" })
             {
                 MethodInfo? ler = bandas.GetType().GetMethod($"Get{lado}BandItems", Type.EmptyTypes);
-                MethodInfo? gravar = bandas.GetType().GetMethods().FirstOrDefault(m => m.Name == $"Set{lado}BandItems" && m.GetParameters().Length == 1);
+                MethodInfo? gravar = ler is null ? null : bandas.GetType().GetMethods().FirstOrDefault(m =>
+                    m.Name == $"Set{lado}BandItems" && m.GetParameters().Length == 1 && m.GetParameters()[0].ParameterType.IsAssignableFrom(ler.ReturnType));
                 if (ler is null || gravar is null)
                 {
                     DiagUmaVez("Bands" + lado, $"ProfileViewBandSet sem Get/Set{lado}BandItems: " +
@@ -2216,9 +2296,9 @@ internal static class LayoutSheetSeries
                 {
                     lista = ler.Invoke(bandas, null);
                 }
-                catch (TargetInvocationException ex)
+                catch (System.Exception ex)
                 {
-                    DiagUmaVez("Bands" + lado + "Ler", $"Get{lado}BandItems: {ex.InnerException?.Message ?? ex.Message}");
+                    DiagUmaVez("Bands" + lado + "Ler", $"Get{lado}BandItems: {Msg(ex)}");
                     continue;
                 }
                 if (lista is not System.Collections.IEnumerable itens)
@@ -2242,9 +2322,9 @@ internal static class LayoutSheetSeries
                 {
                     gravar.Invoke(bandas, new[] { lista });
                 }
-                catch (TargetInvocationException ex)
+                catch (System.Exception ex)
                 {
-                    avisos.Add($"{nome}: Profile1/Profile2 das bandas recusados ({ex.InnerException?.Message ?? ex.Message})");
+                    avisos.Add($"{nome}: Profile1/Profile2 das bandas recusados ({Msg(ex)})");
                 }
             }
             if (!escrever && !mudar)
@@ -2265,9 +2345,9 @@ internal static class LayoutSheetSeries
             p.SetValue(o, valor);
             return true;
         }
-        catch (TargetInvocationException ex)
+        catch (System.Exception ex)
         {
-            DiagUmaVez("DefinirId" + nome, $"{o.GetType().Name}.{nome} recusado: {ex.InnerException?.Message ?? ex.Message}");
+            DiagUmaVez("DefinirId" + nome, $"{o.GetType().Name}.{nome} recusado: {Msg(ex)}");
             return false;
         }
     }
@@ -2283,11 +2363,22 @@ internal static class LayoutSheetSeries
             try
             {
                 using Transaction tr = db.TransactionManager.StartTransaction();
-                int apagados = 0;
-                foreach (ObjectId g in LabelGroups(tr, pvId, op.Perfil))
-                    if (Apagar(tr, g))
-                        apagados++;
-                int criados = !op.SemLabels && op.Draw && Valido(op.LabelSet) ? CriarLabels(tr, pvId, op.Perfil, op.LabelSet, avisos, nome) : 0;
+                List<ObjectId>? existentes = LabelGroups(tr, pvId, op.Perfil);
+                if (existentes is null)
+                {
+                    // Sem como listar os labels atuais: criar duplicaria a cada aplicacao.
+                    AvisoUmaVez(avisos, nome, "labels dos profiles nao aplicados: a API nao lista os label groups do profile view");
+                    continue;
+                }
+                bool criar = !op.SemLabels && op.Draw && Valido(op.LabelSet);
+                int apagados = existentes.Count(g => Apagar(tr, g));
+                int criados = criar ? CriarLabels(tr, pvId, op.Perfil, op.LabelSet, avisos, nome) : 0;
+                if (criar && criados == 0)
+                {
+                    // Nada criado: desfaz (os labels que estavam ficam).
+                    avisos.Add($"{nome}: o label set de {NomeDe(db, op.Perfil)} nao criou label group; os labels anteriores ficaram");
+                    continue;
+                }
                 tr.Commit();
                 PluginLog.Diag(Mod, $"Pranchas: {nome}: labels de {NomeDe(db, op.Perfil)}: {apagados} label group(s) apagado(s), {criados} criado(s).");
             }
@@ -2299,10 +2390,11 @@ internal static class LayoutSheetSeries
         }
     }
 
-    /// <summary>Label groups de um profile num profile view.</summary>
-    private static List<ObjectId> LabelGroups(Transaction tr, ObjectId pvId, ObjectId perfil)
+    /// <summary>Label groups de um profile num profile view; null se a API nao tem como listar.</summary>
+    private static List<ObjectId>? LabelGroups(Transaction tr, ObjectId pvId, ObjectId perfil)
     {
         var ids = new List<ObjectId>();
+        bool listou = false;
         // 1. ProfileOverride.GetProfileLabelGroupIds (o profile naquele profile view).
         try
         {
@@ -2321,6 +2413,8 @@ internal static class LayoutSheetSeries
                                 ids.Add(g);
                         return ids;
                     }
+                    if (mt is not null)
+                        return ids; // metodo existe e nao devolveu nada: sem labels
                 }
             }
         }
@@ -2333,16 +2427,22 @@ internal static class LayoutSheetSeries
         {
             Type? t = TipoCivil("ProfileLabelGroup");
             MethodInfo? mt = t?.GetMethods(BindingFlags.Public | BindingFlags.Static).FirstOrDefault(m => m.Name == "GetAvailableLabelGroupIds" && m.GetParameters().Length == 4);
-            if (t is not null && mt is not null && mt.Invoke(null, new object[] { Autodesk.AutoCAD.Runtime.RXObject.GetClass(t), pvId, perfil, true }) is ObjectIdCollection col)
-                foreach (ObjectId g in col)
-                    if (Valido(g))
-                        ids.Add(g);
+            if (t is not null && mt is not null)
+            {
+                object? r = mt.Invoke(null, new object[] { Autodesk.AutoCAD.Runtime.RXObject.GetClass(t), pvId, perfil, true });
+                listou = true;
+                if (r is ObjectIdCollection col)
+                    foreach (ObjectId g in col)
+                        if (Valido(g))
+                            ids.Add(g);
+            }
         }
         catch (System.Exception ex)
         {
-            DiagUmaVez("LabelGroups2", "GetAvailableLabelGroupIds: " + ex.Message);
+            listou = false;
+            DiagUmaVez("LabelGroups2", "GetAvailableLabelGroupIds: " + Msg(ex));
         }
-        return ids;
+        return listou ? ids : null;
     }
 
     /// <summary>Cria os label groups dos itens do label set para o profile no profile view.</summary>
@@ -2634,19 +2734,42 @@ internal static class LayoutSheetSeries
         ObjectId pv = ObjectId.Null;
         try
         {
-            // Criado ja com o trecho de teste e cotas automaticas: regenera uma vez so.
+            // Criado ja com o trecho de teste e cotas automaticas (uma regeneracao); se a
+            // configuracao falhar junto com a criacao, ou o Civil nao respeitar o trecho, vai de
+            // novo com o profile view ja gravado.
             PropertyInfo? modo = null, pMin = null, pMax = null;
-            using (Transaction tr = db.TransactionManager.StartTransaction())
+            bool configurado = false;
+            void Configurar(Transaction t)
             {
-                pv = CriarProfileView(tr, db, s.Eixo, origem + new Vector3d(0, m.AlturaPerfil * 3, 0), "C3D calibracao " + DateTime.Now.Ticks, s.EstiloPerfil, s.BandasPerfil);
-                DefinirEstacas(tr, pv, ini, ini + lt);
-                AplicarDrawEBandas(tr, pv, s, new List<string>(), "calibracao");
-                DBObject o = tr.GetObject(pv, OpenMode.ForWrite, false, true);
+                DefinirEstacas(t, pv, ini, ini + lt);
+                AplicarDrawEBandas(t, pv, s, new List<string>(), "calibracao");
+                DBObject o = t.GetObject(pv, OpenMode.ForWrite, false, true);
                 modo = Prop(o, "ElevationRangeMode");
                 pMin = Prop(o, "ElevationMin", "MinimumElevation");
                 pMax = Prop(o, "ElevationMax", "MaximumElevation");
                 if (modo is not null)
                     Chamar(() => DefinirEnum(o, modo, "Auto"), "modo de cotas");
+            }
+            using (Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                pv = CriarProfileView(tr, db, s.Eixo, origem + new Vector3d(0, m.AlturaPerfil * 3, 0), "C3D calibracao " + DateTime.Now.Ticks, s.EstiloPerfil, s.BandasPerfil);
+                try
+                {
+                    using Transaction cfg = db.TransactionManager.StartTransaction();
+                    Configurar(cfg);
+                    cfg.Commit();
+                    configurado = true;
+                }
+                catch (System.Exception ex)
+                {
+                    PluginLog.Diag(Mod, $"Pranchas: calibracao: configuracao junto com a criacao falhou ({Msg(ex)}); refazendo.");
+                }
+                tr.Commit();
+            }
+            if (!configurado || !EstacasConferem(db, pv, ini, ini + lt))
+            {
+                using Transaction tr = db.TransactionManager.StartTransaction();
+                Configurar(tr);
                 tr.Commit();
             }
 
@@ -2666,6 +2789,13 @@ internal static class LayoutSheetSeries
                 tr.Commit();
             }
             s.MargemPerfil = Math.Max(0, w - lt);
+            if (s.MargemPerfil > m.LarguraPerfil * 0.5 || !EstacasConferem(db, pv, ini, ini + lt))
+            {
+                // Medicao fora do esperado (o trecho de teste nao foi respeitado?): margem estimada.
+                avisos.Add($"calibracao do profile view: margem medida de {s.MargemPerfil:0.#} m fora do esperado; usando a estimativa (12% da viewport)");
+                PluginLog.Aviso(Mod, $"Pranchas: calibracao: largura {w:0.#} m para {lt:0} m de trecho; estacas do PV de teste {(EstacasConferem(db, pv, ini, ini + lt) ? "ok" : "diferentes do pedido")}.");
+                s.MargemPerfil = double.NaN;
+            }
 
             if ((double.IsNaN(ve) || ve <= 0) && modo is not null && pMin is not null && pMax is not null && !double.IsNaN(emin))
             {
@@ -2695,7 +2825,7 @@ internal static class LayoutSheetSeries
             {
                 avisos.Add("exagero vertical nao identificado: cotas ficam automaticas");
             }
-            Calibracao = $"calibracao do perfil: {lt:0} m de eixo ocupam {w:0.#} m (margem {s.MargemPerfil:0.#} m), altura {h:0.#} m, exagero {(double.IsNaN(s.Exagero) ? "?" : s.Exagero.ToString("0.##", Inv))}";
+            Calibracao = $"calibracao do perfil: {lt:0} m de eixo ocupam {w:0.#} m (margem {(double.IsNaN(s.MargemPerfil) ? "estimada" : s.MargemPerfil.ToString("0.#", Inv) + " m")}), altura {h:0.#} m, exagero {(double.IsNaN(s.Exagero) ? "?" : s.Exagero.ToString("0.##", Inv))}";
         }
         catch (System.Exception ex)
         {

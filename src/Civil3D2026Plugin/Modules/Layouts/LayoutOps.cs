@@ -148,7 +148,12 @@ internal static class LayoutOps
         List<string> atual = OrdemAtual(doc.Database);
         List<string> ordem = atual.OrderBy(n => n, NaturalComparer.Instance).ToList();
         if (atual.SequenceEqual(ordem, StringComparer.OrdinalIgnoreCase))
-            return new OpResult(ordem.Count, 0, $"Os {ordem.Count} layouts ja estao em ordem de nome.");
+        {
+            // O banco ja esta em ordem; se as abas da tela ficaram velhas, o redesenho resolve.
+            AtualizarAbas();
+            PluginLog.Diag("Layouts", "Ordenar pelo nome: o banco ja estava em ordem; abas redesenhadas.");
+            return new OpResult(ordem.Count, 0, $"Os {ordem.Count} layouts ja estao em ordem de nome (abas redesenhadas).");
+        }
         bool ok = GravarOrdem(doc.Database, ordem);
         return ok
             ? new OpResult(ordem.Count, 0, $"{ordem.Count} layouts ordenados pelo nome ({ordem.First()} a {ordem.Last()}).")
@@ -250,11 +255,17 @@ internal static class LayoutOps
         {
             bool travada = vp.Locked;
             vp.Locked = false;
-            vp.StandardScale = StandardScaleType.CustomScale;
-            vp.CustomScale = custom;
-            if (anot is not null)
-                vp.AnnotationScale = anot;
-            vp.Locked = travada;
+            try
+            {
+                vp.StandardScale = StandardScaleType.CustomScale;
+                vp.CustomScale = custom;
+                if (anot is not null)
+                    vp.AnnotationScale = anot;
+            }
+            finally
+            {
+                vp.Locked = travada;
+            }
         }, $"com escala {EscalaTexto(custom, fatorUnidade)}");
     }
 
@@ -303,10 +314,13 @@ internal static class LayoutOps
             {
                 try
                 {
-                    // Abre mesmo em layer travada: a layer das viewports costuma ficar travada nas pranchas.
-                    if (tr.GetObject(id, OpenMode.ForWrite, false, true) is Viewport vp)
+                    // Uma transacao por viewport: se uma propriedade for recusada, a viewport volta
+                    // inteira como estava. Abre mesmo em layer travada (comum nas pranchas).
+                    using Transaction t1 = doc.Database.TransactionManager.StartTransaction();
+                    if (t1.GetObject(id, OpenMode.ForWrite, false, true) is Viewport vp)
                     {
                         acao(vp);
+                        t1.Commit();
                         ok++;
                     }
                 }
@@ -476,6 +490,9 @@ internal static class LayoutOps
     {
         if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
             return new OpResult(0, nomes.Count, "Ja existe uma plotagem em andamento. Aguarde e tente de novo.");
+        string leve = LayoutViewportPower.AvisoPlot(doc.Database);
+        if (leve.Length > 0)
+            return new OpResult(0, nomes.Count, leve);
 
         Directory.CreateDirectory(pasta);
         string baseNome = Path.GetFileNameWithoutExtension(doc.Name);
@@ -744,18 +761,24 @@ internal static class LayoutOps
     private static object? Com(object alvo, string membro, BindingFlags tipo, params object[] args) =>
         alvo.GetType().InvokeMember(membro, tipo, null, alvo, args, System.Globalization.CultureInfo.InvariantCulture);
 
+    private static MethodInfo? _getAcadDocument;
+    private static bool _procurouGetAcadDocument;
+
     /// <summary>Documento ActiveX (DocumentExtension.GetAcadDocument; antes, a propriedade AcadDocument).</summary>
     private static object? AcadDocument(Document doc)
     {
         try
         {
-            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            if (!_procurouGetAcadDocument)
             {
-                Type? t = a.GetType("Autodesk.AutoCAD.ApplicationServices.DocumentExtension", false);
-                MethodInfo? m = t?.GetMethod("GetAcadDocument", new[] { typeof(Document) });
-                if (m is not null)
-                    return m.Invoke(null, new object[] { doc });
+                _procurouGetAcadDocument = true;
+                const string nome = "Autodesk.AutoCAD.ApplicationServices.DocumentExtension";
+                Type? t = typeof(Document).Assembly.GetType(nome, false)
+                          ?? AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetType(nome, false)).FirstOrDefault(x => x is not null);
+                _getAcadDocument = t?.GetMethod("GetAcadDocument", new[] { typeof(Document) });
             }
+            if (_getAcadDocument is not null)
+                return _getAcadDocument.Invoke(null, new object[] { doc });
         }
         catch (System.Exception ex)
         {
@@ -772,7 +795,7 @@ internal static class LayoutOps
     }
 
     /// <summary>Redesenha as abas de layout (quando a API expoe) e a tela.</summary>
-    private static void AtualizarAbas()
+    internal static void AtualizarAbas()
     {
         try
         {

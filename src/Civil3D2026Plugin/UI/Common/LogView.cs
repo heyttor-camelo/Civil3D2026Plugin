@@ -18,6 +18,7 @@ namespace Civil3D2026Plugin.UI.Common;
 internal static class LogView
 {
     private const string Todos = "(todos os modulos)";
+    private const int MaximoNaCaixa = 3000;
     private static SW.Window? _janela;
 
     public static SW.FrameworkElement Criar(ToolTheme t, string? modulo)
@@ -81,12 +82,16 @@ internal static class LogView
             return chProblemas.IsChecked != true || e.Nivel is LogNivel.Aviso or LogNivel.Erro;
         }
         List<LogEntrada> Filtradas() => PluginLog.Copia().Where(Passa).ToList();
+        // Linhas mostradas (sem ler texto.Text a cada linha nova: isso remonta o texto inteiro).
+        int mostradas = 0;
         void Encher()
         {
             List<LogEntrada> l = Filtradas();
-            texto.Text = string.Join(Environment.NewLine, l.Select(e => e.Linha));
+            // So as ultimas na caixa (Copiar e Salvar levam todas as filtradas).
+            texto.Text = string.Join(Environment.NewLine, l.Skip(Math.Max(0, l.Count - MaximoNaCaixa)).Select(e => e.Linha));
+            mostradas = Math.Min(l.Count, MaximoNaCaixa);
             texto.ScrollToEnd();
-            info.Text = $"{l.Count} linha(s). Arquivo diario em {PluginLog.Pasta}";
+            info.Text = $"{l.Count} linha(s). Arquivo do dia em {PluginLog.Pasta}";
         }
 
         WC.Button Botao(string rotulo, string dica, Action acao)
@@ -157,7 +162,14 @@ internal static class LogView
                     return;
                 if (cbModulo.SelectedItem is string m && m == Todos && !cbModulo.Items.Contains(e.Modulo))
                     cbModulo.Items.Add(e.Modulo);
-                texto.AppendText((texto.Text.Length > 0 ? Environment.NewLine : "") + e.Linha);
+                if (mostradas >= MaximoNaCaixa * 2)
+                {
+                    // Caixa cheia: refaz com as ultimas (barato de vez em quando, caro a cada linha).
+                    Encher();
+                    return;
+                }
+                texto.AppendText((mostradas > 0 ? Environment.NewLine : "") + e.Linha);
+                mostradas++;
                 texto.ScrollToEnd();
             }));
         }

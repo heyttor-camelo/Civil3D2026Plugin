@@ -336,6 +336,9 @@ internal sealed partial class LayoutPanel : SW.Window
     /// <summary>Aba Log visivel (Ctrl+Shift+L).</summary>
     private bool _mostrarLog;
 
+    /// <summary>Modo leve ativo (viewports desligadas ou Model aliviado): aparece no rodape.</summary>
+    private string _avisoLeve = "";
+
     private Document? Doc => AcApp.DocumentManager.MdiActiveDocument;
 
     // ------------------------------------------------------------------
@@ -673,6 +676,15 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             // Sem Civil ou serie ilegivel: o resto do painel funciona.
             Say("Pranchas do eixo: " + ex.Message);
+        }
+
+        try
+        {
+            _avisoLeve = LayoutViewportPower.AvisoPlot(doc.Database);
+        }
+        catch (System.Exception)
+        {
+            _avisoLeve = "";
         }
 
         LigarDocumento(doc);
@@ -1739,10 +1751,7 @@ internal sealed partial class LayoutPanel : SW.Window
         var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 4, 0, 0) };
         void Previa()
         {
-            string t = (combo.Text ?? "").Trim();
-            int par = t.IndexOf("  (", StringComparison.Ordinal);
-            if (par > 0) t = t[..par];
-            previa.Text = LayoutOps.TentarEscala(t, FatorAtual(), out double c) ? "Vai aplicar custom scale " + LayoutOps.EscalaTexto(c, FatorAtual()) : "Escala invalida.";
+            previa.Text = LerEscala(combo.Text, FatorAtual(), out double c) ? "Vai aplicar custom scale " + LayoutOps.EscalaTexto(c, FatorAtual()) : "Escala invalida.";
         }
         combo.AddHandler(WC.Primitives.TextBoxBase.TextChangedEvent, new WC.TextChangedEventHandler((_, _) => Previa()));
         combo.SelectionChanged += (_, _) => Dispatcher.BeginInvoke(new Action(Previa), SW.Threading.DispatcherPriority.Background);
@@ -1757,10 +1766,7 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(ActionButton("Aplicar escala", () =>
         {
             if (_vpsMarcadas.Count == 0) { Say("Marque as viewports."); return; }
-            string t = (combo.Text ?? "").Trim();
-            int par = t.IndexOf("  (", StringComparison.Ordinal);
-            if (par > 0) t = t[..par];
-            if (!LayoutOps.TentarEscala(t, FatorAtual(), out double custom)) { Say("Escala invalida. Use 2, 0.5, 1:500 ou 4:1."); return; }
+            if (!LerEscala(combo.Text, FatorAtual(), out double custom)) { Say("Escala invalida. Use 2, 0.5, 1:500 ou 4:1."); return; }
             Executar(() => LayoutOps.Escalar(Doc!, VpsMarcadas(), custom, FatorAtual()));
         }));
         Dispatcher.BeginInvoke(new Action(Previa), SW.Threading.DispatcherPriority.Background);
@@ -2196,6 +2202,22 @@ internal sealed partial class LayoutPanel : SW.Window
         return p;
     }
 
+    /// <summary>
+    /// Custom scale do texto do combo: "1.3333  (1:750)" usa o 1:750 exato (o numero da frente e
+    /// arredondado); "2", "0,5", "1:500" e "4:1" como sempre.
+    /// </summary>
+    private static bool LerEscala(string? texto, double fator, out double custom)
+    {
+        string t = (texto ?? "").Trim();
+        int a = t.IndexOf('('), b = t.LastIndexOf(')');
+        if (a >= 0 && b > a + 1 && LayoutOps.TentarEscala(t[(a + 1)..b].Trim(), fator, out custom))
+            return true;
+        int par = t.IndexOf("  (", StringComparison.Ordinal);
+        if (par > 0)
+            t = t[..par];
+        return LayoutOps.TentarEscala(t.Trim(), fator, out custom);
+    }
+
     private void Sysvar(string nome, int valor)
     {
         try
@@ -2319,13 +2341,16 @@ internal sealed partial class LayoutPanel : SW.Window
         Refresh();
     }
 
-    /// <summary>Operacao demorada: janela de progresso (com Cancelar) e cursor de espera enquanto roda.</summary>
-    private void ExecutarLongo(string titulo, Func<OpResult> op)
+    /// <summary>
+    /// Operacao demorada: janela de progresso e cursor de espera enquanto roda. Cancelar so aparece
+    /// nas operacoes que param entre etapas (gerar, atualizar, opcoes dos profiles).
+    /// </summary>
+    private void ExecutarLongo(string titulo, Func<OpResult> op, bool cancelavel = false)
     {
         WI.Mouse.OverrideCursor = WI.Cursors.Wait;
         try
         {
-            using (ProgressoJanela.Abrir(titulo, this))
+            using (ProgressoJanela.Abrir(titulo, this, cancelavel))
                 Executar(op);
         }
         finally
@@ -2812,6 +2837,7 @@ internal sealed partial class LayoutPanel : SW.Window
         string bl = _bloco is not null ? $"; carimbo \"{_bloco}\"" : "";
         int filtros = FiltrosAtivos();
         string fl = filtros > 0 ? $"; {_list.Items.Count} de {_linhasBase.Count} linha(s) ({filtros} filtro(s) de coluna)" : "";
-        _status.Text = $"{_layoutsMarcados.Count} layout(s) marcado(s); {_vpsMarcadas.Count} viewport(s) em {layoutsVp} layout(s){ls}{bl}{fl}.";
+        _status.Text = $"{_layoutsMarcados.Count} layout(s) marcado(s); {_vpsMarcadas.Count} viewport(s) em {layoutsVp} layout(s){ls}{bl}{fl}." +
+                       (_avisoLeve.Length > 0 ? "   |   MODO LEVE: " + _avisoLeve : "");
     }
 }

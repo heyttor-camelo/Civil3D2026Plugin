@@ -127,6 +127,9 @@ internal sealed class ProgressoJanela : IProgressoVisor
     {
         WT.Dispatcher disp = WT.Dispatcher.CurrentDispatcher;
         _disp = disp;
+        // A thread do AutoCAD ja pode seguir: um Fechar daqui em diante entra na fila deste
+        // dispatcher e roda quando ele comecar.
+        _pronta.Set();
         const double largura = 460;
 
         var tTitulo = new WC.TextBlock
@@ -210,7 +213,12 @@ internal sealed class ProgressoJanela : IProgressoVisor
         {
             if (_fechado)
             {
+                // Garantia (o pedido de Fechar pode ter chegado antes do dispatcher existir).
                 relogio.Stop();
+                if (janela.IsVisible)
+                    janela.Close();
+                else
+                    disp.BeginInvokeShutdown(WT.DispatcherPriority.Background);
                 return;
             }
             double f = BitConverter.Int64BitsToDouble(Interlocked.Read(ref _fracao));
@@ -234,7 +242,6 @@ internal sealed class ProgressoJanela : IProgressoVisor
             disp.BeginInvokeShutdown(WT.DispatcherPriority.Background);
         };
         relogio.Start();
-        _pronta.Set();
         WT.Dispatcher.Run();
     }
 
