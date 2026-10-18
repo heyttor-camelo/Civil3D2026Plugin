@@ -271,6 +271,7 @@ internal sealed class SecaoPanel : SW.Window
 
     private SecaoPanel()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "Secao");
         Title = "Secao - Visualizador";
         Width = 1100;
         Height = 760;

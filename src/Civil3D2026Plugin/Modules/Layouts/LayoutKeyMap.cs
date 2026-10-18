@@ -377,7 +377,7 @@ internal static class LayoutKeyMap
         {
             btr = (BlockTableRecord)tr.GetObject(bt[Bloco], OpenMode.ForWrite);
             foreach (ObjectId id in btr)
-                tr.GetObject(id, OpenMode.ForWrite).Erase();
+                tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
         }
         else
         {
@@ -665,8 +665,7 @@ internal static class LayoutKeyMap
             using ResultBuffer? rb = e.GetXDataForApplication(App);
             if (rb is null)
                 continue;
-            e.UpgradeOpen();
-            e.Erase();
+            tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
             n++;
         }
         return n;
@@ -784,10 +783,12 @@ internal static class KeyMapSync
         try
         {
             _gerando = true;
-            LayoutKeyMap.Gerar(doc, reconstruirBase: false);
+            using (Civil3D2026Plugin.Infrastructure.PluginLog.Medir("Layouts", "Mapa-chave automatico"))
+                LayoutKeyMap.Gerar(doc, reconstruirBase: false);
         }
         catch (System.Exception ex)
         {
+            Civil3D2026Plugin.Infrastructure.PluginLog.Erro("Layouts", "Mapa-chave: atualizacao automatica falhou", ex);
             doc.Editor.WriteMessage($"\n[Mapa-chave] Atualizacao automatica falhou: {ex.Message}");
         }
         finally

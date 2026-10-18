@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
+using Civil3D2026Plugin.Infrastructure;
 using Civil3D2026Plugin.UI.Common;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
@@ -51,13 +52,10 @@ internal sealed partial class LayoutPanel : SW.Window
     private List<string>? _estilos;
     private KeyMapConfig _kmCfg = new();
     private List<KeyMapSheet> _kmResumo = new();
-    private List<ViewFrameItem> _vfs = new();
-    private readonly HashSet<ObjectId> _vfsMarcados = new();
     private readonly TextFilter _filtro = new();
     private List<SheetText2> _textos = new();
     private readonly HashSet<ObjectId> _textosMarcados = new();
     private readonly NumberingRule _regra = new();
-    private Dictionary<ObjectId, ViewFrameLink> _vinculos = new();
     private readonly SheetBlockOptions _prancha = SheetBlockOptions.Carregar();
     private readonly HashSet<Document> _docsLigados = new();
     private readonly Dictionary<string, string> _valoresCarimbo = new(StringComparer.OrdinalIgnoreCase);
@@ -143,8 +141,7 @@ internal sealed partial class LayoutPanel : SW.Window
         ("NUMERACAO", "numero", "Numeracao"),
         ("LAYERSTATE", "camadas", "Layer state"),
         ("CARIMBO", "bloco", "Carimbo"),
-        ("MAPACHAVE", "mapa", "Mapa-chave"),
-        ("VIEWFRAMES", "viewframe", "View frames")
+        ("MAPACHAVE", "mapa", "Mapa-chave")
     };
 
     private sealed record Cmd(string Key, string Icon, string Title, string Group, string Description, string[] Steps, Action<LayoutPanel> Run);
@@ -161,9 +158,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("DIR", "direita", "Mover para a direita", "Layouts",
             "Move os layouts marcados uma aba para a direita.", new[] { "Marque os layouts." }, p => p.Executar(() => LayoutOps.Mover(p.Doc!, p.Marcados(), +1))),
         new("ORDENAR", "ordenar", "Ordenar pelo nome", "Layouts",
-            "Ordena todas as abas pelo nome (PR-2 antes de PR-10).", new[] { "Sem perguntas." }, p => p.Executar(() => LayoutOps.OrdenarPorNome(p.Doc!))),
+            "Ordena todas as abas pelo nome (PR-2 antes de PR-10) e confere a ordem gravada (o que aconteceu fica no log).", new[] { "Sem perguntas." }, p => p.Executar(() => LayoutOps.OrdenarPorNome(p.Doc!))),
         new("COPIAR", "copiar", "Copiar layouts", "Layouts",
-            "Copia os layouts marcados; a copia fica logo depois do original.", new[] { "Marque os layouts." }, p => p.Executar(() => LayoutOps.Copiar(p.Doc!, p.Marcados()))),
+            "Copia os layouts marcados; a copia fica logo depois do original.", new[] { "Marque os layouts." }, p => p.ExecutarLongo("Copiando layouts", () => LayoutOps.Copiar(p.Doc!, p.Marcados()))),
         new("EXCLUIR", "excluir", "Excluir layouts", "Layouts",
             "Exclui os layouts marcados (pede confirmacao).", new[] { "Marque os layouts." }, p => p.Excluir()),
         new("TRAVAR", "travar", "Travar viewports", "Viewports",
@@ -206,7 +203,7 @@ internal sealed partial class LayoutPanel : SW.Window
             new[] { "Clique os dois cantos no papel." }, p => p.Enviar(C3DCommands.Layouts.MapaChave + " Area")),
         new("MCGERAR", "atualizar", "Gerar mapa-chave", "Mapa-chave",
             "Refaz o mapa-chave em todos os layouts: base, contorno e numero de cada folha e hachura da folha atual.",
-            new[] { "Sem perguntas." }, p => p.Executar(() => LayoutKeyMap.Gerar(p.Doc!, true))),
+            new[] { "Sem perguntas." }, p => p.ExecutarLongo("Mapa-chave", () => LayoutKeyMap.Gerar(p.Doc!, true))),
         new("PPGERAR", "prancha", "Pranchas do eixo", "Pranchas do eixo",
             "Gera frames ao longo de um eixo no tamanho da viewport de planta do layout modelo, uma prancha por frame e um perfil por folha no tamanho da viewport de perfil.",
             new[] { "1. Escolha o layout modelo e as viewports de planta e perfil.", "2. Escolha o eixo.", "3. Estilo do perfil.", "4. Nome das pranchas e Gerar." }, p => p.SelectCategory("PRANCHAS", "Gerar")),
@@ -215,14 +212,6 @@ internal sealed partial class LayoutPanel : SW.Window
             new[] { "Mova, gire ou estique os frames no Model e clique aqui (ou deixe o automatico ligado)." }, p => p.AtualizarTodasSeries()),
         new("PPZOOM", "viewframe", "Zoom no frame da folha", "Pranchas do eixo",
             "Mostra no Model o frame da folha selecionada.", new[] { "Selecione a folha na categoria Pranchas do eixo." }, p => p.ZoomFrame(null)),
-        new("VFZOOM", "viewframe", "Zoom no view frame", "View frames",
-            "Mostra no Model o view frame ou match line selecionado.", new[] { "Selecione na categoria View frames." }, p => p.ZoomViewFrame()),
-        new("VFROTULOS", "ligar", "Rotulos dos view frames", "View frames",
-            "Liga os rotulos dos frames/match lines marcados (Shift: desliga).",
-            new[] { "Marque na categoria View frames." }, p => p.RotulosVf(!(WI.Keyboard.Modifiers.HasFlag(WI.ModifierKeys.Shift)))),
-        new("VFATUALIZAR", "atualizar", "Alinhar viewports aos view frames", "View frames",
-            "Planta: centro, giro e tamanho pelo frame na escala atual. Perfil: intervalo de estacas do frame no profile view, alinhado pelo inicio.",
-            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.AtualizarViewFrames()),
         new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
             "Le os layouts do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh())
     };
@@ -329,9 +318,23 @@ internal sealed partial class LayoutPanel : SW.Window
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == WI.Key.Escape)
+            {
                 Close();
+            }
+            else if (e.Key == WI.Key.L && WI.Keyboard.Modifiers == (WI.ModifierKeys.Control | WI.ModifierKeys.Shift))
+            {
+                // Aba escondida com o log (para copiar e mandar).
+                _mostrarLog = !_mostrarLog;
+                if (_mostrarLog)
+                    _tab = "Log";
+                BuildTabs();
+                e.Handled = true;
+            }
         };
     }
+
+    /// <summary>Aba Log visivel (Ctrl+Shift+L).</summary>
+    private bool _mostrarLog;
 
     private Document? Doc => AcApp.DocumentManager.MdiActiveDocument;
 
@@ -534,163 +537,8 @@ internal sealed partial class LayoutPanel : SW.Window
         item.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, rowTemplate));
         Resources[typeof(WC.ListViewItem)] = item;
 
-        // Botao com modelo proprio (o hover padrao apaga o texto no tema escuro).
-        SW.Style button = new(typeof(WC.Button));
-        button.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Hover));
-        button.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        button.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
-        button.Setters.Add(new SW.Setter(WC.Control.BorderThicknessProperty, new SW.Thickness(1)));
-        button.Setters.Add(new SW.Setter(WC.Control.HorizontalContentAlignmentProperty, SW.HorizontalAlignment.Center));
-        button.Setters.Add(new SW.Setter(WC.Control.VerticalContentAlignmentProperty, SW.VerticalAlignment.Center));
-        SW.FrameworkElementFactory bbd = new(typeof(WC.Border), "Bd");
-        bbd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
-        bbd.SetValue(WC.Border.BorderBrushProperty, new SW.TemplateBindingExtension(WC.Control.BorderBrushProperty));
-        bbd.SetValue(WC.Border.BorderThicknessProperty, new SW.TemplateBindingExtension(WC.Control.BorderThicknessProperty));
-        bbd.SetValue(WC.Border.PaddingProperty, new SW.TemplateBindingExtension(WC.Control.PaddingProperty));
-        bbd.SetValue(WC.Border.SnapsToDevicePixelsProperty, true);
-        SW.FrameworkElementFactory bcp = new(typeof(WC.ContentPresenter));
-        bcp.SetValue(SW.FrameworkElement.HorizontalAlignmentProperty, new SW.TemplateBindingExtension(WC.Control.HorizontalContentAlignmentProperty));
-        bcp.SetValue(SW.FrameworkElement.VerticalAlignmentProperty, new SW.TemplateBindingExtension(WC.Control.VerticalContentAlignmentProperty));
-        bbd.AppendChild(bcp);
-        WC.ControlTemplate buttonTemplate = new(typeof(WC.Button)) { VisualTree = bbd };
-        SW.Trigger bHover = new() { Property = SW.UIElement.IsMouseOverProperty, Value = true };
-        bHover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
-        buttonTemplate.Triggers.Add(bHover);
-        SW.Trigger bPressed = new() { Property = WC.Primitives.ButtonBase.IsPressedProperty, Value = true };
-        bPressed.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Line, "Bd"));
-        buttonTemplate.Triggers.Add(bPressed);
-        SW.Trigger bDisabled = new() { Property = SW.UIElement.IsEnabledProperty, Value = false };
-        bDisabled.Setters.Add(new SW.Setter(SW.UIElement.OpacityProperty, 0.45));
-        buttonTemplate.Triggers.Add(bDisabled);
-        button.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, buttonTemplate));
-        Resources[typeof(WC.Button)] = button;
-
-        SW.Style check = new(typeof(WC.CheckBox));
-        check.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        Resources[typeof(WC.CheckBox)] = check;
-
-        SW.Style text = new(typeof(WC.TextBox));
-        text.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Input));
-        text.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        text.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
-        text.Setters.Add(new SW.Setter(WC.TextBox.CaretBrushProperty, T.Text));
-        text.Setters.Add(new SW.Setter(WC.Control.PaddingProperty, new SW.Thickness(3, 1, 3, 1)));
-        Resources[typeof(WC.TextBox)] = text;
-
-        SW.Style combo = new(typeof(WC.ComboBox));
-        combo.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        combo.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Input));
-        combo.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
-        combo.Setters.Add(new SW.Setter(WC.Control.MinHeightProperty, 22.0));
-        // O ComboBox do tema do Windows (Aero2) ignora Background: caixa clara com texto claro no
-        // tema escuro. Template proprio para editavel e nao editavel.
-        WC.ControlTemplate? comboTemplate = ComboTemplate();
-        if (comboTemplate is not null)
-            combo.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, comboTemplate));
-        Resources[typeof(WC.ComboBox)] = combo;
-
-        // A lista suspensa do ComboBox usa as cores de sistema "Window": redefinidas aqui para o tema.
-        Resources[SW.SystemColors.WindowBrushKey] = T.Pane;
-        Resources[SW.SystemColors.WindowFrameBrushKey] = T.Line;
-        Resources[SW.SystemColors.WindowTextBrushKey] = T.Text;
-        Resources[SW.SystemColors.HighlightBrushKey] = T.Selected;
-        Resources[SW.SystemColors.HighlightTextBrushKey] = T.Text;
-        Resources[SW.SystemColors.ControlBrushKey] = T.Back;
-        Resources[SW.SystemColors.ControlTextBrushKey] = T.Text;
-
-        SW.Style comboItem = new(typeof(WC.ComboBoxItem));
-        comboItem.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        comboItem.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Pane));
-        comboItem.Setters.Add(new SW.Setter(WC.Control.PaddingProperty, new SW.Thickness(6, 3, 6, 3)));
-        SW.FrameworkElementFactory cbd = new(typeof(WC.Border), "Bd");
-        cbd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
-        cbd.SetValue(WC.Border.PaddingProperty, new SW.TemplateBindingExtension(WC.Control.PaddingProperty));
-        cbd.SetValue(WC.Border.SnapsToDevicePixelsProperty, true);
-        cbd.AppendChild(new SW.FrameworkElementFactory(typeof(WC.ContentPresenter)));
-        WC.ControlTemplate comboItemTemplate = new(typeof(WC.ComboBoxItem)) { VisualTree = cbd };
-        SW.Trigger ciHover = new() { Property = SW.UIElement.IsMouseOverProperty, Value = true };
-        ciHover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Hover, "Bd"));
-        comboItemTemplate.Triggers.Add(ciHover);
-        SW.Trigger ciSel = new() { Property = WC.ComboBoxItem.IsSelectedProperty, Value = true };
-        ciSel.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
-        comboItemTemplate.Triggers.Add(ciSel);
-        comboItem.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, comboItemTemplate));
-        Resources[typeof(WC.ComboBoxItem)] = comboItem;
-
-        SW.Style radio = new(typeof(WC.RadioButton));
-        radio.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
-        Resources[typeof(WC.RadioButton)] = radio;
-    }
-
-    private static string Hex(WM.Brush b) =>
-        b is WM.SolidColorBrush sc ? $"#{sc.Color.A:X2}{sc.Color.R:X2}{sc.Color.G:X2}{sc.Color.B:X2}" : "#FF808080";
-
-    private WC.ControlTemplate? ComboTemplate()
-    {
-        string xaml = @"
-<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
-                 xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ComboBox'>
-  <Grid SnapsToDevicePixels='True'>
-    <ToggleButton x:Name='Toggle' Focusable='False' ClickMode='Press'
-                  IsChecked='{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}'>
-      <ToggleButton.Template>
-        <ControlTemplate TargetType='ToggleButton'>
-          <Border x:Name='Bd' Background='{INPUT}' BorderBrush='{LINE}' BorderThickness='1'>
-            <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,7,0'
-                  Data='M 0 0 L 4 4 L 8 0' Stroke='{TEXT}' StrokeThickness='1.4'/>
-          </Border>
-          <ControlTemplate.Triggers>
-            <Trigger Property='IsMouseOver' Value='True'>
-              <Setter TargetName='Bd' Property='BorderBrush' Value='{ACCENT}'/>
-            </Trigger>
-            <Trigger Property='IsChecked' Value='True'>
-              <Setter TargetName='Bd' Property='BorderBrush' Value='{ACCENT}'/>
-            </Trigger>
-          </ControlTemplate.Triggers>
-        </ControlTemplate>
-      </ToggleButton.Template>
-    </ToggleButton>
-    <ContentPresenter x:Name='Conteudo' IsHitTestVisible='False' Margin='6,2,24,2'
-                      VerticalAlignment='Center' HorizontalAlignment='Left'
-                      Content='{TemplateBinding SelectionBoxItem}'
-                      ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}'
-                      ContentTemplateSelector='{TemplateBinding ItemTemplateSelector}'
-                      TextElement.Foreground='{TEXT}'/>
-    <TextBox x:Name='PART_EditableTextBox' Visibility='Hidden' Margin='1,1,22,1' Padding='4,1,2,1'
-             Background='{INPUT}' Foreground='{TEXT}' CaretBrush='{TEXT}' BorderThickness='0'
-             VerticalContentAlignment='Center' IsReadOnly='{TemplateBinding IsReadOnly}'/>
-    <Popup x:Name='PART_Popup' Placement='Bottom' AllowsTransparency='True' Focusable='False'
-           PopupAnimation='None' IsOpen='{TemplateBinding IsDropDownOpen}'>
-      <Border Background='{PANE}' BorderBrush='{LINE}' BorderThickness='1'
-              MinWidth='{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}'
-              MaxHeight='{TemplateBinding MaxDropDownHeight}'>
-        <ScrollViewer SnapsToDevicePixels='True' CanContentScroll='True'>
-          <ItemsPresenter KeyboardNavigation.DirectionalNavigation='Contained'/>
-        </ScrollViewer>
-      </Border>
-    </Popup>
-  </Grid>
-  <ControlTemplate.Triggers>
-    <Trigger Property='IsEditable' Value='True'>
-      <Setter TargetName='PART_EditableTextBox' Property='Visibility' Value='Visible'/>
-      <Setter TargetName='Conteudo' Property='Visibility' Value='Hidden'/>
-    </Trigger>
-    <Trigger Property='IsEnabled' Value='False'>
-      <Setter Property='Opacity' Value='0.5'/>
-    </Trigger>
-  </ControlTemplate.Triggers>
-</ControlTemplate>"
-            .Replace("{INPUT}", Hex(T.Input)).Replace("{LINE}", Hex(T.Line)).Replace("{TEXT}", Hex(T.Text))
-            .Replace("{ACCENT}", Hex(T.Accent)).Replace("{PANE}", Hex(T.Pane));
-        try
-        {
-            return (WC.ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
-        }
-        catch (System.Exception)
-        {
-            // Se o XAML falhar, fica o template do Windows (com as cores de sistema ja trocadas).
-            return null;
-        }
+        // Botoes, caixas de texto, checkboxes e ComboBox no tema (comum a todas as janelas do plugin).
+        ToolStyles.Aplicar(Resources, T);
     }
 
     private void BuildCommandBar()
@@ -715,7 +563,11 @@ internal sealed partial class LayoutPanel : SW.Window
                 WC.ToolTipService.SetInitialShowDelay(button, 250);
                 WC.ToolTipService.SetShowDuration(button, 30000);
                 Cmd c = cmd;
-                button.Click += (_, _) => c.Run(this);
+                button.Click += (_, _) =>
+                {
+                    PluginLog.Info("Layouts", $"Botao: {c.Title} (categoria {_category})");
+                    c.Run(this);
+                };
                 _commandBar.Children.Add(button);
             }
         }
@@ -772,7 +624,13 @@ internal sealed partial class LayoutPanel : SW.Window
         return img;
     }
 
-    private void Say(string text) => _status.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + text;
+    private void Say(string text)
+    {
+        MostrarStatus(text);
+        PluginLog.Info("Layouts", text);
+    }
+
+    private void MostrarStatus(string text) => _status.Text = DateTime.Now.ToString("HH:mm", CultureInfo.InvariantCulture) + "  " + text;
 
     // ------------------------------------------------------------------
     // Dados
@@ -790,20 +648,20 @@ internal sealed partial class LayoutPanel : SW.Window
         try
         {
             Database db = doc.Database;
-            _folhas = LayoutReader.LerLayouts(db);
+            using (PluginLog.Medir("Layouts", "Leitura dos layouts para o painel"))
+                _folhas = LayoutReader.LerLayouts(db);
             _states = LayoutReader.LerLayerStates(db);
             _blocos = LayoutStamp.LerBlocos(db);
             _escalas = LayoutOps.EscalasDoDesenho(db);
             _pageSetups = LayoutPageSetup.Ler(db);
             _kmCfg = LayoutKeyMap.Ler(db);
             _kmResumo = LayoutKeyMap.Resumo(db);
-            _vfs = LayoutViewFrames.Ler(db, _folhas.Select(f => f.Nome).ToList());
-            _vinculos = LayoutViewFrameSync.LerVinculos(db);
             _textos = LayoutNumbering.Buscar(db, _filtro);
         }
         catch (System.Exception ex)
         {
             Say("Erro ao ler os layouts: " + ex.Message);
+            PluginLog.Erro("Layouts", "Leitura do painel", ex);
             return;
         }
 
@@ -818,7 +676,6 @@ internal sealed partial class LayoutPanel : SW.Window
         }
 
         LigarDocumento(doc);
-        _vfsMarcados.RemoveWhere(id => !_vfs.Any(v => v.Id == id));
         _textosMarcados.RemoveWhere(id => !_textos.Any(t => t.Id == id));
         if (_pageSetup is not null && !_pageSetups.Any(p => p.Nome == _pageSetup))
             _pageSetup = null;
@@ -856,7 +713,6 @@ internal sealed partial class LayoutPanel : SW.Window
         "CARIMBO" => _blocos.Count,
         "PAGESETUP" => _pageSetups.Count,
         "MAPACHAVE" => _kmResumo.Count(r => r.Regioes > 0),
-        "VIEWFRAMES" => _vfs.Count,
         "PRANCHAS" => _framesPP.Count,
         _ => -1
     };
@@ -1013,25 +869,12 @@ internal sealed partial class LayoutPanel : SW.Window
                     {
                         f.LayoutNome.Length > 0 ? f.LayoutNome : "(sem layout)",
                         f.EixoNome,
-                        LayoutViewFrames.Estaca(f.E0),
-                        LayoutViewFrames.Estaca(f.E1),
+                        LayoutSheetSeries.Estaca(f.E0),
+                        LayoutSheetSeries.Estaca(f.E1),
                         f.Extensao.ToString("0.##", CultureInfo.InvariantCulture),
                         f.PerfilNome.Length > 0 ? f.PerfilNome : "-",
                         f.Situacao
                     }
-                }).ToList();
-                break;
-
-            case "VIEWFRAMES":
-                headers = new[] { "View frame", "Eixo", "Estaca inicial", "Estaca final", "Layout", "Viewports vinculadas" };
-                widths = new[] { 170.0, 130, 85, 85, 120, 140 };
-                comCheck = true;
-                rows = _vfs.Where(v => Match(v.Nome) || Match(v.Eixo) || Match(v.Grupo) || Match(v.Layout)).Select(v => new Row
-                {
-                    Icon = v.Tipo == "Frame" ? "viewframe" : "quebrar",
-                    Data = v,
-                    Checked = _vfsMarcados.Contains(v.Id),
-                    Cells = new[] { v.Nome, v.Eixo, LayoutViewFrames.Estaca(v.EstacaInicio), LayoutViewFrames.Estaca(v.EstacaFim), v.Layout, VinculosTexto(v) }
                 }).ToList();
                 break;
 
@@ -1145,9 +988,6 @@ internal sealed partial class LayoutPanel : SW.Window
                 if (marcar) _vpsMarcadas.Add(v.Id); else _vpsMarcadas.Remove(v.Id);
                 AtualizarViewports();
                 break;
-            case ViewFrameItem vf:
-                if (marcar) _vfsMarcados.Add(vf.Id); else _vfsMarcados.Remove(vf.Id);
-                break;
             case SheetText2 tx:
                 if (marcar) _textosMarcados.Add(tx.Id); else _textosMarcados.Remove(tx.Id);
                 break;
@@ -1183,9 +1023,6 @@ internal sealed partial class LayoutPanel : SW.Window
                 _bloco = b.Nome;
                 _valoresCarimbo.Clear();
                 break;
-            case ViewFrameItem vf when vf.Layout.Length > 0:
-                MostrarFolha(_folhas.FirstOrDefault(f => f.Nome == vf.Layout));
-                break;
             case SheetText2 tx:
                 MostrarFolha(_folhas.FirstOrDefault(f => f.Nome == tx.Layout));
                 break;
@@ -1207,9 +1044,6 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             case SheetData f:
                 Abrir(f.Nome);
-                break;
-            case ViewFrameItem:
-                ZoomViewFrame();
                 break;
             case SheetFrameInfo fr:
                 ZoomFrame(fr);
@@ -1691,9 +1525,6 @@ internal sealed partial class LayoutPanel : SW.Window
             case "MAPACHAVE":
                 tabs.Insert(0, ("MapaChave", "Mapa-chave", BuildKeyMap));
                 break;
-            case "VIEWFRAMES":
-                tabs.Insert(0, ("ViewFrames", "View frames", BuildViewFrames));
-                break;
             case "PRANCHAS":
                 tabs.Clear();
                 tabs.Add(("Gerar", "Plan & Profile", BuildSheetSeries));
@@ -1701,6 +1532,8 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
         }
 
+        if (_mostrarLog)
+            tabs.Add(("Log", "Log", () => LogView.Criar(T, "Layouts")));
         if (!tabs.Any(t => t.Key == _tab))
             _tab = tabs[0].Key;
 
@@ -1726,7 +1559,9 @@ internal sealed partial class LayoutPanel : SW.Window
             };
             _tabStrip.Children.Add(tab);
             if (active)
-                _tabContent.Content = new WC.ScrollViewer { Content = build(), VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto };
+                _tabContent.Content = key == "Log"
+                    ? build()
+                    : new WC.ScrollViewer { Content = build(), VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto };
         }
     }
 
@@ -1807,21 +1642,6 @@ internal sealed partial class LayoutPanel : SW.Window
                     acoesTx.Children.Add(ActionButton("Desmarcar", () => MarcarTextos("", new[] { tx.Id })));
                 p.Children.Add(acoesTx);
                 p.Children.Add(ActionButton("Editar texto", () => { _tab = "Editar"; BuildTabs(); }));
-                break;
-            case ViewFrameItem vf:
-                p.Children.Add(Label(vf.Nome, true));
-                p.Children.Add(Prop("Tipo", vf.Tipo));
-                p.Children.Add(Prop("Grupo", vf.Grupo));
-                p.Children.Add(Prop("Eixo", vf.Eixo));
-                p.Children.Add(Prop(vf.Tipo == "Frame" ? "Estacas" : "Estaca",
-                    vf.Tipo == "Frame" ? $"{LayoutViewFrames.Estaca(vf.EstacaInicio)} a {LayoutViewFrames.Estaca(vf.EstacaFim)} ({vf.EstacaInicio:0.00} a {vf.EstacaFim:0.00} m)"
-                                       : $"{LayoutViewFrames.Estaca(vf.EstacaInicio)} ({vf.EstacaInicio:0.00} m)"));
-                p.Children.Add(Prop("Rotulo", vf.RotuloVisivel ? "visivel" : "oculto"));
-                if (vf.Folha.Length > 0)
-                    p.Children.Add(Prop("Folha (Civil)", vf.Folha));
-                if (vf.Layout.Length > 0)
-                    p.Children.Add(ActionButton($"Abrir layout {vf.Layout}", () => Abrir(vf.Layout)));
-                p.Children.Add(ActionButton("Zoom no Model", ZoomViewFrame));
                 break;
             case StampBlock b:
                 p.Children.Add(Label(b.Nome, true));
@@ -2291,7 +2111,7 @@ internal sealed partial class LayoutPanel : SW.Window
             Say("Marque os layouts que devem ser numerados.");
             return;
         }
-        Executar(() => LayoutNumbering.Numerar(Doc!, _regra));
+        ExecutarLongo("Numerando as pranchas", () => LayoutNumbering.Numerar(Doc!, _regra));
     }
 
     /// <summary>Opcoes de prancha atuais (para o comando C3DPRANCHA).</summary>
@@ -2300,31 +2120,75 @@ internal sealed partial class LayoutPanel : SW.Window
     private SW.UIElement BuildViewportPower()
     {
         WC.StackPanel p = Form();
-        int desligadas = 0;
-        try { if (Doc is not null) desligadas = LayoutViewportPower.Desligadas(Doc.Database); } catch (System.Exception) { }
-        p.Children.Add(Label("Modo leve: viewports desligadas enquanto se monta a prancha", true));
-        p.Children.Add(Label("Trocar de layout com viewports ligadas obriga o AutoCAD a regenerar o Model em cada uma (corredores, superficies). " +
-            "Aqui as viewports sao desligadas e marcadas (XData C3D_VPOFF); \"Religar\" liga de volta exatamente essas, sem mexer nas que voce mesmo desligou. " +
-            "Quase tudo deste painel funciona com as viewports desligadas (numeracao, prancha, page setup, escala, vinculo com view frames)."));
-        p.Children.Add(Prop("Desligadas pelo plugin", desligadas.ToString()));
+        int desligadas = 0, layersLeve = 0, labelsLeve = 0;
+        try
+        {
+            if (Doc is not null)
+            {
+                desligadas = LayoutViewportPower.Desligadas(Doc.Database);
+                (layersLeve, labelsLeve) = LayoutViewportPower.Aliviados(Doc.Database);
+            }
+        }
+        catch (System.Exception)
+        {
+        }
+        var titulo = Label("Modo leve: viewports desligadas enquanto se monta a prancha", true);
+        titulo.ToolTip = "Trocar de layout com viewports ligadas obriga o AutoCAD a regenerar o Model em cada uma (corredores, superficies). " +
+                         "As viewports sao desligadas e marcadas (XData C3D_VPOFF); Religar liga de volta exatamente essas, sem mexer nas que voce mesmo desligou. " +
+                         "Quase tudo deste painel funciona com as viewports desligadas (numeracao, prancha, page setup, escala, pranchas do eixo).";
+        p.Children.Add(titulo);
+        p.Children.Add(Prop("Desligadas pelo plugin", desligadas.ToString(CultureInfo.InvariantCulture) +
+                                                      (layersLeve + labelsLeve > 0 ? $"   |   Model: {layersLeve} layer(s) congelada(s), {labelsLeve} label(s) oculta(s)" : "")));
 
         var botoes = new WC.WrapPanel();
-        botoes.Children.Add(ActionButton("Desligar todas (menos o layout aberto)", () => Executar(() => LayoutViewportPower.Desligar(Doc!, null, poupaAtual: true))));
-        botoes.Children.Add(ActionButton("Desligar nos layouts marcados", () => Executar(() => LayoutViewportPower.Desligar(Doc!, Marcados(), poupaAtual: false))));
-        botoes.Children.Add(ActionButton("Religar todas", () => Executar(() => LayoutViewportPower.Religar(Doc!, null))));
-        botoes.Children.Add(ActionButton("Religar nos layouts marcados", () => Executar(() => LayoutViewportPower.Religar(Doc!, Marcados()))));
+        WC.Button Botao(string texto, string dica, Func<OpResult> op)
+        {
+            WC.Button b = ActionButton(texto, () => ExecutarLongo("Modo leve", op));
+            b.ToolTip = dica;
+            botoes.Children.Add(b);
+            return b;
+        }
+        Botao("Desligar todas (menos o layout aberto)", "Desliga as viewports de todos os layouts menos o aberto; com as opcoes abaixo, tambem congela as layers e oculta as labels do Civil.",
+            () => LayoutViewportPower.Desligar(Doc!, null, poupaAtual: true));
+        Botao("Desligar nos layouts marcados", "Desliga as viewports so dos layouts marcados (e aplica as opcoes abaixo).",
+            () => LayoutViewportPower.Desligar(Doc!, Marcados(), poupaAtual: false));
+        Botao("Religar todas", "Religa as viewports que o plugin desligou e desfaz as opcoes abaixo (descongela as layers e mostra as labels que o plugin escondeu).",
+            () => LayoutViewportPower.Religar(Doc!, null));
+        Botao("Religar nos layouts marcados", "Religa as viewports dos layouts marcados; layers e labels voltam quando nao sobrar viewport desligada pelo plugin.",
+            () => LayoutViewportPower.Religar(Doc!, Marcados()));
         p.Children.Add(botoes);
+
+        // Model mais leve (junto com o desligar).
+        var lbModel = Label("Ao desligar, deixar o Model mais leve", true);
+        lbModel.ToolTip = "Vale para os botoes Desligar; Religar todas desfaz. O plugin marca o que mudou (XData C3D_LEVE) e so desfaz isso: o que voce congelou ou ocultou continua como estava.";
+        p.Children.Add(lbModel);
+        var chLayers = new WC.CheckBox { Content = "Congelar as layers:", IsChecked = LayoutViewportPower.CongelarLayers, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 8, 0) };
+        chLayers.ToolTip = "Freeze das layers da lista (a layer atual nao pode ser congelada). Ex.: F-VT-NOTAVEL.";
+        var tbLayers = new WC.TextBox { Width = 240, Text = LayoutViewportPower.Layers, VerticalContentAlignment = SW.VerticalAlignment.Center };
+        tbLayers.ToolTip = "Nomes separados por virgula; aceita * e ? (ex.: F-VT-NOTAVEL, C-TOPO-*).";
+        chLayers.Click += (_, _) => LayoutViewportPower.CongelarLayers = chLayers.IsChecked == true;
+        tbLayers.TextChanged += (_, _) => LayoutViewportPower.Layers = tbLayers.Text;
+        var linhaLayers = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 4, 0, 0) };
+        linhaLayers.Children.Add(chLayers);
+        linhaLayers.Children.Add(tbLayers);
+        p.Children.Add(linhaLayers);
+        var chLabels = new WC.CheckBox { Content = "Ocultar as labels do Civil 3D (todas, no Model)", IsChecked = LayoutViewportPower.OcultarLabels, Margin = new SW.Thickness(0, 6, 0, 0) };
+        chLabels.ToolTip = "Labels de alignment, profile, superficie, pipe, parcel, etc. (objetos AECC_*LABEL*) ficam invisiveis. Labels dentro do estilo dos pontos (COGO points) nao sao objetos separados e ficam.";
+        chLabels.Click += (_, _) => LayoutViewportPower.OcultarLabels = chLabels.IsChecked == true;
+        p.Children.Add(chLabels);
 
         var auto = new WC.CheckBox
         {
             Content = "Automatico: ao sair de um layout desliga as viewports dele; ao entrar, religa as dele",
             IsChecked = LayoutViewportPower.Automatico,
-            Margin = new SW.Thickness(0, 8, 0, 0)
+            Margin = new SW.Thickness(0, 12, 0, 0),
+            ToolTip = "A regeneracao das viewports acontece ao entrar no layout (no religar): a troca fica rapida mas o custo nao some. " +
+                      "O ganho real vem de manter as viewports desligadas durante a montagem e religar no fim. O automatico nao mexe nas layers nem nas labels."
         };
         auto.Click += (_, _) => { LayoutViewportPower.Automatico = auto.IsChecked == true; Say(auto.IsChecked == true ? "Modo leve automatico ligado." : "Modo leve automatico desligado."); };
         p.Children.Add(auto);
-        p.Children.Add(Label("Observacao: no automatico a regeneracao das viewports acontece ao entrar no layout (no religar), entao a troca em si fica rapida mas o custo nao some. " +
-            "O ganho real vem de manter as viewports desligadas durante a montagem e religar no fim. Alternativa do proprio AutoCAD: LAYOUTREGENCTL = 2 guarda a lista de exibicao de todos os layouts (mais memoria, troca sem regenerar)."));
+        var lbRegen = Label("Alternativa do proprio AutoCAD: LAYOUTREGENCTL = 2 guarda a lista de exibicao de todos os layouts (mais memoria, troca sem regenerar).");
+        p.Children.Add(lbRegen);
         var regen = new WC.WrapPanel { Margin = new SW.Thickness(0, 4, 0, 0) };
         regen.Children.Add(ActionButton("LAYOUTREGENCTL = 2 (guardar todos)", () => Sysvar("LAYOUTREGENCTL", 2)));
         regen.Children.Add(ActionButton("LAYOUTREGENCTL = 1 (padrao)", () => Sysvar("LAYOUTREGENCTL", 1)));
@@ -2440,13 +2304,34 @@ internal sealed partial class LayoutPanel : SW.Window
         try
         {
             OpResult r = op();
-            Say(r.Mensagem);
+            MostrarStatus(r.Mensagem);
+            if (r.Falhas > 0)
+                PluginLog.Aviso("Layouts", r.Mensagem);
+            else
+                PluginLog.Info("Layouts", r.Mensagem);
         }
         catch (System.Exception ex)
         {
-            Say("Erro: " + ex.Message);
+            MostrarStatus("Erro: " + ex.Message + "  (detalhes: Ctrl+Shift+L)");
+            PluginLog.Erro("Layouts", "Erro: " + ex.Message, ex);
         }
+        Progresso.Mostrar("Relendo os layouts para o painel...", double.NaN);
         Refresh();
+    }
+
+    /// <summary>Operacao demorada: janela de progresso (com Cancelar) e cursor de espera enquanto roda.</summary>
+    private void ExecutarLongo(string titulo, Func<OpResult> op)
+    {
+        WI.Mouse.OverrideCursor = WI.Cursors.Wait;
+        try
+        {
+            using (ProgressoJanela.Abrir(titulo, this))
+                Executar(op);
+        }
+        finally
+        {
+            WI.Mouse.OverrideCursor = null;
+        }
     }
 
     private void Abrir()
@@ -2487,7 +2372,7 @@ internal sealed partial class LayoutPanel : SW.Window
         if (r != SW.MessageBoxResult.Yes)
             return;
         _layoutsMarcados.Clear();
-        Executar(() => LayoutOps.Excluir(Doc!, nomes));
+        ExecutarLongo($"Excluindo {nomes.Count} layout(s)", () => LayoutOps.Excluir(Doc!, nomes));
     }
 
     private void AplicarLayerState()
@@ -2580,10 +2465,6 @@ internal sealed partial class LayoutPanel : SW.Window
                     break;
                 case SheetViewport v:
                     if (marcar) _vpsMarcadas.Add(v.Id); else _vpsMarcadas.Remove(v.Id);
-                    algum = true;
-                    break;
-                case ViewFrameItem vf:
-                    if (marcar) _vfsMarcados.Add(vf.Id); else _vfsMarcados.Remove(vf.Id);
                     algum = true;
                     break;
                 case SheetText2 tx:
@@ -2922,169 +2803,6 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(botoes);
         p.Children.Add(Label("Tudo o que o mapa-chave cria fica nas layers MAPA_CHAVE_* e e refeito a cada atualizacao; nao edite esses objetos a mao. A base fica no bloco C3D_MAPACHAVE: \"Salvar e gerar\" refaz o bloco a partir dos objetos do Model."));
         return p;
-    }
-
-    // ------------------------------------------------------------------
-    // View frames
-    // ------------------------------------------------------------------
-
-    private SW.UIElement BuildViewFrames()
-    {
-        WC.StackPanel p = Form();
-        int frames = _vfs.Count(v => v.Tipo == "Frame"), linhas = _vfs.Count - frames;
-        p.Children.Add(Label("View frames do Civil 3D", true));
-        p.Children.Add(Label(_vfs.Count == 0
-            ? "O desenho nao tem view frames. Crie pelo assistente do Civil (Output > Create View Frames); eles aparecem aqui."
-            : $"{frames} frame(s) e {linhas} match line(s) em {_vfs.Select(v => v.Grupo).Distinct().Count()} grupo(s); {_vinculos.Count} viewport(s) vinculada(s). Selecione um para ver o layout ligado; duplo clique faz zoom no Model."));
-
-        p.Children.Add(Label("Vincular e alinhar", true));
-        p.Children.Add(Label("O vinculo fica gravado na viewport. Ao atualizar, a viewport de planta e centrada no frame, girada pela tangente do eixo e redimensionada para o frame na escala atual; " +
-            "a viewport de perfil recebe o intervalo de estacas do frame no profile view e e alinhada pelo inicio (estaca inicial na borda esquerda)."));
-        var girar = new WC.CheckBox { Content = "Girar a viewport de planta pela tangente do eixo", IsChecked = LayoutSettings.GetBool("vf_girar", true), Margin = new SW.Thickness(0, 4, 0, 0) };
-        girar.Click += (_, _) => LayoutSettings.Set("vf_girar", girar.IsChecked == true);
-        p.Children.Add(girar);
-        var botoes = new WC.WrapPanel();
-        botoes.Children.Add(ActionButton("Vincular automaticamente", () => Executar(() => LayoutViewFrameSync.VincularAutomatico(Doc!, _vfs, _folhas))));
-        botoes.Children.Add(ActionButton("Vincular marcados", () => VincularMarcados(girar.IsChecked == true)));
-        botoes.Children.Add(ActionButton("Desvincular", () => Executar(() => LayoutViewFrameSync.Desvincular(Doc!, VpsMarcadas()))));
-        botoes.Children.Add(ActionButton("Atualizar viewports", AtualizarViewFrames));
-        p.Children.Add(botoes);
-        p.Children.Add(Label("Automatico: usa a folha ligada ao frame pelo Civil. Marcados: 1 frame nesta lista + viewports na miniatura; cada viewport vira perfil se mostra um profile view do eixo do frame, senao planta. " +
-            "Atualizar: as viewports marcadas ou, sem marcacao, todas as vinculadas. Rotulos e zoom ficam na barra de comandos."));
-        return p;
-    }
-
-    private void AtualizarViewFrames()
-    {
-        List<ObjectId> marcadas = VpsMarcadas().ToList();
-        Executar(() => LayoutViewFrameSync.Atualizar(Doc!, marcadas.Count > 0 ? marcadas : null, _vfs));
-    }
-
-    private string VinculosTexto(ViewFrameItem v)
-    {
-        var lista = new List<string>();
-        foreach ((ObjectId vpId, ViewFrameLink l) in _vinculos)
-        {
-            if (l.Frame != v.Id || !_vpPorId.TryGetValue(vpId, out SheetViewport? vp))
-                continue;
-            SheetData? f = _folhas.FirstOrDefault(x => x.Viewports.Contains(vp));
-            lista.Add($"{f?.Nome} #{vp.Indice} ({(l.Perfil ? "perfil" : "planta")})");
-        }
-        return string.Join("; ", lista);
-    }
-
-    private void VincularMarcados(bool girar)
-    {
-        List<ViewFrameItem> frames = _vfs.Where(v => v.Tipo == "Frame" && _vfsMarcados.Contains(v.Id)).ToList();
-        if (frames.Count != 1)
-        {
-            Say("Marque exatamente um view frame na lista.");
-            return;
-        }
-        if (_vpsMarcadas.Count == 0)
-        {
-            Say("Marque as viewports na miniatura.");
-            return;
-        }
-        if (Doc is not Document doc)
-            return;
-        Executar(() =>
-        {
-            int planta = 0, perfil = 0;
-            foreach (ObjectId vpId in _vpsMarcadas)
-            {
-                ObjectId pv = ProfileViewNaViewport(doc, vpId);
-                if (pv.IsNull)
-                {
-                    planta += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, false, ObjectId.Null, girar).Ok;
-                }
-                else
-                {
-                    perfil += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, true, pv, false).Ok;
-                }
-            }
-            return new OpResult(planta + perfil, 0, $"{planta} viewport(s) de planta e {perfil} de perfil vinculada(s) a {frames[0].Nome}.");
-        });
-    }
-
-    /// <summary>Profile view que mais aparece na viewport (maior area em comum com a regiao dela no Model).</summary>
-    private static ObjectId ProfileViewNaViewport(Document doc, ObjectId vpId)
-    {
-        try
-        {
-            Database db = doc.Database;
-            List<ObjectId> ids = LayoutSheetSeries.ProfileViewsDoDesenho(db).Select(p => p.Id).ToList();
-            using Transaction tr = db.TransactionManager.StartTransaction();
-            if (tr.GetObject(vpId, OpenMode.ForRead) is not Viewport vp || vp.CustomScale <= 0)
-                return ObjectId.Null;
-            Autodesk.AutoCAD.Geometry.Matrix3d dcs2wcs =
-                Autodesk.AutoCAD.Geometry.Matrix3d.Rotation(-vp.TwistAngle, vp.ViewDirection, vp.ViewTarget) *
-                Autodesk.AutoCAD.Geometry.Matrix3d.Displacement(vp.ViewTarget - Autodesk.AutoCAD.Geometry.Point3d.Origin) *
-                Autodesk.AutoCAD.Geometry.Matrix3d.PlaneToWorld(vp.ViewDirection);
-            Autodesk.AutoCAD.Geometry.Matrix3d wcs2dcs = dcs2wcs.Inverse();
-            double hw = vp.Width / vp.CustomScale / 2, hh = vp.Height / vp.CustomScale / 2;
-            double x0 = vp.ViewCenter.X - hw, x1 = vp.ViewCenter.X + hw, y0 = vp.ViewCenter.Y - hh, y1 = vp.ViewCenter.Y + hh;
-            ObjectId melhor = ObjectId.Null;
-            double melhorArea = 0;
-            foreach (ObjectId id in ids)
-            {
-                if (tr.GetObject(id, OpenMode.ForRead) is not Entity e)
-                    continue;
-                Extents3d ext;
-                try
-                {
-                    ext = e.GeometricExtents;
-                }
-                catch (Autodesk.AutoCAD.Runtime.Exception)
-                {
-                    continue;
-                }
-                var cantos = new[]
-                {
-                    new Autodesk.AutoCAD.Geometry.Point3d(ext.MinPoint.X, ext.MinPoint.Y, 0), new Autodesk.AutoCAD.Geometry.Point3d(ext.MaxPoint.X, ext.MinPoint.Y, 0),
-                    new Autodesk.AutoCAD.Geometry.Point3d(ext.MaxPoint.X, ext.MaxPoint.Y, 0), new Autodesk.AutoCAD.Geometry.Point3d(ext.MinPoint.X, ext.MaxPoint.Y, 0)
-                }.Select(q => q.TransformBy(wcs2dcs)).ToArray();
-                double ax0 = cantos.Min(q => q.X), ax1 = cantos.Max(q => q.X), ay0 = cantos.Min(q => q.Y), ay1 = cantos.Max(q => q.Y);
-                double area = Math.Max(0, Math.Min(x1, ax1) - Math.Max(x0, ax0)) * Math.Max(0, Math.Min(y1, ay1) - Math.Max(y0, ay0));
-                if (area > melhorArea)
-                {
-                    melhorArea = area;
-                    melhor = id;
-                }
-            }
-            tr.Commit();
-            return melhor;
-        }
-        catch (System.Exception)
-        {
-        }
-        return ObjectId.Null;
-    }
-
-    private void RotulosVf(bool ligar)
-    {
-        if (_vfsMarcados.Count == 0)
-        {
-            Say("Marque os view frames ou match lines na lista.");
-            return;
-        }
-        Executar(() => LayoutViewFrames.Rotulos(Doc!, _vfsMarcados.ToList(), ligar));
-    }
-
-    private void ZoomViewFrame()
-    {
-        ViewFrameItem? vf = (_list.SelectedItem as WC.ListViewItem)?.Tag is Row { Data: ViewFrameItem v } ? v : null;
-        vf ??= _vfs.FirstOrDefault(v => _vfsMarcados.Contains(v.Id));
-        if (vf?.Extensao is not Autodesk.AutoCAD.DatabaseServices.Extents3d e)
-        {
-            Say(_category == "VIEWFRAMES" ? "Selecione um view frame com extensao valida." : "Abra a categoria View frames e selecione um.");
-            if (_category != "VIEWFRAMES")
-                SelectCategory("VIEWFRAMES");
-            return;
-        }
-        double mx = (e.MaxPoint.X - e.MinPoint.X) * 0.1, my = (e.MaxPoint.Y - e.MinPoint.Y) * 0.1;
-        string P(double x, double y) => $"{x.ToString("0.###", CultureInfo.InvariantCulture)},{y.ToString("0.###", CultureInfo.InvariantCulture)}";
-        Enviar($"_.TILEMODE 1 _.ZOOM _W {P(e.MinPoint.X - mx, e.MinPoint.Y - my)} {P(e.MaxPoint.X + mx, e.MaxPoint.Y + my)}");
     }
 
     private void Status()

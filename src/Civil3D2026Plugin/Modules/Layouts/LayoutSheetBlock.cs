@@ -152,7 +152,7 @@ internal static class LayoutSheetBlock
         {
             btr = (BlockTableRecord)tr.GetObject(bt[nome], OpenMode.ForWrite);
             foreach (ObjectId id in btr)
-                tr.GetObject(id, OpenMode.ForWrite).Erase();
+                tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
         }
         else
         {

@@ -27,6 +27,7 @@ public sealed class ModulesWindow : SW.Window
 
     private ModulesWindow()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "Plugin");
         Title = "Modulos do plugin - C3D Tools";
         Width = 520;
         Height = 620;

@@ -35,6 +35,7 @@ internal sealed class LispPanel : SW.Window
 
     private LispPanel()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "LispTools");
         _entries = Entradas();
 
         Title = "Ferramentas e LISPs";

@@ -5,6 +5,7 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
+using Civil3D2026Plugin.Infrastructure;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
@@ -32,10 +33,6 @@ public sealed class LayoutCommands
     /// <summary>Abre o explorador na categoria Page setup.</summary>
     [CommandMethod(C3DCommands.Layouts.PageSetup, CommandFlags.Modal)]
     public void PageSetup() => LayoutPanel.ShowPanel("PAGESETUP");
-
-    /// <summary>Abre o explorador na categoria View frames.</summary>
-    [CommandMethod(C3DCommands.Layouts.ViewFrames, CommandFlags.Modal)]
-    public void ViewFrames() => LayoutPanel.ShowPanel("VIEWFRAMES");
 
     /// <summary>
     /// Mapa-chave: [Base/Area/Gerar/Atualizar/Remover/Painel]. Base e Area pedem selecao
@@ -96,7 +93,10 @@ public sealed class LayoutCommands
         }
 
         if (r is not null)
+        {
             ed.WriteMessage("\n[Mapa-chave] " + r.Mensagem);
+            PluginLog.Info("Layouts", "Mapa-chave: " + r.Mensagem);
+        }
         LayoutKeyMap.AvisarMudanca();
     }
 
@@ -187,11 +187,14 @@ public sealed class LayoutCommands
             case "Atualizar":
                 try
                 {
-                    ed.WriteMessage("\n" + LayoutSheetSeries.AtualizarTodas(doc).Mensagem);
+                    string msg = LayoutSheetSeries.AtualizarTodas(doc).Mensagem;
+                    ed.WriteMessage("\n" + msg);
+                    PluginLog.Info("Layouts", "Pranchas: " + msg);
                 }
                 catch (System.Exception ex)
                 {
                     ed.WriteMessage("\n[Pranchas] " + ex.Message);
+                    PluginLog.Erro("Layouts", "Pranchas: atualizar (comando)", ex);
                 }
                 break;
             case "PontoPerfis":
@@ -230,6 +233,7 @@ public sealed class LayoutCommands
             return;
         OpResult r = LayoutSheetBlock.Inserir(doc, o, p);
         doc.Editor.WriteMessage("\n" + r.Mensagem);
+        PluginLog.Info("Layouts", "Inserir prancha: " + r.Mensagem);
     }
 
     /// <summary>
@@ -257,6 +261,7 @@ public sealed class LayoutCommands
 
         OpResult r = LayoutNumbering.Numerar(doc, new NumberingRule());
         ed.WriteMessage("\n" + r.Mensagem);
+        PluginLog.Info("Layouts", "NP: " + r.Mensagem);
         ed.Regen();
     }
 

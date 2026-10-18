@@ -49,6 +49,11 @@ public static class CommandCatalog
                         "Marque quais modulos aparecem na Ribbon e na lista de comandos (e iniciam seus servicos na proxima carga)."),
 
                     new CommandDefinition(
+                        C3DCommands.Core.Log,
+                        "Log do plugin",
+                        "Janela com o log de todos os plugins (comandos, avisos, erros e tempos) para copiar e mandar; nas janelas dos plugins, Ctrl+Shift+L."),
+
+                    new CommandDefinition(
                         C3DCommands.Core.Ribbon,
                         "Mostrar Ribbon",
                         "Cria ou reativa a aba C3D Tools da Ribbon.",
@@ -284,8 +289,6 @@ public static class CommandCatalog
                         "Abre o explorador na categoria Page setup: aplicar page setup nomeado ou plotter/papel/CTB em varios layouts, importar de DWG/DWT."),
                     new CommandDefinition(C3DCommands.Layouts.MapaChave, "Mapa-chave",
                         "[Base/Area/Gerar/Atualizar/Remover]: mapa-chave em cada layout com contorno e numero das folhas e hachura da folha atual, atualizado sozinho."),
-                    new CommandDefinition(C3DCommands.Layouts.ViewFrames, "View frames",
-                        "Abre o explorador na categoria View frames: frames e match lines do Civil com estacas, layout ligado, zoom e rotulos."),
                     new CommandDefinition(C3DCommands.Layouts.Pranchas, "Pranchas do eixo",
                         "[Painel/Atualizar/PontoPerfis]: frames ao longo do eixo no tamanho da viewport de planta, uma prancha por frame e um perfil por folha no tamanho da viewport de perfil; mover o frame atualiza tudo."),
                     new CommandDefinition(C3DCommands.Layouts.Prancha, "Inserir prancha",

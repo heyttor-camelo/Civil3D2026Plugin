@@ -174,6 +174,17 @@ As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coorden
 
 `C3DMODULOS` (ou o botao Modulos no painel Plugin) abre a lista dos modulos por categoria; so os marcados aparecem na Ribbon e na arvore do `C3DHELP`, e so eles iniciam seus servicos de fundo na proxima carga da DLL (reatores do viario, tooltip dos estais, solidos so no 3D, autoload das LISPs). A escolha fica em `%APPDATA%\Civil3D2026Plugin\modulos.txt`. Os comandos continuam registrados (digitar o nome funciona): a DLL .NET nao descarrega por partes.
 
+## Log do plugin (C3DLOG)
+
+Log comum a todos os modulos: comandos do plugin (inicio, fim, falha e tempo), avisos, erros com a pilha e o tempo de cada etapa das operacoes longas. Fica na memoria (ultimas 8000 linhas) e num arquivo por dia em `%LOCALAPPDATA%\Civil3D2026Plugin\logs` (guardados por 14 dias).
+
+- `C3DLOG` abre a janela do log; em qualquer janela do plugin, **Ctrl+Shift+L** abre o log daquele modulo (no explorador de layouts, liga uma aba Log escondida);
+- **Copiar** leva o log filtrado, com as versoes (plugin, AutoCAD, Civil, .NET) no cabecalho, para colar numa conversa ou num chamado; tambem da para salvar em .txt ou abrir a pasta;
+- **Diagnostico detalhado** registra tambem as excecoes tratadas dentro do plugin (falhas silenciosas): ligue para reproduzir um problema e desligue depois;
+- erro nao tratado numa janela do plugin e registrado e a janela continua aberta.
+
+Operacoes longas mostram uma janela de progresso (etapa, tempo, estimativa) que continua desenhando enquanto o AutoCAD trabalha; **Cancelar** para depois da etapa atual e o que ja foi feito fica.
+
 ## Rede viaria (C3DVIARIO v0.7.8)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
@@ -250,15 +261,15 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.5.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.6.0)
 
-Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e View frames.
+Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
 
 Vista grafica: um layout (miniatura com textos, cotas, tabelas e hachuras; zoom e pan) ou todos os layouts como cartoes. Clique no cabecalho de uma coluna da lista para filtrar/ordenar (como no Excel). Clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts; botao direito na viewport abre informacoes e edicoes rapidas (travar, ligar, escala, layer state, zoom, selecionar). Escalas no formato Custom scale do AutoCAD (2 = 1:500 em metros). Zoom na vista "Todos" com Ctrl+roda.
 
-Numeracao: busca de textos (TEXT/MTEXT/atributos, com filtros) para marcar o campo NUMERO e TOTAL do carimbo, regra com prefixo/sufixo/digitos/total e edicao de texto em lote. Prancha: bloco AX com estendimentos guardados por formato, inserido nos layouts marcados sem abri-los (`C3DPRANCHA` para clicar o ponto). Modo leve: desliga/religa as viewports dos layouts para montar as pranchas sem regenerar. Mapa-chave com hachura configuravel e rotulo como na LISP. View frames: vincular viewports a frames e atualizar a vista (centro e giro; redimensionar a viewport ao frame ou ajustar a escala; intervalo de estacas do perfil).
+Numeracao: busca de textos (TEXT/MTEXT/atributos, com filtros) para marcar o campo NUMERO e TOTAL do carimbo, regra com prefixo/sufixo/digitos/total e edicao de texto em lote. Prancha: bloco AX com estendimentos guardados por formato, inserido nos layouts marcados sem abri-los (`C3DPRANCHA` para clicar o ponto). Modo leve: desliga/religa as viewports dos layouts para montar as pranchas sem regenerar; opcionalmente congela layers (ex.: F-VT-NOTAVEL) e oculta as labels do Civil 3D no Model, e "Religar todas" desfaz so o que o plugin mexeu. Mapa-chave com hachura configuravel e rotulo como na LISP. Ctrl+Shift+L liga a aba Log.
 
-Pranchas do eixo / Plan & Profile (`C3DPRANCHAS`): escolha o layout base (do desenho ou importado de DWG/DWT; viewport de planta e de perfil, layer states e page setup), o alignment e o trecho (lista de estacas com pontos notaveis) e o estilo do profile view; o plugin cria frames no tamanho da viewport de planta, uma prancha por frame e um profile view por folha no tamanho da viewport de perfil (calibrado pelo estilo), com linhas de corte. Mover, girar ou esticar um frame no Model, ou editar o eixo, atualiza planta, estacas e cotas do perfil e as linhas de corte.
+Pranchas do eixo / Plan & Profile (`C3DPRANCHAS`): escolha o layout base (do desenho ou importado de DWG/DWT; viewport de planta e de perfil, layer states e page setup), o alignment e o trecho (lista de estacas com pontos notaveis) e o estilo do profile view; o plugin cria frames no tamanho da viewport de planta, uma prancha por frame e um profile view por folha no tamanho da viewport de perfil (calibrado pelo estilo, a 10 mm da borda), com linhas de corte. No passo 3 escolhe-se quais profiles aparecem (Draw), o label set de cada um e quem e Profile1/Profile2 nas bandas; vale para os profile views criados pelo plugin. Mover, girar ou esticar um frame no Model, ou editar o eixo, atualiza planta, estacas e cotas do perfil e as linhas de corte. A geracao mostra o progresso e pode ser cancelada ("Completar" termina depois).
 
 ```text
 C3DLAYOUT          -> explorador de layouts
@@ -266,7 +277,6 @@ C3DLAYOUTVP        -> explorador na categoria Viewports
 C3DLAYOUTPS        -> explorador na categoria Page setup
 C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo)
 C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
-C3DLAYOUTVF        -> explorador na categoria View frames
 C3DMAPACHAVE       -> [Base/Area/Inserir/Gerar/Atualizar/Remover/Painel] mapa-chave automatico
 C3DPRANCHAS        -> [Painel/Atualizar/PontoPerfis] pranchas planta e perfil ao longo do eixo (frames proprios)
 C3DPRANCHA         -> insere bloco de prancha (A0..A4 ou livre, com estendimentos) na origem ou no ponto clicado

@@ -129,8 +129,7 @@ internal static class LayoutStamp
                         if (att.TextString == novo)
                             continue;
 
-                        att.UpgradeOpen();
-                        att.TextString = novo;
+                        ((AttributeReference)tr.GetObject(aid, OpenMode.ForWrite, false, true)).TextString = novo;
                         atributos++;
                         mudou = true;
                     }

@@ -14,6 +14,7 @@ public static class CommandNames
         public const string Ribbon = "C3DRIBBON";
         public const string RibbonReset = "C3DRIBBONRESET";
         public const string Modulos = "C3DMODULOS";
+        public const string Log = "C3DLOG";
     }
 
     public static class Drenagem
@@ -145,7 +146,6 @@ public static class CommandNames
         public const string LayerState = "C3DLAYOUTLS";
         public const string Carimbo = "C3DLAYOUTCARIMBO";
         public const string PageSetup = "C3DLAYOUTPS";
-        public const string ViewFrames = "C3DLAYOUTVF";
         public const string MapaChave = "C3DMAPACHAVE";
         public const string Prancha = "C3DPRANCHA";
         public const string Pranchas = "C3DPRANCHAS";

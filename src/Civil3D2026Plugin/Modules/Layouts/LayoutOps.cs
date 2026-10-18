@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.PlottingServices;
+using Civil3D2026Plugin.Infrastructure;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
@@ -143,9 +145,14 @@ internal static class LayoutOps
     public static OpResult OrdenarPorNome(Document doc)
     {
         using DocumentLock _ = doc.LockDocument();
-        List<string> ordem = OrdemAtual(doc.Database).OrderBy(n => n, NaturalComparer.Instance).ToList();
-        GravarOrdem(doc.Database, ordem);
-        return new OpResult(ordem.Count, 0, "Layouts ordenados pelo nome.");
+        List<string> atual = OrdemAtual(doc.Database);
+        List<string> ordem = atual.OrderBy(n => n, NaturalComparer.Instance).ToList();
+        if (atual.SequenceEqual(ordem, StringComparer.OrdinalIgnoreCase))
+            return new OpResult(ordem.Count, 0, $"Os {ordem.Count} layouts ja estao em ordem de nome.");
+        bool ok = GravarOrdem(doc.Database, ordem);
+        return ok
+            ? new OpResult(ordem.Count, 0, $"{ordem.Count} layouts ordenados pelo nome ({ordem.First()} a {ordem.Last()}).")
+            : new OpResult(0, 1, "A ordem das abas nao mudou (detalhes no log: Ctrl+Shift+L).");
     }
 
     public static OpResult Copiar(Document doc, IReadOnlyList<string> nomes)
@@ -288,6 +295,7 @@ internal static class LayoutOps
     private static OpResult PorViewport(Document doc, IEnumerable<ObjectId> viewports, Action<Viewport> acao, string feito)
     {
         int ok = 0, falhas = 0;
+        var erros = new List<string>();
         using DocumentLock _ = doc.LockDocument();
         using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
@@ -295,20 +303,23 @@ internal static class LayoutOps
             {
                 try
                 {
-                    if (tr.GetObject(id, OpenMode.ForWrite) is Viewport vp)
+                    // Abre mesmo em layer travada: a layer das viewports costuma ficar travada nas pranchas.
+                    if (tr.GetObject(id, OpenMode.ForWrite, false, true) is Viewport vp)
                     {
                         acao(vp);
                         ok++;
                     }
                 }
-                catch (Autodesk.AutoCAD.Runtime.Exception)
+                catch (System.Exception ex)
                 {
                     falhas++;
+                    erros.Add(ex.Message);
+                    PluginLog.Aviso("Layouts", $"Viewport {id.Handle}: nao {feito} ({ex.Message})");
                 }
             }
             tr.Commit();
         }
-        return new OpResult(ok, falhas, $"{ok} viewport(s) {feito}" + (falhas > 0 ? $"; {falhas} falha(s)." : "."));
+        return new OpResult(ok, falhas, $"{ok} viewport(s) {feito}" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join(", ", erros.Distinct().Take(2))}." : "."));
     }
 
     /// <summary>Escala de anotacao 1:N existente no desenho, ou null.</summary>
@@ -416,8 +427,7 @@ internal static class LayoutOps
         if (valor is null)
             return 0;
 
-        ent.UpgradeOpen();
-        switch (ent)
+        switch (tr.GetObject(ent.ObjectId, OpenMode.ForWrite, false, true))
         {
             case AttributeReference a: a.TextString = valor; break;
             case DBText t: t.TextString = valor; break;
@@ -435,7 +445,7 @@ internal static class LayoutOps
         using Transaction tr = db.TransactionManager.StartTransaction();
         string layer = numero ? LayerNumero : LayerTotal;
         GarantirLayer(tr, db, layer);
-        if (tr.GetObject(id, OpenMode.ForWrite) is Entity ent)
+        if (tr.GetObject(id, OpenMode.ForWrite, false, true) is Entity ent)
             ent.Layer = layer;
         tr.Commit();
     }
@@ -652,7 +662,49 @@ internal static class LayoutOps
         return lista.OrderBy(e => e.Ordem).Select(e => e.Nome).ToList();
     }
 
-    internal static void GravarOrdem(Database db, List<string> ordem)
+    /// <summary>
+    /// Grava a ordem das abas e confere. Primeiro pelo ActiveX (TabOrder do COM, que redesenha as
+    /// abas na hora, como as LISPs de ordenar); sem COM, direto no banco. Retorna se a ordem ficou
+    /// a pedida; o que aconteceu vai para o log.
+    /// </summary>
+    internal static bool GravarOrdem(Database db, List<string> ordem)
+    {
+        List<string> antes = OrdemAtual(db);
+        List<string> pedida = ordem.Where(n => antes.Contains(n, StringComparer.OrdinalIgnoreCase)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        pedida.AddRange(antes.Where(n => !pedida.Contains(n, StringComparer.OrdinalIgnoreCase)));
+        if (antes.SequenceEqual(pedida, StringComparer.OrdinalIgnoreCase))
+            return true;
+
+        string como = "COM";
+        try
+        {
+            if (!GravarOrdemCom(db, pedida))
+                como = "";
+        }
+        catch (System.Exception ex)
+        {
+            como = "";
+            PluginLog.Diag("Layouts", "Ordem das abas pelo COM falhou: " + (ex.InnerException?.Message ?? ex.Message));
+        }
+        List<string> depois = OrdemAtual(db);
+        if (como.Length == 0 || !depois.SequenceEqual(pedida, StringComparer.OrdinalIgnoreCase))
+        {
+            como = como.Length == 0 ? "banco" : "COM + banco";
+            GravarOrdemBanco(db, pedida);
+            depois = OrdemAtual(db);
+        }
+        AtualizarAbas();
+
+        bool ok = depois.SequenceEqual(pedida, StringComparer.OrdinalIgnoreCase);
+        string Lista(List<string> l) => string.Join(", ", l.Take(12)) + (l.Count > 12 ? $", ... ({l.Count})" : "");
+        if (ok)
+            PluginLog.Diag("Layouts", $"Ordem das abas gravada ({como}): {Lista(depois)}");
+        else
+            PluginLog.Aviso("Layouts", $"Ordem das abas nao ficou a pedida ({como}). Pedida: {Lista(pedida)}. Ficou: {Lista(depois)}.");
+        return ok;
+    }
+
+    private static void GravarOrdemBanco(Database db, List<string> ordem)
     {
         using Transaction tr = db.TransactionManager.StartTransaction();
         var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
@@ -660,11 +712,83 @@ internal static class LayoutOps
         {
             if (!dic.Contains(ordem[i]))
                 continue;
-            var l = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(ordem[i]), OpenMode.ForWrite);
-            if (l.TabOrder != i + 1)
-                l.TabOrder = i + 1;
+            var l = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(ordem[i]), OpenMode.ForRead);
+            if (l.TabOrder == i + 1)
+                continue;
+            l.UpgradeOpen();
+            l.TabOrder = i + 1;
         }
         tr.Commit();
+    }
+
+    /// <summary>TabOrder pelo ActiveX (AcadDocument.Layouts.Item(nome).TabOrder).</summary>
+    private static bool GravarOrdemCom(Database db, List<string> ordem)
+    {
+        Document? doc = null;
+        foreach (Document d in AcApp.DocumentManager)
+            if (d.Database == db)
+                doc = d;
+        object? acad = doc is null ? null : AcadDocument(doc);
+        if (acad is null || Com(acad, "Layouts", BindingFlags.GetProperty) is not object layouts)
+            return false;
+        for (int i = 0; i < ordem.Count; i++)
+        {
+            if (Com(layouts, "Item", BindingFlags.InvokeMethod, ordem[i]) is not object lay)
+                return false;
+            if (Convert.ToInt32(Com(lay, "TabOrder", BindingFlags.GetProperty), System.Globalization.CultureInfo.InvariantCulture) != i + 1)
+                Com(lay, "TabOrder", BindingFlags.SetProperty, i + 1);
+        }
+        return true;
+    }
+
+    private static object? Com(object alvo, string membro, BindingFlags tipo, params object[] args) =>
+        alvo.GetType().InvokeMember(membro, tipo, null, alvo, args, System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>Documento ActiveX (DocumentExtension.GetAcadDocument; antes, a propriedade AcadDocument).</summary>
+    private static object? AcadDocument(Document doc)
+    {
+        try
+        {
+            foreach (Assembly a in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                Type? t = a.GetType("Autodesk.AutoCAD.ApplicationServices.DocumentExtension", false);
+                MethodInfo? m = t?.GetMethod("GetAcadDocument", new[] { typeof(Document) });
+                if (m is not null)
+                    return m.Invoke(null, new object[] { doc });
+            }
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Diag("Layouts", "GetAcadDocument: " + (ex.InnerException?.Message ?? ex.Message));
+        }
+        try
+        {
+            return doc.GetType().GetProperty("AcadDocument")?.GetValue(doc);
+        }
+        catch (System.Exception)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Redesenha as abas de layout (quando a API expoe) e a tela.</summary>
+    private static void AtualizarAbas()
+    {
+        try
+        {
+            LayoutManager lm = LayoutManager.Current;
+            lm.GetType().GetMethod("UpdateLayoutTabs", Type.EmptyTypes)?.Invoke(lm, null);
+        }
+        catch (System.Exception)
+        {
+        }
+        try
+        {
+            AcApp.UpdateScreen();
+        }
+        catch (System.Exception)
+        {
+        }
     }
 
     private static string NomeLivre(string nome, HashSet<string> existentes)

@@ -27,6 +27,8 @@ internal sealed partial class LayoutPanel
     private List<(ObjectId Id, string Nome, double Ini, double Fim)> _eixos = new();
     private List<(ObjectId Id, string Nome)>? _estilosPv;
     private List<(ObjectId Id, string Nome)>? _bandasPv;
+    private List<(ObjectId Id, string Nome)>? _labelSetsPv;
+    private readonly Dictionary<ObjectId, List<(ObjectId Id, string Nome, string Tipo)>> _perfisCache = new();
     private SheetSeries? _serie;
     private SheetFrameInfo? _frameSel;
 
@@ -41,7 +43,9 @@ internal sealed partial class LayoutPanel
         _eixos = LayoutSheetSeries.Eixos(db);
         _estilosPv = null;
         _bandasPv = null;
+        _labelSetsPv = null;
         _estacasCache.Clear();
+        _perfisCache.Clear();
         SincronizarSerie();
         if (_modeloPendente is not null && _serie is not null &&
             _folhas.FirstOrDefault(f => f.Nome.Equals(_modeloPendente, StringComparison.OrdinalIgnoreCase)) is SheetData importado)
@@ -280,14 +284,30 @@ internal sealed partial class LayoutPanel
         SheetData? folhaModelo = _folhas.FirstOrDefault(f => f.Nome.Equals(s.Modelo, StringComparison.OrdinalIgnoreCase));
         if (modelo is not null)
         {
-            var lp = Prop("Viewport planta", $"#{IndiceVp(folhaModelo, modelo.VpPlanta)}  {EscalaTexto(modelo.EscalaPlanta)}  |  frame {modelo.LarguraFrame:0.#} x {modelo.AlturaFrame:0.#} m");
-            lp.ToolTip = $"Viewport de {modelo.WPlanta:0} x {modelo.HPlanta:0} mm. O frame e o tamanho dela dividido pela escala.";
-            p.Children.Add(lp);
+            const string avisoEscala = "Muda a viewport do layout base. Frames ja gerados nao mudam de tamanho: para usar a escala nova, Remover serie e gerar de novo.";
+            var lp = Prop("Viewport planta", $"#{IndiceVp(folhaModelo, modelo.VpPlanta)}  |  {modelo.WPlanta:0} x {modelo.HPlanta:0} mm  |  frame {modelo.LarguraFrame:0.#} x {modelo.AlturaFrame:0.#} m");
+            lp.ToolTip = "O frame e o tamanho da viewport dividido pela escala (custom scale).";
+            lp.VerticalAlignment = SW.VerticalAlignment.Center;
+            lp.Width = 330;
+            WC.ComboBox cbEscPl = ComboEscala(modelo.EscalaPlanta, c => EscalarModelo(modelo.VpPlanta, c, "planta", temSerie));
+            cbEscPl.ToolTip = Dica("Custom scale da viewport de planta do layout base (1 = 1:1000 num desenho em metros).", avisoEscala);
+            p.Children.Add(Linha(lp, cbEscPl));
             var lf = Prop("Viewport perfil", modelo.TemPerfil
-                ? $"#{IndiceVp(folhaModelo, modelo.VpPerfil)}  {EscalaTexto(modelo.EscalaPerfil)}  |  {modelo.LarguraPerfil:0.#} x {modelo.AlturaPerfil:0.#} m"
+                ? $"#{IndiceVp(folhaModelo, modelo.VpPerfil)}  |  {modelo.WPerfil:0} x {modelo.HPerfil:0} mm  |  {modelo.LarguraPerfil:0.#} x {modelo.AlturaPerfil:0.#} m"
                 : "nenhuma (so planta)");
-            lf.ToolTip = modelo.TemPerfil ? $"Viewport de {modelo.WPerfil:0} x {modelo.HPerfil:0} mm. A largura limita quantos metros de profile view cabem por sheet." : null;
-            p.Children.Add(lf);
+            lf.ToolTip = modelo.TemPerfil ? $"A largura (menos {LayoutSheetSeries.MargemPapel:0} mm de cada lado) limita quantos metros de profile view cabem por sheet." : null;
+            lf.VerticalAlignment = SW.VerticalAlignment.Center;
+            lf.Width = 330;
+            if (modelo.TemPerfil)
+            {
+                WC.ComboBox cbEscPf = ComboEscala(modelo.EscalaPerfil, c => EscalarModelo(modelo.VpPerfil, c, "perfil", temSerie));
+                cbEscPf.ToolTip = Dica("Custom scale da viewport de perfil do layout base (escala horizontal do profile view; a vertical vem do exagero do estilo).", avisoEscala);
+                p.Children.Add(Linha(lf, cbEscPf));
+            }
+            else
+            {
+                p.Children.Add(lf);
+            }
         }
         else if (erroModelo is not null)
         {
@@ -334,7 +354,7 @@ internal sealed partial class LayoutPanel
             cbEixo.Items.Add(new WC.ComboBoxItem
             {
                 Content = nome + (comSerie ? "   [serie]" : ""),
-                ToolTip = $"{LayoutViewFrames.Estaca(ini)} a {LayoutViewFrames.Estaca(fim)}",
+                ToolTip = $"{LayoutSheetSeries.Estaca(ini)} a {LayoutSheetSeries.Estaca(fim)}",
                 Tag = id
             });
         }
@@ -393,6 +413,9 @@ internal sealed partial class LayoutPanel
             b3.Children.Add(Botao("Automatica", () => { LayoutSettings.Set("pp_base", ""); BuildTabs(); }));
         b3.IsEnabled = comPerfil;
         p.Children.Add(b3);
+        SW.UIElement opcoesPerfis = OpcoesDosPerfis(db, s, temSerie);
+        opcoesPerfis.IsEnabled = comPerfil;
+        p.Children.Add(opcoesPerfis);
 
         // ---- 4. Sheets ----------------------------------------------------------
         p.Children.Add(Passo(4, "Sheets", s.Prefixo.Length > 0 || s.Digitos > 0));
@@ -528,7 +551,7 @@ internal sealed partial class LayoutPanel
     }
 
     private static string TextoEstaca(double e, string rotulo) =>
-        LayoutViewFrames.Estaca(e) + (rotulo.Length > 0 ? "   " + rotulo : "");
+        LayoutSheetSeries.Estaca(e) + (rotulo.Length > 0 ? "   " + rotulo : "");
 
     /// <summary>Combo editavel de estacas (inteiras e pontos notaveis); NaN mostra o inicio/fim do alignment.</summary>
     private WC.ComboBox ComboEstacas(List<(double Estaca, string Rotulo)> estacas, double atual, bool inicio)
@@ -546,7 +569,7 @@ internal sealed partial class LayoutPanel
         else if (!double.IsNaN(atual))
         {
             (double Estaca, string Rotulo) achada = estacas.FirstOrDefault(x => Math.Abs(x.Estaca - atual) < 1e-3);
-            cb.Text = achada.Rotulo is null ? LayoutViewFrames.Estaca(atual) : TextoEstaca(achada.Estaca, achada.Rotulo);
+            cb.Text = achada.Rotulo is null ? LayoutSheetSeries.Estaca(atual) : TextoEstaca(achada.Estaca, achada.Rotulo);
         }
         return cb;
     }
@@ -697,19 +720,12 @@ internal sealed partial class LayoutPanel
     {
         if (_serie is null || Doc is not Document doc)
             return;
-        WI.Mouse.OverrideCursor = WI.Cursors.Wait;
-        try
+        SheetSeries s = _serie;
+        ExecutarLongo($"Reaplicando o layout base em {s.EixoNome}", () =>
         {
-            Executar(() =>
-            {
-                LayoutSheetSeries.Salvar(doc, _serie);
-                return LayoutSheetSeries.ReaplicarLayoutBase(doc, _serie.Eixo);
-            });
-        }
-        finally
-        {
-            WI.Mouse.OverrideCursor = null;
-        }
+            LayoutSheetSeries.Salvar(doc, s);
+            return LayoutSheetSeries.ReaplicarLayoutBase(doc, s.Eixo);
+        });
     }
 
     private void UsarMarcada(bool planta)
@@ -731,51 +747,214 @@ internal sealed partial class LayoutPanel
     {
         if (_serie is null || Doc is not Document doc)
             return;
-        SalvarPreferenciasPP(_serie);
-        WI.Mouse.OverrideCursor = WI.Cursors.Wait;
-        try
-        {
-            Say(pranchas ? "Gerando frames, pranchas e perfis..." : "Gerando frames...");
-            Executar(() => LayoutSheetSeries.Gerar(doc, _serie, pranchas, BasePerfis()));
-        }
-        finally
-        {
-            WI.Mouse.OverrideCursor = null;
-        }
+        SheetSeries s = _serie;
+        SalvarPreferenciasPP(s);
+        MostrarStatus(pranchas ? "Gerando frames, sheets e profile views..." : "Gerando frames...");
+        ExecutarLongo(pranchas ? $"Gerando as sheets de {s.EixoNome}" : $"Gerando os frames de {s.EixoNome}",
+            () => LayoutSheetSeries.Gerar(doc, s, pranchas, BasePerfis()));
     }
 
     private void AtualizarSerie()
     {
         if (_serie is null || Doc is not Document doc)
             return;
-        WI.Mouse.OverrideCursor = WI.Cursors.Wait;
-        try
+        SheetSeries s = _serie;
+        ExecutarLongo($"Atualizando as sheets de {s.EixoNome}", () =>
         {
-            Executar(() =>
-            {
-                LayoutSheetSeries.Salvar(doc, _serie);
-                return LayoutSheetSeries.Atualizar(doc, _serie.Eixo, null);
-            });
-        }
-        finally
-        {
-            WI.Mouse.OverrideCursor = null;
-        }
+            LayoutSheetSeries.Salvar(doc, s);
+            return LayoutSheetSeries.Atualizar(doc, s.Eixo, null);
+        });
     }
 
     private void AtualizarTodasSeries()
     {
         if (Doc is not Document doc)
             return;
-        WI.Mouse.OverrideCursor = WI.Cursors.Wait;
-        try
+        ExecutarLongo("Atualizando todas as series", () => LayoutSheetSeries.AtualizarTodas(doc));
+    }
+
+    private void AplicarOpcoesPerfis()
+    {
+        if (_serie is null || Doc is not Document doc)
+            return;
+        SheetSeries s = _serie;
+        ExecutarLongo($"Profiles nos profile views de {s.EixoNome}", () =>
         {
-            Executar(() => LayoutSheetSeries.AtualizarTodas(doc));
-        }
-        finally
+            LayoutSheetSeries.Salvar(doc, s);
+            return LayoutSheetSeries.AplicarOpcoesPerfis(doc, s.Eixo);
+        });
+    }
+
+    /// <summary>Muda a escala de uma viewport do layout base (passo 1).</summary>
+    private void EscalarModelo(ObjectId vp, double custom, string qual, bool temSerie)
+    {
+        if (Doc is not Document doc)
+            return;
+        Executar(() =>
         {
-            WI.Mouse.OverrideCursor = null;
+            OpResult r = LayoutOps.Escalar(doc, new[] { vp }, custom, Fator);
+            string extra = temSerie && r.Falhas == 0 ? " Frames ja gerados nao mudam: Remover serie e gerar de novo para usar a escala nova." : "";
+            return r with { Mensagem = $"Viewport de {qual} do layout base: {r.Mensagem}{extra}" };
+        });
+    }
+
+    /// <summary>Combo editavel de custom scale (escalas do desenho e as comuns); aplica ao escolher ou com Enter.</summary>
+    private WC.ComboBox ComboEscala(double atual, Action<double> aplicar)
+    {
+        double f = Fator;
+        var cb = new WC.ComboBox { Width = 150, IsEditable = true, HorizontalAlignment = SW.HorizontalAlignment.Left, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 4, 0, 0) };
+        var denominadores = new SortedSet<double>(_escalas.Select(e => e.Denominador).Where(d => d > 0));
+        foreach (int d in new[] { 100, 200, 250, 500, 1000, 2000, 2500, 5000 })
+            denominadores.Add(d);
+        foreach (double d in denominadores)
+            cb.Items.Add(LayoutOps.EscalaTexto(f / d, f));
+        cb.Text = LayoutOps.EscalaTexto(atual, f);
+        bool aplicando = false;
+        void Aplicar()
+        {
+            if (aplicando)
+                return;
+            string t = (cb.Text ?? "").Trim();
+            int par = t.IndexOf("  (", StringComparison.Ordinal);
+            if (par > 0)
+                t = t[..par];
+            if (!LayoutOps.TentarEscala(t, f, out double c))
+            {
+                Say("Escala invalida: use o custom scale (1 = 1:1000 num desenho em metros) ou 1:N.");
+                return;
+            }
+            if (Math.Abs(c - atual) < 1e-9)
+                return;
+            aplicando = true;
+            try
+            {
+                aplicar(c);
+            }
+            finally
+            {
+                aplicando = false;
+            }
         }
+        cb.DropDownClosed += (_, _) => Dispatcher.BeginInvoke(new Action(Aplicar), SW.Threading.DispatcherPriority.Background);
+        cb.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key != WI.Key.Enter)
+                return;
+            Aplicar();
+            e.Handled = true;
+        };
+        return cb;
+    }
+
+    private List<(ObjectId Id, string Nome, string Tipo)> PerfisCache(Database db, ObjectId eixo)
+    {
+        if (!_perfisCache.TryGetValue(eixo, out List<(ObjectId, string, string)>? lista))
+            _perfisCache[eixo] = lista = LayoutSheetSeries.PerfisDoEixo(db, eixo);
+        return lista;
+    }
+
+    /// <summary>
+    /// Passo 3: quais profiles aparecem nos profile views (Draw), o label set de cada um e quem e
+    /// Profile1/Profile2 nas bandas. Vale para os profile views criados pelo plugin.
+    /// </summary>
+    private SW.UIElement OpcoesDosPerfis(Database db, SheetSeries s, bool temSerie)
+    {
+        var p = new WC.StackPanel { Margin = new SW.Thickness(0, 6, 0, 0) };
+        List<(ObjectId Id, string Nome, string Tipo)> perfis = PerfisCache(db, s.Eixo);
+        _labelSetsPv ??= LayoutSheetSeries.LabelSetsPerfil(db);
+        var titulo = new WC.TextBlock { Text = "Profiles", FontWeight = SW.FontWeights.Bold, Foreground = T.Text, Margin = new SW.Thickness(0, 4, 0, 2) };
+        titulo.ToolTip = Dica("Aba Profiles das propriedades do profile view: Draw liga ou desliga o profile; Labels escolhe o label set.",
+            "Vale so para os profile views criados pelo plugin (os da serie), ao gerar e no botao Aplicar.");
+        p.Children.Add(titulo);
+        if (perfis.Count == 0)
+        {
+            p.Children.Add(new WC.TextBlock { Text = "O alignment nao tem profiles.", Foreground = T.Muted });
+            return p;
+        }
+
+        ProfileOption Opcao(ObjectId id)
+        {
+            ProfileOption? o = s.Opcao(id);
+            if (o is null)
+            {
+                o = new ProfileOption { Perfil = id };
+                s.Perfis.Add(o);
+            }
+            return o;
+        }
+
+        var grade = new WC.Grid();
+        grade.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(250) });
+        grade.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
+        int linha = 0;
+        foreach ((ObjectId id, string nome, string tipo) in perfis)
+        {
+            grade.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+            ProfileOption? atual = s.Opcao(id);
+            var draw = new WC.CheckBox
+            {
+                Content = $"{nome}   ({tipo})",
+                IsChecked = atual?.Draw ?? true,
+                VerticalAlignment = SW.VerticalAlignment.Center,
+                Margin = new SW.Thickness(0, 2, 8, 2),
+                ToolTip = "Draw: o profile aparece nos profile views da serie."
+            };
+            ObjectId perfilId = id;
+            draw.Click += (_, _) => Opcao(perfilId).Draw = draw.IsChecked == true;
+            WC.Grid.SetRow(draw, linha);
+            grade.Children.Add(draw);
+
+            var labels = new WC.ComboBox { Width = 230, Margin = new SW.Thickness(0, 2, 0, 2), ToolTip = "Label set do profile nos profile views da serie. (labels do Civil): o plugin nao mexe; (sem labels): apaga os labels do profile." };
+            labels.Items.Add(new WC.ComboBoxItem { Content = "(labels do Civil)", Tag = "civil" });
+            labels.Items.Add(new WC.ComboBoxItem { Content = "(sem labels)", Tag = "nenhum" });
+            foreach ((ObjectId lid, string lnome) in _labelSetsPv)
+                labels.Items.Add(new WC.ComboBoxItem { Content = lnome, Tag = lid });
+            labels.SelectedItem = labels.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i =>
+                                      atual is null ? i.Tag as string == "civil"
+                                      : atual.SemLabels ? i.Tag as string == "nenhum"
+                                      : atual.LabelSet.IsNull ? i.Tag as string == "civil"
+                                      : i.Tag is ObjectId x && x == atual.LabelSet) ?? labels.Items[0];
+            labels.SelectionChanged += (_, _) =>
+            {
+                if (labels.SelectedItem is not WC.ComboBoxItem it)
+                    return;
+                ProfileOption o = Opcao(perfilId);
+                o.SemLabels = it.Tag as string == "nenhum";
+                o.LabelSet = it.Tag is ObjectId l ? l : ObjectId.Null;
+            };
+            WC.Grid.SetRow(labels, linha);
+            WC.Grid.SetColumn(labels, 1);
+            grade.Children.Add(labels);
+            linha++;
+        }
+        p.Children.Add(grade);
+        if (_labelSetsPv.Count == 0)
+            p.Children.Add(Aviso("Nenhum profile label set no desenho" + (LayoutSheetSeries.ErroEstilos.Length > 0 ? $" ({LayoutSheetSeries.ErroEstilos})" : "") + "."));
+
+        WC.ComboBox ComboPerfil(ObjectId atual, Action<ObjectId> escolher, string dica)
+        {
+            var cb = new WC.ComboBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left, ToolTip = dica };
+            cb.Items.Add(new WC.ComboBoxItem { Content = "(do band set)", Tag = ObjectId.Null });
+            foreach ((ObjectId id, string nome, string tipo) in perfis)
+                cb.Items.Add(new WC.ComboBoxItem { Content = $"{nome}   ({tipo})", Tag = id });
+            cb.SelectedItem = cb.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i => i.Tag is ObjectId x && x == atual && !atual.IsNull) ?? cb.Items[0];
+            cb.SelectionChanged += (_, _) =>
+            {
+                if ((cb.SelectedItem as WC.ComboBoxItem)?.Tag is ObjectId id)
+                    escolher(id);
+            };
+            return cb;
+        }
+        var cbP1 = ComboPerfil(s.Profile1, id => s.Profile1 = id, "Profile1 das bandas do band set (aba Bands): normalmente o terreno (surface).");
+        var cbP2 = ComboPerfil(s.Profile2, id => s.Profile2 = id, "Profile2 das bandas do band set (aba Bands): normalmente o greide (layout).");
+        p.Children.Add(Linha(Campo("Band set: Profile1", cbP1), Campo("Profile2", cbP2)));
+        if (temSerie)
+        {
+            WC.Button aplicar = Botao("Aplicar nos profile views", AplicarOpcoesPerfis);
+            aplicar.ToolTip = "Aplica Draw, labels e Profile1/Profile2 em todos os profile views da serie (so os criados pelo plugin) e refaz as elevations e a viewport de perfil.";
+            p.Children.Add(aplicar);
+        }
+        return p;
     }
 
     private void RemoverSerie()
@@ -793,7 +972,7 @@ internal sealed partial class LayoutPanel
             return;
         bool tudo = r == SW.MessageBoxResult.Yes;
         ObjectId eixo = _serie.Eixo;
-        Executar(() => LayoutSheetSeries.Remover(doc, eixo, tudo));
+        ExecutarLongo($"Removendo a serie de {_serie.EixoNome}", () => LayoutSheetSeries.Remover(doc, eixo, tudo));
     }
 
     // ------------------------------------------------------------------
@@ -813,7 +992,7 @@ internal sealed partial class LayoutPanel
         }
 
         p.Children.Add(Label($"{(f.LayoutNome.Length > 0 ? f.LayoutNome : "(sem layout)")}   |   {f.EixoNome}", true));
-        p.Children.Add(Prop("Estacas", $"{LayoutViewFrames.Estaca(f.E0)} a {LayoutViewFrames.Estaca(f.E1)}  ({f.Extensao:0.##} m)"));
+        p.Children.Add(Prop("Estacas", $"{LayoutSheetSeries.Estaca(f.E0)} a {LayoutSheetSeries.Estaca(f.E1)}  ({f.Extensao:0.##} m)"));
         p.Children.Add(Prop("Layout", f.LayoutNome.Length > 0 ? f.LayoutNome : "nao criado (Completar)"));
         p.Children.Add(Prop("Profile view", f.PerfilNome.Length > 0 ? f.PerfilNome : "-"));
         p.Children.Add(f.Situacao == "ok" ? Prop("Situacao", "ok") : Aviso(f.Situacao));

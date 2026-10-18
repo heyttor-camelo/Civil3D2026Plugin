@@ -208,6 +208,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private MFRebaixoPanel()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "MFRebaixo");
         Title = "Rebaixos de meio-fio - Explorador";
         Width = 1120;
         Height = 780;

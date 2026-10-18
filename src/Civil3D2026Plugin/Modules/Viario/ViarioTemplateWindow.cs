@@ -39,6 +39,7 @@ internal sealed class ViarioTemplateWindow : SW.Window
 
     public ViarioTemplateWindow(List<RoadSection> sections, RoadSection current)
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "Viario");
         _sections = sections;
 
         Title = "Modelos de intersecao - C3DVIARIO";

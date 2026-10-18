@@ -268,6 +268,7 @@ internal sealed class ViarioPanel : SW.Window
 
     private ViarioPanel()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "Viario");
         Title = "Rede viaria - Explorador";
         Width = 1100;
         Height = 760;

@@ -185,7 +185,7 @@ internal static class LayoutNumbering
             GarantirApp(tr, db);
             foreach (ObjectId id in ids)
             {
-                if (tr.GetObject(id, OpenMode.ForWrite) is not Entity ent)
+                if (tr.GetObject(id, OpenMode.ForWrite, false, true) is not Entity ent)
                     continue;
                 ent.XData = papel.Length == 0
                     ? new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App))
@@ -214,7 +214,7 @@ internal static class LayoutNumbering
     {
         using DocumentLock _ = doc.LockDocument();
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
-        DBObject obj = tr.GetObject(id, OpenMode.ForWrite);
+        DBObject obj = tr.GetObject(id, OpenMode.ForWrite, false, true);
         switch (obj)
         {
             case AttributeReference a: a.TextString = novo; break;
@@ -266,12 +266,12 @@ internal static class LayoutNumbering
                         case AttributeDefinition:
                             break;
                         case DBText or MText:
-                            n += Escrever((Entity)obj, numero, totalTexto);
+                            n += Escrever(tr, (Entity)obj, numero, totalTexto);
                             break;
                         case BlockReference br:
                             foreach (ObjectId aid in br.AttributeCollection)
                                 if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference att)
-                                    n += Escrever(att, numero, totalTexto);
+                                    n += Escrever(tr, att, numero, totalTexto);
                             break;
                     }
                 }
@@ -288,14 +288,14 @@ internal static class LayoutNumbering
                 : "Nenhum texto marcado como numero/total. Use a busca para localizar os textos e marque-os.");
     }
 
-    private static int Escrever(Entity ent, string numero, string total)
+    private static int Escrever(Transaction tr, Entity ent, string numero, string total)
     {
         string papel = Papel(ent);
         if (papel.Length == 0)
             return 0;
         string valor = papel == "Numero" ? numero : total;
-        ent.UpgradeOpen();
-        switch (ent)
+        // Mesmo em layer travada (o carimbo costuma ficar travado).
+        switch (tr.GetObject(ent.ObjectId, OpenMode.ForWrite, false, true))
         {
             case AttributeReference a: a.TextString = valor; break;
             case DBText t: t.TextString = valor; break;

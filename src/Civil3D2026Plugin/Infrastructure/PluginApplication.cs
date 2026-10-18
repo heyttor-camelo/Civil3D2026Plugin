@@ -25,6 +25,9 @@ public sealed class PluginApplication : IExtensionApplication
 {
     public void Initialize()
     {
+        // Log comum (C3DLOG / Ctrl+Shift+L): primeiro de tudo, para registrar o resto da carga.
+        PluginLog.Iniciar();
+
         // A Ribbon pode ainda nao estar pronta durante o Initialize.
         // O gerenciador tenta imediatamente e, se necessario, repete no Idle.
         RibbonUiManager.Initialize();
@@ -70,6 +73,7 @@ public sealed class PluginApplication : IExtensionApplication
 
     public void Terminate()
     {
+        PluginLog.Info("Plugin", "Fim da sessao.");
         LispModule.Terminate();
         Civil3D2026Plugin.Modules.Layouts.SheetSeriesSync.Terminate();
         Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Terminate();
@@ -79,6 +83,7 @@ public sealed class PluginApplication : IExtensionApplication
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();
         RibbonUiManager.Terminate();
+        PluginLog.Encerrar();
     }
 
     [CommandMethod(C3DCommands.Core.Help, CommandFlags.Modal)]

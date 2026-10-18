@@ -55,6 +55,7 @@ internal sealed class CorridorSplitDialog : Form
     public CorridorSplitDialog(string origin, List<RegionChoice> choices, int surfaces,
         Autodesk.AutoCAD.ApplicationServices.Document document, AcadDb.ObjectId sourceId)
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "CorridorSplit");
         _origin = origin;
         _choices = choices;
         _surfaces = surfaces;

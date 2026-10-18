@@ -104,6 +104,7 @@ internal sealed class PedPanel : SW.Window
 
     private PedPanel()
     {
+        Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "PEDs");
         Title = "Ficha do PED";
         Width = 1120;
         Height = 760;
