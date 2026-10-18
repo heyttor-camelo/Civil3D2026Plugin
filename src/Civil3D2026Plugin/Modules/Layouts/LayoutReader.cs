@@ -26,6 +26,12 @@ internal sealed class SheetViewport
     public string? Aplicado { get; set; }
 }
 
+/// <summary>
+/// Texto do papel para a miniatura. Posicao no papel; alinhamento: H 0=esquerda 1=centro 2=direita,
+/// V 0=base 1=meio 2=topo 3=baixo. Multilinha = MTEXT (topo do quadro na referencia).
+/// </summary>
+internal sealed record SheetText(WPoint Pos, double Altura, double RotacaoGraus, string Texto, int H, int V, double LarguraMax, bool Multilinha);
+
 /// <summary>Um layout com o desenho simplificado do papel (para a miniatura) e as viewports.</summary>
 internal sealed class SheetData
 {
@@ -39,6 +45,11 @@ internal sealed class SheetData
     public double PapelLargura { get; init; }
     public double PapelAltura { get; init; }
     public List<WPoint[]> Linhas { get; } = new();
+    public List<SheetText> Textos { get; } = new();
+    public List<WPoint[]> Preenchimentos { get; } = new();
+
+    /// <summary>Cache da geometria desenhada (montado pela vista grafica).</summary>
+    public object? Cache { get; set; }
     public List<SheetViewport> Viewports { get; } = new();
     public double MinX { get; set; } = double.MaxValue;
     public double MinY { get; set; } = double.MaxValue;
@@ -66,7 +77,8 @@ internal sealed record LayerStateItem(string Nome, string Descricao);
 /// </summary>
 internal static class LayoutReader
 {
-    private const int MaxPontosPorLayout = 25000;
+    private const int MaxPontosPorLayout = 40000;
+    private const int MaxTextosPorLayout = 4000;
     private const int MaxProfundidadeBloco = 3;
 
     // ------------------------------------------------------------------
@@ -254,38 +266,211 @@ internal static class LayoutReader
         };
     }
 
-    /// <summary>Linhas, polilinhas, arcos etc. do papel, entrando em blocos (carimbo, margem).</summary>
+    /// <summary>
+    /// Linhas, arcos, polilinhas, textos, atributos, cotas, tabelas e hachuras do papel,
+    /// entrando em blocos (carimbo, margem). Retorna quantos pontos foram gerados.
+    /// </summary>
     private static int Desenhar(Transaction tr, Entity ent, Matrix3d xf, SheetData folha, int nivel)
     {
-        switch (ent)
+        try
         {
-            case Curve c when ent is not Xline and not Ray:
+            switch (ent)
             {
-                WPoint[] pts = Amostrar(c, xf).ToArray();
-                if (pts.Length < 2)
-                    return 0;
-                folha.Linhas.Add(pts);
-                foreach (WPoint p in pts)
-                    folha.Incluir(p);
-                return pts.Length;
-            }
-            case BlockReference br when nivel < MaxProfundidadeBloco:
-            {
-                int total = 0;
-                Matrix3d bx = xf * br.BlockTransform;
-                var def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
-                foreach (ObjectId id in def)
+                case Curve c when ent is not Xline and not Ray:
                 {
-                    if (total > MaxPontosPorLayout)
-                        break;
-                    if (tr.GetObject(id, OpenMode.ForRead) is Entity filho && filho.Visible && filho is not AttributeDefinition)
-                        total += Desenhar(tr, filho, bx, folha, nivel + 1);
+                    WPoint[] pts = Amostrar(c, xf).ToArray();
+                    if (pts.Length < 2)
+                        return 0;
+                    folha.Linhas.Add(pts);
+                    foreach (WPoint p in pts)
+                        folha.Incluir(p);
+                    return pts.Length;
                 }
-                return total;
+
+                case AttributeReference att:
+                    if (!att.Invisible)
+                        Texto(att, xf, folha);
+                    return 1;
+
+                case DBText t when t is not AttributeDefinition:
+                    Texto(t, xf, folha);
+                    return 1;
+
+                case MText m:
+                    TextoM(m, xf, folha);
+                    return 1;
+
+                case Hatch h:
+                    return Hachura(h, xf, folha);
+
+                case Solid so:
+                {
+                    // Solid 2D: vertices 0,1,3,2 formam o contorno.
+                    var pts = new[] { so.GetPointAt(0), so.GetPointAt(1), so.GetPointAt(3), so.GetPointAt(2) }
+                        .Select(p => p.TransformBy(xf)).Select(p => new WPoint(p.X, p.Y)).ToArray();
+                    folha.Preenchimentos.Add(pts);
+                    return 4;
+                }
+
+                case Dimension d when nivel < MaxProfundidadeBloco && !d.DimBlockId.IsNull:
+                    return Bloco(tr, d.DimBlockId, xf, folha, nivel);
+
+                case BlockReference br when nivel < MaxProfundidadeBloco:
+                {
+                    // Tabela tambem e BlockReference: o bloco anonimo tem as linhas e os textos.
+                    int total = Bloco(tr, br.BlockTableRecord, xf * br.BlockTransform, folha, nivel);
+                    foreach (ObjectId aid in br.AttributeCollection)
+                        if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference a && !a.Invisible)
+                            Texto(a, xf, folha);
+                    return total;
+                }
+
+                default:
+                    return 0;
             }
-            default:
-                return 0;
         }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return 0;
+        }
+    }
+
+    private static int Bloco(Transaction tr, ObjectId defId, Matrix3d xf, SheetData folha, int nivel)
+    {
+        int total = 0;
+        var def = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);
+        foreach (ObjectId id in def)
+        {
+            if (total > MaxPontosPorLayout)
+                break;
+            if (tr.GetObject(id, OpenMode.ForRead) is Entity filho && filho.Visible && filho is not AttributeDefinition)
+                total += Desenhar(tr, filho, xf, folha, nivel + 1);
+        }
+        return total;
+    }
+
+    private static void Texto(DBText t, Matrix3d xf, SheetData folha)
+    {
+        if (folha.Textos.Count >= MaxTextosPorLayout || string.IsNullOrWhiteSpace(t.TextString))
+            return;
+
+        int h = 0, v = 0;
+        Point3d pos = t.Position;
+        switch (t.HorizontalMode)
+        {
+            case TextHorizontalMode.TextCenter: h = 1; pos = t.AlignmentPoint; break;
+            case TextHorizontalMode.TextRight: h = 2; pos = t.AlignmentPoint; break;
+            case TextHorizontalMode.TextMid: h = 1; v = 1; pos = t.AlignmentPoint; break;
+        }
+        if (t.HorizontalMode is TextHorizontalMode.TextLeft or TextHorizontalMode.TextCenter or TextHorizontalMode.TextRight)
+        {
+            switch (t.VerticalMode)
+            {
+                case TextVerticalMode.TextVerticalMid: v = 1; pos = t.AlignmentPoint; break;
+                case TextVerticalMode.TextTop: v = 2; pos = t.AlignmentPoint; break;
+                case TextVerticalMode.TextBottom: v = 3; pos = t.AlignmentPoint; break;
+            }
+        }
+
+        Adicionar(folha, pos, t.Height, t.Rotation, t.TextString, h, v, 0, false, xf);
+    }
+
+    private static void TextoM(MText m, Matrix3d xf, SheetData folha)
+    {
+        if (folha.Textos.Count >= MaxTextosPorLayout)
+            return;
+        string texto = m.Text;
+        if (string.IsNullOrWhiteSpace(texto))
+            return;
+
+        // AttachmentPoint: 1..9 = TopLeft..BottomRight.
+        int ap = (int)m.Attachment;
+        int h = (ap - 1) % 3;
+        int v = ap <= 3 ? 2 : ap <= 6 ? 1 : 3;
+        Adicionar(folha, m.Location, m.TextHeight, m.Rotation, texto, h, v, m.Width, true, xf);
+    }
+
+    private static void Adicionar(SheetData folha, Point3d pos, double altura, double rotacao, string texto,
+        int h, int v, double largura, bool multilinha, Matrix3d xf)
+    {
+        // Escala e giro do bloco que contem o texto.
+        Vector3d eixoX = Vector3d.XAxis.TransformBy(xf);
+        double escala = Math.Max(1e-9, eixoX.Length);
+        double giro = Math.Atan2(eixoX.Y, eixoX.X);
+        Point3d p = pos.TransformBy(xf);
+        double alt = altura * escala;
+        if (alt <= 1e-9)
+            return;
+
+        folha.Textos.Add(new SheetText(new WPoint(p.X, p.Y), alt, (rotacao + giro) * 180.0 / Math.PI,
+            texto.Replace("\r", "").Trim(), h, v, largura * escala, multilinha));
+        folha.Incluir(new WPoint(p.X, p.Y));
+    }
+
+    /// <summary>Hachura solida vira preenchimento; padrao vira so o contorno.</summary>
+    private static int Hachura(Hatch h, Matrix3d xf, SheetData folha)
+    {
+        bool solida = h.PatternType == HatchPatternType.PreDefined &&
+                      string.Equals(h.PatternName, "SOLID", StringComparison.OrdinalIgnoreCase);
+        int total = 0;
+        for (int i = 0; i < h.NumberOfLoops; i++)
+        {
+            var pts = new List<Point3d>();
+            HatchLoop loop = h.GetLoopAt(i);
+            if (loop.IsPolyline)
+            {
+                BulgeVertexCollection bv = loop.Polyline;
+                for (int k = 0; k < bv.Count; k++)
+                {
+                    Point2d a = bv[k].Vertex;
+                    Point2d b = bv[(k + 1) % bv.Count].Vertex;
+                    double bulge = bv[k].Bulge;
+                    int div = Math.Abs(bulge) > 1e-9 ? 8 : 1;
+                    for (int j = 0; j < div; j++)
+                        pts.Add(PontoArco(a, b, bulge, (double)j / div));
+                }
+            }
+            else
+            {
+                foreach (Curve2d c in loop.Curves)
+                    foreach (PointOnCurve2d pc in c.GetSamplePoints(c is LineSegment2d ? 2 : 12))
+                        pts.Add(new Point3d(pc.Point.X, pc.Point.Y, 0));
+            }
+
+            if (pts.Count < 3)
+                continue;
+
+            // Contorno da hachura esta no sistema do plano (OCS): leva para o papel.
+            Matrix3d ocs = Matrix3d.Displacement(h.Normal * h.Elevation) * Matrix3d.PlaneToWorld(h.Normal);
+            WPoint[] wp = pts.Select(p => p.TransformBy(xf * ocs)).Select(p => new WPoint(p.X, p.Y)).ToArray();
+            if (solida)
+                folha.Preenchimentos.Add(wp);
+            else
+                folha.Linhas.Add(wp.Append(wp[0]).ToArray());
+            foreach (WPoint p in wp)
+                folha.Incluir(p);
+            total += wp.Length;
+        }
+        return total;
+    }
+
+    private static Point3d PontoArco(Point2d a, Point2d b, double bulge, double t)
+    {
+        if (Math.Abs(bulge) < 1e-9)
+            return new Point3d(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t, 0);
+
+        double theta = 4.0 * Math.Atan(bulge);
+        double corda = a.GetDistanceTo(b);
+        double r = corda / (2.0 * Math.Sin(theta / 2.0));
+        double mx = (a.X + b.X) / 2.0, my = (a.Y + b.Y) / 2.0;
+        double dx = (b.X - a.X) / corda, dy = (b.Y - a.Y) / corda;
+        double d = r * Math.Cos(theta / 2.0);
+        // Centro a esquerda da corda para bulge positivo (anti-horario).
+        double cx = mx - dy * d, cy = my + dx * d;
+        double a0 = Math.Atan2(a.Y - cy, a.X - cx);
+        double ang = a0 + theta * t;
+        double raio = Math.Abs(r);
+        return new Point3d(cx + raio * Math.Cos(ang), cy + raio * Math.Sin(ang), 0);
     }
 
     private static IEnumerable<WPoint> Amostrar(Curve c, Matrix3d xf)

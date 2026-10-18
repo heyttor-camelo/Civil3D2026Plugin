@@ -250,15 +250,20 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.0.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.1.0)
 
-Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS) e Carimbo em lote (atributos de um bloco em varios layouts). A miniatura mostra margem, carimbo e viewports do layout; clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts.
+Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e View frames.
+
+Vista grafica: um layout (miniatura com textos, cotas, tabelas e hachuras; zoom e pan) ou todos os layouts como cartoes. Clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts.
 
 ```text
 C3DLAYOUT          -> explorador de layouts
 C3DLAYOUTVP        -> explorador na categoria Viewports
+C3DLAYOUTPS        -> explorador na categoria Page setup
 C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo)
 C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
+C3DLAYOUTVF        -> explorador na categoria View frames
+C3DMAPACHAVE       -> [Base/Area/Gerar/Atualizar/Remover/Painel] mapa-chave automatico
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```
 

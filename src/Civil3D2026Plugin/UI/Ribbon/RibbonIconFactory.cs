@@ -128,6 +128,7 @@ internal static class RibbonIconFactory
         if (commandName.StartsWith("C3DSECAO", StringComparison.OrdinalIgnoreCase))
             return "SC";
         if (commandName.StartsWith("C3DLAYOUT", StringComparison.OrdinalIgnoreCase) ||
+            commandName.StartsWith("C3DMAPACHAVE", StringComparison.OrdinalIgnoreCase) ||
             commandName.Equals("NP", StringComparison.OrdinalIgnoreCase))
             return "LY";
         if (commandName.StartsWith("C3DLISP", StringComparison.OrdinalIgnoreCase))

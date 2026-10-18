@@ -144,6 +144,9 @@ public static class CommandNames
         public const string Viewports = "C3DLAYOUTVP";
         public const string LayerState = "C3DLAYOUTLS";
         public const string Carimbo = "C3DLAYOUTCARIMBO";
+        public const string PageSetup = "C3DLAYOUTPS";
+        public const string ViewFrames = "C3DLAYOUTVF";
+        public const string MapaChave = "C3DMAPACHAVE";
         public const string Numerar = "NP";
     }
 

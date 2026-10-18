@@ -47,6 +47,10 @@ public sealed class PluginApplication : IExtensionApplication
         if (ModuleSettings.IsCommandEnabled(C3DCommands.Secao.Painel))
             Civil3D2026Plugin.Modules.Secao.SecaoCommands.Initialize();
 
+        // Mapa-chave automatico (C3DMAPACHAVE): refaz o mapa quando viewports ou layouts mudam.
+        if (ModuleSettings.IsCategoryEnabled("Layouts"))
+            Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Initialize();
+
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
         if (ModuleSettings.IsCategoryEnabled("LISPs"))
             LispModule.Initialize();
@@ -59,6 +63,7 @@ public sealed class PluginApplication : IExtensionApplication
     public void Terminate()
     {
         LispModule.Terminate();
+        Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Terminate();
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
         ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();

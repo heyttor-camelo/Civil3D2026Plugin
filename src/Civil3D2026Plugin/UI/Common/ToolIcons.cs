@@ -64,6 +64,7 @@ internal static class ToolIcons
         // Modulo Secao (visualizador de secao)
         ["corte"] = new("M2,13 L6,7 L10,10 L14,4", "M2,3 H14 M8,1.5 V4.5"),
         ["inverter"] = new("M3,6 H13 M3,10 H13", "M10,3.5 L13,6 L10,8.5 M6,7.5 L3,10 L6,12.5"),
+        ["viewframe"] = new("M1.5,9.5 L4,3.5 L8.5,5.4 L6,11.4 Z M8.5,5.4 L12,2 L14.8,5.6 L11.2,9", "M1,13.5 C5,11 9,10.5 15,7"),
         ["generico"] = new("M3,3 H13 V13 H3 Z", "M5.5,8 H10.5")
     };
 

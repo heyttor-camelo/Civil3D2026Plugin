@@ -280,6 +280,12 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Layouts.Viewports, "Viewports", "Abre o explorador na categoria Viewports."),
                     new CommandDefinition(C3DCommands.Layouts.LayerState, "Layer state nas viewports", "Abre o explorador na categoria Layer state."),
                     new CommandDefinition(C3DCommands.Layouts.Carimbo, "Carimbo em lote", "Abre o explorador na categoria Carimbo."),
+                    new CommandDefinition(C3DCommands.Layouts.PageSetup, "Page setup em lote",
+                        "Abre o explorador na categoria Page setup: aplicar page setup nomeado ou plotter/papel/CTB em varios layouts, importar de DWG/DWT."),
+                    new CommandDefinition(C3DCommands.Layouts.MapaChave, "Mapa-chave",
+                        "[Base/Area/Gerar/Atualizar/Remover]: mapa-chave em cada layout com contorno e numero das folhas e hachura da folha atual, atualizado sozinho."),
+                    new CommandDefinition(C3DCommands.Layouts.ViewFrames, "View frames",
+                        "Abre o explorador na categoria View frames: frames e match lines do Civil com estacas, layout ligado, zoom e rotulos."),
                     new CommandDefinition(C3DCommands.Layouts.Numerar, "Numerar pranchas",
                         "[Configurar/Atualizar]: numero (01, 02...) e total (/NN) nos textos das layers PRANCHA_NUMERO e PRANCHA_TOTAL, na ordem das abas.")
                 }),

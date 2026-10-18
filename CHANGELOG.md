@@ -1,3 +1,14 @@
+## 2.47.0 - Layouts v1.1.0 / montagem de pranchas: todos os layouts, page setup em lote, mapa-chave automatico, view frames
+
+- **vista "Todos"** no explorador (C3DLAYOUT): todos os layouts lado a lado como cartoes (numero, nome, viewports marcadas, caixa para marcar o layout), com as viewports clicaveis; clique escolhe o layout, duplo clique abre na vista grande. Cada cartao vira bitmap em cache para rolar sem travar;
+- **miniatura mais completa**: alem de linhas, arcos e blocos, agora textos, MTEXT, atributos visiveis, cotas, tabelas, hachuras solidas (preenchidas) e de padrao (contorno) e solids 2D. A geometria e montada uma vez por layout; o traco fica com espessura constante em pixels. Na vista "Todos" so os textos grandes (titulos, numero da prancha); caixa "Textos" liga/desliga;
+- **zoom e pan** na vista de um layout: roda do mouse, arrastar com o botao do meio ou no fundo, duplo clique enquadra;
+- **Page setup em lote** (categoria nova, `C3DLAYOUTPS`): aplicar page setup nomeado nos layouts marcados; configuracao direta (plotter/PC3, papel do plotter, CTB, opcao area Layout 1:1); importar page setups de DWG/DWT; salvar a configuracao de um layout como page setup;
+- **Mapa-chave automatico** (`C3DMAPACHAVE [Base/Area/Gerar/Atualizar/Remover]` e categoria no explorador): a base escolhida no Model vira o bloco C3D_MAPACHAVE (objetos do Civil e blocos sao explodidos em curvas); em cada layout com viewport sobre a base, o plugin insere a base na area escolhida, desenha o contorno e o numero (ou nome) de todas as folhas e hachura a area da propria folha (cor e transparencia configuraveis). Viewports de perfil/detalhe que nao mostram a base ficam de fora; viewport girada ou com recorte poligonal sai certa. Atualizacao automatica (opcional) quando viewports ou layouts mudam; tudo nas layers MAPA_CHAVE_* com XData, refeito a cada atualizacao;
+- **View frames** (categoria nova, `C3DLAYOUTVF`): grupos, frames e match lines do Civil com eixo, estacas (20 m) e o layout ligado pela folha do Civil; zoom no Model; ligar/desligar rotulos em lote. Criar ou mover view frames nao e exposto pela API do Civil;
+- numeracao de pranchas pelo painel agora roda `NP > Configurar` na linha de comando (escolha dos textos em contexto de comando);
+- o painel se rele sozinho depois de NP, C3DMAPACHAVE, LAYOUT, MVIEW, PAGESETUP, UNDO e edicoes comuns.
+
 ## 2.46.0 - Visualizador de secao v0.3.0 / elevacao, textos arrastaveis, contorno verdadeiro, profundidade e 3D recortado na caixa
 
 - **"cota" virou "elevacao"** em toda a janela, nas propriedades, no diagnostico e no desenho (cota fica para medidas de distancia);
