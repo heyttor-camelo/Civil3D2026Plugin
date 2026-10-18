@@ -208,7 +208,10 @@ internal static class ViarioCivil
                     continue;
                 }
 
-                string name = Unique(names, NextAxisName(names, ref axisNumber));
+                // Nome dado ao eixo no painel (ou pelos textos); sem nome, o automatico.
+                string own = ViarioStore.EntityByKey(tr, db, axis.Key, AcadDb.OpenMode.ForRead) is AcadDb.Entity axisEntity
+                    ? SafeName(ViarioStore.AxisName(axisEntity)) : "";
+                string name = Unique(names, own.Length > 0 ? own : NextAxisName(names, ref axisNumber));
                 AcadDb.ObjectId id = CivilDb.Alignment.Create(cdoc, name, siteId, layers[LayerAxis], styleId, labelId);
                 CivilDb.Alignment created = (CivilDb.Alignment)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
                 BuildEntities(created, axis.Path);
@@ -1261,6 +1264,83 @@ internal static class ViarioCivil
             candidate = $"{name} ({i++})";
         names.Add(candidate);
         return candidate;
+    }
+
+    /// <summary>Nome aceito pelo Civil (sem os caracteres reservados).</summary>
+    public static string SafeName(string name)
+    {
+        char[] bad = { '<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', ',', '=', '`' };
+        string s = new(name.Select(c => bad.Contains(c) || char.IsControl(c) ? '-' : c).ToArray());
+        return s.Trim().Length > 200 ? s.Trim()[..200] : s.Trim();
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex AutoAxisName =
+        new(@"^Eixo VIARIO \d+( \(\d+\))?$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// Leva o nome dado aos eixos para os alinhamentos do Civil ja gerados: o do eixo (se ainda
+    /// tem o nome automatico ou o nome anterior do eixo - renomeados a mao no Civil ficam), os
+    /// bordos "&lt;eixo&gt; - LD/LE" e os curb returns "&lt;A&gt; x &lt;B&gt; - CRn". Devolve quantos mudaram.
+    /// </summary>
+    public static int RenameFromAxes(AcadDb.Transaction tr, AcadDb.Database db, IReadOnlyDictionary<string, (string Old, string New)> changes)
+    {
+        if (changes.Count == 0)
+            return 0;
+        List<Tagged> tagged = Scan(tr, db);
+        HashSet<string> names = AlignmentNames(tr, db);
+        int count = 0;
+
+        void Rename(CivilDb.Alignment al, string target)
+        {
+            if (al.Name == target)
+                return;
+            names.Remove(al.Name);
+            al.Name = Unique(names, target);
+            count++;
+        }
+
+        foreach (Tagged t in tagged.Where(t => t.Kind == KindAxis && changes.ContainsKey(t.Key)))
+        {
+            (string old, string fresh) = changes[t.Key];
+            if (tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is not CivilDb.Alignment al)
+                continue;
+            string current = al.Name;
+            bool mine = AutoAxisName.IsMatch(current) || (old.Length > 0 && (current == SafeName(old) || current.StartsWith(SafeName(old) + " (", StringComparison.Ordinal)));
+            if (!mine)
+                continue;
+            string target = SafeName(fresh);
+            if (target.Length == 0)
+                continue;
+
+            al.UpgradeOpen();
+            Rename(al, target);
+            string now = al.Name;
+
+            // Bordos e curb returns que levam o nome antigo.
+            foreach (Tagged d in tagged.Where(d => d.Kind != KindAxis))
+            {
+                if (tr.GetObject(d.Id, AcadDb.OpenMode.ForRead, false) is not CivilDb.Alignment dep)
+                    continue;
+                string n = dep.Name, renamed = n;
+                if (d.Kind == KindEdge && d.Key == t.Key && n.StartsWith(current + " - ", StringComparison.Ordinal))
+                    renamed = now + n[current.Length..];
+                else if (d.Kind == KindCurb)
+                {
+                    if (n.StartsWith(current + " x ", StringComparison.Ordinal) || n.StartsWith(current + " - CR", StringComparison.Ordinal))
+                        renamed = now + n[current.Length..];
+                    else if (n.Contains(" x " + current + " - CR", StringComparison.Ordinal))
+                        renamed = n.Replace(" x " + current + " - CR", " x " + now + " - CR", StringComparison.Ordinal);
+                }
+
+                if (renamed != n)
+                {
+                    dep.UpgradeOpen();
+                    Rename(dep, renamed);
+                }
+            }
+        }
+
+        return count;
     }
 
     private static string NextAxisName(HashSet<string> names, ref int n)

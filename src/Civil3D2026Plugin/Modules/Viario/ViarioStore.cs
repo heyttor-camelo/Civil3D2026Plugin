@@ -223,20 +223,93 @@ internal static class ViarioStore
         return (pts, bulges);
     }
 
+    // ------------------------------------------------------------------
+    // Nome do eixo (RegApp proprio: sobrevive as regravacoes do XData do eixo)
+    // ------------------------------------------------------------------
+
+    /// <summary>RegApp do nome do eixo (separado: SetAxis/ClearTag nao o apagam).</summary>
+    public const string RegAppName = "C3DVIARIONOME";
+
+    /// <summary>Nome dado ao eixo ("" = sem nome).</summary>
+    public static string AxisName(AcadDb.DBObject obj)
+    {
+        AcadDb.ResultBuffer? rb = obj.GetXDataForApplication(RegAppName);
+        if (rb is null)
+            return string.Empty;
+
+        using (rb)
+        {
+            foreach (AcadDb.TypedValue tv in rb.AsArray())
+            {
+                if (tv.TypeCode == (short)AcadDb.DxfCode.ExtendedDataAsciiString)
+                    return tv.Value as string ?? string.Empty;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    /// <summary>Grava (ou apaga, com nome vazio) o nome do eixo.</summary>
+    public static void SetAxisName(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.Entity entity, string name)
+    {
+        EnsureRegApp(tr, db, RegAppName);
+        name = (name ?? string.Empty).Replace('\r', ' ').Replace('\n', ' ').Trim();
+        if (name.Length > 250)
+            name = name[..250];
+        entity.XData = name.Length == 0
+            ? new AcadDb.ResultBuffer(new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegAppName))
+            : new AcadDb.ResultBuffer(
+                new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegAppName),
+                new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, name));
+    }
+
+    /// <summary>Entidade pelo handle (chave do eixo), ou null.</summary>
+    public static AcadDb.Entity? EntityByKey(AcadDb.Transaction tr, AcadDb.Database db, string key, AcadDb.OpenMode mode)
+    {
+        if (!long.TryParse(key, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out long value))
+            return null;
+        if (!db.TryGetObjectId(new AcadDb.Handle(value), out AcadDb.ObjectId id) || id.IsErased)
+            return null;
+        return tr.GetObject(id, mode, false) as AcadDb.Entity;
+    }
+
+    /// <summary>Nomes dados aos eixos (chave = handle); so os que tem nome.</summary>
+    public static Dictionary<string, string> ReadAxisNames(AcadDb.Database db, IEnumerable<string> keys)
+    {
+        Dictionary<string, string> names = new(StringComparer.Ordinal);
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        foreach (string key in keys)
+        {
+            try
+            {
+                if (EntityByKey(tr, db, key, AcadDb.OpenMode.ForRead) is AcadDb.Entity e && AxisName(e) is { Length: > 0 } name)
+                    names[key] = name;
+            }
+            catch
+            {
+                // eixo apagado no meio do caminho
+            }
+        }
+
+        return names;
+    }
+
     public static void ClearTag(AcadDb.Entity entity)
     {
         entity.XData = new AcadDb.ResultBuffer(
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataRegAppName, RegApp));
     }
 
-    public static void EnsureRegApp(AcadDb.Transaction tr, AcadDb.Database db)
+    public static void EnsureRegApp(AcadDb.Transaction tr, AcadDb.Database db) => EnsureRegApp(tr, db, RegApp);
+
+    public static void EnsureRegApp(AcadDb.Transaction tr, AcadDb.Database db, string name)
     {
         AcadDb.RegAppTable table = (AcadDb.RegAppTable)tr.GetObject(db.RegAppTableId, AcadDb.OpenMode.ForRead);
-        if (table.Has(RegApp))
+        if (table.Has(name))
             return;
 
         table.UpgradeOpen();
-        AcadDb.RegAppTableRecord record = new() { Name = RegApp };
+        AcadDb.RegAppTableRecord record = new() { Name = name };
         table.Add(record);
         tr.AddNewlyCreatedDBObject(record, true);
     }

@@ -75,6 +75,14 @@ internal sealed class ViarioPanel : SW.Window
     private ViarioStore.Settings _settings = new();
     private EngineSettings _engine = new();
     private Dictionary<string, string> _names = new();
+
+    /// <summary>Nome dado a cada eixo (XData proprio; chave = handle).</summary>
+    private Dictionary<string, string> _ownNames = new();
+
+    /// <summary>Linhas marcadas na lista de eixos (Id da linha); os comandos em lote valem para elas.</summary>
+    private readonly HashSet<string> _checked = new(StringComparer.Ordinal);
+
+    private List<Row> _rows = new();
     private SignageOptions _signage = new();
     private List<Hint> _hints = new();
     private bool _civilActive;
@@ -371,8 +379,29 @@ internal sealed class ViarioPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 260 });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1.15, SW.GridUnitType.Star), MinWidth = 300 });
+        _list.SelectionMode = WC.SelectionMode.Extended;
         _list.SelectionChanged += (_, _) => OnRowSelected();
         _list.MouseDoubleClick += (_, _) => ZoomCurrent();
+        _list.PreviewKeyDown += (_, e) =>
+        {
+            if (e.Key == WI.Key.Space && _category == "EIXOS" && _list.SelectedItems.Count > 0)
+            {
+                List<Row> sel = _list.SelectedItems.OfType<Row>().ToList();
+                bool mark = sel.Any(r => !r.Checked);
+                foreach (Row r in sel)
+                    r.Checked = mark;
+                OnChecksChanged();
+                e.Handled = true;
+            }
+        };
+        _list.MouseRightButtonUp += (_, e) =>
+        {
+            if (_category == "EIXOS")
+            {
+                OpenAxisListMenu();
+                e.Handled = true;
+            }
+        };
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
         WC.Grid.SetColumn(splitV, 1);
@@ -1135,6 +1164,7 @@ internal sealed class ViarioPanel : SW.Window
             _engine = ViarioSync.EngineSettingsFor(db);
             _signage = ViarioStore.LoadSignage(db);
             _names = ViarioCivil.AxisNames(db);
+            _ownNames = ViarioStore.ReadAxisNames(db, _axes.Select(a => a.Key));
             _civilActive = ViarioCivil.IsActive(db);
             _signExists = ViarioSignageSync.Exists(db);
             _hints = ViarioNorms.Check(_axes, _result, _engine, _sections);
@@ -1218,14 +1248,31 @@ internal sealed class ViarioPanel : SW.Window
     // Lista de objetos (colunas por categoria)
     // ------------------------------------------------------------------
 
-    private sealed class Row
+    private sealed class Row : System.ComponentModel.INotifyPropertyChanged
     {
+        private bool _isChecked;
+
         public string Id { get; init; } = "";
         public string Icon { get; init; } = "PAINEL";
         public string[] Cells { get; init; } = Array.Empty<string>();
         public object? Data { get; init; }
         public string Flag { get; set; } = "";
         public WM.Brush? FlagBrush { get; set; }
+
+        /// <summary>Caixinha da linha (listas com marcacao).</summary>
+        public bool Checked
+        {
+            get => _isChecked;
+            set
+            {
+                if (_isChecked == value)
+                    return;
+                _isChecked = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(Checked)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
     }
 
     private (string[] Columns, double[] Widths, List<Row> Rows) BuildRows(string category)
@@ -1441,7 +1488,19 @@ internal sealed class ViarioPanel : SW.Window
             }
         }
 
-        _list.View = ListViewFor(columns, widths, rows);
+        bool checkable = _category == "EIXOS";
+        if (checkable)
+        {
+            // Marcacao sobrevive aos recalculos; eixos que sumiram saem dela.
+            _checked.IntersectWith(_axes.Select(a => "EIXO:" + a.Key));
+            foreach (Row r in rows)
+                r.Checked = _checked.Contains(r.Id);
+        }
+
+        _rows = rows;
+        _list.View = checkable
+            ? ListViewFor(columns, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked))
+            : ListViewFor(columns, widths, rows);
         _list.ItemsSource = rows;
 
         Row? keep = rows.FirstOrDefault(r => r.Id == _selectedRow) ?? rows.FirstOrDefault();
@@ -1451,7 +1510,7 @@ internal sealed class ViarioPanel : SW.Window
         OnRowSelected();
 
         int warn = _hints.Count(h => h.Level == HintLevel.Atencao);
-        Say($"{_axes.Count} eixo(s), {_result.Nodes.Count} no(s), {_result.Corners.Count} esquina(s) | " +
+        Say($"{_axes.Count} eixo(s){(_checked.Count > 0 ? $" ({_checked.Count} marcado(s))" : "")}, {_result.Nodes.Count} no(s), {_result.Corners.Count} esquina(s) | " +
             $"DNIT: {warn} atencao, {_hints.Count - warn} info | Civil: {(_civilActive ? "ativo" : "-")} | " +
             $"Sinalizacao: {(_signExists ? "sim" : "-")} | v{C3DVersions.Viario}");
     }
@@ -1480,9 +1539,23 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     /// <summary>GridView com coluna de aviso, icone + primeira coluna e as demais por indice; numeros a direita.</summary>
-    private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null)
+    private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null,
+        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false)
     {
         WC.GridView view = new();
+
+        if (checkChanged is not null)
+        {
+            // Caixinha por linha + caixinha no cabecalho (marca/desmarca as linhas da lista, ja filtrada).
+            SW.FrameworkElementFactory box = new(typeof(WC.CheckBox));
+            box.SetBinding(WC.Primitives.ToggleButton.IsCheckedProperty, new WD.Binding("Checked") { Mode = WD.BindingMode.TwoWay, UpdateSourceTrigger = WD.UpdateSourceTrigger.PropertyChanged });
+            box.SetValue(SW.FrameworkElement.HorizontalAlignmentProperty, SW.HorizontalAlignment.Center);
+            box.SetValue(SW.FrameworkElement.ToolTipProperty, "Marcar: os comandos em lote valem para os eixos marcados (Espaco marca os selecionados).");
+            box.AddHandler(WC.Primitives.ButtonBase.ClickEvent, new SW.RoutedEventHandler((_, _) => checkChanged()));
+            WC.CheckBox header = new() { IsChecked = allChecked, ToolTip = "Marcar/desmarcar todos os da lista (respeita o Localizar)" };
+            header.Click += (_, _) => checkAll?.Invoke(header.IsChecked == true);
+            view.Columns.Add(new WC.GridViewColumn { Header = header, Width = 28, CellTemplate = new SW.DataTemplate { VisualTree = box } });
+        }
 
         SW.FrameworkElementFactory flag = new(typeof(WC.TextBlock));
         flag.SetBinding(WC.TextBlock.TextProperty, new WD.Binding("Flag"));
@@ -1539,6 +1612,7 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     private string AxisName(AxisInput axis, int index) =>
+        _ownNames.TryGetValue(axis.Key, out string? own) ? own :
         _names.TryGetValue(axis.Key, out string? name) ? name : (axis.Path.Closed ? $"Rotatoria {index + 1}" : $"Eixo {index + 1}");
 
     private string AxisLabel(string key)
@@ -1866,6 +1940,7 @@ internal sealed class ViarioPanel : SW.Window
         {
             case RoadSection s: ShowSection(s); break;
             case AxisInput a when _category == "CIVIL": ShowCivil(a); break;
+            case AxisInput a when _category == "EIXOS" && (_checked.Count > 0 || TargetAxes().Count > 1): ShowAxes(TargetAxes(), a); break;
             case AxisInput a: ShowAxis(a); break;
             case ValueTuple<AxisInput, AxisEvent> pair: ShowEvent(pair.Item1, pair.Item2); break;
             case string slip when _category == "ELEMENTOS": ShowSlip(slip); break;
@@ -2242,6 +2317,14 @@ internal sealed class ViarioPanel : SW.Window
 
     private void ShowAxis(AxisInput a)
     {
+        Category("Identificacao");
+        WC.TextBox nameBox = EditProp("NomeEixo", "Nome do eixo", _ownNames.TryGetValue(a.Key, out string? own) ? own : "");
+        nameBox.ToolTip = "Nome proprio do eixo (fica no desenho). Enter grava; vazio volta ao nome automatico. Vai para o alinhamento do Civil.";
+        nameBox.KeyDown += (_, e) =>
+        {
+            if (e.Key == WI.Key.Enter)
+                SetNames(new[] { a }, nameBox.Text.Trim());
+        };
         Category("Geometria");
         Prop("Comprimento", N(a.Path.Length) + " m");
         Prop("Trechos", $"{a.Path.Segs.Count} ({a.Path.Segs.Count(s => s.IsArc)} arco(s))");
@@ -2261,6 +2344,8 @@ internal sealed class ViarioPanel : SW.Window
 
         Act("Zoom", ZoomCurrent, true);
         Act("Selecionar", () => SelectAxis(a));
+        Act("Salvar nome", () => SetNames(new[] { a }, Text("NomeEixo")));
+        Act("Nome pelo texto proximo...", () => OpenNameDialog(new List<AxisInput> { a }));
         Act("Aplicar secao", () => AssignSection(a));
         if (!a.Path.Closed)
         {
@@ -2327,6 +2412,552 @@ internal sealed class ViarioPanel : SW.Window
                 ViarioStore.ClearTag(e);
             tr.Commit();
         });
+    }
+
+    // ---------------- Eixos em lote (marcados ou selecionados) ----------------
+
+    /// <summary>Eixos em que os comandos agem: os marcados; sem marca, os selecionados na lista.</summary>
+    private List<AxisInput> TargetAxes()
+    {
+        if (_category != "EIXOS")
+            return _current?.Data is AxisInput c ? new List<AxisInput> { c } : new List<AxisInput>();
+        List<AxisInput> marked = _axes.Where(a => _checked.Contains("EIXO:" + a.Key)).ToList();
+        if (marked.Count > 0)
+            return marked;
+        List<AxisInput> selected = _list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<AxisInput>().ToList();
+        if (selected.Count > 0)
+            return selected;
+        return _current?.Data is AxisInput a ? new List<AxisInput> { a } : new List<AxisInput>();
+    }
+
+    private void OnChecksChanged()
+    {
+        foreach (Row r in _rows)
+        {
+            if (r.Checked)
+                _checked.Add(r.Id);
+            else
+                _checked.Remove(r.Id);
+        }
+
+        BuildTabs();
+        Say(_checked.Count == 0 ? "Nenhum eixo marcado: os comandos valem para a linha selecionada." : $"{_checked.Count} eixo(s) marcado(s): os comandos em lote valem para eles.");
+    }
+
+    private void SetChecks(IEnumerable<Row> rows, bool value)
+    {
+        foreach (Row r in rows)
+            r.Checked = value;
+        OnChecksChanged();
+    }
+
+    /// <summary>Botao direito na lista de eixos: marcar/desmarcar.</summary>
+    private void OpenAxisListMenu()
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = _list };
+        List<Row> selected = _list.SelectedItems.OfType<Row>().ToList();
+        void Item(string text, Action action, bool enabled = true)
+        {
+            WC.MenuItem mi = new() { Header = text, IsEnabled = enabled };
+            mi.Click += (_, _) => action();
+            menu.Items.Add(mi);
+        }
+
+        Item($"Marcar selecionados ({selected.Count})", () => SetChecks(selected, true), selected.Count > 0);
+        Item($"Desmarcar selecionados ({selected.Count})", () => SetChecks(selected, false), selected.Count > 0);
+        menu.Items.Add(new WC.Separator());
+        Item($"Marcar todos da lista ({_rows.Count})", () => SetChecks(_rows, true), _rows.Count > 0);
+        Item("Inverter marcacao da lista", () => { foreach (Row r in _rows) r.Checked = !r.Checked; OnChecksChanged(); }, _rows.Count > 0);
+        Item($"Desmarcar todos ({_checked.Count})", () => { _checked.Clear(); foreach (Row r in _rows) r.Checked = false; OnChecksChanged(); }, _checked.Count > 0);
+        menu.Items.Add(new WC.Separator());
+        Item("Nomear pelos textos proximos...", () => OpenNameDialog(TargetAxes()));
+        Item("Selecionar no desenho", () => SelectAxes(TargetAxes()));
+        Item("Remover da rede...", () => RemoveAxes(TargetAxes()));
+        menu.IsOpen = true;
+    }
+
+    private void ShowAxes(List<AxisInput> targets, AxisInput current)
+    {
+        bool marked = _checked.Count > 0;
+        Category($"{targets.Count} eixo(s) {(marked ? "marcado(s)" : "selecionado(s)")}");
+        Prop("Comprimento total", N(targets.Sum(t => t.Path.Length)) + " m");
+        Prop("Secoes", string.Join(", ", targets.GroupBy(t => t.Section.Name).Select(g => $"{g.Key} ({g.Count()})")));
+        Prop("Com nome", $"{targets.Count(t => _ownNames.ContainsKey(t.Key))} de {targets.Count}");
+        Prop("Linha selecionada", AxisName(current, _axes.IndexOf(current)) + (targets.Contains(current) ? "" : " (fora do lote)"));
+
+        Category("Alterar em lote (vazio = manter)");
+        List<(string, string)> sections = new() { ("(manter)", "") };
+        sections.AddRange(_sections.Select(x => (x.Name, x.Id)));
+        ChoiceProp("LoteSecao", "Secao", sections, "");
+        WC.TextBox raio = EditProp("LoteRaio", "Raio de esquina do eixo (m)", "");
+        raio.ToolTip = "Numero = raio de todas as esquinas desses eixos; 'secao' = volta ao raio da secao; vazio = manter.";
+        ChoiceProp("LoteConc", "Concordancia", new[] { ("(manter)", ""), ("mantida (refeita ao editar)", "1"), ("livre", "0") }, "");
+        WC.TextBox nome = EditProp("LoteNome", "Nome (o mesmo para todos)", "");
+        nome.ToolTip = "Ex.: trechos da mesma rua. Vazio = manter; para tirar os nomes use Limpar nomes.";
+
+        Act("Aplicar", () => ApplyBatch(targets), true);
+        Act("Zoom", () => ZoomTo(targets.Select(t => t.Path.Bounds().Inflate(t.Section.TotalWidth)).Aggregate(Box2.Empty, (acc, b) => acc.Union(b))));
+        Act("Selecionar no desenho", () => SelectAxes(targets));
+        Act("Nomear pelos textos...", () => OpenNameDialog(targets));
+        Act("Limpar nomes", () => SetNames(targets, ""));
+        Act("Inverter sentido", () => ReverseAxes(targets));
+        Act("Remover da rede...", () => RemoveAxes(targets));
+        if (marked)
+            Act("Desmarcar todos", () => { _checked.Clear(); foreach (Row r in _rows) r.Checked = false; OnChecksChanged(); });
+
+        Box2 box = targets.Select(t => t.Path.Bounds()).Aggregate(Box2.Empty, (acc, b) => acc.Union(b));
+        _render = () => RenderMap(box.IsEmpty ? null : box.Inflate(20), sh =>
+        {
+            foreach (AxisInput t in targets)
+                sh.Highlight(t.Path.Segs);
+        });
+    }
+
+    private void ApplyBatch(List<AxisInput> targets)
+    {
+        string section = Text("LoteSecao");
+        string raio = Text("LoteRaio");
+        string conc = Text("LoteConc");
+        string nome = Text("LoteNome");
+        double? radius = null;
+        bool clearRadius = raio.Equals("secao", StringComparison.OrdinalIgnoreCase) || raio.Equals("seção", StringComparison.OrdinalIgnoreCase);
+        if (raio.Length > 0 && !clearRadius)
+        {
+            radius = Number("LoteRaio", 0.5);
+            if (radius is null)
+            {
+                Say("Raio invalido (numero >= 0,5, 'secao' ou vazio).");
+                return;
+            }
+        }
+
+        if (section.Length == 0 && raio.Length == 0 && conc.Length == 0 && nome.Length == 0)
+        {
+            Say("Nada para alterar: escolha a secao, o raio, a concordancia ou o nome.");
+            return;
+        }
+
+        int count = 0;
+        Edit($"{targets.Count} eixo(s) alterado(s).", db =>
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            foreach (RoadSection other in _sections)
+                ViarioStore.SaveSection(tr, db, other);
+            Dictionary<string, (string, string)> renamed = new();
+            foreach (AxisInput a in targets)
+            {
+                if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForWrite) is not AcadDb.Entity e)
+                    continue;
+                if (section.Length > 0 || radius is not null || clearRadius)
+                    ViarioStore.UpdateAxis(e, sectionId: section.Length > 0 ? section : null, radius: radius, clearRadius: clearRadius);
+                if (conc.Length > 0 && !a.Path.Closed)
+                    ViarioStore.SetChained(e, conc == "1");
+                if (nome.Length > 0)
+                {
+                    renamed[a.Key] = (_ownNames.TryGetValue(a.Key, out string? old) ? old : "", nome);
+                    ViarioStore.SetAxisName(tr, db, e, nome);
+                }
+
+                count++;
+            }
+
+            if (renamed.Count > 0)
+                ViarioCivil.RenameFromAxes(tr, db, renamed);
+            tr.Commit();
+        });
+        Say($"{count} eixo(s) alterado(s).");
+    }
+
+    /// <summary>Grava o mesmo nome (ou nenhum) nos eixos; leva o nome aos alinhamentos do Civil.</summary>
+    private void SetNames(IReadOnlyCollection<AxisInput> targets, string name)
+    {
+        name = name.Trim();
+        Edit(name.Length == 0 ? $"Nome tirado de {targets.Count} eixo(s)." : $"Nome '{name}' em {targets.Count} eixo(s).", db =>
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            Dictionary<string, (string, string)> renamed = new();
+            foreach (AxisInput a in targets)
+            {
+                if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForWrite) is not AcadDb.Entity e)
+                    continue;
+                if (name.Length > 0)
+                    renamed[a.Key] = (_ownNames.TryGetValue(a.Key, out string? old) ? old : "", name);
+                ViarioStore.SetAxisName(tr, db, e, name);
+            }
+
+            if (renamed.Count > 0)
+                ViarioCivil.RenameFromAxes(tr, db, renamed);
+            tr.Commit();
+        }, regenerate: false);
+    }
+
+    private void SelectAxes(IReadOnlyCollection<AxisInput> targets)
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null || targets.Count == 0)
+            return;
+        using (doc.LockDocument())
+        {
+            using AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction();
+            AcadDb.ObjectId[] ids = targets.Select(a => AxisEntity(tr, doc.Database, a.Key, AcadDb.OpenMode.ForRead)?.ObjectId ?? AcadDb.ObjectId.Null)
+                .Where(id => !id.IsNull).ToArray();
+            doc.Editor.SetImpliedSelection(ids);
+            Say($"{ids.Length} eixo(s) selecionado(s) no desenho.");
+        }
+    }
+
+    private void ReverseAxes(IReadOnlyCollection<AxisInput> targets)
+    {
+        List<AxisInput> open = targets.Where(a => !a.Path.Closed).ToList();
+        if (open.Count == 0)
+        {
+            Say("Aneis de rotatoria nao tem sentido para inverter.");
+            return;
+        }
+
+        Edit($"Sentido invertido em {open.Count} eixo(s).", db =>
+        {
+            Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc is null)
+                return;
+            List<AcadDb.ObjectId> ids = new();
+            using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
+            {
+                foreach (AxisInput a in open)
+                {
+                    if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForRead) is AcadDb.Entity e)
+                        ids.Add(e.ObjectId);
+                }
+            }
+
+            (_, List<string> notes) = ViarioCommands.ReverseAxes(doc, ids);
+            foreach (string n in notes)
+                doc.Editor.WriteMessage("\n  [C3DVIARIO] " + n);
+        });
+    }
+
+    private void RemoveAxes(IReadOnlyCollection<AxisInput> targets)
+    {
+        if (targets.Count == 0)
+            return;
+        if (targets.Count > 1 && SW.MessageBox.Show(this,
+                $"Tirar {targets.Count} eixos da rede?\nAs polilinhas continuam no desenho (os nomes tambem); as linhas geradas deles somem.",
+                "Remover da rede", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Question) != SW.MessageBoxResult.Yes)
+            return;
+
+        _selectedRow = null;
+        Edit($"{targets.Count} eixo(s) tirado(s) da rede (as polilinhas continuam no desenho).", db =>
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            foreach (AxisInput a in targets)
+            {
+                if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForWrite) is AcadDb.Entity e)
+                    ViarioStore.ClearTag(e);
+                _checked.Remove("EIXO:" + a.Key);
+            }
+
+            tr.Commit();
+        });
+    }
+
+    // ---------------- Nomes pelos textos proximos ----------------
+
+    /// <summary>Textos (TEXT e MTEXT) do model space: texto, centro, angulo e layer.</summary>
+    private static List<TextCandidate> CollectTexts(AcadDb.Database db)
+    {
+        List<TextCandidate> list = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            string dxf;
+            try
+            {
+                dxf = id.ObjectClass.DxfName;
+            }
+            catch
+            {
+                continue;
+            }
+
+            if (dxf != "TEXT" && dxf != "MTEXT")
+                continue;
+            try
+            {
+                AcadDb.DBObject obj = tr.GetObject(id, AcadDb.OpenMode.ForRead, false);
+                string text;
+                double angle;
+                Point3d fallback;
+                switch (obj)
+                {
+                    case AcadDb.DBText t:
+                        text = t.TextString;
+                        angle = t.Rotation;
+                        fallback = t.Position;
+                        break;
+                    case AcadDb.MText m:
+                        text = m.Text;
+                        angle = m.Rotation;
+                        fallback = m.Location;
+                        break;
+                    default:
+                        continue;
+                }
+
+                // Centro do texto (rotulo comprido ao longo da via: a ponta pode ficar longe dela).
+                V2 at;
+                try
+                {
+                    AcadDb.Extents3d ext = ((AcadDb.Entity)obj).GeometricExtents;
+                    at = new V2((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2);
+                }
+                catch
+                {
+                    at = new V2(fallback.X, fallback.Y);
+                }
+
+                list.Add(new TextCandidate(text ?? "", at, angle, ((AcadDb.Entity)obj).Layer));
+            }
+            catch
+            {
+                // texto ilegivel
+            }
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Janela "Nomear eixos pelos textos": layers dos textos, distancia maxima, alinhamento com o
+    /// eixo, numeros ignorados; previa com o nome proposto por eixo (marque o que aplicar).
+    /// </summary>
+    private void OpenNameDialog(List<AxisInput> initialTargets)
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        List<TextCandidate> texts;
+        try
+        {
+            texts = CollectTexts(doc.Database);
+        }
+        catch (Exception ex)
+        {
+            Say("Nao foi possivel ler os textos: " + ex.Message);
+            return;
+        }
+
+        if (texts.Count == 0)
+        {
+            Say("Nao ha TEXT nem MTEXT no model space.");
+            return;
+        }
+
+        Dictionary<string, string> prefs = ReadPreferences();
+        HashSet<string> savedLayers = prefs.TryGetValue("nomes.layers", out string? sl)
+            ? new HashSet<string>(sl.Split('|', StringSplitOptions.RemoveEmptyEntries), StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string savedDist = prefs.TryGetValue("nomes.dist", out string? sd) ? sd : "15";
+
+        SW.Window win = new()
+        {
+            Title = "Nomear eixos pelos textos proximos - C3DVIARIO",
+            Width = 860,
+            Height = 620,
+            MinWidth = 640,
+            MinHeight = 420,
+            Owner = this,
+            WindowStartupLocation = SW.WindowStartupLocation.CenterOwner,
+            ShowInTaskbar = false,
+            Background = T.Back,
+            Foreground = T.Text,
+            FontFamily = UiFont,
+            FontSize = 12
+        };
+        foreach (object key in Resources.Keys)
+            win.Resources[key] = Resources[key];
+        try
+        {
+            win.Resources.MergedDictionaries.Add(MenuStyles());
+        }
+        catch
+        {
+            // menus no modelo padrao
+        }
+
+        WC.Grid root = new() { Margin = new SW.Thickness(10) };
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star) });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+
+        // ---- Opcoes ----
+        WC.Grid top = new();
+        top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(260) });
+        top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
+
+        WC.StackPanel layerPane = new() { Margin = new SW.Thickness(0, 0, 10, 0) };
+        layerPane.Children.Add(new WC.TextBlock { Text = "Layers dos textos", FontWeight = SW.FontWeights.Bold, Foreground = T.Text, Margin = new SW.Thickness(0, 0, 0, 3) });
+        WC.StackPanel layerList = new();
+        List<WC.CheckBox> layerBoxes = new();
+        foreach (IGrouping<string, TextCandidate> g in texts.GroupBy(t => t.Layer, StringComparer.OrdinalIgnoreCase).OrderByDescending(g => g.Count()))
+        {
+            WC.CheckBox cb = new()
+            {
+                Content = $"{g.Key} ({g.Count()})",
+                Tag = g.Key,
+                IsChecked = savedLayers.Count == 0 || savedLayers.Contains(g.Key),
+                Foreground = T.Text,
+                Margin = new SW.Thickness(0, 1, 0, 1)
+            };
+            layerBoxes.Add(cb);
+            layerList.Children.Add(cb);
+        }
+
+        layerPane.Children.Add(new WC.Border
+        {
+            BorderBrush = T.Line,
+            BorderThickness = new SW.Thickness(1),
+            Background = T.Pane,
+            Height = 150,
+            Child = new WC.ScrollViewer { Content = layerList, Padding = new SW.Thickness(4), VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto }
+        });
+        WC.StackPanel layerButtons = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 4, 0, 0) };
+        WC.Button allLayers = new() { Content = "Todas", Padding = new SW.Thickness(8, 1, 8, 1), Margin = new SW.Thickness(0, 0, 4, 0) };
+        allLayers.Click += (_, _) => layerBoxes.ForEach(b => b.IsChecked = true);
+        WC.Button noLayers = new() { Content = "Nenhuma", Padding = new SW.Thickness(8, 1, 8, 1) };
+        noLayers.Click += (_, _) => layerBoxes.ForEach(b => b.IsChecked = false);
+        layerButtons.Children.Add(allLayers);
+        layerButtons.Children.Add(noLayers);
+        layerPane.Children.Add(layerButtons);
+        top.Children.Add(layerPane);
+
+        WC.StackPanel opts = new();
+        WC.Grid.SetColumn(opts, 1);
+        WC.StackPanel distRow = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 0, 0, 4) };
+        distRow.Children.Add(new WC.TextBlock { Text = "Distancia maxima do texto ao eixo (m):", Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 6, 0) });
+        WC.TextBox dist = new() { Text = savedDist, Width = 70, Background = T.Input, Foreground = T.Text, CaretBrush = T.Text, BorderBrush = T.Line };
+        distRow.Children.Add(dist);
+        opts.Children.Add(distRow);
+        WC.CheckBox useAngle = new() { Content = "Preferir textos alinhados com o eixo (rotulos de rua; resolve os cruzamentos)", IsChecked = true, Foreground = T.Text, Margin = new SW.Thickness(0, 2, 0, 2) };
+        WC.CheckBox noNumbers = new() { Content = "Ignorar textos so com numeros (cotas, lotes, estacas)", IsChecked = true, Foreground = T.Text, Margin = new SW.Thickness(0, 2, 0, 2) };
+        WC.CheckBox onlyUnnamed = new() { Content = "So eixos sem nome", IsChecked = true, Foreground = T.Text, Margin = new SW.Thickness(0, 2, 0, 2) };
+        WC.RadioButton scopeTargets = new() { Content = $"Eixos marcados/selecionados ({initialTargets.Count})", GroupName = "escopo", IsChecked = initialTargets.Count > 0, IsEnabled = initialTargets.Count > 0, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 2) };
+        WC.RadioButton scopeAll = new() { Content = $"Todos os eixos ({_axes.Count})", GroupName = "escopo", IsChecked = initialTargets.Count == 0, Foreground = T.Text, Margin = new SW.Thickness(0, 2, 0, 2) };
+        WC.CheckBox civil = new() { Content = "Levar o nome aos alinhamentos do Civil ja gerados (os que tem nome automatico)", IsChecked = true, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 2) };
+        foreach (SW.UIElement el in new SW.UIElement[] { useAngle, noNumbers, onlyUnnamed, scopeTargets, scopeAll, civil })
+            opts.Children.Add(el);
+        WC.Button search = new() { Content = "Procurar", Padding = new SW.Thickness(14, 3, 14, 3), Margin = new SW.Thickness(0, 8, 0, 0), HorizontalAlignment = SW.HorizontalAlignment.Left, FontWeight = SW.FontWeights.Bold };
+        opts.Children.Add(search);
+        top.Children.Add(opts);
+        root.Children.Add(top);
+
+        // ---- Previa ----
+        WC.ListView preview = new() { Margin = new SW.Thickness(0, 10, 0, 6), Background = T.Pane, Foreground = T.Text, BorderBrush = T.Line, SelectionMode = WC.SelectionMode.Extended };
+        WC.Grid.SetRow(preview, 1);
+        root.Children.Add(preview);
+        List<Row> rows = new();
+
+        WC.DockPanel bottom = new();
+        WC.Grid.SetRow(bottom, 2);
+        WC.TextBlock info = new() { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, TextWrapping = SW.TextWrapping.Wrap };
+        WC.StackPanel buttons = new() { Orientation = WC.Orientation.Horizontal };
+        WC.Button apply = new() { Content = "Aplicar marcados", Padding = new SW.Thickness(14, 3, 14, 3), Margin = new SW.Thickness(0, 0, 6, 0), FontWeight = SW.FontWeights.Bold, IsEnabled = false };
+        WC.Button close = new() { Content = "Fechar", Padding = new SW.Thickness(14, 3, 14, 3) };
+        close.Click += (_, _) => win.Close();
+        buttons.Children.Add(apply);
+        buttons.Children.Add(close);
+        WC.DockPanel.SetDock(buttons, WC.Dock.Right);
+        bottom.Children.Add(buttons);
+        bottom.Children.Add(info);
+        root.Children.Add(bottom);
+        info.Text = $"{texts.Count} texto(s) no desenho. Escolha as layers e a distancia e clique em Procurar. Duplo clique numa linha da previa: zoom no eixo.";
+
+        void Count() => apply.Content = $"Aplicar marcados ({rows.Count(r => r.Checked)})";
+
+        search.Click += (_, _) =>
+        {
+            if (!double.TryParse(dist.Text.Trim().Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double maxDist) || maxDist <= 0)
+            {
+                info.Text = "Distancia invalida.";
+                return;
+            }
+
+            HashSet<string> layers = new(layerBoxes.Where(b => b.IsChecked == true).Select(b => (string)b.Tag), StringComparer.OrdinalIgnoreCase);
+            WritePreference("nomes.dist", maxDist.ToString(CultureInfo.InvariantCulture));
+            WritePreference("nomes.layers", layers.Count == layerBoxes.Count ? "" : string.Join("|", layers));
+            List<AxisInput> scope = scopeTargets.IsChecked == true ? initialTargets : _axes;
+            if (onlyUnnamed.IsChecked == true)
+                scope = scope.Where(a => !_ownNames.ContainsKey(a.Key)).ToList();
+            List<TextCandidate> chosen = texts.Where(t => layers.Contains(t.Layer)).ToList();
+            System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+            // Todos os eixos disputam os textos (um rotulo de cruzamento fica com a via certa);
+            // so os do escopo entram na previa.
+            HashSet<string> inScope = new(scope.Select(a => a.Key), StringComparer.Ordinal);
+            List<NameProposal> found = ViarioNames.Propose(_axes, chosen, maxDist, useAngle.IsChecked == true, noNumbers.IsChecked == true)
+                .Where(p => inScope.Contains(p.AxisKey)).ToList();
+            rows = found.Select(p =>
+            {
+                int i = _axes.FindIndex(a => a.Key == p.AxisKey);
+                AxisInput a = _axes[i];
+                string current = _ownNames.TryGetValue(a.Key, out string? own) ? own : "";
+                return new Row
+                {
+                    Id = "NOME:" + a.Key,
+                    Icon = a.Path.Closed ? "ROTATORIA" : "EIXO",
+                    Data = (a, p),
+                    Checked = !string.Equals(current, p.Name, StringComparison.Ordinal),
+                    Cells = new[]
+                    {
+                        AxisName(a, i), p.Name, p.Hits.ToString(CultureInfo.InvariantCulture), N(p.Distance, 1),
+                        current.Length == 0 ? "-" : current, p.Others.Count == 0 ? "-" : string.Join("; ", p.Others)
+                    }
+                };
+            }).OrderBy(r => r.Cells[0], StringComparer.CurrentCultureIgnoreCase).ToList();
+            preview.View = ListViewFor(new[] { "Eixo", "Nome proposto", "Vezes", "Dist. [m]", "Nome atual", "Outros textos perto" },
+                new double[] { 150, 200, 50, 65, 120, 220 }, rows, Count, all => { rows.ForEach(r => r.Checked = all); Count(); }, rows.Count > 0 && rows.All(r => r.Checked));
+            preview.ItemsSource = rows;
+            int without = scope.Count - found.Count;
+            info.Text = $"{found.Count} eixo(s) com nome encontrado, {without} sem texto perto ({chosen.Count} texto(s) nas layers escolhidas, {sw.ElapsedMilliseconds} ms). " +
+                        "Desmarque o que nao quiser e clique em Aplicar.";
+            apply.IsEnabled = rows.Count > 0;
+            Count();
+        };
+
+        preview.MouseDoubleClick += (_, _) =>
+        {
+            if (preview.SelectedItem is Row { Data: ValueTuple<AxisInput, NameProposal> pair })
+                ZoomTo(pair.Item1.Path.Bounds().Inflate(pair.Item1.Section.TotalWidth + 10));
+        };
+
+        apply.Click += (_, _) =>
+        {
+            List<(AxisInput Axis, NameProposal P)> chosen = rows.Where(r => r.Checked).Select(r => (ValueTuple<AxisInput, NameProposal>)r.Data!).ToList();
+            if (chosen.Count == 0)
+                return;
+            bool toCivil = civil.IsChecked == true;
+            Edit($"{chosen.Count} eixo(s) nomeado(s) pelos textos.", db =>
+            {
+                using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+                Dictionary<string, (string, string)> renamed = new();
+                foreach ((AxisInput a, NameProposal p) in chosen)
+                {
+                    if (AxisEntity(tr, db, a.Key, AcadDb.OpenMode.ForWrite) is not AcadDb.Entity e)
+                        continue;
+                    renamed[a.Key] = (_ownNames.TryGetValue(a.Key, out string? old) ? old : "", p.Name);
+                    ViarioStore.SetAxisName(tr, db, e, p.Name);
+                }
+
+                int civilCount = toCivil ? ViarioCivil.RenameFromAxes(tr, db, renamed) : 0;
+                tr.Commit();
+                if (civilCount > 0)
+                    AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage($"\n  [C3DVIARIO] {civilCount} alinhamento(s) do Civil renomeado(s).");
+            }, regenerate: false);
+            win.Close();
+        };
+
+        win.Content = root;
+        win.ShowDialog();
     }
 
     private static V2 EventPoint(AxisInput a, AxisEvent ev) =>

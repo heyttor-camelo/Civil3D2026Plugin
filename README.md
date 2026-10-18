@@ -185,7 +185,7 @@ Log comum a todos os modulos: comandos do plugin (inicio, fim, falha e tempo), a
 
 Operacoes longas mostram uma janela de progresso (etapa, tempo, estimativa) que continua desenhando enquanto o AutoCAD trabalha; **Cancelar** para depois da etapa atual e o que ja foi feito fica.
 
-## Rede viaria (C3DVIARIO v0.7.8)
+## Rede viaria (C3DVIARIO v0.8.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -217,7 +217,9 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 - elementos gravados no eixo (XData) e ancorados no no mais proximo: acompanham o eixo quando ele e editado;
 - modelos: cruzamento, T, Y, T/cruz com gotas, T/cruz com faixas livres, cruz com conversao a esquerda (canteiro ou alargamento), T com faixas de conversao, rotatorias de 3, 4 e 5 ramos com gotas;
 - raio: faixa livre > especifico da esquina > especifico do eixo > da secao;
-- associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram).
+- associativo: mexeu, copiou ou apagou um eixo, a rede se refaz ao fim do comando (so as linhas que mudaram);
+- explorador (`C3DVIARIOPAINEL`), categoria Eixos: caixinhas para marcar varios eixos; com marcados (ou varios selecionados) as propriedades viram edicao em lote (secao, raio, concordancia, nome, inverter, selecionar, remover da rede);
+- nome do eixo (XData `C3DVIARIONOME`): editavel no explorador ou tirado dos TEXT/MTEXT proximos ("Nomear pelos textos...": filtro por layer e distancia, preferencia por texto alinhado com o eixo, previa antes de aplicar); vai para os alinhamentos do Civil.
 
 Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria (sem site, para nao formar lotes) um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
 
