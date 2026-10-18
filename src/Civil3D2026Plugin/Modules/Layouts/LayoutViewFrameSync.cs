@@ -221,7 +221,7 @@ internal static class LayoutViewFrameSync
 
     /// <summary>Atualiza as viewports vinculadas (todas ou so as dadas) pela posicao atual dos frames.</summary>
     public static OpResult Atualizar(Document doc, IEnumerable<ObjectId>? somente, IReadOnlyList<ViewFrameItem> frames,
-        AjusteViewport modo = AjusteViewport.Centro)
+        AjusteViewport modo = AjusteViewport.TamanhoDaViewport)
     {
         Database db = doc.Database;
         Dictionary<ObjectId, ViewFrameLink> vinculos = LerVinculos(db);
@@ -254,7 +254,9 @@ internal static class LayoutViewFrameSync
                 erros.Add(ex.Message);
             }
         }
-        return new OpResult(ok, falhas, $"{ok} viewport(s) atualizada(s)" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join("; ", erros.Take(3))}" : "."));
+        if (falhas > 0)
+            doc.Editor.WriteMessage("\n[View frames] " + string.Join("\n[View frames] ", erros));
+        return new OpResult(ok, falhas, $"{ok} viewport(s) alinhada(s)" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join("; ", erros.Take(2))} (detalhes na linha de comando)" : "."));
     }
 
     private static void AtualizarPlanta(Database db, ViewFrameLink v, double e0, double e1, AjusteViewport modo)
@@ -291,10 +293,21 @@ internal static class LayoutViewFrameSync
         DBObject pv = tr.GetObject(v.ProfileView, OpenMode.ForWrite);
         // StationRangeMode.UserSpecified e StationStart/StationEnd (lidos por reflexao: enum do Civil).
         PropertyInfo? modoEst = pv.GetType().GetProperty("StationRangeMode");
-        if (modoEst is not null && modoEst.PropertyType.IsEnum)
-            modoEst.SetValue(pv, Enum.Parse(modoEst.PropertyType, "UserSpecified"));
-        pv.GetType().GetProperty("StationStart")?.SetValue(pv, e0);
-        pv.GetType().GetProperty("StationEnd")?.SetValue(pv, e1);
+        PropertyInfo? pIni = pv.GetType().GetProperty("StationStart");
+        PropertyInfo? pFim = pv.GetType().GetProperty("StationEnd");
+        if (modoEst is null || pIni is null || pFim is null)
+            throw new InvalidOperationException($"{pv.GetType().Name} nao expoe StationRangeMode/StationStart/StationEnd");
+        try
+        {
+            if (modoEst.PropertyType.IsEnum)
+                modoEst.SetValue(pv, Enum.Parse(modoEst.PropertyType, "UserSpecified"));
+            pIni.SetValue(pv, e0);
+            pFim.SetValue(pv, e1);
+        }
+        catch (TargetInvocationException ex)
+        {
+            throw new InvalidOperationException("intervalo de estacas recusado pelo profile view: " + (ex.InnerException?.Message ?? ex.Message));
+        }
 
         // Recentra (e, se pedido, redimensiona ou reescala) a viewport no profile view atualizado.
         if (pv is Entity ent)
@@ -308,7 +321,8 @@ internal static class LayoutViewFrameSync
             var vp = (Viewport)tr.GetObject(v.Viewport, OpenMode.ForWrite);
             bool travada = vp.Locked;
             vp.Locked = false;
-            Ajustar(tr, db, vp, cantos, Centro3(ext), modo);
+            // Perfil: tamanho e escala ficam; a estaca inicial encosta na borda esquerda da viewport.
+            Ajustar(tr, db, vp, cantos, Centro3(ext), AjusteViewport.Centro, alinharEsquerda: true);
             vp.Locked = travada;
         }
         tr.Commit();
@@ -318,7 +332,7 @@ internal static class LayoutViewFrameSync
     /// Centra a viewport nos cantos dados (WCS) e, conforme o modo, redimensiona a viewport
     /// (escala fixa) ou muda a escala (tamanho fixo) para o retangulo caber.
     /// </summary>
-    private static void Ajustar(Transaction tr, Database db, Viewport vp, Point3d[]? cantos, Point3d? centroAlternativo, AjusteViewport modo)
+    private static void Ajustar(Transaction tr, Database db, Viewport vp, Point3d[]? cantos, Point3d? centroAlternativo, AjusteViewport modo, bool alinharEsquerda = false)
     {
         Matrix3d wcs2dcs = Dcs2Wcs(vp).Inverse();
         double fator = LayoutReader.FatorUnidade(db);
@@ -339,7 +353,16 @@ internal static class LayoutViewFrameSync
             minV = Math.Min(minV, d.Y); maxV = Math.Max(maxV, d.Y);
         }
         double du = Math.Max(maxU - minU, 1e-9), dv = Math.Max(maxV - minV, 1e-9);
-        vp.ViewCenter = new Point2d((minU + maxU) / 2, (minV + maxV) / 2);
+        if (alinharEsquerda && vp.CustomScale > 0)
+        {
+            // Borda esquerda da viewport (em unidades de desenho) no inicio do retangulo, com 2% de folga.
+            double meiaLargura = vp.Width / vp.CustomScale / 2;
+            vp.ViewCenter = new Point2d(minU - du * 0.02 + meiaLargura, (minV + maxV) / 2);
+        }
+        else
+        {
+            vp.ViewCenter = new Point2d((minU + maxU) / 2, (minV + maxV) / 2);
+        }
 
         if (modo == AjusteViewport.Centro || vp.CustomScale <= 0)
             return;

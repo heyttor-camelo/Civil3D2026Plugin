@@ -1,3 +1,9 @@
+## 2.49.1 - Layouts v1.3.1 / aba View frames enxuta, perfil alinhado pelo inicio
+
+- aba View frames com 4 botoes (vincular automaticamente, vincular marcados, desvincular, atualizar): "vincular marcados" decide sozinho planta ou perfil por viewport; rotulos e zoom ficaram so na barra de comandos; sem combo de modo: atualizar sempre centra, gira e redimensiona a viewport de planta pelo frame na escala atual;
+- perfil: a estaca inicial do frame encosta na borda esquerda da viewport (antes centrava no meio do profile view); erros do profile view (propriedades nao expostas, intervalo recusado) saem na linha de comando;
+- a divisao entre vista e lista comeca mais baixa e a posicao do divisor fica gravada.
+
 ## 2.49.0 - Layouts v1.3.0 / hachura visivel, tema da lista suspensa, prancha por formato e nos layouts marcados, modo leve, ajuste da viewport ao frame
 
 - **hachura por estado da viewport** agora e hachura de verdade (linhas a 45 graus, leve) em vez de um tom quase invisivel: desligada cinza, 3D laranja, travada verde;

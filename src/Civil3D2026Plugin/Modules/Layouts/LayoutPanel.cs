@@ -208,9 +208,12 @@ internal sealed class LayoutPanel : SW.Window
             new[] { "Sem perguntas." }, p => p.Executar(() => LayoutKeyMap.Gerar(p.Doc!, true))),
         new("VFZOOM", "viewframe", "Zoom no view frame", "View frames",
             "Mostra no Model o view frame ou match line selecionado.", new[] { "Selecione na categoria View frames." }, p => p.ZoomViewFrame()),
-        new("VFATUALIZAR", "atualizar", "Atualizar viewports pelos view frames", "View frames",
-            "Reposiciona as viewports vinculadas pelo frame (planta: centro e giro pelo eixo; perfil: intervalo de estacas do profile view).",
-            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.Executar(() => LayoutViewFrameSync.Atualizar(p.Doc!, null, p._vfs, (AjusteViewport)Math.Clamp(LayoutSettings.GetInt("vf_ajuste", 1), 0, 2)))),
+        new("VFROTULOS", "ligar", "Rotulos dos view frames", "View frames",
+            "Liga os rotulos dos frames/match lines marcados (Shift: desliga).",
+            new[] { "Marque na categoria View frames." }, p => p.RotulosVf(!(WI.Keyboard.Modifiers.HasFlag(WI.ModifierKeys.Shift)))),
+        new("VFATUALIZAR", "atualizar", "Alinhar viewports aos view frames", "View frames",
+            "Planta: centro, giro e tamanho pelo frame na escala atual. Perfil: intervalo de estacas do frame no profile view, alinhado pelo inicio.",
+            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.AtualizarViewFrames()),
         new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
             "Le os layouts do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh())
     };
@@ -343,9 +346,9 @@ internal sealed class LayoutPanel : SW.Window
         WC.Grid root = new();
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(0.85, SW.GridUnitType.Star), MinHeight = 120 });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(LayoutSettings.GetDouble("vista_proporcao", 0.7), SW.GridUnitType.Star), MinHeight = 120 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(6) });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 160 });
+        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 200 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
 
         root.Children.Add(_categoryBar);
@@ -444,6 +447,12 @@ internal sealed class LayoutPanel : SW.Window
             Cursor = WI.Cursors.SizeNS
         };
         WC.Grid.SetRow(splitH, 3);
+        splitH.DragCompleted += (_, _) =>
+        {
+            double a = root.RowDefinitions[2].ActualHeight, b = root.RowDefinitions[4].ActualHeight;
+            if (a > 0 && b > 0)
+                LayoutSettings.Set("vista_proporcao", a / b);
+        };
         root.Children.Add(splitH);
 
         WC.Grid bottom = new() { Margin = new SW.Thickness(4, 0, 4, 0) };
@@ -2751,40 +2760,27 @@ internal sealed class LayoutPanel : SW.Window
             ? "O desenho nao tem view frames. Crie pelo assistente do Civil (Output > Create View Frames); eles aparecem aqui."
             : $"{frames} frame(s) e {linhas} match line(s) em {_vfs.Select(v => v.Grupo).Distinct().Count()} grupo(s); {_vinculos.Count} viewport(s) vinculada(s). Selecione um para ver o layout ligado; duplo clique faz zoom no Model."));
 
-        p.Children.Add(Label("Vincular viewports aos frames", true));
-        p.Children.Add(Label("O vinculo fica gravado na viewport. Planta: a viewport passa a seguir o centro do frame no eixo (e o giro pela tangente, se marcado). Perfil: o profile view mostrado na viewport recebe o intervalo de estacas do frame e a viewport e recentrada."));
-        var girar = new WC.CheckBox { Content = "Planta: girar a viewport pela tangente do eixo", IsChecked = true, Margin = new SW.Thickness(0, 4, 0, 0) };
+        p.Children.Add(Label("Vincular e alinhar", true));
+        p.Children.Add(Label("O vinculo fica gravado na viewport. Ao atualizar, a viewport de planta e centrada no frame, girada pela tangente do eixo e redimensionada para o frame na escala atual; " +
+            "a viewport de perfil recebe o intervalo de estacas do frame no profile view e e alinhada pelo inicio (estaca inicial na borda esquerda)."));
+        var girar = new WC.CheckBox { Content = "Girar a viewport de planta pela tangente do eixo", IsChecked = LayoutSettings.GetBool("vf_girar", true), Margin = new SW.Thickness(0, 4, 0, 0) };
+        girar.Click += (_, _) => LayoutSettings.Set("vf_girar", girar.IsChecked == true);
         p.Children.Add(girar);
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var botoes = new WC.WrapPanel();
         botoes.Children.Add(ActionButton("Vincular automaticamente", () => Executar(() => LayoutViewFrameSync.VincularAutomatico(Doc!, _vfs, _folhas))));
-        botoes.Children.Add(ActionButton("Vincular marcados (planta)", () => VincularMarcados(false, girar.IsChecked == true)));
-        botoes.Children.Add(ActionButton("Vincular marcados (perfil)", () => VincularMarcados(true, false)));
-        botoes.Children.Add(ActionButton("Desvincular viewports marcadas", () => Executar(() => LayoutViewFrameSync.Desvincular(Doc!, VpsMarcadas()))));
+        botoes.Children.Add(ActionButton("Vincular marcados", () => VincularMarcados(girar.IsChecked == true)));
+        botoes.Children.Add(ActionButton("Desvincular", () => Executar(() => LayoutViewFrameSync.Desvincular(Doc!, VpsMarcadas()))));
+        botoes.Children.Add(ActionButton("Atualizar viewports", AtualizarViewFrames));
         p.Children.Add(botoes);
-        p.Children.Add(Label("\"Vincular marcados\": 1 view frame marcado nesta lista + viewports marcadas na miniatura. Para perfil, a viewport precisa mostrar um profile view do mesmo eixo."));
-
-        p.Children.Add(Label("Atualizar", true));
-        var ajuste = new WC.ComboBox { Width = 420, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 2, 0, 4) };
-        ajuste.Items.Add("So centro e giro (tamanho e escala da viewport ficam como estao)");
-        ajuste.Items.Add("Redimensionar a viewport para o frame, na escala atual (reduz a escala se nao couber no papel)");
-        ajuste.Items.Add("Manter o tamanho da viewport e ajustar a escala para o frame caber (escala padrao mais proxima)");
-        ajuste.SelectedIndex = Math.Clamp(LayoutSettings.GetInt("vf_ajuste", 1), 0, 2);
-        ajuste.SelectionChanged += (_, _) => LayoutSettings.Set("vf_ajuste", ajuste.SelectedIndex);
-        p.Children.Add(ajuste);
-        AjusteViewport Modo() => (AjusteViewport)Math.Clamp(ajuste.SelectedIndex, 0, 2);
-        var botoes2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes2.Children.Add(ActionButton("Atualizar todas as vinculadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, null, _vfs, Modo()))));
-        botoes2.Children.Add(ActionButton("Atualizar viewports marcadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, VpsMarcadas(), _vfs, Modo()))));
-        p.Children.Add(botoes2);
-
-        p.Children.Add(Label("Rotulos", true));
-        var botoes3 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes3.Children.Add(ActionButton("Ligar rotulos dos marcados", () => RotulosVf(true)));
-        botoes3.Children.Add(ActionButton("Desligar rotulos", () => RotulosVf(false)));
-        botoes3.Children.Add(ActionButton("Zoom no selecionado", ZoomViewFrame));
-        p.Children.Add(botoes3);
-        p.Children.Add(Label("A API do Civil nao cria nem move view frames nem gera folhas; isso continua no assistente do Civil."));
+        p.Children.Add(Label("Automatico: usa a folha ligada ao frame pelo Civil. Marcados: 1 frame nesta lista + viewports na miniatura; cada viewport vira perfil se mostra um profile view do eixo do frame, senao planta. " +
+            "Atualizar: as viewports marcadas ou, sem marcacao, todas as vinculadas. Rotulos e zoom ficam na barra de comandos."));
         return p;
+    }
+
+    private void AtualizarViewFrames()
+    {
+        List<ObjectId> marcadas = VpsMarcadas().ToList();
+        Executar(() => LayoutViewFrameSync.Atualizar(Doc!, marcadas.Count > 0 ? marcadas : null, _vfs));
     }
 
     private string VinculosTexto(ViewFrameItem v)
@@ -2800,7 +2796,7 @@ internal sealed class LayoutPanel : SW.Window
         return string.Join("; ", lista);
     }
 
-    private void VincularMarcados(bool perfil, bool girar)
+    private void VincularMarcados(bool girar)
     {
         List<ViewFrameItem> frames = _vfs.Where(v => v.Tipo == "Frame" && _vfsMarcados.Contains(v.Id)).ToList();
         if (frames.Count != 1)
@@ -2817,22 +2813,20 @@ internal sealed class LayoutPanel : SW.Window
             return;
         Executar(() =>
         {
-            int ok = 0, falhas = 0;
+            int planta = 0, perfil = 0;
             foreach (ObjectId vpId in _vpsMarcadas)
             {
-                ObjectId pv = ObjectId.Null;
-                if (perfil)
+                ObjectId pv = ProfileViewNaViewport(doc, vpId);
+                if (pv.IsNull)
                 {
-                    pv = ProfileViewNaViewport(doc, vpId);
-                    if (pv.IsNull)
-                    {
-                        falhas++;
-                        continue;
-                    }
+                    planta += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, false, ObjectId.Null, girar).Ok;
                 }
-                ok += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, perfil, pv, girar).Ok;
+                else
+                {
+                    perfil += LayoutViewFrameSync.Vincular(doc, vpId, frames[0].Id, true, pv, false).Ok;
+                }
             }
-            return new OpResult(ok, falhas, $"{ok} viewport(s) vinculada(s) a {frames[0].Nome}" + (falhas > 0 ? $"; {falhas} sem profile view visivel." : "."));
+            return new OpResult(planta + perfil, 0, $"{planta} viewport(s) de planta e {perfil} de perfil vinculada(s) a {frames[0].Nome}.");
         });
     }
 
