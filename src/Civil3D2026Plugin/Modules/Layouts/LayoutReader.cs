@@ -481,7 +481,7 @@ internal static class LayoutReader
                     return total;
                 }
 
-                case Region or Face or PolyFaceMesh or PolygonMesh or Solid3d or Body when nivel < MaxProfundidadeBloco:
+                case Autodesk.AutoCAD.DatabaseServices.Region or Face or PolyFaceMesh or PolygonMesh or Solid3d or Body when nivel < MaxProfundidadeBloco:
                     return Explodido(tr, ent, xf, folha, nivel);
 
                 default:
