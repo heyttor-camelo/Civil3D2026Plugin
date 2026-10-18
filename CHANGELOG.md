@@ -1,3 +1,15 @@
+## 2.51.0 - Layouts v1.5.0 / Plan & Profile: estilos do profile view, layout base completo, estacas em lista, filtros por coluna
+
+- **corrigido**: profile views nao eram criados ("An object id of type ProfileViewBandSetStyle is expected") e as listas de estilo/band set vinham vazias. Os estilos agora sao lidos pela API tipada (`CivilDocument.Styles.ProfileViewStyles` / `ProfileViewBandSetStyles`, como o Viario faz com os estilos de alignment); a reflexao que sobrou nao quebra mais com propriedades redeclaradas nos tipos do Civil;
+- **ComboBox no tema escuro**: template proprio (o do Windows ignorava a cor de fundo e o texto ficava invisivel); vale para todas as listas do explorador, editaveis ou nao;
+- **layout base completo nas sheets**: page setup (o do layout base ou um nomeado) e camadas das viewports de planta e perfil (overrides e VP freeze do layout base, por layer state temporario, ou um layer state nomeado para cada viewport); botao "Reaplicar layout base" para as sheets existentes;
+- **importar layout base de DWG/DWT**: le os layouts do arquivo, escolhe um e importa pelo proprio LAYOUT > Template do AutoCAD; se o nome ja existir, oferece renomear o existente;
+- **estaca inicial/final em lista** (editavel): estacas inteiras e pontos notaveis do alignment (PC, PT, TS, SC, CS, ST, PCC), tambem na aba Sheet;
+- **ultima sheet cheia**: contada do fim do alignment para tras, com overlap sobre a anterior (a match line continua no fim da penultima); opcao "Curta" mantem o comportamento antigo;
+- **profile views lado a lado** (horizontal) ou empilhados (vertical) no Model;
+- termos do Civil na aba (Layout base, Alignment, Match lines, Overlap, Profile view style, Band set, Elevations, Sheets) e explicacoes nos tooltips;
+- **filtro por coluna em todas as categorias**: clicar no cabecalho abre a lista de valores com caixas, busca, contagem e ordenar A-Z/Z-A (como o autofiltro do Excel); cabecalho filtrado em destaque; rodape mostra quantas linhas estao visiveis; "Marcar todos"/"Desmarcar" agem so nas linhas visiveis.
+
 ## 2.50.1 - Layouts v1.4.1 / Pranchas do eixo: correcoes da revisao
 
 - viewports, frames, rotulos e linhas de corte em layer travada sao atualizados (antes a atualizacao inteira abortava); uma folha com erro nao derruba as outras; linha de corte que nao pode ser apagada continua na lista (nao duplica);

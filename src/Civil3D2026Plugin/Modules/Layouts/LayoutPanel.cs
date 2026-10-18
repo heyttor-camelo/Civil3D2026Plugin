@@ -581,6 +581,12 @@ internal sealed partial class LayoutPanel : SW.Window
         combo.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         combo.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Input));
         combo.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
+        combo.Setters.Add(new SW.Setter(WC.Control.MinHeightProperty, 22.0));
+        // O ComboBox do tema do Windows (Aero2) ignora Background: caixa clara com texto claro no
+        // tema escuro. Template proprio para editavel e nao editavel.
+        WC.ControlTemplate? comboTemplate = ComboTemplate();
+        if (comboTemplate is not null)
+            combo.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, comboTemplate));
         Resources[typeof(WC.ComboBox)] = combo;
 
         // A lista suspensa do ComboBox usa as cores de sistema "Window": redefinidas aqui para o tema.
@@ -614,6 +620,77 @@ internal sealed partial class LayoutPanel : SW.Window
         SW.Style radio = new(typeof(WC.RadioButton));
         radio.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         Resources[typeof(WC.RadioButton)] = radio;
+    }
+
+    private static string Hex(WM.Brush b) =>
+        b is WM.SolidColorBrush sc ? $"#{sc.Color.A:X2}{sc.Color.R:X2}{sc.Color.G:X2}{sc.Color.B:X2}" : "#FF808080";
+
+    private WC.ControlTemplate? ComboTemplate()
+    {
+        string xaml = @"
+<ControlTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                 xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml' TargetType='ComboBox'>
+  <Grid SnapsToDevicePixels='True'>
+    <ToggleButton x:Name='Toggle' Focusable='False' ClickMode='Press'
+                  IsChecked='{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}'>
+      <ToggleButton.Template>
+        <ControlTemplate TargetType='ToggleButton'>
+          <Border x:Name='Bd' Background='{INPUT}' BorderBrush='{LINE}' BorderThickness='1'>
+            <Path HorizontalAlignment='Right' VerticalAlignment='Center' Margin='0,0,7,0'
+                  Data='M 0 0 L 4 4 L 8 0' Stroke='{TEXT}' StrokeThickness='1.4'/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property='IsMouseOver' Value='True'>
+              <Setter TargetName='Bd' Property='BorderBrush' Value='{ACCENT}'/>
+            </Trigger>
+            <Trigger Property='IsChecked' Value='True'>
+              <Setter TargetName='Bd' Property='BorderBrush' Value='{ACCENT}'/>
+            </Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </ToggleButton.Template>
+    </ToggleButton>
+    <ContentPresenter x:Name='Conteudo' IsHitTestVisible='False' Margin='6,2,24,2'
+                      VerticalAlignment='Center' HorizontalAlignment='Left'
+                      Content='{TemplateBinding SelectionBoxItem}'
+                      ContentTemplate='{TemplateBinding SelectionBoxItemTemplate}'
+                      ContentTemplateSelector='{TemplateBinding ItemTemplateSelector}'
+                      TextElement.Foreground='{TEXT}'/>
+    <TextBox x:Name='PART_EditableTextBox' Visibility='Hidden' Margin='1,1,22,1' Padding='4,1,2,1'
+             Background='{INPUT}' Foreground='{TEXT}' CaretBrush='{TEXT}' BorderThickness='0'
+             VerticalContentAlignment='Center' IsReadOnly='{TemplateBinding IsReadOnly}'/>
+    <Popup x:Name='PART_Popup' Placement='Bottom' AllowsTransparency='True' Focusable='False'
+           PopupAnimation='None' IsOpen='{TemplateBinding IsDropDownOpen}'>
+      <Border Background='{PANE}' BorderBrush='{LINE}' BorderThickness='1'
+              MinWidth='{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}'
+              MaxHeight='{TemplateBinding MaxDropDownHeight}'>
+        <ScrollViewer SnapsToDevicePixels='True' CanContentScroll='True'>
+          <ItemsPresenter KeyboardNavigation.DirectionalNavigation='Contained'/>
+        </ScrollViewer>
+      </Border>
+    </Popup>
+  </Grid>
+  <ControlTemplate.Triggers>
+    <Trigger Property='IsEditable' Value='True'>
+      <Setter TargetName='PART_EditableTextBox' Property='Visibility' Value='Visible'/>
+      <Setter TargetName='Conteudo' Property='Visibility' Value='Hidden'/>
+    </Trigger>
+    <Trigger Property='IsEnabled' Value='False'>
+      <Setter Property='Opacity' Value='0.5'/>
+    </Trigger>
+  </ControlTemplate.Triggers>
+</ControlTemplate>"
+            .Replace("{INPUT}", Hex(T.Input)).Replace("{LINE}", Hex(T.Line)).Replace("{TEXT}", Hex(T.Text))
+            .Replace("{ACCENT}", Hex(T.Accent)).Replace("{PANE}", Hex(T.Pane));
+        try
+        {
+            return (WC.ControlTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
+        }
+        catch (System.Exception)
+        {
+            // Se o XAML falhar, fica o template do Windows (com as cores de sistema ja trocadas).
+            return null;
+        }
     }
 
     private void BuildCommandBar()
@@ -925,7 +1002,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
 
             case "PRANCHAS":
-                headers = new[] { "Folha", "Eixo", "Estaca inicial", "Estaca final", "Extensao", "Perfil", "Situacao" };
+                headers = new[] { "Sheet", "Alignment", "Estaca inicial", "Estaca final", "Extensao (m)", "Profile view", "Situacao" };
                 widths = new[] { 110.0, 120, 85, 85, 70, 90, 220 };
                 comCheck = false;
                 rows = _framesPP.Where(f => Match(f.LayoutNome) || Match(f.EixoNome) || Match(f.Situacao)).Select(f => new Row
@@ -934,7 +1011,7 @@ internal sealed partial class LayoutPanel : SW.Window
                     Data = f,
                     Cells = new[]
                     {
-                        f.LayoutNome.Length > 0 ? f.LayoutNome : "(sem prancha)",
+                        f.LayoutNome.Length > 0 ? f.LayoutNome : "(sem layout)",
                         f.EixoNome,
                         LayoutViewFrames.Estaca(f.E0),
                         LayoutViewFrames.Estaca(f.E1),
@@ -972,6 +1049,9 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
         }
 
+        _linhasBase = rows;
+        rows = AplicarFiltrosColuna(rows);
+
         var view = new WC.GridView();
         if (comCheck)
         {
@@ -985,7 +1065,7 @@ internal sealed partial class LayoutPanel : SW.Window
         }
         for (int i = 0; i < headers.Length; i++)
         {
-            var col = new WC.GridViewColumn { Header = headers[i], Width = widths[i] };
+            var col = new WC.GridViewColumn { Header = CabecalhoFiltravel(headers[i], i), Width = widths[i] };
             if (i == 0)
             {
                 var sp = new SW.FrameworkElementFactory(typeof(WC.StackPanel));
@@ -1520,8 +1600,8 @@ internal sealed partial class LayoutPanel : SW.Window
         menu.Items.Add(new WC.Separator());
         if (vp.Planta)
         {
-            Item("Pranchas do eixo: modelo com esta viewport de PLANTA", () => DefinirModelo(folha, vp, planta: true), "prancha");
-            Item("Pranchas do eixo: modelo com esta viewport de PERFIL", () => DefinirModelo(folha, vp, planta: false), "prancha");
+            Item("Plan & Profile: viewport de PLANTA do layout base", () => DefinirModelo(folha, vp, planta: true), "prancha");
+            Item("Plan & Profile: viewport de PERFIL do layout base", () => DefinirModelo(folha, vp, planta: false), "prancha");
             menu.Items.Add(new WC.Separator());
         }
         Item("Abrir layout e dar zoom nesta viewport", () => ZoomViewport(folha, vp), "abrir");
@@ -1616,8 +1696,8 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
             case "PRANCHAS":
                 tabs.Clear();
-                tabs.Add(("Gerar", "Gerar pranchas", BuildSheetSeries));
-                tabs.Add(("Folha", "Folha selecionada", BuildSheetFrame));
+                tabs.Add(("Gerar", "Plan & Profile", BuildSheetSeries));
+                tabs.Add(("Folha", "Sheet", BuildSheetFrame));
                 break;
         }
 
@@ -2486,14 +2566,42 @@ internal sealed partial class LayoutPanel : SW.Window
         Say("Siga a linha de comando.");
     }
 
+    /// <summary>Marcar todos / Desmarcar: age nas linhas visiveis da lista (respeita Localizar e filtros).</summary>
     private void MarcarLayouts(bool marcar)
     {
-        _layoutsMarcados.Clear();
-        if (marcar)
-            foreach (SheetData f in _folhas)
-                _layoutsMarcados.Add(f.Nome);
-        if (!marcar)
-            _vpsMarcadas.Clear();
+        bool algum = false;
+        foreach (WC.ListViewItem item in _list.Items)
+        {
+            switch ((item.Tag as Row)?.Data)
+            {
+                case SheetData f:
+                    if (marcar) _layoutsMarcados.Add(f.Nome); else _layoutsMarcados.Remove(f.Nome);
+                    algum = true;
+                    break;
+                case SheetViewport v:
+                    if (marcar) _vpsMarcadas.Add(v.Id); else _vpsMarcadas.Remove(v.Id);
+                    algum = true;
+                    break;
+                case ViewFrameItem vf:
+                    if (marcar) _vfsMarcados.Add(vf.Id); else _vfsMarcados.Remove(vf.Id);
+                    algum = true;
+                    break;
+                case SheetText2 tx:
+                    if (marcar) _textosMarcados.Add(tx.Id); else _textosMarcados.Remove(tx.Id);
+                    algum = true;
+                    break;
+            }
+        }
+        if (!algum)
+        {
+            // Lista sem caixas (layer states, pranchas do eixo...): vale para os layouts.
+            _layoutsMarcados.Clear();
+            if (marcar)
+                foreach (SheetData f in _folhas)
+                    _layoutsMarcados.Add(f.Nome);
+            else
+                _vpsMarcadas.Clear();
+        }
         FillList();
         RenderGraphic();
         Status();
@@ -2984,6 +3092,8 @@ internal sealed partial class LayoutPanel : SW.Window
         int layoutsVp = _folhas.Count(f => f.Viewports.Any(v => _vpsMarcadas.Contains(v.Id)));
         string ls = _layerState is not null ? $"; layer state \"{_layerState}\"" : "";
         string bl = _bloco is not null ? $"; carimbo \"{_bloco}\"" : "";
-        _status.Text = $"{_layoutsMarcados.Count} layout(s) marcado(s); {_vpsMarcadas.Count} viewport(s) em {layoutsVp} layout(s){ls}{bl}.";
+        int filtros = FiltrosAtivos();
+        string fl = filtros > 0 ? $"; {_list.Items.Count} de {_linhasBase.Count} linha(s) ({filtros} filtro(s) de coluna)" : "";
+        _status.Text = $"{_layoutsMarcados.Count} layout(s) marcado(s); {_vpsMarcadas.Count} viewport(s) em {layoutsVp} layout(s){ls}{bl}{fl}.";
     }
 }

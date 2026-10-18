@@ -38,6 +38,15 @@ internal sealed class SheetSeries
     public bool AjustarCotas { get; set; } = true;
     public bool Automatico { get; set; } = true;
     public bool Numerar { get; set; } = true;
+    /// <summary>Ultima folha cheia, contada do fim do eixo para tras (sobrepoe a anterior).</summary>
+    public bool UltimaCheia { get; set; } = true;
+    /// <summary>Profile views lado a lado (true) ou empilhados para baixo (false).</summary>
+    public bool PerfisHorizontal { get; set; }
+    /// <summary>Layer state nomeado para as viewports de planta/perfil ("" = copiar do layout base).</summary>
+    public string LayerStatePlanta { get; set; } = "";
+    public string LayerStatePerfil { get; set; } = "";
+    /// <summary>Page setup nomeado ("" = copiar do layout base).</summary>
+    public string PageSetup { get; set; } = "";
 
     // Calibracao do profile view (medida ao criar os frames).
     public double MargemPerfil { get; set; } = double.NaN;   // largura alem das estacas (eixos, rotulos), unidades de desenho
@@ -179,6 +188,11 @@ internal static class LayoutSheetSeries
                 case "AC": s.AjustarCotas = v == "1"; break;
                 case "AU": s.Automatico = v == "1"; break;
                 case "NU": s.Numerar = v == "1"; break;
+                case "UC": s.UltimaCheia = v == "1"; break;
+                case "PH": s.PerfisHorizontal = v == "1"; break;
+                case "LSP": s.LayerStatePlanta = v; break;
+                case "LSF": s.LayerStatePerfil = v; break;
+                case "PS": s.PageSetup = v; break;
                 case "MP": s.MargemPerfil = Num(v); break;
                 case "SV": s.SobraVertical = Num(v); break;
                 case "EX": s.Exagero = Num(v); break;
@@ -242,6 +256,11 @@ internal static class LayoutSheetSeries
         Add("AC", s.AjustarCotas ? "1" : "0");
         Add("AU", s.Automatico ? "1" : "0");
         Add("NU", s.Numerar ? "1" : "0");
+        Add("UC", s.UltimaCheia ? "1" : "0");
+        Add("PH", s.PerfisHorizontal ? "1" : "0");
+        Add("LSP", s.LayerStatePlanta);
+        Add("LSF", s.LayerStatePerfil);
+        Add("PS", s.PageSetup);
         Add("MP", D(s.MargemPerfil));
         Add("SV", D(s.SobraVertical));
         Add("EX", D(s.Exagero));
@@ -302,6 +321,11 @@ internal static class LayoutSheetSeries
         para.AjustarCotas = de.AjustarCotas;
         para.Automatico = de.Automatico;
         para.Numerar = de.Numerar;
+        para.UltimaCheia = de.UltimaCheia;
+        para.PerfisHorizontal = de.PerfisHorizontal;
+        para.LayerStatePlanta = de.LayerStatePlanta;
+        para.LayerStatePerfil = de.LayerStatePerfil;
+        para.PageSetup = de.PageSetup;
     }
 
     // ------------------------------------------------------------------
@@ -337,7 +361,7 @@ internal static class LayoutSheetSeries
                 if (d > 0.5)
                     sit.Add($"lacuna de {d:0.#} m antes");
                 else if (d < -0.5)
-                    sit.Add($"sobrepoe {-d:0.#} m");
+                    sit.Add($"overlap de {-d:0.#} m com a anterior");
             }
             if (Valido(f.VpPlanta) && tr.GetObject(f.VpPlanta, OpenMode.ForRead) is Viewport vp && vp.CustomScale > 0 &&
                 tr.GetObject(f.Id, OpenMode.ForRead) is Polyline pl && Vertices(pl) is Point3d[] v)
@@ -392,7 +416,7 @@ internal static class LayoutSheetSeries
         if (Valido(f.Perfil))
         {
             DBObject pv = tr.GetObject(f.Perfil, OpenMode.ForRead);
-            f.PerfilNome = pv.GetType().GetProperty("Name")?.GetValue(pv) as string ?? "perfil";
+            f.PerfilNome = Ler(pv, "Name") as string ?? "perfil";
         }
         else
         {
@@ -447,34 +471,154 @@ internal static class LayoutSheetSeries
         return lista.OrderBy(a => a.Item2, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
-    public static List<(ObjectId Id, string Nome)> EstilosPerfil(Database db) => Estilos(db, "ProfileViewStyles");
+    public static List<(ObjectId Id, string Nome)> EstilosPerfil(Database db) => Estilos(db, civ => civ.Styles.ProfileViewStyles);
 
-    public static List<(ObjectId Id, string Nome)> BandasPerfil(Database db) => Estilos(db, "ProfileViewBandSetStyles");
+    public static List<(ObjectId Id, string Nome)> BandasPerfil(Database db) => Estilos(db, civ => civ.Styles.ProfileViewBandSetStyles);
 
-    private static List<(ObjectId Id, string Nome)> Estilos(Database db, string colecao)
+    private static List<(ObjectId Id, string Nome)> Estilos(Database db, Func<CivilDocument, System.Collections.IEnumerable> colecao)
     {
         var lista = new List<(ObjectId, string)>();
         try
         {
             CivilDocument civ = CivilDocument.GetCivilDocument(db);
-            object? estilos = civ.GetType().GetProperty("Styles")?.GetValue(civ);
-            if (estilos?.GetType().GetProperty(colecao)?.GetValue(estilos) is not System.Collections.IEnumerable ids)
-                return lista;
             using Transaction tr = db.TransactionManager.StartTransaction();
-            foreach (object o in ids)
+            foreach (object o in colecao(civ))
             {
                 if (o is not ObjectId id || !Valido(id))
                     continue;
                 DBObject st = tr.GetObject(id, OpenMode.ForRead);
-                lista.Add((id, st.GetType().GetProperty("Name")?.GetValue(st) as string ?? id.Handle.ToString()));
+                string nome = st is CivilDb.Styles.StyleBase sb ? sb.Name : Ler(st, "Name") as string ?? id.Handle.ToString();
+                lista.Add((id, nome));
             }
+            tr.Commit();
+        }
+        catch (System.Exception ex)
+        {
+            ErroEstilos = ex.Message;
+        }
+        return lista.OrderBy(e => e.Item2, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>Ultimo erro ao ler estilos (mostrado no painel quando a lista vem vazia).</summary>
+    public static string ErroEstilos { get; private set; } = "";
+
+    /// <summary>
+    /// Estacas para as listas do painel: inicio, fim, pontos notaveis da geometria (PC, PT, TS, SC,
+    /// CS, ST, PCC) e estacas inteiras (20 m; 100 m em eixos muito longos).
+    /// </summary>
+    public static List<(double Estaca, string Rotulo)> EstacasDoEixo(Database db, ObjectId eixo)
+    {
+        var pontos = new List<(double, string)>();
+        try
+        {
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            if (tr.GetObject(eixo, OpenMode.ForRead) is not CivilDb.Alignment al)
+                return pontos;
+            double ini = al.StartingStation, fim = al.EndingStation;
+            pontos.Add((ini, "inicio"));
+            pontos.Add((fim, "fim"));
+            pontos.AddRange(PontosNotaveis(al));
+            double passo = (fim - ini) / 20.0 > 2000 ? 100 : 20;
+            for (double e = Math.Ceiling(ini / passo) * passo; e < fim - 1e-6; e += passo)
+                pontos.Add((e, ""));
             tr.Commit();
         }
         catch (System.Exception)
         {
-            // Sem estilos: o Civil usa o padrao.
+        }
+        // Mesma estaca: fica a com rotulo.
+        return pontos.OrderBy(p => p.Item1).ThenBy(p => p.Item2.Length == 0 ? 1 : 0)
+            .Aggregate(new List<(double Estaca, string Rotulo)>(), (l, p) =>
+            {
+                if (l.Count > 0 && Math.Abs(l[^1].Estaca - p.Item1) < 1e-3)
+                {
+                    if (l[^1].Rotulo.Length == 0 || (p.Item2.Length > 0 && !l[^1].Rotulo.Contains(p.Item2)))
+                        l[^1] = (l[^1].Estaca, string.Join("/", new[] { l[^1].Rotulo, p.Item2 }.Where(x => x.Length > 0)));
+                    return l;
+                }
+                l.Add(p);
+                return l;
+            });
+    }
+
+    /// <summary>Pontos de mudanca de elemento (reta, curva, espiral) pelas subentidades do eixo.</summary>
+    private static IEnumerable<(double, string)> PontosNotaveis(CivilDb.Alignment al)
+    {
+        var subs = new List<(string Tipo, double Ini, double Fim)>();
+        try
+        {
+            object? ents = Ler(al, "Entities");
+            if (ents is null)
+                return Array.Empty<(double, string)>();
+            int n = Convert.ToInt32(Ler(ents, "Count") ?? 0, Inv);
+            MethodInfo? porOrdem = ents.GetType().GetMethod("GetEntityByOrder", new[] { typeof(int) });
+            for (int i = 0; i < n && porOrdem is not null; i++)
+            {
+                object? ent = porOrdem.Invoke(ents, new object[] { i });
+                if (ent is null)
+                    continue;
+                int ns = Convert.ToInt32(Ler(ent, "SubEntityCount") ?? 0, Inv);
+                MethodInfo? item = ent.GetType().GetMethod("get_Item", new[] { typeof(int) });
+                for (int k = 0; k < ns && item is not null; k++)
+                {
+                    object? sub = item.Invoke(ent, new object[] { k });
+                    if (sub is null)
+                        continue;
+                    string tipo = Ler(sub, "SubEntityType")?.ToString() ?? "";
+                    double a = Convert.ToDouble(Ler(sub, "StartStation") ?? double.NaN, Inv);
+                    double b = Convert.ToDouble(Ler(sub, "EndStation") ?? double.NaN, Inv);
+                    if (!double.IsNaN(a) && !double.IsNaN(b))
+                        subs.Add((tipo, a, b));
+                }
+            }
+        }
+        catch (System.Exception)
+        {
+            return Array.Empty<(double, string)>();
+        }
+
+        static char Tipo(string t) => t.Contains("Arc", StringComparison.OrdinalIgnoreCase) ? 'C'
+            : t.Contains("Spiral", StringComparison.OrdinalIgnoreCase) ? 'E' : 'R';
+        var lista = new List<(double, string)>();
+        subs = subs.OrderBy(x => x.Ini).ToList();
+        for (int i = 0; i + 1 < subs.Count; i++)
+        {
+            char a = Tipo(subs[i].Tipo), b = Tipo(subs[i + 1].Tipo);
+            string nome = (a, b) switch
+            {
+                ('R', 'C') => "PC",
+                ('C', 'R') => "PT",
+                ('R', 'E') => "TS",
+                ('E', 'C') => "SC",
+                ('C', 'E') => "CS",
+                ('E', 'R') => "ST",
+                ('C', 'C') => "PCC",
+                ('E', 'E') => "SS",
+                _ => ""
+            };
+            if (nome.Length > 0)
+                lista.Add((subs[i].Fim, nome));
         }
         return lista;
+    }
+
+    /// <summary>Layouts (de papel) de um DWG/DWT, na ordem das abas.</summary>
+    public static List<string> LayoutsDoArquivo(string arquivo)
+    {
+        var lista = new List<(int, string)>();
+        using var origem = new Database(false, true);
+        origem.ReadDwgFile(arquivo, System.IO.FileShare.Read, true, "");
+        origem.CloseInput(true);
+        using Transaction tr = origem.TransactionManager.StartTransaction();
+        var dic = (DBDictionary)tr.GetObject(origem.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (DBDictionaryEntry e in dic)
+        {
+            var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
+            if (!lay.ModelType)
+                lista.Add((lay.TabOrder, lay.LayoutName));
+        }
+        tr.Commit();
+        return lista.OrderBy(x => x.Item1).Select(x => x.Item2).ToList();
     }
 
     /// <summary>Le e valida o layout modelo e as viewports escolhidas.</summary>
@@ -692,7 +836,7 @@ internal static class LayoutSheetSeries
             using Transaction tr = db.TransactionManager.StartTransaction();
             var al = (CivilDb.Alignment)tr.GetObject(s.Eixo, OpenMode.ForRead);
             var ax = new Eixo(al);
-            List<FrameGeo> geos = Encaixar(ax, ini, fim, m.LarguraFrame, m.AlturaFrame, s.Folga, s.Arredondar, maxPerfil, s.Girar);
+            List<FrameGeo> geos = Encaixar(ax, ini, fim, m.LarguraFrame, m.AlturaFrame, s.Folga, s.Arredondar, maxPerfil, s.Girar, s.UltimaCheia);
 
             GarantirApp(tr, db);
             GarantirLayer(tr, db, LayerFrame, 30, plotar: false);
@@ -740,7 +884,11 @@ internal static class LayoutSheetSeries
         int novas = 0, perfis = 0;
         List<string> nomesNovos = new();
         if (criarPranchas)
+        {
             (novas, perfis, nomesNovos) = CriarPranchas(doc, s, m, frames, origemPerfis, avisos);
+            if (nomesNovos.Count > 0)
+                AplicarLayoutBase(db, s, m, LerFrames(db, s).Where(f => nomesNovos.Contains(f.LayoutNome)).ToList(), avisos);
+        }
         else if (novosFrames == 0)
             return new OpResult(0, 0, "A serie ja tem frames. Use Atualizar para realinhar, ou Remover para gerar de novo.");
 
@@ -790,6 +938,7 @@ internal static class LayoutSheetSeries
         int pranchas = 0, perfis = 0;
         var nomes = new List<string>();
         double passo = m.TemPerfil ? m.AlturaPerfil * 1.6 : 0;
+        double passoX = m.TemPerfil ? m.LarguraPerfil * 1.15 : 0;
         List<SheetFrameInfo> lista = frames.OrderBy(f => f.E0).ToList();
 
         for (int i = 0; i < lista.Count; i++)
@@ -860,7 +1009,9 @@ internal static class LayoutSheetSeries
             {
                 try
                 {
-                    Point3d origem = origemPerfis + new Vector3d(0, -passo * f.Indice, 0);
+                    Point3d origem = origemPerfis + (s.PerfisHorizontal
+                        ? new Vector3d(passoX * f.Indice, 0, 0)
+                        : new Vector3d(0, -passo * f.Indice, 0));
                     using (Transaction tr = db.TransactionManager.StartTransaction())
                     {
                         f.Perfil = CriarProfileView(tr, db, s.Eixo, origem, nome, s.EstiloPerfil, s.BandasPerfil);
@@ -883,6 +1034,138 @@ internal static class LayoutSheetSeries
         if (pranchas > 0)
             LayoutOps.GravarOrdem(db, ordem);
         return (pranchas, perfis, nomes);
+    }
+
+    /// <summary>
+    /// Leva o layout base para as folhas: page setup (o nomeado escolhido, ou o do proprio layout base)
+    /// e camadas das viewports de planta e perfil (o layer state escolhido, ou os overrides e o VP
+    /// freeze da viewport correspondente do layout base, por um layer state temporario).
+    /// </summary>
+    private static void AplicarLayoutBase(Database db, SheetSeries s, SheetTemplate m, List<SheetFrameInfo> frames, List<string> avisos)
+    {
+        if (frames.Count == 0)
+            return;
+
+        // Page setup.
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            PlotSettings? fonte = null;
+            bool temporaria = false;
+            var psDic = (DBDictionary)tr.GetObject(db.PlotSettingsDictionaryId, OpenMode.ForRead);
+            if (s.PageSetup.Length > 0 && psDic.Contains(s.PageSetup))
+            {
+                fonte = (PlotSettings)tr.GetObject(psDic.GetAt(s.PageSetup), OpenMode.ForRead);
+            }
+            else
+            {
+                if (s.PageSetup.Length > 0)
+                    avisos.Add($"page setup \"{s.PageSetup}\" nao existe; usado o do layout base");
+                var baseLay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(m.Layout, OpenMode.ForRead);
+                fonte = new PlotSettings(false);
+                fonte.CopyFrom(baseLay);
+                temporaria = true;
+            }
+            foreach (SheetFrameInfo f in frames.Where(f => Valido(f.Layout)))
+            {
+                try
+                {
+                    var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(f.Layout, OpenMode.ForWrite, false, true);
+                    lay.CopyFrom(fonte);
+                }
+                catch (System.Exception ex)
+                {
+                    avisos.Add($"{f.LayoutNome}: page setup nao aplicado ({ex.Message})");
+                }
+            }
+            if (temporaria)
+                fonte.Dispose();
+            tr.Commit();
+        }
+
+        // Camadas das viewports.
+        Camadas(db, s.LayerStatePlanta, m.VpPlanta, frames.Select(f => f.VpPlanta), "planta", avisos);
+        if (m.TemPerfil)
+            Camadas(db, s.LayerStatePerfil, m.VpPerfil, frames.Select(f => f.VpPerfil), "perfil", avisos);
+    }
+
+    private static void Camadas(Database db, string nomeado, ObjectId vpBase, IEnumerable<ObjectId> destinos, string qual, List<string> avisos)
+    {
+        List<ObjectId> alvo = destinos.Where(Valido).ToList();
+        if (alvo.Count == 0)
+            return;
+        LayerStateManager lsm = db.LayerStateManager;
+        string estado = nomeado;
+        bool temporario = false;
+        LayerStateMasks mascara;
+        try
+        {
+            if (estado.Length > 0 && lsm.HasLayerState(estado))
+            {
+                mascara = lsm.GetLayerStateMask(estado);
+            }
+            else
+            {
+                if (estado.Length > 0)
+                    avisos.Add($"layer state \"{estado}\" nao existe; copiadas as camadas da viewport de {qual} do layout base");
+                // Overrides e VP freeze da viewport do layout base, guardados num layer state temporario.
+                estado = "C3D_TMP_" + vpBase.Handle;
+                temporario = true;
+                mascara = LayerStateMasks.CurrentViewport | LayerStateMasks.Color | LayerStateMasks.LineType |
+                          LayerStateMasks.LineWeight | LayerStateMasks.PlotStyle | LayerStateMasks.Transparency;
+                if (lsm.HasLayerState(estado))
+                    lsm.DeleteLayerState(estado);
+                lsm.SaveLayerState(estado, mascara, vpBase);
+            }
+
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            foreach (ObjectId vp in alvo)
+            {
+                try
+                {
+                    lsm.RestoreLayerState(estado, vp, 4, mascara);
+                }
+                catch (System.Exception ex)
+                {
+                    avisos.Add($"camadas da viewport de {qual}: {ex.Message}");
+                }
+            }
+            tr.Commit();
+        }
+        catch (System.Exception ex)
+        {
+            avisos.Add($"camadas da viewport de {qual} nao copiadas ({ex.Message})");
+        }
+        finally
+        {
+            if (temporario)
+            {
+                try
+                {
+                    if (lsm.HasLayerState(estado))
+                        lsm.DeleteLayerState(estado);
+                }
+                catch (System.Exception)
+                {
+                }
+            }
+        }
+    }
+
+    /// <summary>Reaplica o layout base (page setup e camadas das viewports) em todas as folhas da serie.</summary>
+    public static OpResult ReaplicarLayoutBase(Document doc, ObjectId eixo)
+    {
+        Database db = doc.Database;
+        SheetSeries s = LerSerie(db, eixo) ?? throw new InvalidOperationException("Serie nao encontrada.");
+        SheetTemplate m = LerModelo(db, s);
+        List<SheetFrameInfo> frames = LerFrames(db, s).Where(f => Valido(f.Layout)).ToList();
+        var avisos = new List<string>();
+        using (SheetSeriesSync.Suspender())
+        using (doc.LockDocument())
+            AplicarLayoutBase(db, s, m, frames, avisos);
+        if (avisos.Count > 0)
+            doc.Editor.WriteMessage("\n[Pranchas] " + string.Join("\n[Pranchas] ", avisos.Distinct()));
+        return new OpResult(frames.Count, avisos.Count,
+            $"Layout base reaplicado em {frames.Count} folha(s) (page setup e camadas das viewports)" + (avisos.Count > 0 ? $"; {avisos.Count} aviso(s) na linha de comando." : "."));
     }
 
     private static void NumerarSerie(Document doc, SheetSeries s)
@@ -1321,7 +1604,7 @@ internal static class LayoutSheetSeries
                         if (documento && !estilo.IsNull)
                         {
                             DBObject pv = tr.GetObject(id, OpenMode.ForWrite, false, true);
-                            pv.GetType().GetProperty("StyleId")?.SetValue(pv, estilo);
+                            Propriedade(pv.GetType(), "StyleId")?.SetValue(pv, estilo);
                         }
                         return id;
                     }
@@ -1514,11 +1797,11 @@ internal static class LayoutSheetSeries
     {
         try
         {
-            if (pv.GetType().GetProperty("StyleId")?.GetValue(pv) is not ObjectId sid || !Valido(sid))
+            if (Ler(pv, "StyleId") is not ObjectId sid || !Valido(sid))
                 return double.NaN;
             DBObject st = tr.GetObject(sid, OpenMode.ForRead);
-            object? graph = st.GetType().GetProperty("GraphStyle")?.GetValue(st);
-            object? ve = graph?.GetType().GetProperty("VerticalExaggeration")?.GetValue(graph);
+            object? graph = Ler(st, "GraphStyle");
+            object? ve = graph is null ? null : Ler(graph, "VerticalExaggeration");
             return ve is null ? double.NaN : Convert.ToDouble(ve, Inv);
         }
         catch (System.Exception)
@@ -1531,11 +1814,41 @@ internal static class LayoutSheetSeries
     {
         foreach (string n in nomes)
         {
-            PropertyInfo? p = o.GetType().GetProperty(n);
+            PropertyInfo? p = Propriedade(o.GetType(), n);
             if (p is not null)
                 return p;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Propriedade pelo nome sem AmbiguousMatchException (os tipos do Civil redeclaram propriedades
+    /// com "new"): fica a declarada no tipo mais derivado.
+    /// </summary>
+    internal static PropertyInfo? Propriedade(Type t, string nome) =>
+        t.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            .Where(p => p.Name == nome && p.GetIndexParameters().Length == 0)
+            .OrderByDescending(p => Profundidade(p.DeclaringType))
+            .FirstOrDefault();
+
+    private static int Profundidade(Type? t)
+    {
+        int n = 0;
+        for (; t is not null; t = t.BaseType)
+            n++;
+        return n;
+    }
+
+    internal static object? Ler(object o, string nome)
+    {
+        try
+        {
+            return Propriedade(o.GetType(), nome)?.GetValue(o);
+        }
+        catch (System.Exception)
+        {
+            return null;
+        }
     }
 
     private static InvalidOperationException Faltando(object o, string nome, string contendo) =>
@@ -1661,7 +1974,7 @@ internal static class LayoutSheetSeries
     /// util (frame menos a folga) e sem passar da capacidade do perfil; o corte e arredondado
     /// para baixo (multiplos de "arred", ex.: 20 m = 1 estaca).
     /// </summary>
-    private static List<FrameGeo> Encaixar(Eixo ax, double ini, double fim, double w, double h, double folga, double arred, double maxPerfil, bool girar)
+    private static List<FrameGeo> Encaixar(Eixo ax, double ini, double fim, double w, double h, double folga, double arred, double maxPerfil, bool girar, bool ultimaCheia)
     {
         double uw = w - 2 * folga, uh = h - 2 * folga;
         if (uw <= 1 || uh <= 1)
@@ -1698,13 +2011,13 @@ internal static class LayoutSheetSeries
                 if (r > s0 + 1)
                     s1 = r;
             }
-            // Sobra pequena no fim: estica este frame ate o fim se couber; senao recua um modulo
-            // para a ultima folha nao sair quase vazia.
+            // Sobra pequena no fim: estica este frame ate o fim se couber; senao (folha curta
+            // permitida) recua um modulo para a ultima folha nao sair quase vazia.
             if (fim - s1 > 0.01 && fim - s1 < minimo)
             {
                 if (fim - s0 <= Math.Min(maxPerfil, uw * 2.5) && Cabe(ax, s0, fim, uw, uh, girar, out _))
                     s1 = fim;
-                else if (arred > 0 && s1 - arred > s0 + 1)
+                else if (!ultimaCheia && arred > 0 && s1 - arred > s0 + 1)
                     s1 -= arred;
             }
             if (s1 - s0 < 1 && fim - s0 < 1)
@@ -1712,7 +2025,38 @@ internal static class LayoutSheetSeries
             if (s1 - s0 < 1)
                 throw new InvalidOperationException($"O eixo nao cabe no frame a partir da estaca {LayoutViewFrames.Estaca(s0)}: aumente a viewport de planta, reduza a escala ou a folga.");
 
-            Cabe(ax, s0, s1, uw, uh, girar, out FrameGeo geo);
+            double inicioFolha = s0;
+            if (ultimaCheia && lista.Count > 0 && fim - s1 <= 0.01)
+            {
+                // Ultima folha cheia: conta do fim para tras ate o frame encher; o trecho antes do
+                // corte (s0) repete o fim da folha anterior.
+                double baixo = Math.Max(ini, fim - Math.Min(maxPerfil, uw * 2.5));
+                double alto = s0;
+                if (Cabe(ax, baixo, fim, uw, uh, girar, out _))
+                {
+                    alto = baixo;
+                }
+                else
+                {
+                    for (int k = 0; k < 40 && alto - baixo > 0.01; k++)
+                    {
+                        double meio = (baixo + alto) / 2;
+                        if (Cabe(ax, meio, fim, uw, uh, girar, out _))
+                            alto = meio;
+                        else
+                            baixo = meio;
+                    }
+                }
+                if (arred > 0)
+                {
+                    double r = Math.Ceiling(alto / arred - 1e-9) * arred;
+                    if (r < s0)
+                        alto = r;
+                }
+                inicioFolha = Math.Max(ini, Math.Min(alto, s0));
+            }
+
+            Cabe(ax, inicioFolha, s1, uw, uh, girar, out FrameGeo geo);
             lista.Add(geo);
             s0 = s1;
         }
@@ -1831,6 +2175,11 @@ internal static class LayoutSheetSeries
             if (Math.Abs(a.E1 - b.E0) <= 0.5)
             {
                 Corte(tr, ms, s, ax, (a.E1 + b.E0) / 2, a.LayoutNome, b.LayoutNome, altura, escala);
+            }
+            else if (b.E0 < a.E1 && b.E1 > a.E1)
+            {
+                // Sobreposicao (ex.: ultima folha cheia): o corte fica no fim da folha anterior.
+                Corte(tr, ms, s, ax, a.E1, a.LayoutNome, b.LayoutNome, altura, escala);
             }
             else
             {

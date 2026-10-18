@@ -676,7 +676,7 @@ internal static class LayoutOps
     }
 
     /// <summary>Ordem natural: "PR-2" antes de "PR-10".</summary>
-    private sealed class NaturalComparer : IComparer<string>
+    internal sealed class NaturalComparer : IComparer<string>
     {
         public static readonly NaturalComparer Instance = new();
 
@@ -692,7 +692,9 @@ internal static class LayoutOps
                     int i0 = i, j0 = j;
                     while (i < a.Length && char.IsDigit(a[i])) i++;
                     while (j < b.Length && char.IsDigit(b[j])) j++;
-                    int c = long.Parse(a[i0..i]).CompareTo(long.Parse(b[j0..j]));
+                    // Compara pelo valor sem converter (numeros longos nao estouram).
+                    string na = a[i0..i].TrimStart('0'), nb = b[j0..j].TrimStart('0');
+                    int c = na.Length != nb.Length ? na.Length.CompareTo(nb.Length) : string.CompareOrdinal(na, nb);
                     if (c != 0)
                         return c;
                 }
