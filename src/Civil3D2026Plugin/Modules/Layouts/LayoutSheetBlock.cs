@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
@@ -41,6 +42,63 @@ internal sealed class SheetBlockOptions
     public bool Retrato { get; set; }
     public string Layer { get; set; } = "PRANCHA";
 
+    /// <summary>Quantidade e modulo de estendimento guardados por formato (A0..A4, Personalizado).</summary>
+    public Dictionary<string, (int N, double Modulo)> PorFormato { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Guarda os estendimentos atuais no formato atual.</summary>
+    public void GuardarFormato() => PorFormato[Formato] = (Estendimentos, Estendimento);
+
+    /// <summary>Carrega os estendimentos guardados do formato dado (ou mantem os atuais).</summary>
+    public void AplicarFormato(string formato)
+    {
+        Formato = formato;
+        if (PorFormato.TryGetValue(formato, out (int N, double Modulo) e))
+        {
+            Estendimentos = e.N;
+            Estendimento = e.Modulo;
+        }
+    }
+
+    /// <summary>Carrega as preferencias gravadas (prancha_<formato>=n;modulo).</summary>
+    public static SheetBlockOptions Carregar()
+    {
+        var o = new SheetBlockOptions
+        {
+            Formato = LayoutSettings.Get("prancha_formato", "A1"),
+            Largura = LayoutSettings.GetDouble("prancha_largura", 841),
+            Altura = LayoutSettings.GetDouble("prancha_altura", 594),
+            MargemEsquerda = LayoutSettings.GetDouble("prancha_margem_esq", 25),
+            MargemOutras = LayoutSettings.GetDouble("prancha_margem", 10),
+            MarcasDeDobra = LayoutSettings.GetBool("prancha_dobras", true),
+            Retrato = LayoutSettings.GetBool("prancha_retrato", false),
+            Layer = LayoutSettings.Get("prancha_layer", "PRANCHA")
+        };
+        foreach (string f in SheetFormat.Padrao.Select(x => x.Nome).Append("Personalizado"))
+        {
+            string[] partes = LayoutSettings.Get("prancha_" + f, "").Split(';');
+            if (partes.Length == 2 && int.TryParse(partes[0], out int n) &&
+                double.TryParse(partes[1], NumberStyles.Float, CultureInfo.InvariantCulture, out double m) && m > 0)
+                o.PorFormato[f] = (n, m);
+        }
+        o.AplicarFormato(o.Formato);
+        return o;
+    }
+
+    public void Salvar()
+    {
+        GuardarFormato();
+        LayoutSettings.Set("prancha_formato", Formato);
+        LayoutSettings.Set("prancha_largura", Largura);
+        LayoutSettings.Set("prancha_altura", Altura);
+        LayoutSettings.Set("prancha_margem_esq", MargemEsquerda);
+        LayoutSettings.Set("prancha_margem", MargemOutras);
+        LayoutSettings.Set("prancha_dobras", MarcasDeDobra);
+        LayoutSettings.Set("prancha_retrato", Retrato);
+        LayoutSettings.Set("prancha_layer", Layer);
+        foreach ((string f, (int n, double m)) in PorFormato)
+            LayoutSettings.Set("prancha_" + f, $"{n};{m.ToString("0.##", CultureInfo.InvariantCulture)}");
+    }
+
     public double LarguraTotal => (Formato == "Personalizado" ? Largura : Base().Largura) + Estendimentos * Estendimento;
     public double AlturaTotal => Formato == "Personalizado" ? Altura : Base().Altura;
 
@@ -59,7 +117,29 @@ internal sealed class SheetBlockOptions
 /// </summary>
 internal static class LayoutSheetBlock
 {
-    public static OpResult Inserir(Document doc, SheetBlockOptions o, Point3d ponto)
+    /// <summary>Insere no espaco atual.</summary>
+    public static OpResult Inserir(Document doc, SheetBlockOptions o, Point3d ponto) =>
+        Inserir(doc, o, ponto, new[] { doc.Database.CurrentSpaceId });
+
+    /// <summary>Insere nos layouts dados (pelo nome), sem precisar abri-los.</summary>
+    public static OpResult InserirEmLayouts(Document doc, SheetBlockOptions o, Point3d ponto, IEnumerable<string> layouts)
+    {
+        var espacos = new List<ObjectId>();
+        Database db = doc.Database;
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+            foreach (string nome in layouts)
+                if (dic.Contains(nome))
+                    espacos.Add(((Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(dic.GetAt(nome), OpenMode.ForRead)).BlockTableRecordId);
+            tr.Commit();
+        }
+        if (espacos.Count == 0)
+            return new OpResult(0, 0, "Nenhum layout marcado para receber a prancha.");
+        return Inserir(doc, o, ponto, espacos);
+    }
+
+    public static OpResult Inserir(Document doc, SheetBlockOptions o, Point3d ponto, IReadOnlyList<ObjectId> espacos)
     {
         using DocumentLock _ = doc.LockDocument();
         Database db = doc.Database;
@@ -110,14 +190,17 @@ internal static class LayoutSheetBlock
             }
         }
 
-        // Insercao no espaco atual.
-        var espaco = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);
-        var br = new BlockReference(ponto, btr.ObjectId) { Layer = o.Layer };
-        espaco.AppendEntity(br);
-        tr.AddNewlyCreatedDBObject(br, true);
+        foreach (ObjectId espacoId in espacos)
+        {
+            var espaco = (BlockTableRecord)tr.GetObject(espacoId, OpenMode.ForWrite);
+            var br = new BlockReference(ponto, btr.ObjectId) { Layer = o.Layer };
+            espaco.AppendEntity(br);
+            tr.AddNewlyCreatedDBObject(br, true);
+        }
         tr.Commit();
 
-        return new OpResult(1, 0, $"Prancha {nome} ({w:0} x {h:0} mm) inserida em {ponto.X.ToString("0.##", CultureInfo.InvariantCulture)},{ponto.Y.ToString("0.##", CultureInfo.InvariantCulture)}.");
+        string onde = espacos.Count == 1 ? "" : $" em {espacos.Count} layouts";
+        return new OpResult(espacos.Count, 0, $"Prancha {nome} ({w:0} x {h:0} mm) inserida{onde} em {ponto.X.ToString("0.##", CultureInfo.InvariantCulture)},{ponto.Y.ToString("0.##", CultureInfo.InvariantCulture)}.");
     }
 
     private static Polyline Retangulo(double x0, double y0, double x1, double y1, string layer, double espessura)

@@ -71,8 +71,13 @@ internal sealed class SheetData
     public double Largura => MaxX - MinX;
     public double Altura => MaxY - MinY;
 
+    /// <summary>Resumo da leitura (entidades por tipo, ignoradas), para diagnostico no painel.</summary>
+    public string Diagnostico { get; set; } = "";
+
     public void Incluir(WPoint p)
     {
+        if (!double.IsFinite(p.X) || !double.IsFinite(p.Y))
+            return;
         MinX = Math.Min(MinX, p.X);
         MinY = Math.Min(MinY, p.Y);
         MaxX = Math.Max(MaxX, p.X);
@@ -169,24 +174,70 @@ internal static class LayoutReader
             };
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
             HashSet<ObjectId> papel = ViewportsDoPapel(tr, layout, btr);
-            int pontos = 0;
+            int pontos = 0, entidades = 0, semGeometria = 0, invisiveis = 0, erros = 0;
+            var tipos = new Dictionary<string, int>();
 
             foreach (ObjectId id in btr)
             {
-                Entity? ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
-                if (ent is null || !ent.Visible)
-                    continue;
-
-                if (ent is Viewport vp)
+                Entity? ent;
+                try
                 {
-                    if (!papel.Contains(id))
-                        folha.Viewports.Add(LerViewport(tr, vp, folha, folha.Viewports.Count + 1));
+                    ent = tr.GetObject(id, OpenMode.ForRead) as Entity;
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                    erros++;
+                    continue;
+                }
+                if (ent is null)
+                    continue;
+                entidades++;
+                if (!ent.Visible)
+                {
+                    invisiveis++;
                     continue;
                 }
 
-                if (pontos < MaxPontosPorLayout)
-                    pontos += Desenhar(tr, ent, Matrix3d.Identity, folha, 0);
+                if (ent is Viewport vp)
+                {
+                    if (papel.Contains(id))
+                        continue;
+                    try
+                    {
+                        folha.Viewports.Add(LerViewport(tr, vp, folha, folha.Viewports.Count + 1));
+                    }
+                    catch (System.Exception)
+                    {
+                        erros++;
+                    }
+                    continue;
+                }
+
+                string tipo = id.ObjectClass?.DxfName ?? ent.GetType().Name;
+                tipos[tipo] = tipos.GetValueOrDefault(tipo) + 1;
+                if (pontos >= MaxPontosPorLayout)
+                    continue;
+                int n;
+                try
+                {
+                    n = Desenhar(tr, ent, Matrix3d.Identity, folha, 0);
+                }
+                catch (System.Exception)
+                {
+                    erros++;
+                    continue;
+                }
+                if (n == 0)
+                    semGeometria++;
+                pontos += n;
             }
+
+            folha.Diagnostico = $"{entidades} entidade(s): {string.Join(", ", tipos.OrderByDescending(t => t.Value).Take(8).Select(t => $"{t.Key} {t.Value}"))}"
+                + (semGeometria > 0 ? $"; {semGeometria} sem geometria na miniatura" : "")
+                + (invisiveis > 0 ? $"; {invisiveis} invisivel(is)" : "")
+                + (erros > 0 ? $"; {erros} erro(s) de leitura" : "")
+                + (pontos >= MaxPontosPorLayout ? "; limite de pontos atingido" : "")
+                + $"; papel {layout.PlotPaperSize.X:0}x{layout.PlotPaperSize.Y:0}";
 
             if (folha.MinX > folha.MaxX)
             {
@@ -223,11 +274,17 @@ internal static class LayoutReader
             return set;
         }
 
+        // Layout nunca ativado: a viewport do papel ainda nao existe. So considera "papel" uma
+        // viewport do tamanho do papel (ou maior); as demais sao viewports de verdade.
+        double pw = layout.PlotPaperSize.X, ph = layout.PlotPaperSize.Y;
         foreach (ObjectId id in btr)
         {
-            if (tr.GetObject(id, OpenMode.ForRead) is Viewport)
+            if (tr.GetObject(id, OpenMode.ForRead) is Viewport vp)
             {
-                set.Add(id);
+                bool tamanhoDoPapel = pw > 0 && ph > 0 &&
+                    ((vp.Width >= pw * 0.9 && vp.Height >= ph * 0.9) || (vp.Width >= ph * 0.9 && vp.Height >= pw * 0.9));
+                if (tamanhoDoPapel || vp.Number == 1)
+                    set.Add(id);
                 break;
             }
         }
@@ -254,9 +311,13 @@ internal static class LayoutReader
         if (vp.NonRectClipOn && !vp.NonRectClipEntityId.IsNull &&
             tr.GetObject(vp.NonRectClipEntityId, OpenMode.ForRead) is Curve clip)
         {
-            contorno = Amostrar(clip, Matrix3d.Identity).ToArray();
+            contorno = Amostrar(clip, Matrix3d.Identity).Where(q => double.IsFinite(q.X) && double.IsFinite(q.Y)).ToArray();
         }
         else
+        {
+            contorno = Array.Empty<WPoint>();
+        }
+        if (contorno.Length < 3)
         {
             Point3d c = vp.CenterPoint;
             double w = vp.Width / 2.0, h = vp.Height / 2.0;

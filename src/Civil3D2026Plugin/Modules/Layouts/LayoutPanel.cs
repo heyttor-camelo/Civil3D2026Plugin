@@ -58,7 +58,7 @@ internal sealed class LayoutPanel : SW.Window
     private readonly HashSet<ObjectId> _textosMarcados = new();
     private readonly NumberingRule _regra = new();
     private Dictionary<ObjectId, ViewFrameLink> _vinculos = new();
-    private readonly SheetBlockOptions _prancha = new();
+    private readonly SheetBlockOptions _prancha = SheetBlockOptions.Carregar();
     private readonly HashSet<Document> _docsLigados = new();
     private readonly Dictionary<string, string> _valoresCarimbo = new(StringComparer.OrdinalIgnoreCase);
     private bool _refreshQueued;
@@ -97,10 +97,34 @@ internal sealed class LayoutPanel : SW.Window
     private readonly WM.Brush _vpHover = ToolTheme.Brush(80, 160, 255, 45);
     private readonly WM.Brush _vpSel = ToolTheme.Brush(80, 160, 255, 110);
     private readonly WM.Brush _vpSelTraco = ToolTheme.Brush(80, 160, 255);
-    private readonly WM.Brush _vpTravada = ToolTheme.Brush(110, 200, 120, 38);
-    private readonly WM.Brush _vpDesligada = ToolTheme.Brush(140, 140, 140, 70);
-    private readonly WM.Brush _vp3d = ToolTheme.Brush(230, 165, 20, 45);
+    private readonly WM.Brush _vpTravada = Hachura(WM.Color.FromRgb(110, 200, 120), 9, 20);
+    private readonly WM.Brush _vpDesligada = Hachura(WM.Color.FromRgb(170, 170, 170), 7, 28);
+    private readonly WM.Brush _vp3d = Hachura(WM.Color.FromRgb(230, 165, 20), 8, 26);
     private readonly WM.Brush _vp3dTraco = ToolTheme.Brush(230, 165, 20);
+
+    /// <summary>Hachura leve (linhas a 45 graus, em pixels) com um fundo quase transparente.</summary>
+    private static WM.Brush Hachura(WM.Color cor, double passo, byte fundo)
+    {
+        var grupo = new WM.DrawingGroup();
+        using (WM.DrawingContext dc = grupo.Open())
+        {
+            dc.DrawRectangle(new WM.SolidColorBrush(WM.Color.FromArgb(fundo, cor.R, cor.G, cor.B)), null, new SW.Rect(0, 0, passo, passo));
+            var caneta = new WM.Pen(new WM.SolidColorBrush(WM.Color.FromArgb(150, cor.R, cor.G, cor.B)), 0.8);
+            dc.DrawLine(caneta, new SW.Point(0, passo), new SW.Point(passo, 0));
+            dc.DrawLine(caneta, new SW.Point(-passo / 2, passo / 2), new SW.Point(passo / 2, -passo / 2));
+            dc.DrawLine(caneta, new SW.Point(passo / 2, passo * 1.5), new SW.Point(passo * 1.5, passo / 2));
+        }
+        var brush = new WM.DrawingBrush(grupo)
+        {
+            TileMode = WM.TileMode.Tile,
+            Viewport = new SW.Rect(0, 0, passo, passo),
+            ViewportUnits = WM.BrushMappingMode.Absolute,
+            Viewbox = new SW.Rect(0, 0, passo, passo),
+            ViewboxUnits = WM.BrushMappingMode.Absolute
+        };
+        brush.Freeze();
+        return brush;
+    }
 
     /// <summary>Hachura (preenchimento) pelo estado: desligada > 3D > travada > livre.</summary>
     private WM.Brush FillEstado(SheetViewport v) =>
@@ -149,6 +173,9 @@ internal sealed class LayoutPanel : SW.Window
             "Liga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), true))),
         new("DESLIGAR", "desligar", "Desligar viewports", "Viewports",
             "Desliga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), false))),
+        new("VPLEVE", "desligar", "Modo leve (desligar/religar viewports)", "Viewports",
+            "Desliga as viewports de todos os layouts (marcando-as) para trocar de layout sem regenerar, e religa so essas depois.",
+            new[] { "Aba Modo leve: desligar todas, montar as pranchas, religar." }, p => p.SelectCategory("VIEWPORTS", "Leve")),
         new("ESCALA", "escala", "Escala das viewports", "Viewports",
             "Aplica a escala 1:N nas viewports marcadas (e a escala de anotacao, se existir no desenho).",
             new[] { "Marque as viewports.", "Escolha a escala na aba Escala." }, p => p.SelectCategory("VIEWPORTS", "Escala")),
@@ -183,7 +210,7 @@ internal sealed class LayoutPanel : SW.Window
             "Mostra no Model o view frame ou match line selecionado.", new[] { "Selecione na categoria View frames." }, p => p.ZoomViewFrame()),
         new("VFATUALIZAR", "atualizar", "Atualizar viewports pelos view frames", "View frames",
             "Reposiciona as viewports vinculadas pelo frame (planta: centro e giro pelo eixo; perfil: intervalo de estacas do profile view).",
-            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.Executar(() => LayoutViewFrameSync.Atualizar(p.Doc!, null, p._vfs))),
+            new[] { "Vincule as viewports (aba View frames).", "Mova os frames no Model e clique aqui." }, p => p.Executar(() => LayoutViewFrameSync.Atualizar(p.Doc!, null, p._vfs, (AjusteViewport)Math.Clamp(LayoutSettings.GetInt("vf_ajuste", 1), 0, 2)))),
         new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
             "Le os layouts do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh())
     };
@@ -531,7 +558,41 @@ internal sealed class LayoutPanel : SW.Window
 
         SW.Style combo = new(typeof(WC.ComboBox));
         combo.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+        combo.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Input));
+        combo.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
         Resources[typeof(WC.ComboBox)] = combo;
+
+        // A lista suspensa do ComboBox usa as cores de sistema "Window": redefinidas aqui para o tema.
+        Resources[SW.SystemColors.WindowBrushKey] = T.Pane;
+        Resources[SW.SystemColors.WindowFrameBrushKey] = T.Line;
+        Resources[SW.SystemColors.WindowTextBrushKey] = T.Text;
+        Resources[SW.SystemColors.HighlightBrushKey] = T.Selected;
+        Resources[SW.SystemColors.HighlightTextBrushKey] = T.Text;
+        Resources[SW.SystemColors.ControlBrushKey] = T.Back;
+        Resources[SW.SystemColors.ControlTextBrushKey] = T.Text;
+
+        SW.Style comboItem = new(typeof(WC.ComboBoxItem));
+        comboItem.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+        comboItem.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Pane));
+        comboItem.Setters.Add(new SW.Setter(WC.Control.PaddingProperty, new SW.Thickness(6, 3, 6, 3)));
+        SW.FrameworkElementFactory cbd = new(typeof(WC.Border), "Bd");
+        cbd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
+        cbd.SetValue(WC.Border.PaddingProperty, new SW.TemplateBindingExtension(WC.Control.PaddingProperty));
+        cbd.SetValue(WC.Border.SnapsToDevicePixelsProperty, true);
+        cbd.AppendChild(new SW.FrameworkElementFactory(typeof(WC.ContentPresenter)));
+        WC.ControlTemplate comboItemTemplate = new(typeof(WC.ComboBoxItem)) { VisualTree = cbd };
+        SW.Trigger ciHover = new() { Property = SW.UIElement.IsMouseOverProperty, Value = true };
+        ciHover.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Hover, "Bd"));
+        comboItemTemplate.Triggers.Add(ciHover);
+        SW.Trigger ciSel = new() { Property = WC.ComboBoxItem.IsSelectedProperty, Value = true };
+        ciSel.Setters.Add(new SW.Setter(WC.Border.BackgroundProperty, T.Selected, "Bd"));
+        comboItemTemplate.Triggers.Add(ciSel);
+        comboItem.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, comboItemTemplate));
+        Resources[typeof(WC.ComboBoxItem)] = comboItem;
+
+        SW.Style radio = new(typeof(WC.RadioButton));
+        radio.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
+        Resources[typeof(WC.RadioButton)] = radio;
     }
 
     private void BuildCommandBar()
@@ -1456,6 +1517,7 @@ internal sealed class LayoutPanel : SW.Window
                 break;
             case "VIEWPORTS":
                 tabs.Add(("Escala", "Escala", BuildScale));
+                tabs.Add(("Leve", "Modo leve", BuildViewportPower));
                 break;
             case "NUMERACAO":
                 tabs.Insert(0, ("Busca", "Buscar textos", BuildTextSearch));
@@ -1550,6 +1612,8 @@ internal sealed class LayoutPanel : SW.Window
                 p.Children.Add(Prop("Estilo de plotagem", f.EstiloPlot.Length > 0 ? f.EstiloPlot : "(nenhum)"));
                 p.Children.Add(Prop("Viewports", f.Viewports.Count.ToString()));
                 p.Children.Add(Prop("Atual", f.Atual ? "sim" : "nao"));
+                if (f.Diagnostico.Length > 0)
+                    p.Children.Add(Prop("Miniatura", f.Diagnostico));
                 p.Children.Add(ActionButton("Abrir layout", () => Abrir(f.Nome)));
                 break;
             case SheetViewport v:
@@ -1918,7 +1982,7 @@ internal sealed class LayoutPanel : SW.Window
         WC.StackPanel p = Form();
         SheetBlockOptions o = _prancha;
         p.Children.Add(Label("Inserir bloco de prancha", true));
-        p.Children.Add(Label("Contorno do papel, quadro com margens (esquerda maior para encadernacao) e marcas de dobra. O bloco e criado/atualizado com o nome PRANCHA_<formato>_E<n> e inserido no espaco atual."));
+        p.Children.Add(Label("Contorno do papel, quadro com margens (esquerda maior para encadernacao) e marcas de dobra a cada 210 mm. O bloco e criado/atualizado com o nome PRANCHA_<formato>_E<n>. A quantidade e o modulo de estendimento ficam guardados por formato."));
 
         var formato = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left };
         foreach (SheetFormat f in SheetFormat.Padrao) formato.Items.Add($"{f.Nome}  ({f.Largura:0} x {f.Altura:0})");
@@ -1927,29 +1991,48 @@ internal sealed class LayoutPanel : SW.Window
         if (o.Formato == "Personalizado") formato.SelectedIndex = formato.Items.Count - 1;
         var larg = new WC.TextBox { Width = 70, Text = o.Largura.ToString("0.##", CultureInfo.InvariantCulture) };
         var alt = new WC.TextBox { Width = 70, Text = o.Altura.ToString("0.##", CultureInfo.InvariantCulture) };
-        var nEst = new WC.TextBox { Width = 50, Text = o.Estendimentos.ToString() };
+        var nEst = new WC.TextBox { Width = 50, Text = o.Estendimentos.ToString(), FontWeight = SW.FontWeights.Bold };
         var tamEst = new WC.TextBox { Width = 70, Text = o.Estendimento.ToString("0.##", CultureInfo.InvariantCulture) };
         var mEsq = new WC.TextBox { Width = 60, Text = o.MargemEsquerda.ToString("0.##", CultureInfo.InvariantCulture) };
         var mOut = new WC.TextBox { Width = 60, Text = o.MargemOutras.ToString("0.##", CultureInfo.InvariantCulture) };
         var layer = new WC.TextBox { Width = 140, Text = o.Layer };
         var dobras = new WC.CheckBox { Content = "Marcas de dobra (modulos de 210 mm)", IsChecked = o.MarcasDeDobra, Margin = new SW.Thickness(0, 8, 0, 0) };
         var retrato = new WC.CheckBox { Content = "Retrato", IsChecked = o.Retrato, Margin = new SW.Thickness(0, 4, 0, 0) };
-        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 8, 0, 0) };
+        var previa = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 8, 0, 0), TextWrapping = SW.TextWrapping.Wrap };
+        var resumo = new WC.TextBlock { Foreground = T.Muted, Margin = new SW.Thickness(0, 2, 0, 0), TextWrapping = SW.TextWrapping.Wrap };
 
         double D(WC.TextBox tb, double padrao) => double.TryParse(tb.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v > 0 ? v : padrao;
+        bool carregando = false;
+        string FormatoEscolhido() => formato.SelectedIndex >= 0 && formato.SelectedIndex < SheetFormat.Padrao.Length ? SheetFormat.Padrao[formato.SelectedIndex].Nome : "Personalizado";
         void Ler()
         {
-            o.Formato = formato.SelectedIndex >= 0 && formato.SelectedIndex < SheetFormat.Padrao.Length ? SheetFormat.Padrao[formato.SelectedIndex].Nome : "Personalizado";
+            if (carregando)
+                return;
+            o.Formato = FormatoEscolhido();
             o.Largura = D(larg, 841); o.Altura = D(alt, 594);
             o.Estendimentos = int.TryParse(nEst.Text, out int n) ? Math.Clamp(n, 0, 20) : 0;
             o.Estendimento = D(tamEst, 210);
             o.MargemEsquerda = D(mEsq, 25); o.MargemOutras = D(mOut, 10);
             o.Layer = layer.Text.Trim().Length > 0 ? layer.Text.Trim() : "PRANCHA";
             o.MarcasDeDobra = dobras.IsChecked == true; o.Retrato = retrato.IsChecked == true;
+            o.GuardarFormato();
             larg.IsEnabled = alt.IsEnabled = o.Formato == "Personalizado";
             previa.Text = $"{o.NomeBloco()}: {(o.Retrato ? o.AlturaTotal : o.LarguraTotal):0} x {(o.Retrato ? o.LarguraTotal : o.AlturaTotal):0} mm";
+            resumo.Text = "Guardado por formato: " + string.Join("   ", SheetFormat.Padrao.Select(f => f.Nome).Append("Personalizado")
+                .Where(f => o.PorFormato.ContainsKey(f))
+                .Select(f => $"{f} = {o.PorFormato[f].N} x {o.PorFormato[f].Modulo:0}"));
+            o.Salvar();
         }
-        formato.SelectionChanged += (_, _) => Ler();
+        formato.SelectionChanged += (_, _) =>
+        {
+            // Troca de formato: recupera os estendimentos guardados daquele formato.
+            carregando = true;
+            o.AplicarFormato(FormatoEscolhido());
+            nEst.Text = o.Estendimentos.ToString();
+            tamEst.Text = o.Estendimento.ToString("0.##", CultureInfo.InvariantCulture);
+            carregando = false;
+            Ler();
+        };
         foreach (WC.TextBox tb in new[] { larg, alt, nEst, tamEst, mEsq, mOut, layer }) tb.TextChanged += (_, _) => Ler();
         dobras.Click += (_, _) => Ler(); retrato.Click += (_, _) => Ler();
 
@@ -1960,20 +2043,62 @@ internal sealed class LayoutPanel : SW.Window
             sp.Children.Add(c);
             pai.Children.Add(sp);
         }
-        var l1 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var l1 = new WC.WrapPanel();
         Campo(l1, "Formato", formato); Campo(l1, "Largura", larg); Campo(l1, "Altura", alt);
+        Campo(l1, "Estendimentos (qtd.)", nEst); Campo(l1, "Modulo do estendimento (mm)", tamEst);
         p.Children.Add(l1);
-        var l2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        Campo(l2, "Estendimentos", nEst); Campo(l2, "Tamanho do estendimento", tamEst); Campo(l2, "Margem esquerda", mEsq); Campo(l2, "Demais margens", mOut); Campo(l2, "Layer", layer);
+        var l2 = new WC.WrapPanel();
+        Campo(l2, "Margem esquerda", mEsq); Campo(l2, "Demais margens", mOut); Campo(l2, "Layer", layer);
         p.Children.Add(l2);
         p.Children.Add(dobras);
         p.Children.Add(retrato);
         p.Children.Add(previa);
+        p.Children.Add(resumo);
         Ler();
 
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes.Children.Add(ActionButton("Inserir na origem", () => Executar(() => LayoutSheetBlock.Inserir(Doc!, o, Autodesk.AutoCAD.Geometry.Point3d.Origin))));
-        botoes.Children.Add(ActionButton("Clicar o ponto...", () => Enviar(C3DCommands.Layouts.Prancha)));
+        // Onde inserir: sem precisar abrir os layouts.
+        p.Children.Add(Label("Onde inserir", true));
+        var emMarcados = new WC.RadioButton { Content = "Nos layouts marcados (sem abrir cada um)", IsChecked = LayoutSettings.GetBool("prancha_em_marcados", true), Margin = new SW.Thickness(0, 2, 0, 0) };
+        var emAtual = new WC.RadioButton { Content = "No layout aberto (espaco atual)", IsChecked = !(emMarcados.IsChecked == true), Margin = new SW.Thickness(0, 2, 0, 0) };
+        emMarcados.Checked += (_, _) => LayoutSettings.Set("prancha_em_marcados", true);
+        emAtual.Checked += (_, _) => LayoutSettings.Set("prancha_em_marcados", false);
+        p.Children.Add(emMarcados);
+        p.Children.Add(emAtual);
+        var px = new WC.TextBox { Width = 80, Text = LayoutSettings.Get("prancha_x", "0") };
+        var py = new WC.TextBox { Width = 80, Text = LayoutSettings.Get("prancha_y", "0") };
+        px.TextChanged += (_, _) => LayoutSettings.Set("prancha_x", px.Text);
+        py.TextChanged += (_, _) => LayoutSettings.Set("prancha_y", py.Text);
+        var l3 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        Campo(l3, "Ponto de insercao X (mm)", px); Campo(l3, "Y (mm)", py);
+        p.Children.Add(l3);
+
+        Autodesk.AutoCAD.Geometry.Point3d Ponto()
+        {
+            double x = double.TryParse(px.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double vx) ? vx : 0;
+            double y = double.TryParse(py.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double vy) ? vy : 0;
+            return new Autodesk.AutoCAD.Geometry.Point3d(x, y, 0);
+        }
+        void Inserir(Autodesk.AutoCAD.Geometry.Point3d ponto)
+        {
+            if (emMarcados.IsChecked == true)
+            {
+                if (Marcados().Count == 0)
+                {
+                    Say("Marque os layouts que recebem a prancha (caixa na lista ou no cartao).");
+                    return;
+                }
+                Executar(() => LayoutSheetBlock.InserirEmLayouts(Doc!, o, ponto, Marcados()));
+            }
+            else
+            {
+                Executar(() => LayoutSheetBlock.Inserir(Doc!, o, ponto));
+            }
+        }
+
+        var botoes = new WC.WrapPanel { Margin = new SW.Thickness(0, 6, 0, 0) };
+        botoes.Children.Add(ActionButton("Inserir na origem", () => Inserir(Autodesk.AutoCAD.Geometry.Point3d.Origin)));
+        botoes.Children.Add(ActionButton("Inserir em X,Y", () => Inserir(Ponto())));
+        botoes.Children.Add(ActionButton("Clicar o ponto no layout aberto...", () => Enviar(C3DCommands.Layouts.Prancha)));
         p.Children.Add(botoes);
         return p;
     }
@@ -1990,6 +2115,18 @@ internal sealed class LayoutPanel : SW.Window
 
     private void Numerar()
     {
+        if (_textos.Count(t => t.Papel.Length > 0) == 0)
+        {
+            SelectCategory("NUMERACAO", "Busca");
+            Say("Nenhum texto marcado como NUMERO/TOTAL: busque os textos abaixo, marque o do numero (e o do total) e clique em Numerar de novo.");
+            SW.MessageBox.Show(
+                "Ainda nao ha texto marcado como numero da prancha.\n\n" +
+                "1. Na aba Busca, filtre e localize o texto que numera a prancha (pode estar dentro do bloco do carimbo).\n" +
+                "2. Marque-o como NUMERO (e o do total como TOTAL). Isso fica gravado no desenho.\n" +
+                "3. Confira prefixo, digitos e total na aba Numeracao e clique em Numerar.",
+                "Numerar pranchas", SW.MessageBoxButton.OK, SW.MessageBoxImage.Information);
+            return;
+        }
         _regra.Marcados = Marcados();
         if (_regra.SoLayoutsMarcados && _regra.Marcados.Count == 0)
         {
@@ -2001,6 +2138,54 @@ internal sealed class LayoutPanel : SW.Window
 
     /// <summary>Opcoes de prancha atuais (para o comando C3DPRANCHA).</summary>
     internal static SheetBlockOptions? PranchaAtual => _instance?._prancha;
+
+    private SW.UIElement BuildViewportPower()
+    {
+        WC.StackPanel p = Form();
+        int desligadas = 0;
+        try { if (Doc is not null) desligadas = LayoutViewportPower.Desligadas(Doc.Database); } catch (System.Exception) { }
+        p.Children.Add(Label("Modo leve: viewports desligadas enquanto se monta a prancha", true));
+        p.Children.Add(Label("Trocar de layout com viewports ligadas obriga o AutoCAD a regenerar o Model em cada uma (corredores, superficies). " +
+            "Aqui as viewports sao desligadas e marcadas (XData C3D_VPOFF); \"Religar\" liga de volta exatamente essas, sem mexer nas que voce mesmo desligou. " +
+            "Quase tudo deste painel funciona com as viewports desligadas (numeracao, prancha, page setup, escala, vinculo com view frames)."));
+        p.Children.Add(Prop("Desligadas pelo plugin", desligadas.ToString()));
+
+        var botoes = new WC.WrapPanel();
+        botoes.Children.Add(ActionButton("Desligar todas (menos o layout aberto)", () => Executar(() => LayoutViewportPower.Desligar(Doc!, null, poupaAtual: true))));
+        botoes.Children.Add(ActionButton("Desligar nos layouts marcados", () => Executar(() => LayoutViewportPower.Desligar(Doc!, Marcados(), poupaAtual: false))));
+        botoes.Children.Add(ActionButton("Religar todas", () => Executar(() => LayoutViewportPower.Religar(Doc!, null))));
+        botoes.Children.Add(ActionButton("Religar nos layouts marcados", () => Executar(() => LayoutViewportPower.Religar(Doc!, Marcados()))));
+        p.Children.Add(botoes);
+
+        var auto = new WC.CheckBox
+        {
+            Content = "Automatico: ao sair de um layout desliga as viewports dele; ao entrar, religa as dele",
+            IsChecked = LayoutViewportPower.Automatico,
+            Margin = new SW.Thickness(0, 8, 0, 0)
+        };
+        auto.Click += (_, _) => { LayoutViewportPower.Automatico = auto.IsChecked == true; Say(auto.IsChecked == true ? "Modo leve automatico ligado." : "Modo leve automatico desligado."); };
+        p.Children.Add(auto);
+        p.Children.Add(Label("Observacao: no automatico a regeneracao das viewports acontece ao entrar no layout (no religar), entao a troca em si fica rapida mas o custo nao some. " +
+            "O ganho real vem de manter as viewports desligadas durante a montagem e religar no fim. Alternativa do proprio AutoCAD: LAYOUTREGENCTL = 2 guarda a lista de exibicao de todos os layouts (mais memoria, troca sem regenerar)."));
+        var regen = new WC.WrapPanel { Margin = new SW.Thickness(0, 4, 0, 0) };
+        regen.Children.Add(ActionButton("LAYOUTREGENCTL = 2 (guardar todos)", () => Sysvar("LAYOUTREGENCTL", 2)));
+        regen.Children.Add(ActionButton("LAYOUTREGENCTL = 1 (padrao)", () => Sysvar("LAYOUTREGENCTL", 1)));
+        p.Children.Add(regen);
+        return p;
+    }
+
+    private void Sysvar(string nome, int valor)
+    {
+        try
+        {
+            AcApp.SetSystemVariable(nome, valor);
+            Say($"{nome} = {valor}.");
+        }
+        catch (System.Exception ex)
+        {
+            Say($"Nao foi possivel definir {nome}: {ex.Message}");
+        }
+    }
 
     private SW.UIElement BuildLayerState()
     {
@@ -2579,9 +2764,17 @@ internal sealed class LayoutPanel : SW.Window
         p.Children.Add(Label("\"Vincular marcados\": 1 view frame marcado nesta lista + viewports marcadas na miniatura. Para perfil, a viewport precisa mostrar um profile view do mesmo eixo."));
 
         p.Children.Add(Label("Atualizar", true));
+        var ajuste = new WC.ComboBox { Width = 420, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 2, 0, 4) };
+        ajuste.Items.Add("So centro e giro (tamanho e escala da viewport ficam como estao)");
+        ajuste.Items.Add("Redimensionar a viewport para o frame, na escala atual (reduz a escala se nao couber no papel)");
+        ajuste.Items.Add("Manter o tamanho da viewport e ajustar a escala para o frame caber (escala padrao mais proxima)");
+        ajuste.SelectedIndex = Math.Clamp(LayoutSettings.GetInt("vf_ajuste", 1), 0, 2);
+        ajuste.SelectionChanged += (_, _) => LayoutSettings.Set("vf_ajuste", ajuste.SelectedIndex);
+        p.Children.Add(ajuste);
+        AjusteViewport Modo() => (AjusteViewport)Math.Clamp(ajuste.SelectedIndex, 0, 2);
         var botoes2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        botoes2.Children.Add(ActionButton("Atualizar todas as vinculadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, null, _vfs))));
-        botoes2.Children.Add(ActionButton("Atualizar viewports marcadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, VpsMarcadas(), _vfs))));
+        botoes2.Children.Add(ActionButton("Atualizar todas as vinculadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, null, _vfs, Modo()))));
+        botoes2.Children.Add(ActionButton("Atualizar viewports marcadas", () => Executar(() => LayoutViewFrameSync.Atualizar(Doc!, VpsMarcadas(), _vfs, Modo()))));
         p.Children.Add(botoes2);
 
         p.Children.Add(Label("Rotulos", true));

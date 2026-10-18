@@ -12,6 +12,17 @@ namespace Civil3D2026Plugin.Modules.Layouts;
 /// <summary>Vinculo gravado na viewport (XData C3D_VIEWFRAME).</summary>
 internal sealed record ViewFrameLink(ObjectId Viewport, ObjectId Frame, bool Perfil, ObjectId ProfileView, bool Girar);
 
+/// <summary>O que a atualizacao faz com o tamanho da viewport em relacao ao frame.</summary>
+internal enum AjusteViewport
+{
+    /// <summary>So centro (e giro): tamanho e escala ficam como estao.</summary>
+    Centro,
+    /// <summary>Redimensiona a viewport para o frame na escala atual (limitado ao papel).</summary>
+    TamanhoDaViewport,
+    /// <summary>Mantem o tamanho da viewport e ajusta a escala para o frame caber (escala padrao mais proxima).</summary>
+    Escala
+}
+
 /// <summary>
 /// Liga view frames do Civil as viewports dos layouts e atualiza as vistas pela geometria
 /// do frame: em planta, centro e giro pela tangente do eixo no meio do frame; em perfil,
@@ -209,7 +220,8 @@ internal static class LayoutViewFrameSync
     // ------------------------------------------------------------------
 
     /// <summary>Atualiza as viewports vinculadas (todas ou so as dadas) pela posicao atual dos frames.</summary>
-    public static OpResult Atualizar(Document doc, IEnumerable<ObjectId>? somente, IReadOnlyList<ViewFrameItem> frames)
+    public static OpResult Atualizar(Document doc, IEnumerable<ObjectId>? somente, IReadOnlyList<ViewFrameItem> frames,
+        AjusteViewport modo = AjusteViewport.Centro)
     {
         Database db = doc.Database;
         Dictionary<ObjectId, ViewFrameLink> vinculos = LerVinculos(db);
@@ -231,9 +243,9 @@ internal static class LayoutViewFrameSync
                     throw new InvalidOperationException("frame sem estacas");
 
                 if (v.Perfil)
-                    AtualizarPerfil(db, v, e0, e1);
+                    AtualizarPerfil(db, v, e0, e1, modo);
                 else
-                    AtualizarPlanta(db, v, e0, e1);
+                    AtualizarPlanta(db, v, e0, e1, modo);
                 ok++;
             }
             catch (System.Exception ex)
@@ -245,35 +257,32 @@ internal static class LayoutViewFrameSync
         return new OpResult(ok, falhas, $"{ok} viewport(s) atualizada(s)" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join("; ", erros.Take(3))}" : "."));
     }
 
-    private static void AtualizarPlanta(Database db, ViewFrameLink v, double e0, double e1)
+    private static void AtualizarPlanta(Database db, ViewFrameLink v, double e0, double e1, AjusteViewport modo)
     {
         ObjectId alin = AlinhamentoDoFrame(db, v.Frame);
         double meio = (e0 + e1) / 2;
-        Point3d? centro = PontoNoEixo(db, alin, meio);
-        if (centro is null)
-            throw new InvalidOperationException("nao foi possivel localizar o eixo do frame");
+        Point3d? centroEixo = PontoNoEixo(db, alin, meio);
+        Vector3d? tg = TangenteNoEixo(db, alin, meio);
 
         using Transaction tr = db.TransactionManager.StartTransaction();
         var vp = (Viewport)tr.GetObject(v.Viewport, OpenMode.ForWrite);
         bool travada = vp.Locked;
         vp.Locked = false;
 
-        if (v.Girar)
-        {
-            Vector3d? tg = TangenteNoEixo(db, alin, meio);
-            if (tg is Vector3d t && t.Length > 1e-9)
-                vp.TwistAngle = -Math.Atan2(t.Y, t.X);
-        }
+        if (v.Girar && tg is Vector3d t && t.Length > 1e-9)
+            vp.TwistAngle = -Math.Atan2(t.Y, t.X);
 
-        // Centro da vista em DCS = ponto do eixo no sistema da viewport.
-        Matrix3d wcs2dcs = Dcs2Wcs(vp).Inverse();
-        Point3d c = centro.Value.TransformBy(wcs2dcs);
-        vp.ViewCenter = new Point2d(c.X, c.Y);
+        // Retangulo do frame no Model (explodido ou derivado da caixa + tangente).
+        Point3d[]? cantos = CantosDoFrame(tr, v.Frame, tg);
+        if (cantos is null && centroEixo is null)
+            throw new InvalidOperationException("nao foi possivel localizar o frame nem o eixo");
+
+        Ajustar(tr, db, vp, cantos, centroEixo, modo);
         vp.Locked = travada;
         tr.Commit();
     }
 
-    private static void AtualizarPerfil(Database db, ViewFrameLink v, double e0, double e1)
+    private static void AtualizarPerfil(Database db, ViewFrameLink v, double e0, double e1, AjusteViewport modo)
     {
         if (v.ProfileView.IsNull || v.ProfileView.IsErased)
             throw new InvalidOperationException("profile view do vinculo nao existe mais");
@@ -281,24 +290,203 @@ internal static class LayoutViewFrameSync
         using Transaction tr = db.TransactionManager.StartTransaction();
         DBObject pv = tr.GetObject(v.ProfileView, OpenMode.ForWrite);
         // StationRangeMode.UserSpecified e StationStart/StationEnd (lidos por reflexao: enum do Civil).
-        PropertyInfo? modo = pv.GetType().GetProperty("StationRangeMode");
-        if (modo is not null && modo.PropertyType.IsEnum)
-            modo.SetValue(pv, Enum.Parse(modo.PropertyType, "UserSpecified"));
+        PropertyInfo? modoEst = pv.GetType().GetProperty("StationRangeMode");
+        if (modoEst is not null && modoEst.PropertyType.IsEnum)
+            modoEst.SetValue(pv, Enum.Parse(modoEst.PropertyType, "UserSpecified"));
         pv.GetType().GetProperty("StationStart")?.SetValue(pv, e0);
         pv.GetType().GetProperty("StationEnd")?.SetValue(pv, e1);
 
-        // Recentra a viewport no profile view atualizado.
+        // Recentra (e, se pedido, redimensiona ou reescala) a viewport no profile view atualizado.
         if (pv is Entity ent)
         {
             Extents3d ext = ent.GeometricExtents;
+            var cantos = new[]
+            {
+                new Point3d(ext.MinPoint.X, ext.MinPoint.Y, 0), new Point3d(ext.MaxPoint.X, ext.MinPoint.Y, 0),
+                new Point3d(ext.MaxPoint.X, ext.MaxPoint.Y, 0), new Point3d(ext.MinPoint.X, ext.MaxPoint.Y, 0)
+            };
             var vp = (Viewport)tr.GetObject(v.Viewport, OpenMode.ForWrite);
             bool travada = vp.Locked;
             vp.Locked = false;
-            Point3d c = Centro3(ext).TransformBy(Dcs2Wcs(vp).Inverse());
-            vp.ViewCenter = new Point2d(c.X, c.Y);
+            Ajustar(tr, db, vp, cantos, Centro3(ext), modo);
             vp.Locked = travada;
         }
         tr.Commit();
+    }
+
+    /// <summary>
+    /// Centra a viewport nos cantos dados (WCS) e, conforme o modo, redimensiona a viewport
+    /// (escala fixa) ou muda a escala (tamanho fixo) para o retangulo caber.
+    /// </summary>
+    private static void Ajustar(Transaction tr, Database db, Viewport vp, Point3d[]? cantos, Point3d? centroAlternativo, AjusteViewport modo)
+    {
+        Matrix3d wcs2dcs = Dcs2Wcs(vp).Inverse();
+        double fator = LayoutReader.FatorUnidade(db);
+
+        if (cantos is null || cantos.Length < 3)
+        {
+            Point3d c0 = centroAlternativo!.Value.TransformBy(wcs2dcs);
+            vp.ViewCenter = new Point2d(c0.X, c0.Y);
+            return;
+        }
+
+        // Extensao do retangulo no sistema da viewport (ja com o giro aplicado).
+        double minU = double.MaxValue, minV = double.MaxValue, maxU = double.MinValue, maxV = double.MinValue;
+        foreach (Point3d p in cantos)
+        {
+            Point3d d = p.TransformBy(wcs2dcs);
+            minU = Math.Min(minU, d.X); maxU = Math.Max(maxU, d.X);
+            minV = Math.Min(minV, d.Y); maxV = Math.Max(maxV, d.Y);
+        }
+        double du = Math.Max(maxU - minU, 1e-9), dv = Math.Max(maxV - minV, 1e-9);
+        vp.ViewCenter = new Point2d((minU + maxU) / 2, (minV + maxV) / 2);
+
+        if (modo == AjusteViewport.Centro || vp.CustomScale <= 0)
+            return;
+
+        (double papelW, double papelH) = PapelDisponivel(tr, vp);
+
+        if (modo == AjusteViewport.Escala)
+        {
+            double custom = Math.Min(vp.Width / du, vp.Height / dv);
+            custom = EscalaPadrao(custom, fator);
+            vp.StandardScale = StandardScaleType.CustomScale;
+            vp.CustomScale = custom;
+            return;
+        }
+
+        // TamanhoDaViewport: frame x escala; se nao couber no papel, reduz a escala para caber.
+        double escala = vp.CustomScale;
+        double w = du * escala, h = dv * escala;
+        if (papelW > 0 && papelH > 0 && (w > papelW || h > papelH))
+        {
+            escala = EscalaPadrao(Math.Min(papelW / du, papelH / dv), fator);
+            vp.StandardScale = StandardScaleType.CustomScale;
+            vp.CustomScale = escala;
+            w = du * escala;
+            h = dv * escala;
+        }
+        Point3d centroPapel = vp.CenterPoint;
+        vp.Width = w;
+        vp.Height = h;
+        vp.CenterPoint = centroPapel;
+        if (vp.NonRectClipOn)
+            vp.NonRectClipOn = false;
+    }
+
+    /// <summary>Area util do papel do layout da viewport (papel menos 10 mm de margem), em mm.</summary>
+    private static (double W, double H) PapelDisponivel(Transaction tr, Viewport vp)
+    {
+        try
+        {
+            var btr = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForRead);
+            if (btr.LayoutId.IsNull)
+                return (0, 0);
+            var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(btr.LayoutId, OpenMode.ForRead);
+            double w = layout.PlotPaperSize.X, h = layout.PlotPaperSize.Y;
+            if (layout.PlotRotation is PlotRotation.Degrees090 or PlotRotation.Degrees270)
+                (w, h) = (h, w);
+            return (Math.Max(0, w - 20), Math.Max(0, h - 20));
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return (0, 0);
+        }
+    }
+
+    private static readonly double[] Denominadores = { 1, 2, 5, 10, 20, 25, 50, 75, 100, 125, 200, 250, 300, 400, 500, 750, 1000, 1250, 1500, 2000, 2500, 5000, 10000 };
+
+    /// <summary>Maior escala padrao (1:N) que nao passa da custom scale dada.</summary>
+    private static double EscalaPadrao(double custom, double fator)
+    {
+        if (custom <= 0 || !double.IsFinite(custom))
+            return custom;
+        double melhor = 0;
+        foreach (double n in Denominadores)
+        {
+            double c = fator / n;
+            if (c <= custom * 1.0001 && c > melhor)
+                melhor = c;
+        }
+        return melhor > 0 ? melhor : custom;
+    }
+
+    /// <summary>
+    /// Cantos do frame no Model: explodindo o ViewFrame (quando da) ou, pela caixa envolvente e a
+    /// tangente do eixo, desfazendo a rotacao da caixa.
+    /// </summary>
+    private static Point3d[]? CantosDoFrame(Transaction tr, ObjectId frame, Vector3d? tangente)
+    {
+        if (tr.GetObject(frame, OpenMode.ForRead) is not Entity ent)
+            return null;
+
+        var pontos = new List<Point3d>();
+        try
+        {
+            var partes = new DBObjectCollection();
+            ent.Explode(partes);
+            foreach (DBObject o in partes)
+            {
+                try
+                {
+                    switch (o)
+                    {
+                        case Polyline pl:
+                            for (int i = 0; i < pl.NumberOfVertices; i++)
+                                pontos.Add(pl.GetPoint3dAt(i));
+                            break;
+                        case Line l:
+                            pontos.Add(l.StartPoint);
+                            pontos.Add(l.EndPoint);
+                            break;
+                    }
+                }
+                finally
+                {
+                    o.Dispose();
+                }
+            }
+        }
+        catch (System.Exception)
+        {
+            pontos.Clear();
+        }
+        if (pontos.Count >= 4)
+            return pontos.ToArray();
+
+        Extents3d ext;
+        try
+        {
+            ext = ent.GeometricExtents;
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return null;
+        }
+        double W = ext.MaxPoint.X - ext.MinPoint.X, H = ext.MaxPoint.Y - ext.MinPoint.Y;
+        Point3d c = Centro3(ext);
+        double ang = tangente is Vector3d t && t.Length > 1e-9 ? Math.Atan2(t.Y, t.X) : 0;
+        double co = Math.Abs(Math.Cos(ang)), si = Math.Abs(Math.Sin(ang));
+        double den = co * co - si * si;
+        double a, b;
+        if (Math.Abs(den) < 0.15)
+        {
+            // Perto de 45 graus a caixa nao determina o retangulo: usa a propria caixa.
+            a = W; b = H; ang = 0;
+        }
+        else
+        {
+            a = (W * co - H * si) / den;
+            b = (H * co - W * si) / den;
+            if (a <= 0 || b <= 0) { a = W; b = H; ang = 0; }
+        }
+        var u = new Vector3d(Math.Cos(ang), Math.Sin(ang), 0);
+        var n = new Vector3d(-Math.Sin(ang), Math.Cos(ang), 0);
+        return new[]
+        {
+            c - u * (a / 2) - n * (b / 2), c + u * (a / 2) - n * (b / 2),
+            c + u * (a / 2) + n * (b / 2), c - u * (a / 2) + n * (b / 2)
+        };
     }
 
     // ------------------------------------------------------------------

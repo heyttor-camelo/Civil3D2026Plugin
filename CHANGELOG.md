@@ -1,3 +1,13 @@
+## 2.49.0 - Layouts v1.3.0 / hachura visivel, tema da lista suspensa, prancha por formato e nos layouts marcados, modo leve, ajuste da viewport ao frame
+
+- **hachura por estado da viewport** agora e hachura de verdade (linhas a 45 graus, leve) em vez de um tom quase invisivel: desligada cinza, 3D laranja, travada verde;
+- **tema escuro**: lista suspensa dos ComboBox (formato, escala, page setup...) com fundo e texto do tema;
+- **Numerar pranchas** sem texto marcado: leva para a aba Busca e explica os passos (antes so a linha de status mudava);
+- **Prancha**: quantidade e modulo de estendimento guardados por formato (A0..A4, personalizado) e lembrados entre sessoes; inserir nos layouts marcados sem abrir cada um (na origem ou em X,Y) ou no layout aberto (clicando o ponto);
+- **Modo leve** (Viewports > Modo leve, `C3DLAYOUT`): desliga as viewports de todos os layouts (ou dos marcados), marcando-as em XData C3D_VPOFF, para a troca de layout nao regenerar o Model; "Religar" liga de volta so essas. Opcao automatica (ao sair de um layout desliga as dele, ao entrar religa) e atalhos para LAYOUTREGENCTL;
+- **View frames**: ao atualizar, alem do centro e giro, a viewport pode ser redimensionada para o frame na escala atual (reduzindo a escala se nao couber no papel) ou manter o tamanho e ajustar a escala para o frame caber (escala padrao 1:N mais proxima). O retangulo do frame vem da explosao do ViewFrame ou da caixa envolvente desfeita pela tangente; perfil usa a extensao do profile view;
+- **miniatura**: pontos nao finitos sao ignorados (layout nao ficava em branco), leitura por entidade protegida contra erro, viewport do papel so e descartada quando tem o tamanho do papel (layout criado pelo Civil e nunca aberto nao perde uma viewport), e a aba Propriedades do layout mostra um diagnostico (entidades por tipo, ignoradas, erros).
+
 ## 2.48.0 - Layouts v1.2.0 / numeracao abrangente, menu da viewport, prancha, mapa-chave configuravel, view frame -> viewport
 
 - **divisor da janela** (vista grafica x lista) corrigido: a barra da vista entrou na mesma linha da grade e o splitter passou a redimensionar as duas linhas vizinhas;

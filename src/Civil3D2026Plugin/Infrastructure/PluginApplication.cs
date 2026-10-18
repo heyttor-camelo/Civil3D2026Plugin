@@ -51,6 +51,10 @@ public sealed class PluginApplication : IExtensionApplication
         if (ModuleSettings.IsCategoryEnabled("Layouts"))
             Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Initialize();
 
+        // Modo leve das viewports (C3DLAYOUT > Viewports > Modo leve): religa/desliga ao trocar de layout, se ativado.
+        if (ModuleSettings.IsCategoryEnabled("Layouts"))
+            Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Initialize();
+
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
         if (ModuleSettings.IsCategoryEnabled("LISPs"))
             LispModule.Initialize();
@@ -63,6 +67,7 @@ public sealed class PluginApplication : IExtensionApplication
     public void Terminate()
     {
         LispModule.Terminate();
+        Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Terminate();
         Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Terminate();
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
         ViarioSync.Terminate();

@@ -49,7 +49,8 @@ internal static class SheetGraphics
         canvas.Children.Clear();
         Cache c = Obter(folha);
 
-        double bw = Math.Max(folha.Largura, 1e-6), bh = Math.Max(folha.Altura, 1e-6);
+        double bw = double.IsFinite(folha.Largura) ? Math.Max(folha.Largura, 1e-6) : 1;
+        double bh = double.IsFinite(folha.Altura) ? Math.Max(folha.Altura, 1e-6) : 1;
         double s0 = Math.Min((w - 2 * margem) / bw, (h - 2 * margem) / bh);
         double s = Math.Max(1e-9, s0 * zoom);
         double ox = (w - bw * s) / 2.0 + pan.X, oy = (h - bh * s) / 2.0 + pan.Y;
