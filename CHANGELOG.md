@@ -1,3 +1,11 @@
+## 2.58.0 - PEDs v1.4.0 / placa de ônibus, N e E, itens da ficha
+
+- bloco `PED` novo: **placa de ponto de ônibus** (poste, placa azul com borda, quadro claro com o ônibus de frente) com o código "PED XX" em vermelho na faixa azul. Ponto de inserção no pé do poste;
+- atributos **N** e **E** ao lado da placa, como **campos** com o ponto de inserção do próprio bloco (atualizam ao mover + REGEN/salvar, sem o plugin);
+- saem os atributos invisíveis com os dados da ficha (a ficha fica só no multileader); hyperlink para a foto continua;
+- `PEDCAMPOS`: janela para escolher quais linhas da ficha aparecem (cabeçalho, cada largura, complementares, distâncias, obs) e se entram foto e mapa; refaz todas as fichas com os dados gravados no DWG, sem mexer na posição;
+- blocos da 1.3 são redesenhados e os inseridos ressincronizados no próximo `PEDIMPORTAR`/`PEDATUALIZAR`; a seta do multileader vai para a borda da placa.
+
 ## 2.57.1 - Ribbon sem placa
 
 - icones da Ribbon sem a placa arredondada: o pictograma vai direto no fundo da Ribbon, como os do AutoCAD, com os detalhes na cor do modulo e a marca ambar; o selo das variantes virou um quadrado ambar no canto. As cores seguem o tema do AutoCAD (COLORTHEME escuro ou claro; depois de trocar o tema, `C3DRIBBONRESET`). Os pictogramas da rede viaria trocam o branco pelo tom escuro no tema claro. Os icones dos paineis nao mudaram.

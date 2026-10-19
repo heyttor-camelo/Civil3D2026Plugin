@@ -50,6 +50,8 @@ internal static class PedStore
     private const string PedPrefix = "P_";
     private const string MetaSig = "PEDMETA1";
     private const string ColsSig = "PEDCOLS1";
+    private const string HiddenKey = "CAMPOS";
+    private const string HiddenSig = "PEDCAMPOS1";
     private const string PedSig = "PED1";
     private const string ImgMark = "\u0001IMG";
 
@@ -84,6 +86,24 @@ internal static class PedStore
             ImportedAt = v[6],
             BlockScale = v.Count > 7 && double.TryParse(v[7], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double s) && s > 0 ? s : 1.0
         };
+    }
+
+    /// <summary>Linhas da ficha escondidas (PEDCAMPOS): chaves de PedFichaBlock.Rows.</summary>
+    public static HashSet<string> LoadHiddenRows(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        AcadDb.DBDictionary? root = Root(tr, db, create: false);
+        List<string>? v = root is null ? null : ReadTexts(tr, root, HiddenKey);
+        HashSet<string> set = new(StringComparer.OrdinalIgnoreCase);
+        if (v is not null && v.Count > 0 && v[0] == HiddenSig)
+            set.UnionWith(v.Skip(1).Where(x => x.Length > 0));
+        return set;
+    }
+
+    public static void SaveHiddenRows(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<string> hidden)
+    {
+        AcadDb.DBDictionary root = Root(tr, db, create: true)!;
+        WriteTexts(tr, root, HiddenKey, new[] { HiddenSig }.Concat(hidden));
     }
 
     public static List<PedColumn> LoadColumns(AcadDb.Database db)

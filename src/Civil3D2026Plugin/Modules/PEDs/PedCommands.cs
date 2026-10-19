@@ -185,10 +185,9 @@ public sealed class PedCommands
                     string folder = meta?.ImageFolder ?? string.Empty;
                     string foto = ImageRef(folder, dwgDir, ped.Images, PedFicha.ColFoto);
                     List<PedFicha.Attr> fields = PedFicha.Attributes(ped.Get, foto, ImageRef(folder, dwgDir, ped.Images, PedFicha.ColMapa));
-                    PedBlock.EnsureDataDefinitions(tr, db, blockId, fields);
                     AcadDb.BlockReference nbr = (AcadDb.BlockReference)tr.GetObject(brId, AcadDb.OpenMode.ForWrite);
-                    PedBlock.ApplyData(tr, db, nbr, fields, foto, "Foto do PED " + ped.Code);
-                    Ficha(tr, db, nbr, ped.Code, fields, ped.Images, folder, dwgDir, leaders.GetValueOrDefault(ped.Code));
+                    PedBlock.SetHyperlink(nbr, foto, "Foto do PED " + ped.Code);
+                    Ficha(tr, db, nbr, ped.Code, fields, ped.Images, folder, dwgDir, leaders.GetValueOrDefault(ped.Code), PedStore.LoadHiddenRows(db));
                 }
                 tr.Commit();
             }
@@ -277,6 +276,64 @@ public sealed class PedCommands
         ed.WriteMessage($"\n{count} PED(s) em \"{mode}\" (layers {PedFichaBlock.LayerFichaPrefix}codigo e {PedFichaBlock.LayerFotoPrefix}codigo)." +
                         "\nSem o plugin: LAYOFF/LAYFRZ clicando na ficha, ou os filtros \"" + PedFichaBlock.FilterFichas + "\" e \"" + PedFichaBlock.FilterFotos + "\" no gerenciador de layers.");
         ed.Regen();
+    }
+
+    /// <summary>
+    /// Escolhe quais linhas da ficha (e se foto/mapa) aparecem nos multileaders e refaz todas as fichas
+    /// com os dados ja gravados no desenho (nao precisa da planilha).
+    /// </summary>
+    [CommandMethod(C3DCommands.Peds.Campos, CommandFlags.Modal)]
+    public void Campos()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        if (PedStore.LoadMeta(db) is null)
+        {
+            ed.WriteMessage($"\nEste desenho ainda nao tem PEDs importados. Use {C3DCommands.Peds.Importar}.");
+            return;
+        }
+
+        HashSet<string>? hidden = PedFieldsWindow.Ask(PedStore.LoadHiddenRows(db));
+        if (hidden is null)
+            return;
+
+        int n;
+        using (doc.LockDocument())
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            PedStore.SaveHiddenRows(tr, db, hidden);
+            n = RebuildFichas(tr, db, hidden);
+            tr.Commit();
+        }
+
+        ed.WriteMessage($"\n{n} ficha(s) refeita(s): {PedFichaBlock.Rows.Count - hidden.Count} de {PedFichaBlock.Rows.Count} itens visiveis.");
+        ed.Regen();
+    }
+
+    /// <summary>Refaz o bloco de ficha de todos os PEDs com bloco no desenho, a partir dos dados gravados.</summary>
+    private static int RebuildFichas(AcadDb.Transaction tr, AcadDb.Database db, ISet<string> hidden)
+    {
+        PedMeta? meta = PedStore.LoadMeta(db);
+        string folder = meta?.ImageFolder ?? string.Empty;
+        string dwgDir = PedStore.DwgFolder(db);
+        Dictionary<string, List<AcadDb.ObjectId>> blocks = PedStore.FindBlocks(tr, db);
+        Dictionary<string, AcadDb.ObjectId> leaders = PedFichaBlock.FindLeaders(tr, db);
+
+        int n = 0;
+        foreach (PedStored ped in PedStore.LoadAll(db))
+        {
+            if (!blocks.TryGetValue(ped.Code, out List<AcadDb.ObjectId>? ids) || ids.Count == 0)
+                continue;
+            string foto = ImageRef(folder, dwgDir, ped.Images, PedFicha.ColFoto);
+            List<PedFicha.Attr> fields = PedFicha.Attributes(ped.Get, foto, ImageRef(folder, dwgDir, ped.Images, PedFicha.ColMapa));
+            n += Ficha(tr, db, (AcadDb.BlockReference)tr.GetObject(ids[0], AcadDb.OpenMode.ForRead), ped.Code, fields,
+                ped.Images, folder, dwgDir, leaders.GetValueOrDefault(ped.Code), hidden);
+        }
+        return n;
     }
 
     // ------------------------------------------------------------------
@@ -441,8 +498,8 @@ public sealed class PedCommands
                 ed.WriteMessage($"\n{legacy} imagem(ns) soltas da versao anterior removidas (agora ficam dentro da ficha).");
             int fichas = 0;
 
-            // Dados da ficha como atributos invisiveis no bloco (para quem nao tem o plugin).
             string dwgDir = PedStore.DwgFolder(db);
+            HashSet<string> hidden = PedStore.LoadHiddenRows(db);
             List<PedFicha.Attr> Fields(PedRecord rec)
             {
                 images.TryGetValue(rec.Code, out Dictionary<string, string>? files);
@@ -450,9 +507,6 @@ public sealed class PedCommands
                     ImageRef(imgFolder, dwgDir, files, PedFicha.ColFoto),
                     ImageRef(imgFolder, dwgDir, files, PedFicha.ColMapa));
             }
-            int newDefs = PedBlock.EnsureDataDefinitions(tr, db, blockId, Fields(sheet.Records[0]));
-            if (newDefs > 0)
-                ed.WriteMessage($"\nBloco {PedBlock.BlockName}: {newDefs} atributo(s) invisivel(is) com os dados da ficha.");
 
             foreach (PedRecord rec in sheet.Records)
             {
@@ -474,19 +528,19 @@ public sealed class PedCommands
                         if (regenerated)
                             PedBlock.ResyncAttributes(tr, db, br, rec.Code);
                         PedBlock.UpdateAttributes(tr, db, br, rec.Code);
-                        PedBlock.ApplyData(tr, db, br, fields, foto, "Foto do PED " + rec.Code);
+                        PedBlock.SetHyperlink(br, foto, "Foto do PED " + rec.Code);
                     }
                     fichas += Ficha(tr, db, (AcadDb.BlockReference)tr.GetObject(ids[0], AcadDb.OpenMode.ForRead), rec.Code, fields,
-                        images.GetValueOrDefault(rec.Code), imgFolder, dwgDir, leaders.GetValueOrDefault(rec.Code));
+                        images.GetValueOrDefault(rec.Code), imgFolder, dwgDir, leaders.GetValueOrDefault(rec.Code), hidden);
                     updated++;
                 }
                 else if (hasPoint)
                 {
                     AcadDb.ObjectId newId = PedBlock.Insert(tr, db, blockId, pos, scale, rec.Code);
                     AcadDb.BlockReference nbr = (AcadDb.BlockReference)tr.GetObject(newId, AcadDb.OpenMode.ForWrite);
-                    PedBlock.ApplyData(tr, db, nbr, fields, foto, "Foto do PED " + rec.Code);
+                    PedBlock.SetHyperlink(nbr, foto, "Foto do PED " + rec.Code);
                     fichas += Ficha(tr, db, nbr, rec.Code, fields, images.GetValueOrDefault(rec.Code), imgFolder, dwgDir,
-                        leaders.GetValueOrDefault(rec.Code));
+                        leaders.GetValueOrDefault(rec.Code), hidden);
                     inserted++;
                 }
                 else
@@ -515,7 +569,8 @@ public sealed class PedCommands
 
     /// <summary>Cria/atualiza o bloco da ficha do PED (tabela + foto + mapa) e o multileader preso ao simbolo. 1 se deu certo.</summary>
     private static int Ficha(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockReference br, string code, List<PedFicha.Attr> fields,
-                             IReadOnlyDictionary<string, string>? files, string imgFolder, string dwgDir, AcadDb.ObjectId existingLeader)
+                             IReadOnlyDictionary<string, string>? files, string imgFolder, string dwgDir, AcadDb.ObjectId existingLeader,
+                             ISet<string> hidden)
     {
         PedPhotos.ImageFile? Img(string letter)
         {
@@ -524,7 +579,7 @@ public sealed class PedCommands
             return new PedPhotos.ImageFile(ImageRef(imgFolder, dwgDir, files, letter), Path.Combine(imgFolder, f));
         }
 
-        AcadDb.ObjectId defId = PedFichaBlock.EnsureDefinition(tr, db, code, fields, Img(PedFicha.ColFoto), Img(PedFicha.ColMapa));
+        AcadDb.ObjectId defId = PedFichaBlock.EnsureDefinition(tr, db, code, fields, Img(PedFicha.ColFoto), Img(PedFicha.ColMapa), hidden);
         PedFichaBlock.EnsureLeader(tr, db, code, br, defId, existingLeader);
         return 1;
     }

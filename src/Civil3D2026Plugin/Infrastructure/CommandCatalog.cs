@@ -316,7 +316,9 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Peds.Locar, "Locar / mover PED",
                         "Insere ou move um PED clicando no ponto (para os que nao estao no KMZ), com rotacao opcional."),
                     new CommandDefinition(C3DCommands.Peds.Vista, "Ponto / ficha / foto",
-                        "Troca a vista dos PEDs (todos ou selecionados): so o simbolo, simbolo + ficha, ou ficha + foto e mapa, ligando/desligando as layers de cada PED (o mesmo que se faz sem o plugin).")
+                        "Troca a vista dos PEDs (todos ou selecionados): so o simbolo, simbolo + ficha, ou ficha + foto e mapa, ligando/desligando as layers de cada PED (o mesmo que se faz sem o plugin)."),
+                    new CommandDefinition(C3DCommands.Peds.Campos, "Itens da ficha",
+                        "Escolhe quais linhas da ficha (cabecalho, larguras, complementares, obs) e se foto/mapa aparecem nos multileaders; refaz todas as fichas.")
                 }),
 
             new(

@@ -191,6 +191,7 @@ internal static class IconArt
         ["PEDATUALIZAR"] = ("ped", "atualizar"),
         ["PEDLOCAR"] = ("ped", "mover"),
         ["PEDVISTA"] = ("ped", "camadas"),
+        ["PEDCAMPOS"] = ("ped", "lista"),
         ["ALLTORGB"] = ("cor", null),
         ["TLEN"] = ("medida", null),
         ["JOBECOUNT"] = ("numerartexto", null),

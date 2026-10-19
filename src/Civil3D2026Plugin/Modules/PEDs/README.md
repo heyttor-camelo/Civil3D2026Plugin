@@ -11,10 +11,11 @@ para a planta: um bloco `PED` em cada ponto e uma ficha que abre ao clicar.
 4. Planilha revisada? `PEDATUALIZAR` (não mexe na posição dos blocos).
 5. PED sem ponto no KMZ, ou para ajustar posição/rotação: `PEDLOCAR`.
 6. Trocar a vista: `PEDVISTA` → Ponto / Ficha / Foto (todos ou selecionados), ou pelas layers.
+7. Escolher as linhas da ficha (e foto/mapa): `PEDCAMPOS`.
 
 ## Na planta (sem precisar do plugin)
 
-- **Símbolo** `PED` (layer `PED`): dados da ficha em atributos invisíveis (Properties, duplo clique, Data Extraction) e hyperlink para a foto (Ctrl+clique).
+- **Símbolo** `PED` (layer `PED`): placa de ponto de ônibus com o código; atributos **N** e **E** ao lado (campos com o ponto de inserção: atualizam ao mover + REGEN); hyperlink para a foto (Ctrl+clique).
 - **Ficha**: multileader com seta no símbolo; o conteúdo é o bloco `PED_FICHA_código` (tabela + foto + mapa). Arraste o grip do multileader para mover a ficha: a linha de chamada acompanha.
 - **Esconder um PED**: `LAYOFF` (ou `LAYFRZ`) clicando na ficha → desliga `PED-FICHA-código`; clicando na foto → só `PED-FOTO-código`.
 - **Esconder todos**: gerenciador de layers → filtro **PED - fichas** (ou **PED - fotos**) → selecionar tudo → desligar.
@@ -36,7 +37,8 @@ para a planta: um bloco `PED` em cada ponto e uma ficha que abre ao clicar.
 | `PedKml.cs` | Pontos do .kmz/.kml (nome + lon/lat), ignora placemarks repetidos. |
 | `PedFicha.cs` | **Mapa de colunas da ficha** (letras da aba de dados). Se a planilha mudar de layout, ajuste aqui. |
 | `PedStore.cs` | Dados no DWG: NOD `C3D_PED_V1` (META, COLS, P_código) e XData `C3DPED` no bloco. |
-| `PedBlock.cs` | Bloco `PED` (símbolo) e atributos com os dados. |
+| `PedBlock.cs` | Bloco `PED` (placa de ônibus), atributos PED / N / E (campos). |
+| `PedFieldsWindow.cs` | Janela do `PEDCAMPOS`. |
 | `PedFichaBlock.cs` | Bloco da ficha por PED (tabela + raster) e multileader; layers e filtros. |
 | `PedPhotos.cs` | Definições das imagens; limpeza do que a 1.2 criava. |
 | `PedGeo.cs` | lon/lat → desenho (geolocalização, sistema do Civil ou fuso UTM). |
@@ -46,7 +48,7 @@ para a planta: um bloco `PED` em cada ponto e uma ficha que abre ao clicar.
 
 ## Notas
 
-- Os dados da ficha ficam também em **atributos invisíveis** do bloco (tags `VIA`, `CALCADA_ATUAL`, `CALCADA_PROP`, ..., `FOTO`, `MAPA`) e há um hyperlink para a foto: quem não tem o plugin vê no Properties / duplo clique / Data Extraction. Para levar o projeto, copie o DWG **junto com a pasta `PEDs_img`**.
+- Para levar o projeto, copie o DWG **junto com a pasta `PEDs_img`** (imagens das fichas).
 
 - A importação confere os cabeçalhos das colunas usadas pela ficha e avisa se o layout mudou.
 - O vínculo bloco → PED é o XData `C3DPED` com o código: copiar o bloco copia o vínculo.

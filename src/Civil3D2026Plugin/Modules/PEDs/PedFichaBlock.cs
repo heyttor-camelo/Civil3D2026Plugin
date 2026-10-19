@@ -40,6 +40,38 @@ internal static class PedFichaBlock
 
     private static double TableWidth => ColW.Sum();
 
+    /// <summary>Linhas que podem aparecer na ficha (PEDCAMPOS escolhe quais): chave, grupo, rotulo.</summary>
+    public static readonly IReadOnlyList<(string Key, string Group, string Label)> Rows = new[]
+    {
+        ("CODIGO", "Cabeçalho", "PED (código)"),
+        ("VIA", "Cabeçalho", "Via"),
+        ("REFERENCIA", "Cabeçalho", "Referência"),
+        ("QUADRA", "Cabeçalho", "Quadra"),
+        ("SENTIDO", "Cabeçalho", "Sentido"),
+        ("CALCADA", "Larguras (atual x proposta)", "Calçada junto ao PED"),
+        ("FX_EXCL", "Larguras (atual x proposta)", "Faixa exclusiva de ônibus"),
+        ("TRAFEGO", "Larguras (atual x proposta)", "Faixas do tráfego geral"),
+        ("CICLO_PED", "Larguras (atual x proposta)", "Ciclovia junto ao PED"),
+        ("CANTEIRO", "Larguras (atual x proposta)", "Canteiro central"),
+        ("PISTA_OPOSTA", "Larguras (atual x proposta)", "Pista oposta"),
+        ("CALCADA_OPOSTA", "Larguras (atual x proposta)", "Calçada oposta"),
+        ("CICLO_OPOSTA", "Larguras (atual x proposta)", "Ciclovia oposta"),
+        ("SECAO_TOTAL", "Larguras (atual x proposta)", "Seção viária total"),
+        ("ABRIGO", "Informações complementares", "Modelo de abrigo proposto"),
+        ("FAIXA_EXCLUSIVA", "Informações complementares", "Faixa exclusiva"),
+        ("CICLOVIA", "Informações complementares", "Ciclovia ou ciclofaixa"),
+        ("ALT_CALCADA_PED", "Informações complementares", "Alteração calçada PED"),
+        ("ALT_CANTEIRO", "Informações complementares", "Alteração do canteiro central"),
+        ("ALT_CALCADA_OPOSTA", "Informações complementares", "Alteração calçada oposta PED"),
+        ("EMBARQUES_PM", "Informações complementares", "Embarques PM"),
+        ("EMBARQUES_PT", "Informações complementares", "Embarques PT"),
+        ("DIST_ANTERIOR", "Informações complementares", "Distância do PED anterior"),
+        ("DIST_POSTERIOR", "Informações complementares", "Distância do PED posterior"),
+        ("OBS", "Informações complementares", "Obs."),
+        ("FOTO", "Imagens", "Foto do local"),
+        ("MAPA", "Imagens", "Mapa de localização")
+    };
+
     public static string LayerFicha(string code) => LayerFichaPrefix + PedStore.KeyOf(code);
 
     public static string LayerFoto(string code) => LayerFotoPrefix + PedStore.KeyOf(code);
@@ -52,7 +84,8 @@ internal static class PedFichaBlock
     /// Cria ou refaz o bloco PED_FICHA_codigo com a tabela e as imagens. Retorna o id da definicao.
     /// </summary>
     public static AcadDb.ObjectId EnsureDefinition(AcadDb.Transaction tr, AcadDb.Database db, string code,
-                                                   IReadOnlyList<PedFicha.Attr> fields, PedPhotos.ImageFile? foto, PedPhotos.ImageFile? mapa)
+                                                   IReadOnlyList<PedFicha.Attr> fields, PedPhotos.ImageFile? foto, PedPhotos.ImageFile? mapa,
+                                                   ISet<string> hidden)
     {
         PedBlock.EnsureLayer(tr, db, LayerFicha(code), 7);
         PedBlock.EnsureLayer(tr, db, LayerFoto(code), 7);
@@ -80,10 +113,14 @@ internal static class PedFichaBlock
         }
 
         Dictionary<string, string> v = fields.ToDictionary(f => f.Tag, f => f.Value, StringComparer.OrdinalIgnoreCase);
-        new TableWriter(tr, db, btr, v, LayerFicha(code)).Build();
+        bool table = new TableWriter(tr, db, btr, v, LayerFicha(code), hidden).Build();
 
         // Imagens a direita da tabela, na layer PED-FOTO-codigo.
-        double x = TableWidth + PhotoGap;
+        if (hidden.Contains("FOTO"))
+            foto = null;
+        if (hidden.Contains("MAPA"))
+            mapa = null;
+        double x = table ? TableWidth + PhotoGap : 0.0;
         double top = 0;
         foreach ((PedPhotos.ImageFile? file, string kind) in new[] { (foto, PedPhotos.KindFoto), (mapa, PedPhotos.KindMapa) })
         {
@@ -260,14 +297,16 @@ internal static class PedFichaBlock
         private readonly AcadDb.BlockTableRecord _btr;
         private readonly Dictionary<string, string> _v;
         private readonly string _layer;
+        private readonly ISet<string> _hidden;
         private readonly double[] _x = new double[5];
         private double _y;
 
         private const int Left = 0, Center = 1, Right = 2;
 
-        public TableWriter(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord btr, Dictionary<string, string> values, string layer)
+        public TableWriter(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord btr, Dictionary<string, string> values, string layer, ISet<string> hidden)
         {
             _layer = layer;
+            _hidden = hidden;
             _tr = tr;
             _db = db;
             _btr = btr;
@@ -278,38 +317,13 @@ internal static class PedFichaBlock
 
         private string V(string tag) => _v.TryGetValue(tag, out string? s) ? s : string.Empty;
 
-        public void Build()
+        private bool Show(string key) => !_hidden.Contains(key);
+
+        /// <summary>Desenha as linhas visiveis. False se nenhuma linha ficou (so imagens).</summary>
+        public bool Build()
         {
-            double top = _y;
-            HLine(_x[0], _x[4]);
-
-            Row(() => { Label("PED", 0, bold: true); Value("CODIGO", 1, Left, bold: true); }, 1);
-            Row(() => { Label("Via:", 0); Value("VIA", 1, Left); }, 1);
-            Row(() => { Label("Referência:", 0); Value("REFERENCIA", 1, Left); }, 1);
-            Row(() => { Label("Quadra:", 0); Value("QUADRA", 1, Left); }, 1);
-            Row(() => { Label("Sentido:", 0); Value("SENTIDO", 1, Left); }, 1);
-
-            Row(() => Label("Larguras dos componentes viários (em metros)", 0, center: true, span: 4, bold: true));
-            Row(() => { Label("Componente", 0, center: true, span: 2); Label("Atual", 2, center: true); Label("Proposta", 3, center: true); }, 2, 3);
-
-            Group("Pista junto ao PED", new[]
-            {
-                ("Calçada", "CALCADA_ATUAL", "CALCADA_PROP"),
-                ("Faixa exclusiva de ônibus", "FX_EXCL_ATUAL", "FX_EXCL_PROP"),
-                ("Faixas do tráfego geral", "TRAFEGO_ATUAL", "TRAFEGO_PROP"),
-                ("Ciclovia/ ciclofaixa", string.Empty, "CICLO_PED_PROP")
-            });
-            Row(() => { Label("Canteiro central", 0, span: 2); Value("CANTEIRO_ATUAL", 2, Right); Value("CANTEIRO_PROP", 3, Right); }, 2, 3);
-            Group("Pista oposta ao PED", new[]
-            {
-                ("Pista", "PISTA_OPOSTA_ATUAL", "PISTA_OPOSTA_PROP"),
-                ("Calçada", "CALCADA_OPOSTA_ATUAL", "CALCADA_OPOSTA_PROP"),
-                ("Ciclovia/ ciclofaixa", "CICLO_OPOSTA_ATUAL", "CICLO_OPOSTA_PROP")
-            });
-            Row(() => { Label("Seção viária total", 0, span: 2, bold: true); Value("SECAO_TOTAL_ATUAL", 2, Right, bold: true); Value("SECAO_TOTAL_PROP", 3, Right, bold: true); }, 2, 3);
-
-            Row(() => Label("Informações complementares da proposta", 0, center: true, span: 4, bold: true));
-            foreach ((string label, string tag) in new[]
+            string[] widths = { "CALCADA", "FX_EXCL", "TRAFEGO", "CICLO_PED", "CANTEIRO", "PISTA_OPOSTA", "CALCADA_OPOSTA", "CICLO_OPOSTA", "SECAO_TOTAL" };
+            (string Label, string Tag)[] infos =
             {
                 ("Modelo de abrigo proposto", "ABRIGO"),
                 ("Faixa exclusiva", "FAIXA_EXCLUSIVA"),
@@ -319,20 +333,77 @@ internal static class PedFichaBlock
                 ("Alteração calçada oposta PED", "ALT_CALCADA_OPOSTA"),
                 ("Embarques PM (passag.)", "EMBARQUES_PM"),
                 ("Embarques PT (passag.)", "EMBARQUES_PT")
-            })
+            };
+            bool anyHeader = new[] { "CODIGO", "VIA", "REFERENCIA", "QUADRA", "SENTIDO" }.Any(Show);
+            bool anyWidth = widths.Any(Show);
+            bool anyInfo = infos.Any(i => Show(i.Tag)) || Show("DIST_ANTERIOR") || Show("DIST_POSTERIOR") || Show("OBS");
+            if (!anyHeader && !anyWidth && !anyInfo)
+                return false;
+
+            double top = _y;
+            HLine(_x[0], _x[4]);
+
+            if (Show("CODIGO"))
+                Row(() => { Label("PED", 0, bold: true); Value("CODIGO", 1, Left, bold: true); }, 1);
+            if (Show("VIA"))
+                Row(() => { Label("Via:", 0); Value("VIA", 1, Left); }, 1);
+            if (Show("REFERENCIA"))
+                Row(() => { Label("Referência:", 0); Value("REFERENCIA", 1, Left); }, 1);
+            if (Show("QUADRA"))
+                Row(() => { Label("Quadra:", 0); Value("QUADRA", 1, Left); }, 1);
+            if (Show("SENTIDO"))
+                Row(() => { Label("Sentido:", 0); Value("SENTIDO", 1, Left); }, 1);
+
+            if (anyWidth)
             {
-                Row(() => { Label(label, 0, span: 2); Value(tag, 2, Left); }, 2);
+                Row(() => Label("Larguras dos componentes viários (em metros)", 0, center: true, span: 4, bold: true));
+                Row(() => { Label("Componente", 0, center: true, span: 2); Label("Atual", 2, center: true); Label("Proposta", 3, center: true); }, 2, 3);
+
+                Group("Pista junto ao PED", new[]
+                {
+                    ("CALCADA", "Calçada", "CALCADA_ATUAL", "CALCADA_PROP"),
+                    ("FX_EXCL", "Faixa exclusiva de ônibus", "FX_EXCL_ATUAL", "FX_EXCL_PROP"),
+                    ("TRAFEGO", "Faixas do tráfego geral", "TRAFEGO_ATUAL", "TRAFEGO_PROP"),
+                    ("CICLO_PED", "Ciclovia/ ciclofaixa", string.Empty, "CICLO_PED_PROP")
+                });
+                if (Show("CANTEIRO"))
+                    Row(() => { Label("Canteiro central", 0, span: 2); Value("CANTEIRO_ATUAL", 2, Right); Value("CANTEIRO_PROP", 3, Right); }, 2, 3);
+                Group("Pista oposta ao PED", new[]
+                {
+                    ("PISTA_OPOSTA", "Pista", "PISTA_OPOSTA_ATUAL", "PISTA_OPOSTA_PROP"),
+                    ("CALCADA_OPOSTA", "Calçada", "CALCADA_OPOSTA_ATUAL", "CALCADA_OPOSTA_PROP"),
+                    ("CICLO_OPOSTA", "Ciclovia/ ciclofaixa", "CICLO_OPOSTA_ATUAL", "CICLO_OPOSTA_PROP")
+                });
+                if (Show("SECAO_TOTAL"))
+                    Row(() => { Label("Seção viária total", 0, span: 2, bold: true); Value("SECAO_TOTAL_ATUAL", 2, Right, bold: true); Value("SECAO_TOTAL_PROP", 3, Right, bold: true); }, 2, 3);
             }
-            Row(() => { Label("Distância do PED anterior (m)", 0, span: 2); Value("PED_ANTERIOR", 2, Center); Value("DIST_ANTERIOR", 3, Right); }, 2, 3);
-            Row(() => { Label("Distância do PED posterior (m)", 0, span: 2); Value("PED_POSTERIOR", 2, Center); Value("DIST_POSTERIOR", 3, Right); }, 2, 3);
-            Row(() => { Label("Obs:", 0); Value("OBS", 1, Left); }, 1);
+
+            if (anyInfo)
+            {
+                Row(() => Label("Informações complementares da proposta", 0, center: true, span: 4, bold: true));
+                foreach ((string label, string tag) in infos)
+                {
+                    if (Show(tag))
+                        Row(() => { Label(label, 0, span: 2); Value(tag, 2, Left); }, 2);
+                }
+                if (Show("DIST_ANTERIOR"))
+                    Row(() => { Label("Distância do PED anterior (m)", 0, span: 2); Value("PED_ANTERIOR", 2, Center); Value("DIST_ANTERIOR", 3, Right); }, 2, 3);
+                if (Show("DIST_POSTERIOR"))
+                    Row(() => { Label("Distância do PED posterior (m)", 0, span: 2); Value("PED_POSTERIOR", 2, Center); Value("DIST_POSTERIOR", 3, Right); }, 2, 3);
+                if (Show("OBS"))
+                    Row(() => { Label("Obs:", 0); Value("OBS", 1, Left); }, 1);
+            }
 
             VLine(_x[0], top, _y);
             VLine(_x[4], top, _y);
+            return true;
         }
 
-        private void Group(string group, (string Item, string Atual, string Proposta)[] rows)
+        private void Group(string group, (string Key, string Item, string Atual, string Proposta)[] all)
         {
+            var rows = all.Where(r => Show(r.Key)).ToArray();
+            if (rows.Length == 0)
+                return;
             double groupTop = _y;
             for (int i = 0; i < rows.Length; i++)
             {
