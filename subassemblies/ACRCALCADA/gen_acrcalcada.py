@@ -69,8 +69,10 @@ VARTYPES = {k: ("String" if k.endswith("Code") else "Double") for k in EXPR}
 pktlib.EXPR.update(EXPR); pktlib.VARTYPES.update(VARTYPES)
 
 TOP = ["Top", "TOPO"]
-for v in ("IA", "IMN", "IMX", "LCXT", "WT", "WA"): var(v)
+for v in ("IA", "IMN", "IMX", "LCXT"): var(v)
 pt("P1", None, "0", "0", codes=["Acr_Ini"], disp="P1 - topo de trás do MF (origem)")
+# WT/WA usam P1.Offset: so podem ser definidas depois do P1
+for v in ("WT", "WA"): var(v)
 pt_slope("P2", "P1", "[IA]", "[WA]", "[CX_TOPO_ELEV]", codes=["Acr_Fim"],
          disp="P2 - topo da caixa, face do acréscimo (alvo cota)")
 for v in ("ZF", "DCX", "IR", "IOK", "AcrCode"): var(v)
