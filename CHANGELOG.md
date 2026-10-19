@@ -1,3 +1,7 @@
+## 2.57.1 - Ribbon sem placa
+
+- icones da Ribbon sem a placa arredondada: o pictograma vai direto no fundo da Ribbon, como os do AutoCAD, com os detalhes na cor do modulo e a marca ambar; o selo das variantes virou um quadrado ambar no canto. As cores seguem o tema do AutoCAD (COLORTHEME escuro ou claro; depois de trocar o tema, `C3DRIBBONRESET`). Os pictogramas da rede viaria trocam o branco pelo tom escuro no tema claro. Os icones dos paineis nao mudaram.
+
 ## 2.57.0 - Icones novos (paineis e Ribbon) / Layouts v1.8.1: diagnostico dos blocos da miniatura
 
 - **icones novos em todo o plugin**, um desenho so para os paineis e a Ribbon (`UI/Common/IconArt.cs`, gerado de `tools/icones`): estilo "prancheta", com traco no tom do texto, detalhes na cor de destaque, a massa principal do simbolo preenchida e uma marca ambar (o "piquete") como assinatura; 72 simbolos (os antigos redesenhados e novos: norte, escala grafica, pranchas do eixo, drenagem, QTO, estais, passagem, superficie, PED, LISP, log, modulos...). Funciona nos temas claro e escuro;

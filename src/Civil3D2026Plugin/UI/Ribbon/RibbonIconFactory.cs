@@ -27,48 +27,56 @@ using Civil3D2026Plugin.UI.Common;
 namespace Civil3D2026Plugin.UI.Ribbon;
 
 /// <summary>
-/// Icones da Ribbon: placa arredondada na cor do modulo (degrade, grade de prancheta bem leve e
-/// brilho no topo) com o pictograma do comando em branco e na tinta do modulo (desenho em
-/// IconArt, o mesmo dos paineis); variantes (ajuda, configurar, atualizar, editar, previa...)
-/// ganham um selo ambar no canto. A rede viaria usa os pictogramas dela sobre a mesma placa.
+/// Icones da Ribbon: o pictograma do comando direto no fundo da Ribbon, como os do AutoCAD (desenho
+/// em IconArt, o mesmo dos paineis), com os detalhes na cor do modulo e a marca ambar; variantes
+/// (ajuda, configurar, atualizar, editar, previa...) ganham um selo ambar quadrado no canto. As
+/// cores seguem o tema do AutoCAD (COLORTHEME: escuro ou claro; trocar o tema pede C3DRIBBONRESET).
+/// A rede viaria usa os pictogramas dela.
 /// </summary>
 internal static class RibbonIconFactory
 {
     private static readonly Dictionary<string, WpfImageSource> Cache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Tema escuro do AutoCAD (COLORTHEME = 0).</summary>
+    private static bool TemaEscuro()
+    {
+        try
+        {
+            return Convert.ToInt32(Autodesk.AutoCAD.ApplicationServices.Application.GetSystemVariable("COLORTHEME"), CultureInfo.InvariantCulture) == 0;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
     public static WpfImageSource Create(string category, string commandName, int size)
     {
-        string key = $"{category}|{commandName}|{size}";
+        bool escuro = TemaEscuro();
+        string key = $"{category}|{commandName}|{size}|{(escuro ? "e" : "c")}";
         if (Cache.TryGetValue(key, out WpfImageSource? cached))
             return cached;
 
-        (WpfColor cima, WpfColor baixo, WpfColor tinta) = IconArt.Categorias.TryGetValue(category, out var c) ? c : IconArt.Categorias["Geral"];
+        (WpfColor cima, _, WpfColor tinta) = IconArt.Categorias.TryGetValue(category, out var c) ? c : IconArt.Categorias["Geral"];
         (string icone, string? selo) = IconArt.Comandos.TryGetValue(commandName, out var m) ? m : (PorPrefixo(commandName), null);
+        WpfColor linha = escuro ? WpfColor.FromRgb(228, 232, 237) : WpfColor.FromRgb(43, 48, 54);
+        WpfColor destaque = escuro ? tinta : cima;
+        WpfColor fundo = escuro ? WpfColor.FromRgb(59, 68, 83) : WpfColor.FromRgb(242, 242, 242);
 
         var grupo = new WM.DrawingGroup();
-        // Placa: degrade de cima para baixo, grade bem leve e brilho no topo.
-        var degrade = new WM.LinearGradientBrush(cima, baixo, new WpfPoint(0, 0), new WpfPoint(0, 1));
-        grupo.Children.Add(new WM.GeometryDrawing(degrade, null, new WM.RectangleGeometry(new WpfRect(0.3, 0.3, 15.4, 15.4), 3.4, 3.4)));
-        var grade = new WpfPen(new WpfSolidColorBrush(WpfColor.FromArgb(18, 255, 255, 255)), 0.3);
-        foreach (double v in new[] { 4.0, 8.0, 12.0 })
-        {
-            grupo.Children.Add(new WM.GeometryDrawing(null, grade, new WM.LineGeometry(new WpfPoint(v, 1), new WpfPoint(v, 15))));
-            grupo.Children.Add(new WM.GeometryDrawing(null, grade, new WM.LineGeometry(new WpfPoint(1, v), new WpfPoint(15, v))));
-        }
-        var brilho = new WpfPen(new WpfSolidColorBrush(WpfColor.FromArgb(64, 255, 255, 255)), 0.5) { StartLineCap = WM.PenLineCap.Round, EndLineCap = WM.PenLineCap.Round };
-        grupo.Children.Add(new WM.GeometryDrawing(null, brilho, new WM.LineGeometry(new WpfPoint(3.4, 0.9), new WpfPoint(12.6, 0.9))));
+        // Moldura transparente: o icone ocupa sempre 16x16.
+        grupo.Children.Add(new WM.GeometryDrawing(WpfBrushes.Transparent, null, new WM.RectangleGeometry(new WpfRect(0, 0, 16, 16))));
 
         // Pictograma (menor e puxado para cima/esquerda quando tem selo).
-        double escala = selo is null ? 0.8 : 0.74, d = selo is null ? 0 : -0.5;
+        double escala = selo is null ? 1.0 : 0.8, d = selo is null ? 0 : -0.7;
         string viario = Civil3D2026Plugin.Modules.Viario.ViarioIcons.KeyForCommand(commandName);
         if (category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viario))
         {
-            // Pictogramas da rede viaria (grade 32) sobre a placa nova.
-            WM.Drawing figura = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Image(viario, plate: false).Drawing;
-            escala *= 0.5;
+            // Pictogramas da rede viaria (grade 32), com o branco trocado pelo tom da linha no tema claro.
+            WM.Drawing figura = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Image(viario, plate: false, branco: escuro ? null : linha).Drawing;
             var vt = new WM.TransformGroup();
             vt.Children.Add(new WM.TranslateTransform(-16, -16));
-            vt.Children.Add(new WM.ScaleTransform(escala, escala));
+            vt.Children.Add(new WM.ScaleTransform(escala * 0.5, escala * 0.5));
             vt.Children.Add(new WM.TranslateTransform(8 + d, 8 + d));
             var gv = new WM.DrawingGroup { Transform = vt };
             gv.Children.Add(figura);
@@ -76,8 +84,7 @@ internal static class RibbonIconFactory
         }
         else
         {
-            var branco = new WpfSolidColorBrush(WpfColor.FromRgb(244, 248, 252));
-            WM.DrawingGroup desenho = IconArt.Desenho(icone, branco, new WpfSolidColorBrush(tinta), new WpfSolidColorBrush(IconArt.Ambar), 1.35);
+            WM.DrawingGroup desenho = IconArt.Desenho(icone, new WpfSolidColorBrush(linha), new WpfSolidColorBrush(destaque), new WpfSolidColorBrush(IconArt.Ambar), 1.3);
             var tg = new WM.TransformGroup();
             tg.Children.Add(new WM.TranslateTransform(-8, -8));
             tg.Children.Add(new WM.ScaleTransform(escala, escala));
@@ -86,19 +93,19 @@ internal static class RibbonIconFactory
             grupo.Children.Add(desenho);
         }
 
-        // Selo ambar da variante.
+        // Selo ambar quadrado da variante, com um contorno no tom do fundo para destacar do desenho.
         if (selo is not null && IconArt.Selos.TryGetValue(selo, out string? dadosSelo))
         {
-            grupo.Children.Add(new WM.GeometryDrawing(new WpfSolidColorBrush(IconArt.Ambar), new WpfPen(new WpfSolidColorBrush(baixo), 0.8),
-                new WM.EllipseGeometry(new WpfPoint(12.2, 12.2), 3.25, 3.25)));
+            grupo.Children.Add(new WM.GeometryDrawing(new WpfSolidColorBrush(IconArt.Ambar), new WpfPen(new WpfSolidColorBrush(fundo), 0.8),
+                new WM.RectangleGeometry(new WpfRect(9.3, 9.3, 5.9, 5.9))));
             var simbolo = WM.Geometry.Parse(dadosSelo).Clone();
             var st = new WM.TransformGroup();
             st.Children.Add(new WM.TranslateTransform(-12.2, -12.2));
             st.Children.Add(new WM.ScaleTransform(0.85, 0.85));
-            st.Children.Add(new WM.TranslateTransform(12.2, 12.2));
+            st.Children.Add(new WM.TranslateTransform(12.25, 12.25));
             simbolo.Transform = st;
-            var tinta2 = new WpfPen(new WpfSolidColorBrush(WpfColor.FromRgb(42, 36, 16)), 0.9) { StartLineCap = WM.PenLineCap.Round, EndLineCap = WM.PenLineCap.Round, LineJoin = WM.PenLineJoin.Round };
-            grupo.Children.Add(new WM.GeometryDrawing(null, tinta2, simbolo));
+            var caneta = new WpfPen(new WpfSolidColorBrush(WpfColor.FromRgb(42, 36, 16)), 0.9) { StartLineCap = WM.PenLineCap.Round, EndLineCap = WM.PenLineCap.Round, LineJoin = WM.PenLineJoin.Round };
+            grupo.Children.Add(new WM.GeometryDrawing(null, caneta, simbolo));
         }
 
         var visual = new WpfDrawingVisual();

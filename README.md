@@ -58,7 +58,7 @@ C3DRIBBONRESET  -> remove e recria a aba a partir do catalogo central
 Os botoes, grupos e tooltips sao gerados de `Infrastructure/CommandCatalog.cs`.
 O primeiro comando de cada modulo e exibido como botao grande e os demais como botoes padrao.
 
-Os icones sao vetoriais, gerados em memoria (sem arquivos externos): o desenho fica em `UI/Common/IconArt.cs`, o mesmo para os paineis e a Ribbon, gerado de `tools/icones` (fonte em Python com previa em PNG; ver `tools/icones/LEIAME.md`). Na Ribbon, cada comando tem o pictograma sobre a placa na cor do modulo; variantes (ajuda, configurar, atualizar...) ganham um selo ambar.
+Os icones sao vetoriais, gerados em memoria (sem arquivos externos): o desenho fica em `UI/Common/IconArt.cs`, o mesmo para os paineis e a Ribbon, gerado de `tools/icones` (fonte em Python com previa em PNG; ver `tools/icones/LEIAME.md`). Na Ribbon, o pictograma vai direto no fundo (cores pelo tema do AutoCAD, detalhes na cor do modulo); variantes (ajuda, configurar, atualizar...) ganham um selo ambar quadrado.
 
 ## Estrutura
 
@@ -92,7 +92,7 @@ C3DPlugin/
 - **`Infrastructure/PluginApplication.cs`**: unico `IExtensionApplication`; controla banner e inicializacao da UI.
 - **`Infrastructure/GlobalUsings.cs`**: aliases padronizados (`AcadDb`, `CivilDb`) para evitar colisao de namespaces.
 - **`UI/Ribbon/RibbonUiManager.cs`**: gera a aba C3D Tools a partir do catalogo.
-- **`UI/Ribbon/RibbonIconFactory.cs`**: monta os icones da Ribbon (placa do modulo + pictograma de `IconArt` + selo).
+- **`UI/Ribbon/RibbonIconFactory.cs`**: monta os icones da Ribbon (pictograma de `IconArt` nas cores do tema + selo).
 - **`UI/Ribbon/RibbonCommandHandler.cs`**: envia o clique dos botoes para os comandos normais do Civil 3D.
 
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.

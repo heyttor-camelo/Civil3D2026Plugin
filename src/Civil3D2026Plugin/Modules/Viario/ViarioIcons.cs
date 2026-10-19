@@ -222,7 +222,7 @@ internal static class ViarioIcons
     public static bool Has(string key) => Parts.ContainsKey(key);
 
     /// <summary>Desenho vetorial (escala livre) com placa escura de fundo.</summary>
-    public static WM.DrawingImage Image(string key, bool plate = true)
+    public static WM.DrawingImage Image(string key, bool plate = true, WM.Color? branco = null)
     {
         WM.DrawingGroup group = new();
         if (plate)
@@ -245,6 +245,9 @@ internal static class ViarioIcons
             WM.Pen? pen = null;
             if (part.Stroke is WM.Color stroke)
             {
+                // Sem placa num fundo claro: o branco do desenho vira o tom pedido.
+                if (branco is WM.Color b && stroke == White)
+                    stroke = b;
                 pen = new WM.Pen(new WM.SolidColorBrush(stroke), part.Thickness)
                 {
                     StartLineCap = WM.PenLineCap.Round,
@@ -255,7 +258,7 @@ internal static class ViarioIcons
                     pen.DashStyle = new WM.DashStyle(new double[] { 3, 2 }, 0);
             }
 
-            WM.Brush? fill = part.Fill is WM.Color f ? new WM.SolidColorBrush(f) : null;
+            WM.Brush? fill = part.Fill is WM.Color f ? new WM.SolidColorBrush(branco is WM.Color bf && f == White ? bf : f) : null;
             group.Children.Add(new WM.GeometryDrawing(fill, pen, WM.Geometry.Parse(part.Data)));
         }
 

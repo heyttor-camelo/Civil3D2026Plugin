@@ -33,19 +33,17 @@ def camadas(key, L, A, F, S, W, esp=1.3):
 def painel(key, x, y, s, fundo, texto, acento):
     return f'<g transform="translate({x},{y}) scale({s})">{camadas(key, texto, acento, acento, AMBAR, texto)}</g>'
 
-def ribbon(categoria, key, selo, x, y, s):
+def ribbon(categoria, key, selo, x, y, s, tema="escuro"):
     c1, c2, tinta = CATEGORIAS.get(categoria, CATEGORIAS['Geral'])
-    gid = f'g{abs(hash((categoria,x,y)))}'
-    g = [f'<defs><linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{c1}"/><stop offset="1" stop-color="{c2}"/></linearGradient></defs>']
-    g.append(f'<rect x="0.3" y="0.3" width="15.4" height="15.4" rx="3.4" fill="url(#{gid})"/>')
-    grade = ''.join(f'M{v},1 V15 M1,{v} H15 ' for v in (4, 8, 12))
-    g.append(f'<path d="{grade}" stroke="#FFFFFF" stroke-opacity="0.07" stroke-width="0.3"/>')
-    g.append('<path d="M3.4,0.9 H12.6" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="0.5" stroke-linecap="round"/>')
-    esc, dx = (0.74, -0.5) if selo else (0.8, 0)
-    g.append(f'<g transform="translate({8+dx},{8+dx}) scale({esc}) translate(-8,-8)">{camadas(key, "#F4F8FC", tinta, tinta, AMBAR, "#F4F8FC", 1.35)}</g>')
+    linha = "#E4E8ED" if tema == "escuro" else "#2B3036"
+    destaque = tinta if tema == "escuro" else c1
+    g = []
+    esc, dx = (0.8, -0.7) if selo else (1.0, 0)
+    g.append(f'<g transform="translate({8+dx},{8+dx}) scale({esc}) translate(-8,-8)">{camadas(key, linha, destaque, destaque, AMBAR, linha, 1.3)}</g>')
     if selo:
-        g.append(f'<circle cx="12.2" cy="12.2" r="3.25" fill="{AMBAR}" stroke="{c2}" stroke-width="0.8"/>')
-        g.append(f'<g transform="translate(12.2,12.2) scale(0.85) translate(-12.2,-12.2)"><path d="{SELOS[selo]}" fill="none" stroke="#2A2410" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/></g>')
+        fundo = "#3B4453" if tema == "escuro" else "#F2F2F2"
+        g.append(f'<rect x="9.3" y="9.3" width="5.9" height="5.9" fill="{AMBAR}" stroke="{fundo}" stroke-width="0.8"/>')
+        g.append(f'<g transform="translate(12.25,12.25) scale(0.85) translate(-12.2,-12.2)"><path d="{SELOS[selo]}" fill="none" stroke="#2A2410" stroke-width="0.9" stroke-linecap="round" stroke-linejoin="round"/></g>')
     return f'<g transform="translate({x},{y}) scale({s})">{"".join(g)}</g>'
 
 def salvar(svg, w, h, nome, fundo):
@@ -65,21 +63,22 @@ for tema, fundo, texto, acento, rot in [("escuro", "#252526", "#DEDEDE", "#50A0F
     rows = (len(keys) + col - 1) // col
     salvar(''.join(out), col * cw + 10, rows * ch + 16, f'{sys.argv[1]}/painel_{tema}.png', fundo)
 
-# 2. Ribbon: 32 px (ampliado 2x) e 16 px real, por modulo
-out = []; y = 10
-ultimo = None; x = 10
-for categoria, nome, titulo in cmds:
-    key, selo = COMANDOS.get(nome, ("generico", None))
-    if categoria != ultimo:
-        if ultimo is not None: y += 104
-        x = 10; ultimo = categoria
-        out.append(f'<text x="10" y="{y+12}" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="#E8E8E8">{categoria}</text>')
-    if x > 1500:
-        x = 10; y += 104
-    out.append(ribbon(categoria, key, selo, x, y + 20, 4))
-    out.append(ribbon(categoria, key, selo, x + 68, y + 20, 1))
-    out.append(f'<text x="{x}" y="{y+100}" font-family="DejaVu Sans" font-size="9.5" fill="#BDBDBD">{titulo[:16]}</text>')
-    x += 110
-salvar(''.join(out), 1620, y + 120, f'{sys.argv[1]}/ribbon.png', "#2B2B2B")
+# 2. Ribbon: 32 px (ampliado 2x) e 16 px real, por modulo, no tema escuro e no claro do AutoCAD
+for tema, fundo, rot in [("escuro", "#3B4453", "#C8CDD3"), ("claro", "#F2F2F2", "#444444")]:
+    out = []; y = 10
+    ultimo = None; x = 10
+    for categoria, nome, titulo in cmds:
+        key, selo = COMANDOS.get(nome, ("generico", None))
+        if categoria != ultimo:
+            if ultimo is not None: y += 104
+            x = 10; ultimo = categoria
+            out.append(f'<text x="10" y="{y+12}" font-family="DejaVu Sans" font-size="13" font-weight="bold" fill="{rot}">{categoria}</text>')
+        if x > 1500:
+            x = 10; y += 104
+        out.append(ribbon(categoria, key, selo, x, y + 20, 4, tema))
+        out.append(ribbon(categoria, key, selo, x + 68, y + 20, 1, tema))
+        out.append(f'<text x="{x}" y="{y+100}" font-family="DejaVu Sans" font-size="9.5" fill="{rot}">{titulo[:16]}</text>')
+        x += 110
+    salvar(''.join(out), 1620, y + 120, f'{sys.argv[1]}/ribbon_{tema}.png', fundo)
 faltando = [n for _, n, _ in cmds if n not in COMANDOS]
 print("comandos", len(cmds), "sem icone:", faltando)
