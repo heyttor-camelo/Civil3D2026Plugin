@@ -1,3 +1,7 @@
+## 2.58.1 - Esc nao fecha mais nenhuma janela
+
+- nenhum painel ou dialogo do plugin fecha com Esc (Layouts, Rebaixos, Visualizador de secao, PEDs, LISPs, e os dialogos de modelos do viario, filtro de coluna, importar layout, campos do PED, divisao de corredor e numeracao de drenagem). Fecham so pelo X ou pelo botao. Regra registrada no padrao de interface (`docs/DEVELOPMENT.md`).
+
 ## 2.58.0 - PEDs v1.4.0 / placa de ônibus, N e E, itens da ficha
 
 - bloco `PED` novo: **placa de ponto de ônibus** (poste, placa azul com borda, quadro claro com o ônibus de frente) com o código "PED XX" em vermelho na faixa azul. Ponto de inserção no pé do poste;

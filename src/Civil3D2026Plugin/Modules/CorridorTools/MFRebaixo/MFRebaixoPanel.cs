@@ -219,11 +219,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         FontFamily = UiFont;
         FontSize = 12;
         Content = BuildUi();
-        PreviewKeyDown += (_, e) =>
-        {
-            if (e.Key == WI.Key.Escape)
-                Close();
-        };
+        // Esc nao fecha a janela (decisao do David: nenhum plugin fecha com Esc).
     }
 
     private static Document? Doc => AcApp.DocumentManager.MdiActiveDocument;

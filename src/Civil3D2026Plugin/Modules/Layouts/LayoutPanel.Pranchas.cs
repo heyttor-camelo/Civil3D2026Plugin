@@ -718,7 +718,7 @@ internal sealed partial class LayoutPanel
         sp.Children.Add(lista);
         var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, HorizontalAlignment = SW.HorizontalAlignment.Right };
         var ok = new WC.Button { Content = "OK", MinWidth = 80, Margin = new SW.Thickness(0, 10, 6, 0), IsDefault = true };
-        var cancelar = new WC.Button { Content = "Cancelar", MinWidth = 80, Margin = new SW.Thickness(0, 10, 0, 0), IsCancel = true };
+        var cancelar = new WC.Button { Content = "Cancelar", MinWidth = 80, Margin = new SW.Thickness(0, 10, 0, 0) };
         ok.Click += (_, _) => w.DialogResult = true;
         lista.MouseDoubleClick += (_, _) => w.DialogResult = true;
         botoes.Children.Add(ok);

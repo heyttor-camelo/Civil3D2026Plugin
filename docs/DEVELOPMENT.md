@@ -186,4 +186,5 @@ Decisao do David (out/2026): **o painel da rede viaria (`C3DVIARIO`, `Modules/Vi
 ### Menus e estilos
 - Tema claro/escuro (`ToolTheme`), com estilos proprios para ContextMenu, MenuItem (submenu e marca) e Separator, para ficarem legiveis nos dois temas (ver `AddStyles` do ViarioPanel e `UI/Common/ToolStyles.cs`).
 - Textos curtos nos botoes, explicacao no tooltip; termos do Civil em ingles quando o usuario usa assim (alignment, profile view, band set...); "elevacao" para altura de ponto, "cota" so para dimensao.
+- **Esc nunca fecha janela** (painel ou dialogo): sem `PreviewKeyDown` fechando no Escape, sem `IsCancel = true` em WPF e sem `CancelButton` em WinForms. Fecha so pelo X ou por um botao.
 - Operacoes longas com a janela de progresso comum (`Progresso`/`ProgressoJanela`) e tudo registrado no log comum (`PluginLog`, Ctrl+Shift+L).

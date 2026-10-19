@@ -80,7 +80,6 @@ internal sealed class PedFieldsWindow : SW.Window
         WC.Button ok = Btn("OK", () => { DialogResult = true; });
         ok.IsDefault = true;
         WC.Button cancel = Btn("Cancelar", () => { DialogResult = false; });
-        cancel.IsCancel = true;
         WC.DockPanel.SetDock(all, WC.Dock.Left);
         WC.DockPanel.SetDock(none, WC.Dock.Left);
         WC.DockPanel.SetDock(cancel, WC.Dock.Right);

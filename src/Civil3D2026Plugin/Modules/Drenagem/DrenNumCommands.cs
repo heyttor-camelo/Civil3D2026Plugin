@@ -1379,7 +1379,7 @@ internal sealed class HydraulicPreviewForm : Forms.Form
             AcceptButton = _applyButton;
         }
 
-        CancelButton = _closeButton;
+        // Sem CancelButton: Esc nao fecha (o botao Fechar continua).
 
         _contentHost = new Forms.Panel { Dock = Forms.DockStyle.Fill };
         root.Controls.Add(_contentHost, 0, 3);

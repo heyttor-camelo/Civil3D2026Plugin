@@ -172,7 +172,7 @@ internal sealed partial class LayoutPanel
         };
         var ok = new WC.Button { Content = "OK", MinWidth = 60, IsDefault = true, Padding = new SW.Thickness(8, 2, 8, 2), Margin = new SW.Thickness(0, 0, 6, 0) };
         ok.Click += (_, _) => janela.DialogResult = true;
-        var cancelar = new WC.Button { Content = "Cancelar", IsCancel = true, Padding = new SW.Thickness(8, 2, 8, 2) };
+        var cancelar = new WC.Button { Content = "Cancelar", Padding = new SW.Thickness(8, 2, 8, 2) };
         botoes.Children.Add(btLimpar);
         botoes.Children.Add(ok);
         botoes.Children.Add(cancelar);

@@ -284,9 +284,8 @@ internal sealed class SecaoPanel : SW.Window
         Content = BuildUi();
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == WI.Key.Escape)
-                Close();
-            else if (e.Key == WI.Key.Left && _stationMode) { StepStation(-1); e.Handled = true; }
+            // Esc nao fecha a janela (decisao do David: nenhum plugin fecha com Esc).
+            if (e.Key == WI.Key.Left && _stationMode) { StepStation(-1); e.Handled = true; }
             else if (e.Key == WI.Key.Right && _stationMode) { StepStation(+1); e.Handled = true; }
         };
     }

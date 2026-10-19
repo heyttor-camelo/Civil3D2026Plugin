@@ -138,7 +138,7 @@ internal sealed class ViarioTemplateWindow : SW.Window
             Margin = new SW.Thickness(0, 10, 0, 0)
         };
         WC.Button insert = new() { Content = "Inserir", Width = 100, Height = 28, IsDefault = true, Margin = new SW.Thickness(0, 0, 8, 0) };
-        WC.Button cancel = new() { Content = "Cancelar", Width = 100, Height = 28, IsCancel = true };
+        WC.Button cancel = new() { Content = "Cancelar", Width = 100, Height = 28 };
         insert.Click += (_, _) =>
         {
             Selected = _list.SelectedIndex >= 0 ? _templates[_list.SelectedIndex] : null;

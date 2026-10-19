@@ -188,7 +188,7 @@ internal sealed class CorridorSplitDialog : Form
         footer.Controls.Add(actions, 1, 0);
         layout.Controls.Add(footer, 0, 7);
         AcceptButton = execute;
-        CancelButton = cancel;
+        // Sem CancelButton: Esc nao fecha (o botao Cancelar continua).
 
         DrawRows();
     }

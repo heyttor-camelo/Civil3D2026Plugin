@@ -329,11 +329,8 @@ internal sealed partial class LayoutPanel : SW.Window
         Content = BuildUi();
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == WI.Key.Escape)
-            {
-                Close();
-            }
-            else if (e.Key == WI.Key.L && WI.Keyboard.Modifiers == (WI.ModifierKeys.Control | WI.ModifierKeys.Shift))
+            // Esc nao fecha a janela (decisao do David: nenhum plugin fecha com Esc).
+            if (e.Key == WI.Key.L && WI.Keyboard.Modifiers == (WI.ModifierKeys.Control | WI.ModifierKeys.Shift))
             {
                 // Aba escondida com o log (para copiar e mandar).
                 _mostrarLog = !_mostrarLog;

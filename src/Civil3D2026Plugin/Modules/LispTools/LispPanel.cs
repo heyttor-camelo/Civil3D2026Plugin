@@ -55,12 +55,8 @@ internal sealed class LispPanel : SW.Window
 
         PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == WI.Key.Escape)
-            {
-                Close();
-                e.Handled = true;
-            }
-            else if (e.Key == WI.Key.Enter && Selecionada() is Entry sel)
+            // Esc nao fecha a janela (decisao do David: nenhum plugin fecha com Esc).
+            if (e.Key == WI.Key.Enter && Selecionada() is Entry sel)
             {
                 Executar(sel.Comandos[0]);
                 e.Handled = true;
