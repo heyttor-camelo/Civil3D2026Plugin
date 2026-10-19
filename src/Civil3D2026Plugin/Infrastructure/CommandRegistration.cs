@@ -29,4 +29,5 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.SimpleToolsCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.DrawingToolsCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.RoadToolsCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Utilitarios.ObjectLayersCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Diagnostics.PluginDiagnosticsCommands))]

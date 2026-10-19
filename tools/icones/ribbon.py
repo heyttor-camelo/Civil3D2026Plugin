@@ -29,7 +29,7 @@ COMANDOS = {
     "PEDLOCAR": ("ped", "mover"), "PEDVISTA": ("ped", "camadas"),
     "ALLTORGB": ("cor", None), "TLEN": ("medida", None), "JOBECOUNT": ("numerartexto", None), "SMARTHATCH": ("hachura", None),
     "LSLAYOUTS": ("camadas", None), "MOFF": ("offset", None), "MOFFSET": ("offset", None),
-    "SEPARA_CURVAS_RAIO": ("curva", None), "KB": ("via", None), "PP": ("juntar", None),
+    "SEPARA_CURVAS_RAIO": ("curva", None), "KB": ("via", None), "PP": ("juntar", None), "C3DOBJLAYERS": ("camadas", None),
     "C3DLISP": ("lisp", None), "C3DLISPLIST": ("lisp", "lista"), "C3DLISPCARREGAR": ("lisp", "atualizar"),
     "TESTEDLL": ("teste", None),
 }

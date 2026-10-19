@@ -1,3 +1,7 @@
+## 2.59.0 - Utilitarios v1.3.0: C3DOBJLAYERS
+
+- `C3DOBJLAYERS`: copia so a aba **Object Layers** das Drawing Settings de outro DWG ou DWT para o desenho atual (layer, modifier, value e locked de cada tipo de objeto, mais "Immediate and independent layer on/off control"). Layers que faltam vem da origem com as propriedades dela; as que ja existem nao mudam. Unidades, zona, transformacao, abreviacoes e ambient settings ficam como estao. Se a origem estiver aberta no editor, le direto dela (inclusive o que nao foi salvo). Objetos ja desenhados nao mudam de layer.
+
 ## 2.58.1 - Esc nao fecha mais nenhuma janela
 
 - nenhum painel ou dialogo do plugin fecha com Esc (Layouts, Rebaixos, Visualizador de secao, PEDs, LISPs, e os dialogos de modelos do viario, filtro de coluna, importar layout, campos do PED, divisao de corredor e numeracao de drenagem). Fecham so pelo X ou pelo botao. Regra registrada no padrao de interface (`docs/DEVELOPMENT.md`).

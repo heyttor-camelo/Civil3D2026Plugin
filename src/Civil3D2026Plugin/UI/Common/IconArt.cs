@@ -202,6 +202,7 @@ internal static class IconArt
         ["SEPARA_CURVAS_RAIO"] = ("curva", null),
         ["KB"] = ("via", null),
         ["PP"] = ("juntar", null),
+        ["C3DOBJLAYERS"] = ("camadas", null),
         ["C3DLISP"] = ("lisp", null),
         ["C3DLISPLIST"] = ("lisp", "lista"),
         ["C3DLISPCARREGAR"] = ("lisp", "atualizar"),

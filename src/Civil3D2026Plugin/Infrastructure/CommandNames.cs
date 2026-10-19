@@ -130,6 +130,7 @@ public static class CommandNames
         public const string SeparaCurvas = "SEPARA_CURVAS_RAIO";
         public const string Kb = "KB";
         public const string Pp = "PP";
+        public const string ObjLayers = "C3DOBJLAYERS";
     }
 
     public static class Secao

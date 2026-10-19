@@ -336,7 +336,8 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Utilitarios.MoffSet, "Varios offsets (alias)", "Mesmo que MOFF.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite."),
                     new CommandDefinition(C3DCommands.Utilitarios.Kb, "Marcacao de meio-fio", "Face do meio-fio e linha central tracejada na layer Kerb Line."),
-                    new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01.")
+                    new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01."),
+                    new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT.")
                 },
                 ShowInRibbon: false),
 

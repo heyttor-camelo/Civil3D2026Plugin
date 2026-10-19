@@ -65,6 +65,12 @@ public static class UtilCatalog
             "A partir de uma polilinha, desenha a face do meio-fio na largura informada e uma linha central tracejada com espessura, tudo na layer Kerb Line. PP une linhas e polilinhas com PEDIT Join (tolerancia 0,01).",
             new[] { C3DCommands.Utilitarios.Kb, C3DCommands.Utilitarios.Pp },
             new[] { "Largura do meio-fio.", "Clique a polilinha e o lado do offset; Enter sai." },
-            "Kerb Line.lsp (Bijoy Manoharan)")
+            "Kerb Line.lsp (Bijoy Manoharan)"),
+
+        new UtilTool("Copiar Object Layers de outro desenho", "camadas",
+            "Copia so a aba Object Layers das Drawing Settings de outro DWG ou DWT: layer, modifier, value e locked de cada tipo de objeto e a opcao de controle independente de layer. Layers que faltam sao criadas com as propriedades da origem; as existentes nao mudam. Unidades, zona e demais abas ficam como estao.",
+            new[] { C3DCommands.Utilitarios.ObjLayers },
+            new[] { "Escolha o DWG/DWT de origem (pode estar aberto).", "Objetos ja desenhados nao mudam de layer; vale para os proximos." },
+            "nativo")
     };
 }
