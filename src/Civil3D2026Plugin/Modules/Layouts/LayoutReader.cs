@@ -249,7 +249,12 @@ internal static class LayoutReader
                 {
                     semGeometria++;
                     if (ent is BlockReference br0)
+                    {
                         blocosVazios.Add(NomeDoBloco(tr, br0));
+                        // Bloco que nao deu para desenhar aparece ao menos como o contorno dele.
+                        if (Caixa(ent, folha))
+                            n = 5;
+                    }
                 }
                 pontos += n;
             }
@@ -528,6 +533,114 @@ internal static class LayoutReader
             }
         }
         return total;
+    }
+
+    /// <summary>
+    /// Diagnostico dos blocos de um layout para o log: o que cada bloco tem por dentro e quantos
+    /// pontos a miniatura conseguiu tirar dele (pela definicao e explodindo).
+    /// </summary>
+    public static List<string> DiagnosticarBlocos(Database db, ObjectId layoutId)
+    {
+        var linhas = new List<string>();
+        using Transaction tr = db.TransactionManager.StartTransaction();
+        var layout = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(layoutId, OpenMode.ForRead);
+        var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+        int i = 0;
+        foreach (ObjectId id in btr)
+        {
+            if (tr.GetObject(id, OpenMode.ForRead) is not BlockReference br)
+                continue;
+            i++;
+            try
+            {
+                Diagnosticar(tr, lt, br, $"#{i}", 0, linhas);
+            }
+            catch (System.Exception ex)
+            {
+                linhas.Add($"#{i}: erro no diagnostico: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+        if (i == 0)
+            linhas.Add("Nenhum bloco no papel deste layout.");
+        tr.Commit();
+        return linhas;
+    }
+
+    private static void Diagnosticar(Transaction tr, LayerTable lt, BlockReference br, string rotulo, int nivel, List<string> linhas)
+    {
+        string pre = new string(' ', nivel * 4) + rotulo;
+        var def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
+        string dinamico = "";
+        if (br.IsDynamicBlock)
+        {
+            var dyn = (BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead);
+            dinamico = $" dinamico \"{dyn.Name}\" (representacao {def.Name})";
+        }
+        string camada = br.Layer;
+        if (lt.Has(br.Layer) && tr.GetObject(lt[br.Layer], OpenMode.ForRead) is LayerTableRecord l)
+            camada += (l.IsFrozen ? " congelada" : "") + (l.IsOff ? " desligada" : "");
+        string ext;
+        try
+        {
+            Extents3d e = br.GeometricExtents;
+            ext = $"{e.MinPoint.X:0.##},{e.MinPoint.Y:0.##} a {e.MaxPoint.X:0.##},{e.MaxPoint.Y:0.##}";
+        }
+        catch (System.Exception ex)
+        {
+            ext = "sem extensoes (" + ex.Message + ")";
+        }
+        var tipos = new Dictionary<string, int>();
+        int invisiveis = 0, total = 0;
+        foreach (ObjectId cid in def)
+        {
+            total++;
+            string tipo = cid.ObjectClass?.DxfName ?? "?";
+            tipos[tipo] = tipos.GetValueOrDefault(tipo) + 1;
+            if (tr.GetObject(cid, OpenMode.ForRead) is Entity { Visible: false })
+                invisiveis++;
+        }
+        var teste = new SheetData();
+        int pelaDefinicao = 0, explodindo = 0;
+        string erroDef = "", erroExp = "";
+        try
+        {
+            pelaDefinicao = Bloco(tr, br.BlockTableRecord, br.BlockTransform, teste, nivel);
+        }
+        catch (System.Exception ex)
+        {
+            erroDef = $" ({ex.GetType().Name}: {ex.Message})";
+        }
+        try
+        {
+            var partes = new DBObjectCollection();
+            br.Explode(partes);
+            var tiposExp = new Dictionary<string, int>();
+            foreach (DBObject o in partes)
+            {
+                tiposExp[o.GetType().Name] = tiposExp.GetValueOrDefault(o.GetType().Name) + 1;
+                o.Dispose();
+            }
+            explodindo = Explodido(tr, br, Matrix3d.Identity, new SheetData(), nivel);
+            erroExp = " [" + string.Join(", ", tiposExp.Select(t => $"{t.Key} {t.Value}")) + "]";
+        }
+        catch (System.Exception ex)
+        {
+            erroExp = $" (explode falhou: {ex.GetType().Name}: {ex.Message})";
+        }
+        linhas.Add($"{pre}: \"{def.Name}\"{dinamico}, layer {camada}, visivel {(br.Visible ? "sim" : "NAO")}, escala {br.ScaleFactors.X:0.####}/{br.ScaleFactors.Y:0.####}, " +
+                   $"giro {br.Rotation * 180 / Math.PI:0.##}, extensoes {ext}; " +
+                   $"definicao: {total} objeto(s) ({string.Join(", ", tipos.OrderByDescending(t => t.Value).Select(t => $"{t.Key} {t.Value}"))})" +
+                   (invisiveis > 0 ? $", {invisiveis} invisivel(is)" : "") +
+                   (def.IsFromExternalReference ? ", XREF" + (def.IsResolved ? "" : " NAO CARREGADA") : "") +
+                   $"; miniatura: {pelaDefinicao} ponto(s) pela definicao{erroDef}, {explodindo} explodindo{erroExp}; atributos {br.AttributeCollection.Count}.");
+        if (nivel < 2)
+        {
+            int k = 0;
+            foreach (ObjectId cid in def)
+                if (tr.GetObject(cid, OpenMode.ForRead) is BlockReference filho)
+                    Diagnosticar(tr, lt, filho, $"{rotulo}.{++k}", nivel + 1, linhas);
+        }
     }
 
     private static string NomeDoBloco(Transaction tr, BlockReference br)

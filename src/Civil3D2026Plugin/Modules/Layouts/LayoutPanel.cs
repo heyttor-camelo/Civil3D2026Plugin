@@ -141,7 +141,7 @@ internal sealed partial class LayoutPanel : SW.Window
     private static readonly (string Id, string Icon, string Title)[] Categories =
     {
         ("LAYOUTS", "layouts", "Layouts"),
-        ("PRANCHAS", "prancha", "Pranchas do eixo"),
+        ("PRANCHAS", "pranchas", "Pranchas do eixo"),
         ("VIEWPORTS", "ligar", "Viewports"),
         ("PAGESETUP", "imprimir", "Page setup"),
         ("NUMERACAO", "numero", "Numeracao"),
@@ -183,10 +183,10 @@ internal sealed partial class LayoutPanel : SW.Window
         new("ESCALA", "escala", "Escala das viewports", "Viewports",
             "Aplica a escala 1:N nas viewports marcadas (e a escala de anotacao, se existir no desenho).",
             new[] { "Marque as viewports.", "Escolha a escala na aba Escala." }, p => p.SelectCategory("VIEWPORTS", "Escala")),
-        new("NORTE", "mapa", "Seta do norte", "Viewports",
+        new("NORTE", "norte", "Seta do norte", "Viewports",
             "Insere a seta do norte (Arrow10 do Civil) nas viewports marcadas ou no ponto clicado, girada pela viewport; Girar acerta todos os nortes (as sheets do Plan & Profile acertam sozinhas ao atualizar).",
             new[] { "Marque as viewports de planta.", "Aba Norte e escala grafica: tamanho e canto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
-        new("ESCALAGRAF", "escala", "Escala grafica", "Viewports",
+        new("ESCALAGRAF", "escalagrafica", "Escala grafica", "Viewports",
             "Escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.LSP): nas viewports marcadas ou clicando o ponto (comando ESCALAGRAF).",
             new[] { "Marque as viewports.", "Aba Norte e escala grafica: ate quantos metros e altura do texto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
         new("NUMERAR", "numero", "Numerar pranchas", "Numeracao",
@@ -1728,6 +1728,9 @@ internal sealed partial class LayoutPanel : SW.Window
                 if (f.Diagnostico.Length > 0)
                     p.Children.Add(Prop("Miniatura", f.Diagnostico));
                 p.Children.Add(ActionButton("Abrir layout", () => Abrir(f.Nome)));
+                var diag = ActionButton("Diagnosticar os blocos da miniatura", () => DiagnosticarMiniatura(f));
+                diag.ToolTip = "Escreve no log o que a miniatura le de cada bloco deste layout (tipo, definicao, pontos). Depois: Ctrl+Shift+L > Copiar e mande.";
+                p.Children.Add(diag);
                 break;
             case SheetViewport v:
                 SheetData? dono = _folhas.FirstOrDefault(f => f.Viewports.Contains(v));
@@ -1883,6 +1886,25 @@ internal sealed partial class LayoutPanel : SW.Window
 
     /// <summary>Textos escolhidos na Busca (caixinha marcada), na ordem das abas.</summary>
     private List<SheetText2> TextosEscolhidos() => _textos.Where(t => _textosMarcados.Contains(t.Id)).OrderBy(t => t.Ordem).ToList();
+
+    private void DiagnosticarMiniatura(SheetData f)
+    {
+        if (Doc is not Document doc)
+            return;
+        try
+        {
+            List<string> linhas = LayoutReader.DiagnosticarBlocos(doc.Database, f.Id);
+            PluginLog.Info("Layouts", $"Diagnostico da miniatura de {f.Nome} ({linhas.Count} linha(s)): {f.Diagnostico}");
+            foreach (string l in linhas)
+                PluginLog.Info("Layouts", "Miniatura " + f.Nome + " " + l);
+            Say($"Diagnostico de {f.Nome} no log ({linhas.Count} bloco(s)/linha(s)): Ctrl+Shift+L > Copiar e mande.");
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro("Layouts", "Diagnostico da miniatura", ex);
+            Say("Diagnostico falhou: " + ex.Message);
+        }
+    }
 
     /// <summary>Aba Norte e escala grafica (categoria Viewports).</summary>
     private SW.UIElement BuildNorteEscala()

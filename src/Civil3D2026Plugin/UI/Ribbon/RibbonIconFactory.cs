@@ -21,13 +21,16 @@ using WpfTypeface = System.Windows.Media.Typeface;
 using WpfFormattedText = System.Windows.Media.FormattedText;
 using WpfRenderTargetBitmap = System.Windows.Media.Imaging.RenderTargetBitmap;
 using WpfPixelFormats = System.Windows.Media.PixelFormats;
+using WM = System.Windows.Media;
+using Civil3D2026Plugin.UI.Common;
 
 namespace Civil3D2026Plugin.UI.Ribbon;
 
 /// <summary>
-/// Gera icones simples em memoria para manter o plugin autocontido.
-/// No futuro, esta classe pode ser substituida por PNG/SVG corporativos sem
-/// alterar o catalogo nem a montagem da Ribbon.
+/// Icones da Ribbon: placa arredondada na cor do modulo (degrade, grade de prancheta bem leve e
+/// brilho no topo) com o pictograma do comando em branco e na tinta do modulo (desenho em
+/// IconArt, o mesmo dos paineis); variantes (ajuda, configurar, atualizar, editar, previa...)
+/// ganham um selo ambar no canto. A rede viaria usa os pictogramas dela sobre a mesma placa.
 /// </summary>
 internal static class RibbonIconFactory
 {
@@ -39,132 +42,95 @@ internal static class RibbonIconFactory
         if (Cache.TryGetValue(key, out WpfImageSource? cached))
             return cached;
 
-        // Rede viaria: icones vetoriais proprios.
-        string viarioKey = Civil3D2026Plugin.Modules.Viario.ViarioIcons.KeyForCommand(commandName);
-        if (category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viarioKey))
+        (WpfColor cima, WpfColor baixo, WpfColor tinta) = IconArt.Categorias.TryGetValue(category, out var c) ? c : IconArt.Categorias["Geral"];
+        (string icone, string? selo) = IconArt.Comandos.TryGetValue(commandName, out var m) ? m : (PorPrefixo(commandName), null);
+
+        var grupo = new WM.DrawingGroup();
+        // Placa: degrade de cima para baixo, grade bem leve e brilho no topo.
+        var degrade = new WM.LinearGradientBrush(cima, baixo, new WpfPoint(0, 0), new WpfPoint(0, 1));
+        grupo.Children.Add(new WM.GeometryDrawing(degrade, null, new WM.RectangleGeometry(new WpfRect(0.3, 0.3, 15.4, 15.4), 3.4, 3.4)));
+        var grade = new WpfPen(new WpfSolidColorBrush(WpfColor.FromArgb(18, 255, 255, 255)), 0.3);
+        foreach (double v in new[] { 4.0, 8.0, 12.0 })
         {
-            WpfImageSource icon = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Bitmap(viarioKey, size);
-            Cache[key] = icon;
-            return icon;
+            grupo.Children.Add(new WM.GeometryDrawing(null, grade, new WM.LineGeometry(new WpfPoint(v, 1), new WpfPoint(v, 15))));
+            grupo.Children.Add(new WM.GeometryDrawing(null, grade, new WM.LineGeometry(new WpfPoint(1, v), new WpfPoint(15, v))));
+        }
+        var brilho = new WpfPen(new WpfSolidColorBrush(WpfColor.FromArgb(64, 255, 255, 255)), 0.5) { StartLineCap = WM.PenLineCap.Round, EndLineCap = WM.PenLineCap.Round };
+        grupo.Children.Add(new WM.GeometryDrawing(null, brilho, new WM.LineGeometry(new WpfPoint(3.4, 0.9), new WpfPoint(12.6, 0.9))));
+
+        // Pictograma (menor e puxado para cima/esquerda quando tem selo).
+        double escala = selo is null ? 0.8 : 0.74, d = selo is null ? 0 : -0.5;
+        string viario = Civil3D2026Plugin.Modules.Viario.ViarioIcons.KeyForCommand(commandName);
+        if (category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viario))
+        {
+            // Pictogramas da rede viaria (grade 32) sobre a placa nova.
+            WM.Drawing figura = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Image(viario, plate: false).Drawing;
+            escala *= 0.5;
+            var vt = new WM.TransformGroup();
+            vt.Children.Add(new WM.TranslateTransform(-16, -16));
+            vt.Children.Add(new WM.ScaleTransform(escala, escala));
+            vt.Children.Add(new WM.TranslateTransform(8 + d, 8 + d));
+            var gv = new WM.DrawingGroup { Transform = vt };
+            gv.Children.Add(figura);
+            grupo.Children.Add(gv);
+        }
+        else
+        {
+            var branco = new WpfSolidColorBrush(WpfColor.FromRgb(244, 248, 252));
+            WM.DrawingGroup desenho = IconArt.Desenho(icone, branco, new WpfSolidColorBrush(tinta), new WpfSolidColorBrush(IconArt.Ambar), 1.35);
+            var tg = new WM.TransformGroup();
+            tg.Children.Add(new WM.TranslateTransform(-8, -8));
+            tg.Children.Add(new WM.ScaleTransform(escala, escala));
+            tg.Children.Add(new WM.TranslateTransform(8 + d, 8 + d));
+            desenho.Transform = tg;
+            grupo.Children.Add(desenho);
         }
 
-        string glyph = GetGlyph(commandName);
-        WpfColor accent = GetCategoryColor(category);
+        // Selo ambar da variante.
+        if (selo is not null && IconArt.Selos.TryGetValue(selo, out string? dadosSelo))
+        {
+            grupo.Children.Add(new WM.GeometryDrawing(new WpfSolidColorBrush(IconArt.Ambar), new WpfPen(new WpfSolidColorBrush(baixo), 0.8),
+                new WM.EllipseGeometry(new WpfPoint(12.2, 12.2), 3.25, 3.25)));
+            var simbolo = WM.Geometry.Parse(dadosSelo).Clone();
+            var st = new WM.TransformGroup();
+            st.Children.Add(new WM.TranslateTransform(-12.2, -12.2));
+            st.Children.Add(new WM.ScaleTransform(0.85, 0.85));
+            st.Children.Add(new WM.TranslateTransform(12.2, 12.2));
+            simbolo.Transform = st;
+            var tinta2 = new WpfPen(new WpfSolidColorBrush(WpfColor.FromRgb(42, 36, 16)), 0.9) { StartLineCap = WM.PenLineCap.Round, EndLineCap = WM.PenLineCap.Round, LineJoin = WM.PenLineJoin.Round };
+            grupo.Children.Add(new WM.GeometryDrawing(null, tinta2, simbolo));
+        }
 
-        // Identidade visual estilo ferramentas CAD: icones azulados em
-        // placa escura, separados em paineis pela Ribbon existente.
         var visual = new WpfDrawingVisual();
         using (WpfDrawingContext dc = visual.RenderOpen())
         {
-            double margin = Math.Max(1.0, size * 0.06);
-            double radius = Math.Max(2.0, size * 0.16);
-
-            dc.DrawRoundedRectangle(
-                new WpfSolidColorBrush(WpfColor.FromRgb(28, 43, 60)),
-                null,
-                new WpfRect(margin, margin, size - (margin * 2.0), size - (margin * 2.0)),
-                radius,
-                radius);
-
-            if (commandName.Equals("CORRSPLIT", StringComparison.OrdinalIgnoreCase))
-            {
-                // Dois eixos independentes e seta de separacao.
-                var pen = new WpfPen(new WpfSolidColorBrush(accent), Math.Max(1.4, size * 0.07));
-                var thin = new WpfPen(new WpfSolidColorBrush(WpfColor.FromRgb(225, 237, 247)),
-                    Math.Max(0.8, size * 0.037));
-                dc.DrawLine(pen, new WpfPoint(size * 0.29, size * 0.20), new WpfPoint(size * 0.29, size * 0.80));
-                dc.DrawLine(pen, new WpfPoint(size * 0.68, size * 0.20), new WpfPoint(size * 0.68, size * 0.80));
-                dc.DrawLine(thin, new WpfPoint(size * 0.38, size * 0.22), new WpfPoint(size * 0.38, size * 0.78));
-                dc.DrawLine(thin, new WpfPoint(size * 0.59, size * 0.22), new WpfPoint(size * 0.59, size * 0.78));
-                dc.DrawLine(pen, new WpfPoint(size * 0.43, size * 0.50), new WpfPoint(size * 0.54, size * 0.50));
-            }
-            else
-            {
-                double fontSize = glyph.Length >= 3 ? size * 0.30 : size * 0.38;
-                var text = new WpfFormattedText(
-                    glyph,
-                    CultureInfo.InvariantCulture,
-                    WpfFlowDirection.LeftToRight,
-                    new WpfTypeface(new WpfFontFamily("Segoe UI"), System.Windows.FontStyles.Normal,
-                        System.Windows.FontWeights.SemiBold, System.Windows.FontStretches.Normal),
-                    fontSize,
-                    new WpfSolidColorBrush(accent),
-                    1.0);
-                WpfPoint origin = new(
-                    (size - text.Width) / 2.0,
-                    (size - text.Height) / 2.0);
-                dc.DrawText(text, origin);
-            }
+            dc.PushTransform(new WM.ScaleTransform(size / 16.0, size / 16.0));
+            dc.DrawDrawing(grupo);
+            dc.Pop();
         }
-
         var bitmap = new WpfRenderTargetBitmap(size, size, 96.0, 96.0, WpfPixelFormats.Pbgra32);
         bitmap.Render(visual);
         bitmap.Freeze();
-
         Cache[key] = bitmap;
         return bitmap;
     }
 
-    private static string GetGlyph(string commandName)
+    /// <summary>Comando fora do mapa (novo): icone pelo comeco do nome.</summary>
+    private static string PorPrefixo(string comando)
     {
-        if (commandName.StartsWith("DRENEXCEL", StringComparison.OrdinalIgnoreCase))
-            return "DX";
-        if (commandName.StartsWith("DRENNUM", StringComparison.OrdinalIgnoreCase))
-            return "DN";
-        if (commandName.StartsWith("QTO", StringComparison.OrdinalIgnoreCase) ||
-            commandName.Equals("TESTEQTO", StringComparison.OrdinalIgnoreCase))
-            return "Q";
-        if (commandName.StartsWith("MF", StringComparison.OrdinalIgnoreCase))
-            return "MF";
-        if (commandName.StartsWith("C3DQUADRO", StringComparison.OrdinalIgnoreCase))
-            return "QR";
-        if (commandName.StartsWith("C3DOCULTARPLANTA", StringComparison.OrdinalIgnoreCase) ||
-            commandName.StartsWith("C3DPLANTA", StringComparison.OrdinalIgnoreCase))
-            return "PL";
-        if (commandName.StartsWith("C3DSOLIDLIGAR", StringComparison.OrdinalIgnoreCase))
-            return "LG";
-        if (commandName.StartsWith("C3DSOLID", StringComparison.OrdinalIgnoreCase))
-            return "3D";
-        if (commandName.StartsWith("C3DSECAO", StringComparison.OrdinalIgnoreCase))
-            return "SC";
-        if (commandName.StartsWith("C3DLAYOUT", StringComparison.OrdinalIgnoreCase) ||
-            commandName.StartsWith("C3DMAPACHAVE", StringComparison.OrdinalIgnoreCase) ||
-            commandName.Equals("NP", StringComparison.OrdinalIgnoreCase))
-            return "LY";
-        if (commandName.StartsWith("C3DLISP", StringComparison.OrdinalIgnoreCase))
-            return "LSP";
-        if (commandName.StartsWith("PASSAGEM", StringComparison.OrdinalIgnoreCase))
-            return "PS";
-        if (commandName.StartsWith("FL", StringComparison.OrdinalIgnoreCase))
-            return "FL";
-        if (commandName.StartsWith("SURF", StringComparison.OrdinalIgnoreCase) ||
-            commandName.StartsWith("SF", StringComparison.OrdinalIgnoreCase) ||
-            commandName.StartsWith("TRIM", StringComparison.OrdinalIgnoreCase) ||
-            commandName.StartsWith("CORTAR", StringComparison.OrdinalIgnoreCase))
-            return "SF";
-        if (commandName.StartsWith("PT", StringComparison.OrdinalIgnoreCase))
-            return "N";
-        if (commandName.StartsWith("C3D", StringComparison.OrdinalIgnoreCase))
-            return "C3D";
-
-        string compact = new(commandName.Where(char.IsLetterOrDigit).Take(2).ToArray());
-        return string.IsNullOrWhiteSpace(compact) ? "C3D" : compact.ToUpperInvariant();
+        string c = comando.ToUpperInvariant();
+        if (c.StartsWith("DREN")) return "drenagem";
+        if (c.StartsWith("QTO")) return "qto";
+        if (c.StartsWith("MF")) return "rebaixo";
+        if (c.StartsWith("C3DSOLIDLIGAR")) return "estais";
+        if (c.StartsWith("C3DSOLID")) return "solido3d";
+        if (c.StartsWith("C3DSECAO")) return "secoes";
+        if (c.StartsWith("C3DLAYOUT") || c.StartsWith("C3DPRANCHA")) return "layouts";
+        if (c.StartsWith("C3DLISP")) return "lisp";
+        if (c.StartsWith("PASSAGEM")) return "passagem";
+        if (c.StartsWith("PED")) return "ped";
+        if (c.StartsWith("FL")) return "featureline";
+        if (c.StartsWith("SURF") || c.StartsWith("SF")) return "superficie";
+        return "generico";
     }
-
-    private static WpfColor GetCategoryColor(string category) =>
-        category switch
-        {
-            "Drenagem" => WpfColor.FromRgb(65, 158, 229),
-            "QTO" => WpfColor.FromRgb(123, 202, 147),
-            "Corridor" => WpfColor.FromRgb(56, 175, 241),
-            "Feature Lines" => WpfColor.FromRgb(78, 198, 187),
-            "Superficies" => WpfColor.FromRgb(218, 172, 98),
-            "Geometria" => WpfColor.FromRgb(162, 141, 225),
-            "Quadros" => WpfColor.FromRgb(236, 140, 120),
-            "Viario" => WpfColor.FromRgb(244, 196, 64),
-            "LISPs" => WpfColor.FromRgb(140, 200, 110),
-            "Layouts" => WpfColor.FromRgb(120, 190, 230),
-            "PEDs" => WpfColor.FromRgb(225, 80, 80),
-            _ => WpfColor.FromRgb(192, 205, 215)
-        };
 }

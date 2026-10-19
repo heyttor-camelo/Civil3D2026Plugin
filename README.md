@@ -58,7 +58,7 @@ C3DRIBBONRESET  -> remove e recria a aba a partir do catalogo central
 Os botoes, grupos e tooltips sao gerados de `Infrastructure/CommandCatalog.cs`.
 O primeiro comando de cada modulo e exibido como botao grande e os demais como botoes padrao.
 
-Os icones atuais sao gerados em memoria e nao exigem arquivos externos. A estrutura permite trocar futuramente por PNG/SVG proprios sem alterar os comandos.
+Os icones sao vetoriais, gerados em memoria (sem arquivos externos): o desenho fica em `UI/Common/IconArt.cs`, o mesmo para os paineis e a Ribbon, gerado de `tools/icones` (fonte em Python com previa em PNG; ver `tools/icones/LEIAME.md`). Na Ribbon, cada comando tem o pictograma sobre a placa na cor do modulo; variantes (ajuda, configurar, atualizar...) ganham um selo ambar.
 
 ## Estrutura
 
@@ -92,7 +92,7 @@ C3DPlugin/
 - **`Infrastructure/PluginApplication.cs`**: unico `IExtensionApplication`; controla banner e inicializacao da UI.
 - **`Infrastructure/GlobalUsings.cs`**: aliases padronizados (`AcadDb`, `CivilDb`) para evitar colisao de namespaces.
 - **`UI/Ribbon/RibbonUiManager.cs`**: gera a aba C3D Tools a partir do catalogo.
-- **`UI/Ribbon/RibbonIconFactory.cs`**: gera os icones atuais.
+- **`UI/Ribbon/RibbonIconFactory.cs`**: monta os icones da Ribbon (placa do modulo + pictograma de `IconArt` + selo).
 - **`UI/Ribbon/RibbonCommandHandler.cs`**: envia o clique dos botoes para os comandos normais do Civil 3D.
 
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
@@ -264,7 +264,7 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.8.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.8.1)
 
 Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
 
