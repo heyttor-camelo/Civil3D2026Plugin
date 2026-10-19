@@ -156,3 +156,34 @@ using AcadEntity = Autodesk.AutoCAD.DatabaseServices.Entity;
 ```
 
 O script `tools/ValidateProject.ps1` bloqueia segmentos de modulo reservados e avisa quando um arquivo importa simultaneamente os dois `DatabaseServices` de forma ampla.
+
+## 8. Padrao de interface: o painel do Viario
+
+Decisao do David (out/2026): **o painel da rede viaria (`C3DVIARIO`, `Modules/Viario/ViarioPanel.cs` + `ViarioIcons.cs`) e o padrao para todos os plugins/modulos novos** - icones, estruturacao do modulo, monitor (vista grafica), painel e menus. Antes de criar uma tela nova, abrir esses dois arquivos e seguir o mesmo molde; nao inventar outro layout. (Explorador de layouts, MFREBAIXO e Visualizador de secao ja seguem a mesma estrutura de janela.)
+
+### Estrutura do modulo
+- Uma janela WPF **nao modal** por modulo (`SW.Window`, instancia unica, `ShowPanel(categoria?)` com `AcApp.ShowModelessWindow`), aberta por um comando de painel (`C3D<MODULO>`) e por atalhos que abrem direto numa categoria.
+- Comandos de linha de comando continuam existindo para o que pede clique no desenho; o painel manda o comando (`SendStringToExecute`) em vez de duplicar a logica.
+- Dados do modulo no proprio DWG (NOD/XData), configuracoes do usuario no arquivo de configuracao do modulo; nada depende de arquivo externo para funcionar.
+- Logica (calculo, leitura do desenho) separada da tela: a tela so le, mostra e chama.
+
+### Layout da janela (de cima para baixo)
+1. **Barra de categorias**: botoes com icone e contagem entre parenteses (aviso em destaque quando ha atencao); a categoria escolhida fica marcada.
+2. **Barra de comandos**: botoes so com icone (20 px), agrupados por assunto com separadores verticais; tooltip rico (titulo, desenho grande do icone, descricao, passos numerados e o nome do comando). Botoes com opcoes abrem **menu suspenso** (ContextMenu no tema). A direita, "Localizar:" filtra a lista.
+3. **Monitor (vista grafica)**: Canvas proprio com fundo escuro (`GraphicBack`), roda = zoom, arrastar = pan, duplo clique = zoom no desenho; barra embaixo com informacao do que esta sob o cursor/coordenadas e o menu **"Textos ▾"** para ligar/desligar cada texto da vista. A vista reage a selecao da lista e vice-versa.
+4. **GridSplitter** entre o monitor e a parte de baixo.
+5. **Lista** (ListView/GridView): coluna de aviso, icone + primeira coluna, numeros a direita em fonte mono; caixas de marcacao para agir em lote (Shift/Ctrl, espaco); filtro por coluna no cabecalho; botao direito com as acoes do item.
+6. **Abas** do item selecionado: "Propriedades" (campos editaveis + botoes de acao) sempre; abas de contexto conforme o tipo do item; aba de recomendacoes/avisos com fonte (normas) quando houver.
+7. **Barra de status** com o resumo e o ultimo resultado.
+
+### Icones (estilo do Viario)
+- Pictogramas vetoriais desenhados em codigo (`ViarioIcons`: grade **32x32**, partes com traco/preenchimento), sem arquivos externos.
+- Usados no tamanho pequeno (18-20 px na barra/categorias/lista), grande no tooltip (96 px) e na Ribbon.
+- **Cores com significado**, sempre as mesmas: branco = estrutura/geometria principal; ciano = bordo/linha de referencia; verde = meio-fio/elemento construido; vermelho tracejado = eixo; amarelo = destaque/acao; laranja e magenta para elementos secundarios; vermelho para remover/erro.
+- Tracos 1,2 a 1,8 na grade 32, pontas e juncoes arredondadas; nada de letras no lugar do desenho.
+- Visual de software de engenharia (como os do AutoCAD), nunca de app de celular: **sem placas arredondadas na Ribbon** (decisao de out/2026; na Ribbon o desenho vai direto no fundo, cores pelo tema do AutoCAD).
+
+### Menus e estilos
+- Tema claro/escuro (`ToolTheme`), com estilos proprios para ContextMenu, MenuItem (submenu e marca) e Separator, para ficarem legiveis nos dois temas (ver `AddStyles` do ViarioPanel e `UI/Common/ToolStyles.cs`).
+- Textos curtos nos botoes, explicacao no tooltip; termos do Civil em ingles quando o usuario usa assim (alignment, profile view, band set...); "elevacao" para altura de ponto, "cota" so para dimensao.
+- Operacoes longas com a janela de progresso comum (`Progresso`/`ProgressoJanela`) e tudo registrado no log comum (`PluginLog`, Ctrl+Shift+L).
