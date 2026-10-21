@@ -188,3 +188,10 @@ Decisao do David (out/2026): **o painel da rede viaria (`C3DVIARIO`, `Modules/Vi
 - Textos curtos nos botoes, explicacao no tooltip; termos do Civil em ingles quando o usuario usa assim (alignment, profile view, band set...); "elevacao" para altura de ponto, "cota" so para dimensao.
 - **Esc nunca fecha janela** (painel ou dialogo): sem `PreviewKeyDown` fechando no Escape, sem `IsCancel = true` em WPF e sem `CancelButton` em WinForms. Fecha so pelo X ou por um botao.
 - Operacoes longas com a janela de progresso comum (`Progresso`/`ProgressoJanela`) e tudo registrado no log comum (`PluginLog`, Ctrl+Shift+L).
+
+## 9. Diario entre maquinas
+
+O usuario alterna entre tres maquinas sem o historico da conversa do Claude Code. Ao encerrar uma
+sessao (ou um bloco grande de trabalho), acrescente uma entrada em `docs/DIARIO.md`: data, maquina,
+o que foi feito (commits, releases), decisoes e pendencias; commit "Diario: <data> <maquina>" e push.
+Ao comecar em outra maquina, leia o `docs/DIARIO.md` antes de qualquer coisa.
