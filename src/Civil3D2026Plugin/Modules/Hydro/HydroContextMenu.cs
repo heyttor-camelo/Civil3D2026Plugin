@@ -5,6 +5,8 @@ using Autodesk.AutoCAD.Windows;
 using Civil3D2026Plugin.Infrastructure;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
+// No .NET 10 o WinForms voltou a ter System.Windows.Forms.MenuItem (using global): fixa o do AutoCAD.
+using MenuItem = Autodesk.AutoCAD.Windows.MenuItem;
 
 namespace Civil3D2026Plugin.Modules.Hydro;
 

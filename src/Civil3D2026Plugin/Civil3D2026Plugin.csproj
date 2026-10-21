@@ -21,8 +21,19 @@
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Acad)' == '2026'">
-    <TargetFramework>net8.0-windows</TargetFramework>
-    <AcadDir>$(ProgramFiles)\Autodesk\AutoCAD 2026</AcadDir>
+    <!--
+      AcadDir pode vir de fora (dotnet build -p:AcadDir=...), por exemplo apontando para uma copia
+      .NET 8 das DLLs da Autodesk. Sem isso, usa a instalacao local.
+      Runtime: as atualizacoes do Civil 3D 2026 a partir do build 25.1.179 rodam em .NET 10 e suas
+      DLLs exigem System.Runtime 10 (CS1705 ao compilar para net8). O alvo segue o
+      acdbmgd.runtimeconfig.json da pasta de referencia: net10.0 ou net8.0. Uma DLL net8
+      (compilada contra DLLs .NET 8) carrega nas duas instalacoes; uma net10 so na .NET 10.
+    -->
+    <AcadDir Condition="'$(AcadDir)' == ''">$(ProgramFiles)\Autodesk\AutoCAD 2026</AcadDir>
+    <AcadRuntimeConfig>$(AcadDir)\acdbmgd.runtimeconfig.json</AcadRuntimeConfig>
+    <AcadTfm Condition="Exists('$(AcadRuntimeConfig)') And $([System.IO.File]::ReadAllText('$(AcadRuntimeConfig)').Contains('net10.0'))">net10.0-windows</AcadTfm>
+    <AcadTfm Condition="'$(AcadTfm)' == ''">net8.0-windows</AcadTfm>
+    <TargetFramework>$(AcadTfm)</TargetFramework>
     <!-- 2026 continua saindo em NETLOAD\ (mesmo caminho de sempre). -->
     <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\</OutputPath>
     <DefineConstants>$(DefineConstants);ACAD2026</DefineConstants>

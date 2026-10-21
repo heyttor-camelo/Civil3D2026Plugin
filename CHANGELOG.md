@@ -1,3 +1,9 @@
+## 2.61.1 - Build: alvo net8/net10 escolhido pelo runtime do Civil 3D instalado
+
+- csproj (Acad=2026) le `acdbmgd.runtimeconfig.json` de `AcadDir` e compila para `net10.0-windows` quando o Civil 3D instalado roda em .NET 10 (builds 25.1.179+), senao `net8.0-windows`; `AcadDir` pode vir de fora (`-p:AcadDir=...`) para gerar a net8 numa maquina .NET 10. Antes, no Visual Studio desta maquina, dava CS1705 em todas as DLLs da Autodesk;
+- `HydroContextMenu`: `MenuItem` fixado em `Autodesk.AutoCAD.Windows.MenuItem` (no .NET 10 o WinForms voltou a ter um `MenuItem`);
+- `docs/DEVELOPMENT.md` par. 6 explica as regras (qual DLL carrega onde).
+
 ## 2.61.0 - HYDRO v0.6.0 (fase H5): catalogo de pecas CSBIM
 
 - `HYCATALOGO` (tambem na barra de Redes): lista os catalogos de `Pipes Catalog` (dominio, nome, pecas, capitulos, CSBIM saneado ou nao) e os ativos no desenho; `Definir` abre o `SETPIPENETWORKCATALOG` nativo, `Regenerar` manda `PARTCATALOGREGEN`, `Importar` cria/usa uma parts list (padrao "CSBIM") e importa as familias dos capitulos escolhidos com os tamanhos (um por diametro da lista; um com os padroes quando a peca so tem faixas), relatando familias, tamanhos, pulados e falhas;

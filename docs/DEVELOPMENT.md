@@ -114,11 +114,25 @@ Uma futura PaletteSet, janela WPF ou outra GUI deve consumir o mesmo `CommandCat
 Configuracao oficial atual:
 
 ```text
-TargetFramework: net8.0-windows
+TargetFramework: net8.0-windows OU net10.0-windows (escolhido pelo csproj, ver abaixo)
 Platform: x64
 Civil 3D: 2026.2
 UI: WPF habilitado
 ```
+
+**Alvo .NET (desde 2.61.1).** As atualizacoes do Civil 3D 2026 a partir do build 25.1.179 rodam
+em .NET 10 e suas DLLs exigem `System.Runtime 10`: compilar para net8 contra elas da CS1705. O
+csproj le `acdbmgd.runtimeconfig.json` da pasta de referencia (`AcadDir`, padrao
+`C:\Program Files\Autodesk\AutoCAD 2026`) e escolhe `net10.0-windows` ou `net8.0-windows` sozinho,
+tanto no Visual Studio quanto no `dotnet build`. Regras:
+
+- Uma DLL **net8** (compilada contra DLLs .NET 8) carrega em qualquer Civil 3D 2026; uma **net10**
+  so nas instalacoes .NET 10. A Release publicada no GitHub e sempre net8.
+- Para gerar a net8 numa maquina cujo Civil 3D e .NET 10, aponte para uma copia .NET 8 das DLLs da
+  Autodesk (nao versionada):
+  `dotnet build -c Release -p:AcadDir=C:\Users\urgor\source\repos\heyttor-camelo\DeviceModeler\refs\acad2026`
+- No .NET 10 o WinForms voltou a ter `System.Windows.Forms.MenuItem`; em codigo que usa o menu de
+  contexto do AutoCAD, fixe `using MenuItem = Autodesk.AutoCAD.Windows.MenuItem;` (ver HydroContextMenu).
 
 A saida e fixa:
 

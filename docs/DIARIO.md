@@ -40,6 +40,9 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
   na versão antiga (13.8.280) com módulos 13.8.1809 → crash no Hydrology ao abrir. Um reset/reinstalação
   completo resolveu (módulos e recursos em 13.8.1809). O Country Kit BRA 2026 voltou limpo.
 
+- 2.61.1: csproj passa a escolher net8/net10 pelo runtime do Civil 3D instalado (o Visual Studio
+  desta maquina dava CS1705); `MenuItem` fixado no HydroContextMenu. `docs/DEVELOPMENT.md` par. 6.
+
 ### Pendente
 1. No Civil 3D: `PARTCATALOGREGEN`; `SETPIPENETWORKCATALOG` → FDX Metric Structures/Pipes.
 2. Testar HYDRO com `docs/HYDRO-TESTE.md` e `docs/HYDRO-CATALOGO.md`; corrigir o que aparecer.
