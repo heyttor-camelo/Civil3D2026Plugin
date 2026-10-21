@@ -8,7 +8,7 @@ A DLL compilada de cada versao fica em **Releases** no GitHub:
 https://github.com/heyttor-camelo/Civil3D2026Plugin/releases
 
 Baixe o `.zip` da versao mais recente, descompacte, copie `Civil3D2026Plugin.dll` para uma pasta fixa
-(ex.: `C:Civil3D2026Plugin`) e rode `NETLOAD` no Civil 3D 2026. A DLL e compilada para .NET 8 e
+(ex.: `C:\Civil3D2026Plugin\`) e rode `NETLOAD` no Civil 3D 2026. A DLL e compilada para .NET 8 e
 carrega tambem nas instalacoes do 2026 que rodam em .NET 10. Se o Windows bloquear o arquivo,
 use Propriedades > Desbloquear antes do `NETLOAD`.
 
