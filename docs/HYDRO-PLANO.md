@@ -106,3 +106,34 @@ com o documento travado.
 - Não criar objetos próprios no lugar dos nativos (nada de bloco por dispositivo nesta linha).
 - Não compilar código do usuário. Não usar litros. Não fechar janela com Esc.
 - Não mexer no repositório `DeviceModeler`.
+
+## 7. Ir além do Project Explorer: edição direta no model (pedido do usuário, 21/10)
+
+O Project Explorer do Civil já lista a rede em planilha, edita alguns campos e mostra o perfil.
+O HYDRO não repete isso: a planilha do painel serve ao lote e ao cálculo, e o diferencial é
+**editar no próprio desenho**, com o mínimo de cliques. Entra na H1 (comandos e interação) e na H4
+(lançamento):
+
+- **Dica no cursor** (PointMonitor) sobre estrutura/tubo: nome, tampa, fundo, Ø, declividade,
+  recobrimento, Q/lâmina quando calculado, avisos de regra.
+- **Menu de contexto HYDRO** no botão direito sobre estrutura/tubo: Editar fundo, Editar tampa,
+  Trocar tipo/tamanho, Inverter, Igualar propriedades, Ligar bacia, Calcular trecho, Mostrar no painel.
+- **Comandos de um clique no model** (todos com prévia e um UNDO):
+  - `HYFUNDO`: clica na estrutura, digita o fundo (ou clica um ponto no perfil); os tubos ligados
+    acompanham pela regra escolhida (segurar montante/jusante).
+  - `HYDECLIV`: clica no tubo, digita a declividade; escolhe qual ponta segura.
+  - `HYTAMPA`: tampa pela superfície, por valor ou por "rebaixar X".
+  - `HYTROCAR`: clica em um ou vários dispositivos/tubos e escolhe família/tamanho; conexões mantidas.
+  - `HYIGUALAR`: "match properties" de rede: copia fundo relativo, família, declividade, regras de
+    um item para os outros.
+  - `HYLIGARBACIA`: clica na bacia e na estrutura (ou arrasta uma linha entre elas).
+  - `HYMOVER`: arrasta a estrutura e os tubos acompanham mantendo declividade ou fundo (escolha).
+  - `HYINSERIR`: insere uma estrutura **no meio de um tubo** (divide o tubo, mantém declividade).
+  - `HYREMOVER`: remove uma estrutura e **emenda** os dois tubos.
+  - `HYCAMINHO`: clica em duas estruturas e seleciona/realça o caminho entre elas (para perfil,
+    tabela, cálculo ou edição em lote).
+- **Grips extras** nos tubos/estruturas (GripOverrule nos objetos nativos, filtrado por tipo):
+  grip de fundo e de tampa com valor digitado durante o arrasto, como no SOLIDOS/HY_GRIP do
+  DeviceModeler. Nunca refazer geometria dentro do overrule: enfileirar e aplicar no fim do comando.
+- **Realce no desenho** do que está selecionado no painel (e vice-versa), com setas do fluxo
+  temporárias (transient graphics) ao passar o mouse sobre a rede.
