@@ -519,27 +519,20 @@ public sealed class HydroModelCommands
         }
 
         Dictionary<string, string> eff = HydroRules.Effective(own, templates);
-        ed.WriteMessage($"
-{name}" + (own.Template.Length > 0 ? $" (modelo {own.Template})" : "") + ":");
+        ed.WriteMessage($"\n{name}" + (own.Template.Length > 0 ? $" (modelo {own.Template})" : "") + ":");
         foreach (PartParam p in parameters.Where(p => p.Editable))
         {
             string rule = eff.TryGetValue(p.Name, out string? r) ? "  = " + r : "  (fixa)";
-            ed.WriteMessage($"
-  {p.Name,-6} {N(p.Meters)} m  {p.Description}{rule}");
+            ed.WriteMessage($"\n  {p.Name,-6} {N(p.Meters)} m  {p.Description}{rule}");
         }
 
-        ed.WriteMessage($"
-  tampa  {N(vars[HydroRules.Rim])} m" + (eff.TryGetValue(HydroRules.Rim, out string? rr) ? "  = " + rr : "  (fixa)"));
-        ed.WriteMessage($"
-  fundo  {N(vars[HydroRules.Sump])} m" + (eff.TryGetValue(HydroRules.Sump, out string? rf) ? "  = " + rf : "  (fixa)"));
-        ed.WriteMessage("
-  Variaveis: " + string.Join("  ", vars.Where(kv => !parameters.Any(p => Calc.HydroExpr.Normalize(p.Name) == kv.Key))
+        ed.WriteMessage($"\n  tampa  {N(vars[HydroRules.Rim])} m" + (eff.TryGetValue(HydroRules.Rim, out string? rr) ? "  = " + rr : "  (fixa)"));
+        ed.WriteMessage($"\n  fundo  {N(vars[HydroRules.Sump])} m" + (eff.TryGetValue(HydroRules.Sump, out string? rf) ? "  = " + rf : "  (fixa)"));
+        ed.WriteMessage("\n  Variaveis: " + string.Join("  ", vars.Where(kv => !parameters.Any(p => Calc.HydroExpr.Normalize(p.Name) == kv.Key))
             .Select(kv => $"{kv.Key}={N(kv.Value)}")));
-        ed.WriteMessage("
-  " + HydroRules.Help);
+        ed.WriteMessage("\n  " + HydroRules.Help);
 
-        PromptStringOptions to = new("
-Medida (SIL, SIW, tampa, fundo...): ") { AllowSpaces = false };
+        PromptStringOptions to = new("\nMedida (SIL, SIW, tampa, fundo...): ") { AllowSpaces = false };
         PromptResult tr1 = ed.GetString(to);
         if (tr1.Status != PromptStatus.OK || tr1.StringResult.Trim().Length == 0)
             return;
@@ -551,20 +544,17 @@ Medida (SIL, SIW, tampa, fundo...): ") { AllowSpaces = false };
             target = target.ToLowerInvariant();
         else
         {
-            ed.WriteMessage($"
-'{target}' nao e medida desta peca.");
+            ed.WriteMessage($"\n'{target}' nao e medida desta peca.");
             return;
         }
 
         if (param is not null && !param.Editable)
         {
-            ed.WriteMessage($"
-{param.Name} e fixa no catalogo (nem faixa nem lista).");
+            ed.WriteMessage($"\n{param.Name} e fixa no catalogo (nem faixa nem lista).");
             return;
         }
 
-        PromptStringOptions eo = new($"
-Regra para {target} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao modelo): ") { AllowSpaces = true };
+        PromptStringOptions eo = new($"\nRegra para {target} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao modelo): ") { AllowSpaces = true };
         if (eff.TryGetValue(target, out string? current))
         {
             eo.DefaultValue = current;
@@ -582,13 +572,11 @@ Regra para {target} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao model
             try
             {
                 double v = Calc.HydroExpr.Parse(store).Evaluate(probe);
-                ed.WriteMessage($"
-{target} = {N(v)} m agora.");
+                ed.WriteMessage($"\n{target} = {N(v)} m agora.");
             }
             catch (Calc.HydroExprException ex)
             {
-                ed.WriteMessage($"
-Regra recusada: {ex.Message}");
+                ed.WriteMessage($"\nRegra recusada: {ex.Message}");
                 return;
             }
         }
@@ -633,13 +621,10 @@ Regra recusada: {ex.Message}");
 
     private static void WriteReport(Editor ed, HydroRules.Report rep)
     {
-        ed.WriteMessage("
-[HYDRO] " + rep.Summary + ".");
+        ed.WriteMessage("\n[HYDRO] " + rep.Summary + ".");
         foreach (string line in rep.Lines.Take(30))
-            ed.WriteMessage("
-  " + line);
+            ed.WriteMessage("\n  " + line);
         foreach (string err in rep.Errors.Take(30))
-            ed.WriteMessage("
-  aviso: " + err);
+            ed.WriteMessage("\n  aviso: " + err);
     }
 }
