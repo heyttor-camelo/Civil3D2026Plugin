@@ -100,7 +100,10 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Hydro.Mover, "Mover estrutura", "Arrasta a estrutura; os tubos ligados acompanham mantendo a declividade ou os fundos."),
                     new CommandDefinition(C3DCommands.Hydro.Inserir, "Inserir estrutura no tubo", "Divide o tubo no ponto clicado com uma estrutura nova (declividade mantida)."),
                     new CommandDefinition(C3DCommands.Hydro.Remover, "Remover estrutura", "Remove a estrutura e emenda os dois tubos."),
-                    new CommandDefinition(C3DCommands.Hydro.Caminho, "Caminho entre estruturas", "Seleciona o caminho mais curto entre duas estruturas (para perfil, calculo ou edicao em lote).")
+                    new CommandDefinition(C3DCommands.Hydro.Caminho, "Caminho entre estruturas", "Seleciona o caminho mais curto entre duas estruturas (para perfil, calculo ou edicao em lote)."),
+                    new CommandDefinition(C3DCommands.Hydro.Regra, "Regra de medida", "Clique a estrutura, escolha a medida (SIL, SIW, tampa, fundo...) e digite a regra (ex. dmax + 2*0,15); a peca se refaz sozinha quando os tubos mudam."),
+                    new CommandDefinition(C3DCommands.Hydro.Regras, "Atualizar regras", "Recalcula as regras das estruturas selecionadas (Enter = todas) e refaz as que mudaram."),
+                    new CommandDefinition(C3DCommands.Hydro.RegrasAuto, "Regras automaticas", "Liga/desliga o recalculo das regras no fim de cada comando (desligado: so no HYREGRAS).")
                 }),
 
             new(

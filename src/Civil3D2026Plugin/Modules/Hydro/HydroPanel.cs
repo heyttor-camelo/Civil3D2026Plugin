@@ -69,6 +69,9 @@ internal sealed partial class HydroPanel : SW.Window
     private Dictionary<string, HydroResult> _results = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly HashSet<string> _checked = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Medidas da peca mostradas como colunas na lista de estruturas (nesta sessao).</summary>
+    private readonly HashSet<string> _paramColumns = new(StringComparer.OrdinalIgnoreCase);
     private List<Row> _rows = new();
     private bool _refreshQueued;
     private int _refreshCount;
@@ -122,6 +125,8 @@ internal sealed partial class HydroPanel : SW.Window
         new("TROCAR", "ESTRUTURAS", "HYTROCAR ", "Trocar tipo", "Edicao", "Troca familia/tamanho mantendo as conexoes.", new[] { "Clique as estruturas ou tubos.", "Escolha a familia e o tamanho." }),
         new("CONECTAR", "ESTRUTURAS", "HYCONECTAR ", "Conectar / desconectar", "Edicao", "Liga a ponta de um tubo a uma estrutura, ou desliga.", new[] { "Clique o tubo perto da ponta.", "Clique a estrutura (Enter desliga)." }),
         new("REGRAS", "ESTRUTURAS", "", "Aplicar regras", "Edicao", "Aplica o rule set do Civil nos itens marcados.", new[] { "Marque as linhas e clique." }),
+        new("MEDIDAS", "ESTRUTURAS", "", "Atualizar regras das medidas", "Medidas", "Recalcula as regras das medidas (=regra nos campos: SIL, SIW, tampa, fundo...) das estruturas marcadas, ou de todas da rede, e refaz as que mudaram.", new[] { "Escreva =regra nas medidas (aba Propriedades) ou use HYREGRA no desenho.", "Marque as estruturas (nenhuma = todas) e clique." }),
+        new("AUTO", "ESTRUTURAS", "", "Regras automaticas (liga/desliga)", "Medidas", "Liga/desliga o recalculo das regras no fim de cada comando, como o Auto do Viario. Desligado, as pecas so mudam no Atualizar regras.", new[] { "Clique para alternar; o estado aparece na barra de status." }),
         new("ZOOM", "ESTRUTURAS", "", "Zoom", "Ver", "Zoom no desenho para o item selecionado.", new[] { "Selecione na lista e clique (ou duplo clique)." }),
         new("SELECIONAR", "ESTRUTURAS", "", "Selecionar no desenho", "Ver", "Seleciona no desenho os itens marcados (ou o selecionado).", new[] { "Marque e clique." }),
         new("LOTE", "TUBOS", "", "Editar em lote", "Edicao", "Fundo de montante/jusante, declividade, familia/tamanho, nome: vale para os tubos marcados.", new[] { "Marque as linhas (caixinha ou Espaco).", "O botao abre o menu." }),
@@ -800,8 +805,31 @@ internal sealed partial class HydroPanel : SW.Window
                     });
                 }
 
-                return (new[] { "Estrutura", "Familia", "Tamanho", "Tampa", "Fundo", "Prof. [m]", "Tubos", "Bacias", "A acum. [ha]", "Q [m3/s]", "Avisos" },
-                    new double[] { 110, 130, 100, 75, 75, 65, 50, 110, 80, 75, 260 }, rows);
+                {
+                    // Colunas escolhidas das medidas da peca (lista > botao direito > Colunas da peca), antes de Avisos.
+                    string[] extra = _paramColumns.OrderBy(c => c, StringComparer.OrdinalIgnoreCase).ToArray();
+                    for (int r = 0; r < rows.Count; r++)
+                    {
+                        Row row = rows[r];
+                        StructureInfo s = (StructureInfo)row.Data!;
+                        List<string> cells = row.Cells.ToList();
+                        List<string> add = extra.Select(c => s.Parameters.FirstOrDefault(x => x.Name.Equals(c, StringComparison.OrdinalIgnoreCase)) is PartParam pp
+                            ? N(pp.Meters, 3) : "-").ToList();
+                        add.Add(s.Rules.Count == 0 ? "-" : (s.OwnRules.Template.Length > 0 ? s.OwnRules.Template + " " : "") + $"({s.Rules.Count})");
+                        cells.InsertRange(cells.Count - 1, add);
+                        rows[r] = new Row { Id = row.Id, Icon = row.Icon, Data = row.Data, Cells = cells.ToArray() };
+                    }
+
+                    List<string> cols = new() { "Estrutura", "Familia", "Tamanho", "Tampa", "Fundo", "Prof. [m]", "Tubos", "Bacias", "A acum. [ha]", "Q [m3/s]" };
+                    List<double> widths = new() { 110, 130, 100, 75, 75, 65, 50, 110, 80, 75 };
+                    cols.AddRange(extra.Select(c => c + " [m]"));
+                    widths.AddRange(extra.Select(_ => 70.0));
+                    cols.Add("Regras");
+                    widths.Add(90);
+                    cols.Add("Avisos");
+                    widths.Add(260);
+                    return (cols.ToArray(), widths.ToArray(), rows);
+                }
 
             case "TUBOS":
                 if (net is null)
@@ -1383,11 +1411,11 @@ internal sealed partial class HydroPanel : SW.Window
         }
 
         Category("Estrutura " + s.Name);
-        EditProp("nome", "Nome", s.Name, () => ApplyField(s));
+        EditProp("nome", "Nome", s.Name, () => ApplyStructures(new[] { s }, false));
         Prop("Familia / tamanho", $"{s.Family} / {s.Size}");
         Prop("Tipo", s.Type);
-        EditProp("tampa", "Tampa (rim) [m]", N(s.Rim, 3), () => ApplyField(s));
-        EditProp("fundo", "Fundo (sump) [m]", N(s.Sump, 3), () => ApplyField(s));
+        MeasureProp(s, HydroRules.Rim, "Tampa (rim) [m]", s.Rim, () => ApplyStructures(new[] { s }, false));
+        MeasureProp(s, HydroRules.Sump, "Fundo (sump) [m]", s.Sump, () => ApplyStructures(new[] { s }, false));
         Prop("Profundidade", N(s.Depth, 2) + " m");
         Prop("Controle do fundo", s.ControlSumpBy);
         Prop("Superficie no ponto", double.IsNaN(s.SurfaceElevation) ? "-" : N(s.SurfaceElevation, 3) + " m" + (s.RefSurface.Length > 0 ? " (" + s.RefSurface + ")" : ""));
@@ -1400,20 +1428,21 @@ internal sealed partial class HydroPanel : SW.Window
         if (s.Warnings.Count > 0)
             Prop("Avisos", string.Join("\n", s.Warnings), T.Warn);
 
-        Act("Aplicar (Enter)", () => ApplyField(s), true);
+        Act("Aplicar (Enter)", () => ApplyStructures(new[] { s }, false), true);
         Act("Zoom", () => ZoomRow(_current!));
         Act("Selecionar", () => SelectHandles(new[] { s.Handle }));
         Act("Fundo no desenho (HYFUNDO)", () => Send("HYFUNDO ", "HYFUNDO: clique a estrutura."));
 
-        // Parametros dimensionais da peca (faixas do catalogo saneado): editaveis um a um.
+        // Medidas da peca (PartData) em metros: valor fixo, relativo ou "=regra" associativa.
         List<PartParam> editable = s.Parameters.Where(p => p.Editable).ToList();
         if (editable.Count > 0)
         {
-            Category($"Parametros da peca ({editable.Count}) - {s.Family}");
+            Category($"Medidas da peca ({editable.Count}) - {s.Family}");
             foreach (PartParam p in editable)
-                EditProp("par:" + p.Name, $"{p.Description} [{p.Name}] {Range(p)}", N(p.Value, p.Units == "mm" ? 0 : 3), () => ApplyParameters(new[] { s }));
-            Act("Gravar parametros", () => ApplyParameters(new[] { s }));
+                MeasureProp(s, p.Name, $"{p.Description} [{p.Name}] {RangeM(p)}", p.Meters, () => ApplyStructures(new[] { s }, false));
         }
+
+        RulesSection(new[] { s });
         _render = () => RenderPlan(net, s.Handle);
     }
 
@@ -1421,25 +1450,152 @@ internal sealed partial class HydroPanel : SW.Window
     {
         Category($"Edicao em lote: {list.Count} estrutura(s)");
         Prop("Itens", string.Join(", ", list.Select(s => s.Name)));
-        EditProp("tampa", "Tampa [m] (valor, ou +0.10 / -0.30)", "", () => ApplyBatchStructures(list));
-        EditProp("fundo", "Fundo [m] (valor, ou +0.10 / -0.30)", "", () => ApplyBatchStructures(list));
-        EditProp("prefixo", "Renomear: prefixo + numero (ex. PV-)", "", () => ApplyBatchStructures(list));
+        MeasureProp(null, HydroRules.Rim, "Tampa [m] (valor, +0,10 / -0,30 ou =regra)", 0, () => ApplyStructures(list, true));
+        MeasureProp(null, HydroRules.Sump, "Fundo [m] (valor, +0,10 / -0,30 ou =regra)", 0, () => ApplyStructures(list, true));
+        EditProp("prefixo", "Renomear: prefixo + numero (ex. PV-)", "", () => ApplyStructures(list, true));
         Prop("Familia / tamanho", "use Trocar tipo (barra de comandos) ou o menu Editar em lote");
 
-        // Parametros de faixa comuns a todas as marcadas (mesmo nome): vazio = mantem.
+        // Medidas comuns a todas as marcadas (mesmo nome): vazio = mantem cada uma como esta.
         List<PartParam> common = list.Select(s => s.Parameters.Where(p => p.Editable).Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase))
             .Aggregate((a, b) => { a.IntersectWith(b); return a; })
             .Select(name => list[0].Parameters.First(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
         if (common.Count > 0)
         {
-            Category($"Parametros da peca comuns ({common.Count})");
+            Category($"Medidas da peca comuns ({common.Count})");
             foreach (PartParam p in common)
-                EditProp("par:" + p.Name, $"{p.Description} [{p.Name}] {Range(p)}", "", () => ApplyParameters(list));
+                MeasureProp(null, p.Name, $"{p.Description} [{p.Name}] {RangeM(p)}", 0, () => ApplyStructures(list, true));
         }
 
-        Act("Aplicar nos marcados", () => { ApplyBatchStructures(list); ApplyParameters(list, quiet: true); }, true);
+        RulesSection(list);
+        Act("Aplicar nos marcados", () => ApplyStructures(list, true), true);
         Act("Selecionar no desenho", () => SelectHandles(list.Select(s => s.Handle)));
         _render = () => RenderPlan(Net, null, list.Select(s => s.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Campo de uma medida da estrutura (tampa, fundo ou medida da peca, em m). Mostra "=regra"
+    /// quando a medida e associativa; numero digitado vira valor fixo, "+0,10"/"-0,30" e relativo.
+    /// </summary>
+    private void MeasureProp(StructureInfo? s, string target, string label, double meters, Action enter)
+    {
+        string text = "";
+        if (s is not null)
+        {
+            if (s.Rules.TryGetValue(target, out string? rule))
+            {
+                text = "=" + rule;
+                label += $"  = {N(meters, 3)}" + (s.OwnRules.Own.ContainsKey(target) ? "" : " (modelo)");
+            }
+            else
+            {
+                text = N(meters, 3);
+            }
+        }
+
+        WC.TextBox box = EditProp("med:" + target, label, text, enter);
+        box.Tag = text;
+        box.ToolTip = "Numero = valor fixo; +0,10 / -0,30 = relativo ao atual; =expressao = regra associativa (ex. =dmax + 2*0,15).\n" + HydroRules.Help;
+        if (text.StartsWith('='))
+            box.Foreground = T.Accent;
+    }
+
+    /// <summary>Modelo de regras, salvar como modelo e atualizar (uma ou varias estruturas).</summary>
+    private void RulesSection(IReadOnlyList<StructureInfo> list)
+    {
+        Category("Regras das medidas (associativas)");
+        string family = list[0].Family;
+        bool same = list.Select(x => x.OwnRules.Template).Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
+        string current = same ? list[0].OwnRules.Template : "*";
+        List<(string Text, string Value)> items = new();
+        if (!same)
+            items.Add(("(varios - manter)", "*"));
+        items.Add(("(sem modelo)", ""));
+        items.AddRange(_snap.Templates.Values
+            .OrderBy(t => t.Family.Equals(family, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(t => t.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(t => ($"{t.Name}  [{t.Family}, {t.Rules.Count} regra(s)]", t.Name)));
+        ChoiceProp("modelo", "Modelo de regras", items, current, () => ApplyTemplateChoice(list));
+        if (list.Count == 1)
+        {
+            EditProp("novomodelo", "Salvar as regras como modelo (nome + Enter)", "", () => SaveTemplateFrom(list[0]));
+            if (list[0].Rules.Count > 0)
+                Prop("Regras que valem", string.Join("\n", list[0].Rules.OrderBy(kv => kv.Key, StringComparer.OrdinalIgnoreCase).Select(kv => $"{kv.Key} = {kv.Value}")));
+        }
+
+        Prop("Atualizacao", _settings.RulesAuto ? "automatica, no fim de cada comando" : "manual: use Atualizar regras (HYREGRAS)");
+        Prop("Como escrever", HydroRules.Help);
+        Act("Atualizar regras", () => UpdateRules(list.Select(x => x.Handle).ToList()));
+    }
+
+    private void ApplyTemplateChoice(IReadOnlyList<StructureInfo> list)
+    {
+        string name = Text("modelo");
+        if (name == "*")
+            return;
+        List<string> handles = list.Select(x => x.Handle).ToList();
+
+        // Adotar o modelo tira as regras proprias das medidas que ele define.
+        Dictionary<string, string?> clear = new(StringComparer.OrdinalIgnoreCase);
+        if (name.Length > 0 && _snap.Templates.TryGetValue(name, out HydroRuleTemplate? t))
+        {
+            foreach (string k in t.Rules.Keys)
+                clear[k] = null;
+        }
+
+        HydroStore.HoldMode hold = _settings.HoldMode;
+        RunApply(name.Length > 0 ? $"Modelo '{name}' em {handles.Count} estrutura(s)" : $"Sem modelo em {handles.Count} estrutura(s)", db =>
+        {
+            HydroRules.Edit(db, handles, clear, name);
+            ApplyRulesNow(db, handles, hold);
+        });
+    }
+
+    private void SaveTemplateFrom(StructureInfo s)
+    {
+        string name = Text("novomodelo");
+        if (name.Length == 0)
+        {
+            Say("Digite o nome do modelo (ex. PV DNIT padrao).");
+            return;
+        }
+
+        if (s.Rules.Count == 0)
+        {
+            Say($"{s.Name} nao tem regras: escreva =regra nas medidas primeiro.");
+            return;
+        }
+
+        name = HydroRules.CleanName(name);
+        Dictionary<string, string> rules = new(s.Rules, StringComparer.OrdinalIgnoreCase);
+        Dictionary<string, string?> clear = rules.Keys.ToDictionary(k => k, _ => (string?)null, StringComparer.OrdinalIgnoreCase);
+        string family = s.Family;
+        RunApply($"Modelo '{name}' salvo ({rules.Count} regra(s))", db =>
+        {
+            HydroRules.SaveTemplate(db, name, family, rules);
+            HydroRules.Edit(db, new[] { s.Handle }, clear, name);
+        });
+    }
+
+    private void UpdateRules(List<string> handles)
+    {
+        HydroStore.HoldMode hold = _settings.HoldMode;
+        RunApply($"Atualizar regras em {handles.Count} estrutura(s)", db => ApplyRulesNow(db, handles, hold));
+    }
+
+    /// <summary>Recalcula as regras ja (dentro do HYAPLICAR) e escreve o resumo na linha de comando.</summary>
+    private static void ApplyRulesNow(AcadDb.Database db, IEnumerable<string> handles, HydroStore.HoldMode hold)
+    {
+        List<AcadDb.ObjectId> ids = handles.Select(h => HydroReader.Id(db, h)).OfType<AcadDb.ObjectId>().ToList();
+        HydroRules.Report rep;
+        using (HydroSync.Applying())
+            rep = HydroRules.Apply(db, ids, hold);
+        Autodesk.AutoCAD.EditorInput.Editor? ed = AcApp.DocumentManager.MdiActiveDocument?.Editor;
+        if (ed is null)
+            return;
+        ed.WriteMessage("\n[HYDRO] " + rep.Summary + ".");
+        foreach (string line in rep.Lines.Take(20))
+            ed.WriteMessage("\n  " + line);
+        foreach (string err in rep.Errors.Take(20))
+            ed.WriteMessage("\n  aviso: " + err);
     }
 
     private void ShowPipe(PipeInfo p)
@@ -1751,6 +1907,33 @@ internal sealed partial class HydroPanel : SW.Window
                     return;
                 }
 
+            case "MEDIDAS":
+                {
+                    List<string> handles = Targets().Select(r => r.Data).OfType<StructureInfo>().Select(x => x.Handle).ToList();
+                    if (handles.Count == 0)
+                        handles = Net?.Structures.Select(x => x.Handle).ToList() ?? new List<string>();
+                    if (handles.Count == 0)
+                    {
+                        Say("Nenhuma estrutura na rede ativa.");
+                        return;
+                    }
+
+                    UpdateRules(handles);
+                    return;
+                }
+
+            case "AUTO":
+                {
+                    bool on = !_settings.RulesAuto;
+                    RunApply(on ? "Regras automaticas ligadas" : "Regras automaticas desligadas", db =>
+                    {
+                        HydroSettings st = HydroStore.Load(db);
+                        st.RulesAuto = on;
+                        HydroStore.Save(db, st);
+                    });
+                    return;
+                }
+
             case "ZOOM": ZoomCurrent(); return;
             case "SELECIONAR": SelectHandles(TargetHandles()); return;
             case "TC": OpenTcMenu(anchor); return;
@@ -1799,14 +1982,6 @@ internal sealed partial class HydroPanel : SW.Window
         Send("HYAPLICAR ", what + "...");
     }
 
-    private void ApplyField(StructureInfo s)
-    {
-        string name = Text("nome");
-        double? rim = Number("tampa");
-        double? sump = Number("fundo");
-        RunApply("Editar " + s.Name, db => HydroEditor.EditStructure(db, s.Handle, name.Length > 0 && name != s.Name ? name : null, rim, sump, _settings.HoldMode));
-    }
-
     private void ApplyField(PipeInfo p)
     {
         string name = Text("nome");
@@ -1831,105 +2006,153 @@ internal sealed partial class HydroPanel : SW.Window
         RunApply("Editar bacia " + c.Name, db => HydroEditor.EditCatchment(db, c.Handle, cc, tc, structure == c.StructureHandle ? null : structure));
     }
 
-    private void ApplyBatchStructures(List<StructureInfo> list)
+    private static string RangeM(PartParam p)
     {
-        string rim = Text("tampa"), sump = Text("fundo"), prefix = Text("prefixo");
-        if (rim.Length == 0 && sump.Length == 0 && prefix.Length == 0)
+        if (!p.IsRange && p.List.Count > 0)
         {
-            Say("Preencha ao menos um campo.");
+            string vals = string.Join(" / ", p.List.Take(8).Select(x => N(x * p.Factor, 2)));
+            return $"lista {vals}{(p.List.Count > 8 ? " ..." : "")} m";
+        }
+
+        return double.IsNaN(p.Min) || double.IsNaN(p.Max) ? "m" : $"{N(p.Min * p.Factor, 3)}..{N(p.Max * p.Factor, 3)} m";
+    }
+
+    /// <summary>
+    /// Grava os campos alterados das estruturas (uma ou o lote): nome/prefixo, tampa, fundo e as
+    /// medidas da peca. "=expr" grava a regra; numero ou +/- grava valor fixo e tira a regra da
+    /// medida. Tudo e validado antes de mexer no desenho; um UNDO por operacao.
+    /// </summary>
+    private void ApplyStructures(IReadOnlyList<StructureInfo> list, bool batch)
+    {
+        string name = batch ? "" : Text("nome");
+        string prefix = batch ? Text("prefixo") : "";
+        List<(string Target, string Text)> edits = new();
+        foreach ((string key, SW.FrameworkElement el) in _fields.Where(kv => kv.Key.StartsWith("med:", StringComparison.Ordinal)))
+        {
+            if (el is not WC.TextBox box)
+                continue;
+            string t = box.Text.Trim();
+            if (t.Length == 0 || t == (box.Tag as string ?? ""))
+                continue;
+            edits.Add((key[4..], t));
+        }
+
+        bool rename = (!batch && name.Length > 0 && name != list[0].Name) || prefix.Length > 0;
+        if (edits.Count == 0 && !rename)
+        {
+            Say(batch ? "Preencha ao menos um campo." : "Nada mudou.");
             return;
         }
 
-        List<string> handles = list.Select(s => s.Handle).ToList();
-        HydroStore.HoldMode hold = _settings.HoldMode;
-        RunApply($"Lote em {list.Count} estrutura(s)", db =>
-        {
-            int i = 1;
-            foreach (string h in handles)
-            {
-                StructureInfo s = list.First(x => x.Handle == h);
-                HydroEditor.EditStructure(db, h,
-                    prefix.Length > 0 ? prefix + (i++).ToString("00", CultureInfo.InvariantCulture) : null,
-                    Relative(rim, s.Rim), Relative(sump, s.Sump), hold);
-            }
-        });
-    }
-
-    private static string Range(PartParam p) =>
-        double.IsNaN(p.Min) || double.IsNaN(p.Max) ? (p.Units.Length > 0 ? p.Units : "") : $"{N(p.Min, 0)}..{N(p.Max, 0)} {p.Units}".Trim();
-
-    /// <summary>Le os campos "par:NOME" preenchidos e grava nas estruturas (validacao Min/Max antes de mandar).</summary>
-    private void ApplyParameters(IReadOnlyList<StructureInfo> list, bool quiet = false)
-    {
-        Dictionary<string, double> values = new(StringComparer.OrdinalIgnoreCase);
         List<string> errors = new();
-        foreach ((string key, SW.FrameworkElement el) in _fields.Where(kv => kv.Key.StartsWith("par:", StringComparison.Ordinal)))
+        List<(string Handle, string? Name, Dictionary<string, string?> Rules, Dictionary<string, double> Part, double? Rim, double? Sump)> jobs = new();
+        int i = 1;
+        foreach (StructureInfo s in list)
         {
-            string name = key[4..];
-            if (el is not WC.TextBox box || box.Text.Trim().Length == 0)
-                continue;
-            double? v = Number(key);
-            if (v is null)
+            Dictionary<string, string?> rules = new(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, double> part = new(StringComparer.OrdinalIgnoreCase);
+            double? rim = null, sump = null;
+            foreach ((string target, string text) in edits)
             {
-                errors.Add(name + ": numero invalido");
-                continue;
-            }
-
-            foreach (StructureInfo s in list)
-            {
-                PartParam? p = s.Parameters.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (p is null)
-                    continue;
-                if (!double.IsNaN(p.Min) && !double.IsNaN(p.Max) && (v.Value < p.Min - 1e-9 || v.Value > p.Max + 1e-9))
+                bool isRim = target == HydroRules.Rim, isSump = target == HydroRules.Sump;
+                PartParam? p = isRim || isSump ? null : s.Parameters.FirstOrDefault(x => x.Name.Equals(target, StringComparison.OrdinalIgnoreCase));
+                if (!isRim && !isSump && p is null)
                 {
-                    errors.Add($"{name}: {N(v.Value, 0)} fora da faixa {Range(p)} em {s.Name}");
-                    box.Foreground = WM.Brushes.Red;
+                    errors.Add($"{s.Name}: a peca nao tem {target}");
+                    continue;
+                }
+
+                if (text.StartsWith('='))
+                {
+                    if (!HydroExpr.TryParse(text, out HydroExpr? e, out string err))
+                    {
+                        errors.Add($"{target}: {err}");
+                        continue;
+                    }
+
+                    rules[target] = e!.Text;
+                    continue;
+                }
+
+                double current = isRim ? s.Rim : isSump ? s.Sump : p!.Meters;
+                double? v;
+                try
+                {
+                    v = HydroRuleEngine.EditValue(text, current);
+                }
+                catch (HydroExprException ex)
+                {
+                    errors.Add($"{target}: {ex.Message}");
+                    continue;
+                }
+
+                if (v is null)
+                    continue;
+
+                // Valor digitado vira medida fixa: tira a regra propria, ou fixa por cima da do modelo.
+                if (s.Rules.ContainsKey(target))
+                {
+                    bool fromTemplate = s.OwnRules.Template.Length > 0 && _snap.Templates.TryGetValue(s.OwnRules.Template, out HydroRuleTemplate? tpl) && tpl.Rules.ContainsKey(target);
+                    rules[target] = fromTemplate ? "" : null;
+                }
+
+                if (isRim)
+                {
+                    rim = v;
+                }
+                else if (isSump)
+                {
+                    sump = v;
+                }
+                else
+                {
+                    double catalog = v.Value / p!.Factor;
+                    if (p.IsRange && !double.IsNaN(p.Min) && !double.IsNaN(p.Max) && (catalog < p.Min - 1e-9 || catalog > p.Max + 1e-9))
+                    {
+                        errors.Add($"{s.Name}: {p.Name} = {N(v.Value, 3)} m fora da faixa {RangeM(p)}");
+                        continue;
+                    }
+
+                    if (!p.IsRange && p.List.Count > 0 && !p.List.Any(x => Math.Abs(x - catalog) < 1e-6))
+                    {
+                        errors.Add($"{s.Name}: {p.Name} = {N(v.Value, 3)} m nao esta na lista do catalogo ({RangeM(p)})");
+                        continue;
+                    }
+
+                    if (Math.Abs(catalog - p.Value) > 1e-9)
+                        part[p.Name] = catalog;
                 }
             }
 
-            values[name] = v.Value;
+            string? newName = !batch && name.Length > 0 && name != s.Name ? name
+                : prefix.Length > 0 ? prefix + (i++).ToString("00", CultureInfo.InvariantCulture) : null;
+            jobs.Add((s.Handle, newName, rules, part, rim, sump));
         }
 
         if (errors.Count > 0)
         {
-            Say(string.Join(" | ", errors));
+            Say(string.Join(" | ", errors.Distinct().Take(6)));
             return;
         }
 
-        if (values.Count == 0)
+        HydroStore.HoldMode hold = _settings.HoldMode;
+        RunApply(batch ? $"Lote em {list.Count} estrutura(s)" : "Editar " + list[0].Name, db =>
         {
-            if (!quiet)
-                Say("Preencha ao menos um parametro.");
-            return;
-        }
-
-        // So grava o que mudou em cada estrutura.
-        List<(string Handle, Dictionary<string, double> Values)> jobs = new();
-        foreach (StructureInfo s in list)
-        {
-            Dictionary<string, double> own = new(StringComparer.OrdinalIgnoreCase);
-            foreach ((string name, double v) in values)
+            List<string> ruled = new();
+            foreach ((string h, string? newName, Dictionary<string, string?> rules, Dictionary<string, double> part, double? rim, double? sump) in jobs)
             {
-                PartParam? p = s.Parameters.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
-                if (p is not null && Math.Abs(p.Value - v) > 1e-9)
-                    own[name] = v;
+                if (rules.Count > 0)
+                    HydroRules.Edit(db, new[] { h }, rules, null);
+                if (part.Count > 0)
+                    HydroEditor.SetParameters(db, h, part);
+                if (newName is not null || rim.HasValue || sump.HasValue)
+                    HydroEditor.EditStructure(db, h, newName, rim, sump, hold);
+                if (rules.Values.Any(v => !string.IsNullOrEmpty(v)))
+                    ruled.Add(h);
             }
 
-            if (own.Count > 0)
-                jobs.Add((s.Handle, own));
-        }
-
-        if (jobs.Count == 0)
-        {
-            if (!quiet)
-                Say("Nenhum parametro mudou.");
-            return;
-        }
-
-        RunApply($"Parametros em {jobs.Count} estrutura(s)", db =>
-        {
-            foreach ((string h, Dictionary<string, double> own) in jobs)
-                HydroEditor.SetParameters(db, h, own);
+            if (ruled.Count > 0)
+                ApplyRulesNow(db, ruled, hold);
         });
     }
 
@@ -2148,6 +2371,29 @@ internal sealed partial class HydroPanel : SW.Window
             WC.MenuItem invert = new() { Header = "Inverter marcacao" };
             invert.Click += (_, _) => { foreach (Row r in _rows) r.Checked = !r.Checked; OnChecksChanged(); };
             menu.Items.Add(invert);
+            menu.Items.Add(new WC.Separator());
+        }
+
+        if (_category == "ESTRUTURAS" && Net is NetworkInfo cn)
+        {
+            WC.MenuItem cols = new() { Header = "Colunas da peca" };
+            foreach (IGrouping<string, PartParam> g in cn.Structures.SelectMany(x => x.Parameters).Where(p => p.Editable)
+                .GroupBy(p => p.Name, StringComparer.OrdinalIgnoreCase).OrderBy(g => g.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                string key = g.Key;
+                WC.MenuItem mi = new() { Header = $"{key} - {g.First().Description}", IsCheckable = true, IsChecked = _paramColumns.Contains(key) };
+                mi.Click += (_, _) =>
+                {
+                    if (!_paramColumns.Remove(key))
+                        _paramColumns.Add(key);
+                    FillList();
+                };
+                cols.Items.Add(mi);
+            }
+
+            if (cols.Items.Count == 0)
+                cols.Items.Add(new WC.MenuItem { Header = "(as pecas desta rede nao tem medidas editaveis)", IsEnabled = false });
+            menu.Items.Add(cols);
             menu.Items.Add(new WC.Separator());
         }
 

@@ -51,6 +51,7 @@ public sealed class PluginApplication : IExtensionApplication
         {
             Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Initialize();
             Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Initialize();
+            Civil3D2026Plugin.Modules.Hydro.HydroSync.Initialize();
         }
 
         // Visualizador de secao (C3DSECAO): contorno das caixas de corte em planta e atualizacao da janela.
@@ -88,6 +89,7 @@ public sealed class PluginApplication : IExtensionApplication
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
         Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Terminate();
         Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Terminate();
+        Civil3D2026Plugin.Modules.Hydro.HydroSync.Terminate();
         ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();

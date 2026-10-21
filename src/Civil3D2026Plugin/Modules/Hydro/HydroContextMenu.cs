@@ -72,6 +72,8 @@ internal static class HydroContextMenu
         {
             Add(menu, "Editar fundo...", C3DCommands.Hydro.Fundo);
             Add(menu, "Editar tampa...", C3DCommands.Hydro.Tampa);
+            Add(menu, "Regra de medida (SIL, SIW, tampa, fundo)...", C3DCommands.Hydro.Regra);
+            Add(menu, "Atualizar regras das medidas", C3DCommands.Hydro.Regras);
             Add(menu, "Trocar tipo / tamanho...", C3DCommands.Hydro.Trocar);
             Add(menu, "Mover (tubos acompanham)...", C3DCommands.Hydro.Mover);
             Add(menu, "Remover e emendar os tubos", C3DCommands.Hydro.Remover);

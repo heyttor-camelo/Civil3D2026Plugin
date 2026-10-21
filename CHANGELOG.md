@@ -1,3 +1,16 @@
+## 2.62.0 - HYDRO v0.7.0 (§9): medidas das estruturas como variaveis, em lote e associativas
+
+- Painel, Estruturas > Propriedades: todas as medidas editaveis da peca (PartData) em **metros** (catalogo em mm convertido), com a faixa ou a lista do catalogo no rotulo. Cada campo aceita numero (valor fixo), `+0,10`/`-0,30` (relativo ao atual) ou `=expressao` (**regra associativa**, ex. `=dmax + 2*0,15`); tampa e fundo tambem. Campo com regra aparece em destaque e o rotulo mostra o valor atual e "(modelo)" quando a regra vem do modelo. Numero digitado numa medida com regra vira valor fixo (tira a regra);
+- edicao em lote nos marcados com o mesmo campo (medidas comuns as marcadas): valor, relativo ou `=regra` para todas;
+- regras guardadas na propria estrutura (Extension Dictionary `HYDRO_REGRAS`); variaveis em m: medidas da peca pelo nome (SIL, SIW, AC...), `tampa`, `fundo`, `prof`, `sup`, dos tubos ligados `dmax`, `dmin`, `dext`, `fundo_min`, `fundo_max`, `fundo_saida`, `d_saida`, `ntubos`; funcoes `max`, `min`, `abs`, `raiz`, `arred(x;n)`, `teto(x;passo)`, `piso(x;passo)`, `limitar(x;a;b)`, `se(cond;a;b)`; decimal com virgula, argumentos com `;`. Uma regra pode usar outra (`SIL = SIW`); ciclo vira aviso;
+- **associativo** (`HydroSync`, no molde do `ViarioSync`): mexeu num tubo, na estrutura ou na paleta de propriedades, as estruturas ligadas com regra sao recalculadas no fim do comando (nunca dentro do evento) e refeitas; mudanca de fundo/tampa recalcula as vizinhas (ate 4 voltas); UNDO/REDO nao disparam. Liga/desliga por desenho: botao "Regras automaticas" na barra de Estruturas, `HYREGRASAUTO` ou Calculo > "Regras das estruturas";
+- lista fechada no catalogo (CSBIM sem saneamento): a regra escolhe o menor valor da lista que atende (nunca menor) e avisa quando passa do maior; faixa: fora dela, limita e avisa;
+- **modelos de regra por familia** no desenho (NOD `C3D_HYDRO/MODELOS`): "Salvar as regras como modelo" a partir de uma estrutura e "Modelo de regras" para aplicar a uma ou varias (adotar o modelo tira as regras proprias das mesmas medidas). Mudar o modelo atualiza todas as pecas que o usam no proximo recalculo;
+- lista de Estruturas: coluna **Regras** (modelo e quantas) e **colunas da peca** a escolher (botao direito > Colunas da peca);
+- comandos: `HYREGRA` (clica a estrutura, ve medidas, regras e variaveis, digita a regra de uma medida), `HYREGRAS` (recalcula selecionadas ou todas), `HYREGRASAUTO`; tambem no botao direito das estruturas e no botao "Atualizar regras" do painel;
+- calculo das expressoes em classe pura (`Calc/HydroExpr.cs`: `HydroExpr`, `HydroRuleEngine`) com 37 testes novos;
+- ficou para a proxima rodada: **grips de medida** no desenho (§9.5) e a janela de lancamento (§8).
+
 ## 2.61.1 - Build: alvo net8/net10 escolhido pelo runtime do Civil 3D instalado
 
 - csproj (Acad=2026) le `acdbmgd.runtimeconfig.json` de `AcadDir` e compila para `net10.0-windows` quando o Civil 3D instalado roda em .NET 10 (builds 25.1.179+), senao `net8.0-windows`; `AcadDir` pode vir de fora (`-p:AcadDir=...`) para gerar a net8 numa maquina .NET 10. Antes, no Visual Studio desta maquina, dava CS1705 em todas as DLLs da Autodesk;

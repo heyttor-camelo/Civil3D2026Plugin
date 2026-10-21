@@ -21,6 +21,15 @@ internal static class HydroReader
         CivilDocument cdoc = CivilDocument.GetCivilDocument(db);
 
         Dictionary<AcadDb.ObjectId, StructureInfo> structuresById = new();
+        try
+        {
+            snap.Templates = HydroRules.LoadTemplates(tr, db);
+        }
+        catch (Exception ex)
+        {
+            Infrastructure.PluginLog.Diag("Hydro", "Modelos de regra nao lidos: " + ex.Message);
+        }
+
         AcadDb.ObjectIdCollection networkIds;
         try
         {
@@ -50,6 +59,16 @@ internal static class HydroReader
                 if (tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is not CivilDb.Structure s)
                     continue;
                 StructureInfo si = ReadStructure(s, info.Handle);
+                try
+                {
+                    si.OwnRules = HydroRules.Read(tr, s);
+                    si.Rules = HydroRules.Effective(si.OwnRules, snap.Templates);
+                }
+                catch (Exception ex)
+                {
+                    si.Warnings.Add("Regras HYDRO nao lidas: " + ex.Message);
+                }
+
                 info.Structures.Add(si);
                 info.StructureByHandle[si.Handle] = si;
                 structuresById[sid] = si;
@@ -159,6 +178,7 @@ internal static class HydroReader
             if (!f.IsFromRange && !f.IsFromList)
                 continue;
             double min = double.NaN, max = double.NaN;
+            List<double> vals = new();
             bool range = f.IsFromRange;
             if (range)
             {
@@ -179,7 +199,6 @@ internal static class HydroReader
                 try
                 {
                     using CivilDb.PartDataList l = f.ValueList;
-                    List<double> vals = new();
                     for (int i = 0; i < l.Count; i++)
                         vals.Add(Convert.ToDouble(l[i], CultureInfo.InvariantCulture));
                     if (vals.Count > 0)
@@ -194,7 +213,7 @@ internal static class HydroReader
                 }
             }
 
-            list.Add(new PartParam(f.Name, f.Description, f.ContextString, v, min, max, f.Units, range, f.IsReadOnly));
+            list.Add(new PartParam(f.Name, f.Description, f.ContextString, v, min, max, f.Units, range, f.IsReadOnly) { List = vals.OrderBy(x => x).ToList() });
         }
 
         return list;

@@ -130,6 +130,36 @@ Roteiro completo em `docs/HYDRO-CATALOGO.md` §4: `HYCATALOGO` (listar, Definir,
 Importar para a parts list CSBIM por capitulo), parametros de faixa por estrutura e em lote,
 `HYLANCAR` com as familias CSBIM e o aviso "CATALOGO: ..." no painel.
 
+## 5c. §9: medidas das estruturas como variaveis e regras associativas (20 min)
+
+Use uma rede com PV DNIT (ou qualquer estrutura com medidas de faixa/lista) e tubos de Ø diferentes.
+
+1. `C3DHYDRO` > Estruturas, selecione um PV. Em Propriedades, "Medidas da peca": SIL, SIW, AC...
+   em **metros** (1,200, nao 1200), com a faixa ou a lista no rotulo.
+2. **Valor fixo:** SIW = `1,4` + Enter. A peca muda no desenho na hora; um `U` desfaz.
+   `+0,2` soma ao atual. Valor fora da lista/faixa: mensagem na barra de status, nada gravado.
+3. **Regra:** SIW = `=teto(dmax + 2*0,15; 0,2)` + Enter. O campo fica destacado e o rotulo mostra
+   o valor. SIL = `=siw`. Conferir no desenho as duas medidas.
+4. **Associativo:** troque o maior tubo ligado por um Ø maior (`HYTROCAR` ou Pipe Properties).
+   No fim do comando a linha de comando deve dizer "[HYDRO] regras: 1 estrutura(s) refeita(s)" e o
+   PV deve crescer. `U` uma vez desfaz a troca e a peca volta junto (se nao voltar, anotar).
+5. **Fundo e tampa por regra:** fundo = `=fundo_min - 0,05`; mude o fundo de um tubo ligado
+   (`HYDECLIV` ou grip) e veja o fundo do PV acompanhar. tampa = `=sup + 0,02` com superficie.
+6. **Lote:** marque 3 PVs, AC = `=se(prof > 2; 1; 0,6)` em "Medidas da peca comuns" > Aplicar.
+7. **Modelo:** num PV com regras, "Salvar as regras como modelo" = `PV DNIT padrao` + Enter.
+   Marque outros PVs > "Modelo de regras" > `PV DNIT padrao`: todos recalculam. A coluna
+   **Regras** da lista mostra o modelo. Botao direito na lista > Colunas da peca > SIL e SIW.
+8. **Desligar:** botao "Regras automaticas" (barra de Estruturas) ou `HYREGRASAUTO` > Desligar.
+   Troque um tubo: nada muda. Botao "Atualizar regras" (ou `HYREGRAS`, Enter = todas) aplica.
+9. **No desenho:** botao direito numa estrutura > "Regra de medida..." (`HYREGRA`): lista
+   medidas, regras e variaveis; digite `SIW` e a regra. Regra com erro (`=dmax +`) e recusada.
+10. Catalogo CSBIM **sem saneamento** (listas): a regra pega o menor valor da lista que atende e
+    avisa "passa do maior valor da lista" se nao couber.
+
+O que pode falhar aqui: `Part.PartData` com setter pode nao regenerar o solido (alternativa: trocar
+o tamanho); o `ObjectModified` pode disparar em comandos que so leem (inofensivo: nada muda);
+o UNDO da troca de tubo e do recalculo sao dois passos (o recalculo roda depois do comando).
+
 ## 6. Regressao rapida
 
 - `DRENNUM` e `DRENEXCEL` continuam funcionando pelos botoes de Redes.

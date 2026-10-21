@@ -157,6 +157,15 @@ internal sealed class NetworkInfo
 internal sealed record PartParam(string Name, string Description, string Context, double Value, double Min, double Max, string Units, bool IsRange, bool ReadOnly)
 {
     public bool Editable => !ReadOnly && (IsRange || Max > Min);
+
+    /// <summary>Valores da lista fechada do catalogo (vazio quando e faixa).</summary>
+    public IReadOnlyList<double> List { get; init; } = Array.Empty<double>();
+
+    /// <summary>Fator da unidade do catalogo para metros.</summary>
+    public double Factor => HydroRules.Factor(Units);
+
+    /// <summary>Valor em metros.</summary>
+    public double Meters => Value * Factor;
 }
 
 /// <summary>Estrutura (PV, caixa, boca de lobo) da rede.</summary>
@@ -164,6 +173,10 @@ internal sealed class StructureInfo
 {
     /// <summary>Parametros dimensionais editaveis da peca (faixas do catalogo saneado).</summary>
     public List<PartParam> Parameters { get; } = new();
+
+    /// <summary>Regras guardadas na estrutura (modelo + proprias) e as que valem (modelo sobreposto).</summary>
+    public HydroStructureRules OwnRules { get; set; } = new();
+    public Dictionary<string, string> Rules { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string FamilyGuid { get; set; } = "";
     public string Handle { get; init; } = "";
     public string Name { get; set; } = "";
@@ -283,6 +296,7 @@ internal sealed class HydroSnapshot
     public List<NetworkInfo> Networks { get; } = new();
     public List<CatchmentInfo> Catchments { get; } = new();
     public List<string> Groups { get; } = new();
+    public Dictionary<string, HydroRuleTemplate> Templates { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public string Drawing { get; init; } = "";
 
     public NetworkInfo? Find(string? handle) => Networks.FirstOrDefault(n => string.Equals(n.Handle, handle, StringComparison.OrdinalIgnoreCase));

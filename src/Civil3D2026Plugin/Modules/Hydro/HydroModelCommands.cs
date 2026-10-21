@@ -493,4 +493,153 @@ public sealed class HydroModelCommands
         ed.WriteMessage($"\nCaminho selecionado: {pipes} tubo(s), {ids.Count - pipes} estrutura(s), {N(length, 2)} m. Use o painel (Estruturas/Tubos > marcar selecionados) ou os comandos com a selecao.");
         HydroApply.Preselect = ids.Select(H).ToList();
     });
+
+    // ------------------------------------------------------------------
+    // HYREGRA / HYREGRAS / HYREGRASAUTO (medidas associativas, §9)
+    // ------------------------------------------------------------------
+
+    [CommandMethod(C3DCommands.Hydro.Regra, Flags)]
+    public void Regra() => Run("HYREGRA", (doc, ed) =>
+    {
+        AcadDb.ObjectId? id = Pick<CivilDb.Structure>(ed, "Clique a estrutura: ", out _);
+        if (id is null)
+            return;
+        AcadDb.Database db = doc.Database;
+        Dictionary<string, HydroRuleTemplate> templates = HydroRules.LoadTemplates(db);
+        string name;
+        HydroStructureRules own;
+        Dictionary<string, double> vars;
+        List<PartParam> parameters;
+        using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
+        {
+            CivilDb.Structure s = (CivilDb.Structure)tr.GetObject(id.Value, AcadDb.OpenMode.ForRead);
+            name = s.Name;
+            own = HydroRules.Read(tr, s);
+            vars = HydroRules.Variables(tr, s, out parameters);
+        }
+
+        Dictionary<string, string> eff = HydroRules.Effective(own, templates);
+        ed.WriteMessage($"
+{name}" + (own.Template.Length > 0 ? $" (modelo {own.Template})" : "") + ":");
+        foreach (PartParam p in parameters.Where(p => p.Editable))
+        {
+            string rule = eff.TryGetValue(p.Name, out string? r) ? "  = " + r : "  (fixa)";
+            ed.WriteMessage($"
+  {p.Name,-6} {N(p.Meters)} m  {p.Description}{rule}");
+        }
+
+        ed.WriteMessage($"
+  tampa  {N(vars[HydroRules.Rim])} m" + (eff.TryGetValue(HydroRules.Rim, out string? rr) ? "  = " + rr : "  (fixa)"));
+        ed.WriteMessage($"
+  fundo  {N(vars[HydroRules.Sump])} m" + (eff.TryGetValue(HydroRules.Sump, out string? rf) ? "  = " + rf : "  (fixa)"));
+        ed.WriteMessage("
+  Variaveis: " + string.Join("  ", vars.Where(kv => !parameters.Any(p => Calc.HydroExpr.Normalize(p.Name) == kv.Key))
+            .Select(kv => $"{kv.Key}={N(kv.Value)}")));
+        ed.WriteMessage("
+  " + HydroRules.Help);
+
+        PromptStringOptions to = new("
+Medida (SIL, SIW, tampa, fundo...): ") { AllowSpaces = false };
+        PromptResult tr1 = ed.GetString(to);
+        if (tr1.Status != PromptStatus.OK || tr1.StringResult.Trim().Length == 0)
+            return;
+        string target = tr1.StringResult.Trim();
+        PartParam? param = parameters.FirstOrDefault(p => p.Name.Equals(target, StringComparison.OrdinalIgnoreCase));
+        if (param is not null)
+            target = param.Name;
+        else if (target.Equals(HydroRules.Rim, StringComparison.OrdinalIgnoreCase) || target.Equals(HydroRules.Sump, StringComparison.OrdinalIgnoreCase))
+            target = target.ToLowerInvariant();
+        else
+        {
+            ed.WriteMessage($"
+'{target}' nao e medida desta peca.");
+            return;
+        }
+
+        if (param is not null && !param.Editable)
+        {
+            ed.WriteMessage($"
+{param.Name} e fixa no catalogo (nem faixa nem lista).");
+            return;
+        }
+
+        PromptStringOptions eo = new($"
+Regra para {target} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao modelo): ") { AllowSpaces = true };
+        if (eff.TryGetValue(target, out string? current))
+        {
+            eo.DefaultValue = current;
+            eo.UseDefaultValue = true;
+        }
+
+        PromptResult er = ed.GetString(eo);
+        if (er.Status != PromptStatus.OK)
+            return;
+        string text = er.StringResult.Trim();
+        string? store = text == "." ? null : text;
+        if (store is { Length: > 0 })
+        {
+            Dictionary<string, double> probe = new(vars, StringComparer.Ordinal);
+            try
+            {
+                double v = Calc.HydroExpr.Parse(store).Evaluate(probe);
+                ed.WriteMessage($"
+{target} = {N(v)} m agora.");
+            }
+            catch (Calc.HydroExprException ex)
+            {
+                ed.WriteMessage($"
+Regra recusada: {ex.Message}");
+                return;
+            }
+        }
+
+        string handle = H(id.Value);
+        using (HydroSync.Applying())
+        {
+            HydroRules.Edit(db, new[] { handle }, new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { [target] = store }, null);
+            HydroRules.Report rep = HydroRules.Apply(db, new[] { id.Value }, Settings(db).HoldMode);
+            WriteReport(ed, rep);
+        }
+    });
+
+    [CommandMethod(C3DCommands.Hydro.Regras, Flags)]
+    public void Regras() => Run("HYREGRAS", (doc, ed) =>
+    {
+        AcadDb.Database db = doc.Database;
+        List<AcadDb.ObjectId> ids = PickMany(ed, db, "Selecione as estruturas (Enter = todas do desenho): ", false, true);
+        if (ids.Count == 0)
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+            foreach (AcadDb.ObjectId netId in Autodesk.Civil.ApplicationServices.CivilDocument.GetCivilDocument(db).GetPipeNetworkIds())
+            {
+                if (tr.GetObject(netId, AcadDb.OpenMode.ForRead) is CivilDb.Network net)
+                    ids.AddRange(net.GetStructureIds().Cast<AcadDb.ObjectId>());
+            }
+        }
+
+        using (HydroSync.Applying())
+            WriteReport(ed, HydroRules.Apply(db, ids, Settings(db).HoldMode));
+    });
+
+    [CommandMethod(C3DCommands.Hydro.RegrasAuto, CommandFlags.Modal)]
+    public void RegrasAuto() => Run("HYREGRASAUTO", (doc, ed) =>
+    {
+        bool on = Settings(doc.Database).RulesAuto;
+        string? k = AskKeyword(ed, $"Atualizacao automatica das regras esta {(on ? "LIGADA" : "DESLIGADA")} [Ligar/Desligar]", on ? "Desligar" : "Ligar", "Ligar", "Desligar");
+        if (k is null)
+            return;
+        HydroSync.SetAuto(doc, k == "Ligar");
+    });
+
+    private static void WriteReport(Editor ed, HydroRules.Report rep)
+    {
+        ed.WriteMessage("
+[HYDRO] " + rep.Summary + ".");
+        foreach (string line in rep.Lines.Take(30))
+            ed.WriteMessage("
+  " + line);
+        foreach (string err in rep.Errors.Take(30))
+            ed.WriteMessage("
+  aviso: " + err);
+    }
 }

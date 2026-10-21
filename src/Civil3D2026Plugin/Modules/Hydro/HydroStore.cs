@@ -35,6 +35,9 @@ internal sealed class HydroSettings
     public string LaunchStructure { get; set; } = "";
     public string LaunchPipe { get; set; } = "";
 
+    /// <summary>Regras das estruturas recalculadas no fim de cada comando (como o "Auto" do Viario).</summary>
+    public bool RulesAuto { get; set; } = true;
+
     public IdfEquation Idf => new(IdfName == "custom" ? "personalizada" : IdfName, IdfK, IdfA, IdfB, IdfC);
 
     public Criteria Criteria => new(MaxDepthRatio, MinVelocity, MaxVelocity, MinCover, MinSlope, MaxSlope, 0, MaxDrop, MinTc);
@@ -162,6 +165,7 @@ internal static class HydroStore
         yield return ("segurar", "Ao mudar o fundo da estrutura, os tubos seguram", s.HoldMode == HoldMode.OutraPonta ? "a outra ponta (muda declividade)" : "a declividade (tubo inteiro sobe/desce)");
         yield return ("lancar.estrutura", "Lancamento: estrutura padrao (Familia | Tamanho)", s.LaunchStructure);
         yield return ("lancar.tubo", "Lancamento: tubo padrao (Familia | Tamanho)", s.LaunchPipe);
+        yield return ("regras.auto", "Regras das estruturas: atualizar no fim de cada comando", s.RulesAuto ? "sim" : "nao");
     }
 
     /// <summary>Le os campos editados no painel (vazio = mantem).</summary>
@@ -225,6 +229,7 @@ internal static class HydroStore
                 break;
             case "lancar.estrutura": s.LaunchStructure = value.Trim(); break;
             case "lancar.tubo": s.LaunchPipe = value.Trim(); break;
+            case "regras.auto": s.RulesAuto = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
         }
     }
 
@@ -237,7 +242,8 @@ internal static class HydroStore
         "diametros=" + string.Join(",", s.Diameters.Select(d => S(d * 1000, 0))),
         "segurar=" + (s.HoldMode == HoldMode.Declividade ? "1" : "0"),
         "lancar.estrutura=" + s.LaunchStructure,
-        "lancar.tubo=" + s.LaunchPipe
+        "lancar.tubo=" + s.LaunchPipe,
+        "regras.auto=" + (s.RulesAuto ? "1" : "0")
     };
 
     // ---------------- NOD ----------------

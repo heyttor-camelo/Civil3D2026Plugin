@@ -65,6 +65,10 @@ public static class CommandNames
         public const string Lancar = "HYLANCAR";
 
         public const string Catalogo = "HYCATALOGO";
+
+        public const string Regras = "HYREGRAS";
+        public const string Regra = "HYREGRA";
+        public const string RegrasAuto = "HYREGRASAUTO";
     }
 
     public static class Qto
