@@ -8,6 +8,20 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-10-21 — CAMELO (Civil 3D R25.1.60, .NET 8 e 10)
+
+- `git pull` do master (c8990b8 → 9ef223d). `dotnet build -c Release` OK: 0 erros, 9 avisos de
+  nulabilidade (`RaisedCrossingCommands.cs`, `ViarioCivilPlan.cs`, `ViarioCivil.cs`); DLL em
+  `NETLOAD\Civil3D2026Plugin.dll`. `Hydro.Calc.Tests`: 19/19.
+- `docs/HYDRO-PARTDATA.md`: medidas que o PartData expõe por família (nome, descrição, contexto,
+  unidade, faixa/lista) do CSBIM e do Metric Structures instalados aqui, gerado por
+  `tools/Export-PartData.ps1` (novo, só leitura).
+- Nesta máquina o **FDX Metric Structures não está instalado** e o CSBIM em `Pipes Catalog` é o
+  original, **não saneado** (com `.bak`/`.dwl` e listas). A pasta do Drive com o FDX não está
+  sincronizada aqui.
+
+---
+
 ## 2026-10-21 — trabalho
 
 ### Plugin / HYDRO
