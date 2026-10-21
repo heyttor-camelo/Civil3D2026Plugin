@@ -204,6 +204,10 @@ HYMOVER / HYINSERIR / HYREMOVER -> mover estrutura, inserir estrutura no tubo, r
 HYCAMINHO             -> seleciona o caminho entre duas estruturas
 HYBACIA / HYLIGARBACIA -> bacia por polilinha fechada; ligar bacia a estrutura de engolimento
 HYTC                  -> tempo de concentracao (Kirpich, Ven Te Chow, Dooge, Kerby) com minimo de projeto
+HYCALCULAR            -> racional acumulado + Manning; grava FlowRate, HGL/EGL e o Property Set HYDRO
+HYVERIFICAR           -> violacoes (lamina, V, recobrimento, degrau, declividade, sentido) e abre o painel
+HYDIMENSIONAR         -> menor diametro comercial que atende, com previa; aplica e recalcula
+HYTABELA              -> tabela AutoCAD com a planilha de dimensionamento
 ```
 
 Botao direito sobre tubo/estrutura abre o menu **HYDRO** com esses comandos; a dica no cursor mostra

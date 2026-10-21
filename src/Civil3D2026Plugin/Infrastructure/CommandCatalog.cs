@@ -115,6 +115,18 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Hydro",
+                "Calculo e verificacao",
+                C3DVersions.Hydro,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Hydro.Calcular, "Calcular a rede", "Metodo racional acumulado (m3/s) + Manning em cada trecho; grava vazao, HGL/EGL nativos e o Property Set HYDRO."),
+                    new CommandDefinition(C3DCommands.Hydro.Verificar, "Verificar", "Lamina, velocidade, recobrimento, degrau, declividade, sentido e fundo das estruturas contra os criterios; abre o painel na Verificacao."),
+                    new CommandDefinition(C3DCommands.Hydro.Dimensionar, "Dimensionar", "Menor diametro comercial que atende por trecho, com previa; aplica (aumentar ou todos) e recalcula."),
+                    new CommandDefinition(C3DCommands.Hydro.Tabela, "Tabela no desenho", "Insere uma tabela AutoCAD com a planilha de dimensionamento (nao associativa).")
+                }),
+
+            new(
                 "Drenagem",
                 "Excel de drenagem",
                 C3DVersions.DrenExcel,
