@@ -28,6 +28,43 @@ public static class CommandNames
         public const string NumHelp = "DRENNUMHELP";
     }
 
+    /// <summary>HYDRO: apoio a Pipe Network (painel C3DHYDRO e comandos HY* de edicao no model).</summary>
+    public static class Hydro
+    {
+        public const string Painel = "C3DHYDRO";
+        public const string Redes = "C3DHYDROREDES";
+        public const string Estruturas = "C3DHYDROESTRUTURAS";
+        public const string Tubos = "C3DHYDROTUBOS";
+        public const string Bacias = "C3DHYDROBACIAS";
+        public const string Calculo = "C3DHYDROCALCULO";
+        public const string Verificacao = "C3DHYDROVERIFICAR";
+        public const string Saidas = "C3DHYDROSAIDAS";
+        public const string Aplicar = "HYAPLICAR";
+
+        public const string Fundo = "HYFUNDO";
+        public const string Decliv = "HYDECLIV";
+        public const string Tampa = "HYTAMPA";
+        public const string Trocar = "HYTROCAR";
+        public const string Igualar = "HYIGUALAR";
+        public const string Conectar = "HYCONECTAR";
+        public const string Mover = "HYMOVER";
+        public const string Inserir = "HYINSERIR";
+        public const string Remover = "HYREMOVER";
+        public const string Caminho = "HYCAMINHO";
+        public const string Inverter = "HYINVERTER";
+
+        public const string Bacia = "HYBACIA";
+        public const string LigarBacia = "HYLIGARBACIA";
+        public const string Tc = "HYTC";
+
+        public const string Calcular = "HYCALCULAR";
+        public const string Verificar = "HYVERIFICAR";
+        public const string Dimensionar = "HYDIMENSIONAR";
+        public const string Tabela = "HYTABELA";
+
+        public const string Lancar = "HYLANCAR";
+    }
+
     public static class Qto
     {
         public const string Estudo = "QTOESTUDO";

@@ -214,6 +214,7 @@ internal static class IconArt
     {
         ["Geral"] = (WM.Color.FromRgb(61, 74, 92), WM.Color.FromRgb(39, 49, 64), WM.Color.FromRgb(169, 196, 230)),
         ["Drenagem"] = (WM.Color.FromRgb(35, 92, 158), WM.Color.FromRgb(23, 62, 110), WM.Color.FromRgb(143, 208, 255)),
+        ["Hydro"] = (WM.Color.FromRgb(22, 104, 128), WM.Color.FromRgb(14, 68, 86), WM.Color.FromRgb(120, 220, 235)),
         ["QTO"] = (WM.Color.FromRgb(34, 112, 74), WM.Color.FromRgb(21, 74, 49), WM.Color.FromRgb(140, 235, 179)),
         ["Corridor"] = (WM.Color.FromRgb(58, 71, 150), WM.Color.FromRgb(37, 47, 104), WM.Color.FromRgb(174, 187, 255)),
         ["Quadros"] = (WM.Color.FromRgb(142, 69, 50), WM.Color.FromRgb(95, 44, 31), WM.Color.FromRgb(255, 184, 148)),

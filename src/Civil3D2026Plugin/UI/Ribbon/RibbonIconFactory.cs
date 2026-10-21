@@ -70,10 +70,15 @@ internal static class RibbonIconFactory
         // Pictograma (menor e puxado para cima/esquerda quando tem selo).
         double escala = selo is null ? 1.0 : 0.8, d = selo is null ? 0 : -0.7;
         string viario = Civil3D2026Plugin.Modules.Viario.ViarioIcons.KeyForCommand(commandName);
-        if (category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viario))
+        string hydro = Civil3D2026Plugin.Modules.Hydro.HydroIcons.KeyForCommand(commandName);
+        bool usaViario = category == "Viario" && Civil3D2026Plugin.Modules.Viario.ViarioIcons.Has(viario);
+        bool usaHydro = category == "Hydro" && Civil3D2026Plugin.Modules.Hydro.HydroIcons.Has(hydro);
+        if (usaViario || usaHydro)
         {
-            // Pictogramas da rede viaria (grade 32), com o branco trocado pelo tom da linha no tema claro.
-            WM.Drawing figura = Civil3D2026Plugin.Modules.Viario.ViarioIcons.Image(viario, plate: false, branco: escuro ? null : linha).Drawing;
+            // Pictogramas da rede viaria e do HYDRO (grade 32), com o branco trocado pelo tom da linha no tema claro.
+            WM.Drawing figura = usaViario
+                ? Civil3D2026Plugin.Modules.Viario.ViarioIcons.Image(viario, plate: false, branco: escuro ? null : linha).Drawing
+                : Civil3D2026Plugin.Modules.Hydro.HydroIcons.Image(hydro, plate: false, branco: escuro ? null : linha).Drawing;
             var vt = new WM.TransformGroup();
             vt.Children.Add(new WM.TranslateTransform(-16, -16));
             vt.Children.Add(new WM.ScaleTransform(escala * 0.5, escala * 0.5));

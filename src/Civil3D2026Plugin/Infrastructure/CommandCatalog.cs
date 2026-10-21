@@ -67,6 +67,24 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Hydro",
+                "Apoio a Pipe Network",
+                C3DVersions.Hydro,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Hydro.Painel, "Painel HYDRO",
+                        "Janela de apoio a Pipe Network: redes, planilha de estruturas e tubos (montante > jusante) com edicao em lote, bacias, calculo racional + Manning, verificacao e saidas."),
+                    new CommandDefinition(C3DCommands.Hydro.Redes, "Redes", "Abre o painel na categoria Redes (todas as Pipe Networks do desenho, planta esquematica)."),
+                    new CommandDefinition(C3DCommands.Hydro.Estruturas, "Estruturas", "Abre o painel na planilha de estruturas da rede ativa (tampa, fundo, profundidade, tubos, bacias)."),
+                    new CommandDefinition(C3DCommands.Hydro.Tubos, "Tubos", "Abre o painel na planilha de tubos (de > para, diametro, declividade, fundos, recobrimento, Q, lamina, V)."),
+                    new CommandDefinition(C3DCommands.Hydro.Bacias, "Bacias", "Abre o painel nas bacias (catchments): area, C, Tc e estrutura de destino."),
+                    new CommandDefinition(C3DCommands.Hydro.Calculo, "Calculo", "Abre o painel nos parametros de calculo: IDF, periodo de retorno, Tc minimo e criterios."),
+                    new CommandDefinition(C3DCommands.Hydro.Verificacao, "Verificacao", "Abre o painel nas violacoes (lamina, velocidade, recobrimento, degrau, declividade, sentido)."),
+                    new CommandDefinition(C3DCommands.Hydro.Saidas, "Saidas", "Abre o painel na planilha de dimensionamento e exportacoes."),
+                    new CommandDefinition(C3DCommands.Hydro.Aplicar, "Aplicar edicoes do painel", "Comando interno: executa as edicoes pedidas pelo painel (um UNDO por operacao).", ShowInRibbon: false)
+                }),
+
+            new(
                 "Drenagem",
                 "Excel de drenagem",
                 C3DVersions.DrenExcel,

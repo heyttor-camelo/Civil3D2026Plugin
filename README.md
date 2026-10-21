@@ -185,6 +185,25 @@ Log comum a todos os modulos: comandos do plugin (inicio, fim, falha e tempo), a
 
 Operacoes longas mostram uma janela de progresso (etapa, tempo, estimativa) que continua desenhando enquanto o AutoCAD trabalha; **Cancelar** para depois da etapa atual e o que ja foi feito fica.
 
+## HYDRO - apoio a Pipe Network (C3DHYDRO v0.1.0)
+
+Modulo que deixa a Pipe Network nativa facil de editar, ligar, calcular e verificar; os objetos
+continuam sendo os do Civil (Network, Pipe, Structure, Catchment). Plano em `docs/HYDRO-PLANO.md`,
+roteiro de teste em `docs/HYDRO-TESTE.md`.
+
+```text
+C3DHYDRO              -> painel (Redes, Estruturas, Tubos, Bacias, Calculo, Verificacao, Saidas)
+C3DHYDROREDES ...     -> abre o painel direto numa categoria (C3DHYDROESTRUTURAS, C3DHYDROTUBOS,
+                         C3DHYDROBACIAS, C3DHYDROCALCULO, C3DHYDROVERIFICAR, C3DHYDROSAIDAS)
+HYAPLICAR             -> interno: executa as edicoes pedidas pelo painel (um UNDO por operacao)
+```
+
+- O painel le o desenho sem travar o documento e so escreve por comandos.
+- Vazoes sempre em **m3/s**; areas das bacias em ha nas planilhas; fundos = geratriz inferior
+  interna (eixo da ponta do tubo - InnerHeight/2, como no DRENEXCEL).
+- Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
+- Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
+
 ## Rede viaria (C3DVIARIO v0.9.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
