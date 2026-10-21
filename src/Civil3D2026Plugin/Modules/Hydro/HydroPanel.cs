@@ -1816,10 +1816,11 @@ internal sealed partial class HydroPanel : SW.Window
         string t = text.Trim().Replace(',', '.');
         if (t.Length == 0)
             return null;
-        bool rel = t.StartsWith('+') || (t.StartsWith('-') && t.Length > 1 && t.Contains('.') == false ? false : t.StartsWith('+') || t.StartsWith("-"));
+        // Com sinal na frente o valor e relativo ao atual (+0.10 sobe, -0.30 desce); sem sinal e absoluto.
+        bool rel = t[0] == '+' || t[0] == '-';
         if (!double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double v))
             return null;
-        return rel && (t[0] == '+' || t[0] == '-') ? current + v : v;
+        return rel ? current + v : v;
     }
 
     private void SaveSettings()
