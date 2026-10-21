@@ -46,6 +46,13 @@ public sealed class PluginApplication : IExtensionApplication
         if (ModuleSettings.IsCategoryEnabled("Viario"))
             ViarioSync.Initialize();
 
+        // HYDRO (C3DHYDRO): dica no cursor e menu de contexto em tubos e estruturas da Pipe Network.
+        if (ModuleSettings.IsCategoryEnabled("Hydro"))
+        {
+            Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Initialize();
+            Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Initialize();
+        }
+
         // Visualizador de secao (C3DSECAO): contorno das caixas de corte em planta e atualizacao da janela.
         if (ModuleSettings.IsCommandEnabled(C3DCommands.Secao.Painel))
             Civil3D2026Plugin.Modules.Secao.SecaoCommands.Initialize();
@@ -79,6 +86,8 @@ public sealed class PluginApplication : IExtensionApplication
         Civil3D2026Plugin.Modules.Layouts.LayoutViewportPower.Terminate();
         Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Terminate();
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
+        Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Terminate();
+        Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Terminate();
         ViarioSync.Terminate();
         PlanVisibilityManager.Terminate();
         SolidLinkTooltip.Terminate();

@@ -85,6 +85,25 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Hydro",
+                "Edicao no model",
+                C3DVersions.Hydro,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Hydro.Fundo, "Fundo da estrutura", "Clique a estrutura e digite o fundo (ou +/-dz); os tubos ligados seguram a outra ponta ou a declividade."),
+                    new CommandDefinition(C3DCommands.Hydro.Tampa, "Tampa", "Tampa das estruturas selecionadas pela superficie, por valor ou rebaixando X."),
+                    new CommandDefinition(C3DCommands.Hydro.Decliv, "Declividade do tubo", "Clique o tubo e digite a declividade (%), segurando montante ou jusante."),
+                    new CommandDefinition(C3DCommands.Hydro.Trocar, "Trocar familia / tamanho", "Troca a familia e o tamanho de tubos ou estruturas pela parts list da rede, mantendo as conexoes e os fundos."),
+                    new CommandDefinition(C3DCommands.Hydro.Igualar, "Igualar propriedades", "Copia declividade/profundidade, familia e tamanho ou rule set de uma peca para as outras."),
+                    new CommandDefinition(C3DCommands.Hydro.Conectar, "Conectar / desconectar", "Liga a ponta clicada do tubo a uma estrutura (Enter desliga)."),
+                    new CommandDefinition(C3DCommands.Hydro.Inverter, "Inverter sentido", "Inverte o sentido do fluxo dos tubos selecionados."),
+                    new CommandDefinition(C3DCommands.Hydro.Mover, "Mover estrutura", "Arrasta a estrutura; os tubos ligados acompanham mantendo a declividade ou os fundos."),
+                    new CommandDefinition(C3DCommands.Hydro.Inserir, "Inserir estrutura no tubo", "Divide o tubo no ponto clicado com uma estrutura nova (declividade mantida)."),
+                    new CommandDefinition(C3DCommands.Hydro.Remover, "Remover estrutura", "Remove a estrutura e emenda os dois tubos."),
+                    new CommandDefinition(C3DCommands.Hydro.Caminho, "Caminho entre estruturas", "Seleciona o caminho mais curto entre duas estruturas (para perfil, calculo ou edicao em lote).")
+                }),
+
+            new(
                 "Drenagem",
                 "Excel de drenagem",
                 C3DVersions.DrenExcel,

@@ -196,7 +196,16 @@ C3DHYDRO              -> painel (Redes, Estruturas, Tubos, Bacias, Calculo, Veri
 C3DHYDROREDES ...     -> abre o painel direto numa categoria (C3DHYDROESTRUTURAS, C3DHYDROTUBOS,
                          C3DHYDROBACIAS, C3DHYDROCALCULO, C3DHYDROVERIFICAR, C3DHYDROSAIDAS)
 HYAPLICAR             -> interno: executa as edicoes pedidas pelo painel (um UNDO por operacao)
+HYFUNDO / HYTAMPA     -> fundo (tubos seguram a outra ponta ou a declividade) e tampa (superficie, valor, rebaixar)
+HYDECLIV              -> declividade do tubo segurando montante ou jusante
+HYTROCAR / HYIGUALAR  -> familia/tamanho pela parts list (conexoes mantidas); match properties de rede
+HYCONECTAR / HYINVERTER -> ligar/desligar ponta do tubo; inverter sentido
+HYMOVER / HYINSERIR / HYREMOVER -> mover estrutura, inserir estrutura no tubo, remover e emendar
+HYCAMINHO             -> seleciona o caminho entre duas estruturas
 ```
+
+Botao direito sobre tubo/estrutura abre o menu **HYDRO** com esses comandos; a dica no cursor mostra
+nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 
 - O painel le o desenho sem travar o documento e so escreve por comandos.
 - Vazoes sempre em **m3/s**; areas das bacias em ha nas planilhas; fundos = geratriz inferior

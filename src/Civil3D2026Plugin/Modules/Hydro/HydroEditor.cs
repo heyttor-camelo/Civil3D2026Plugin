@@ -171,6 +171,242 @@ internal static class HydroEditor
         tr.Commit();
     }
 
+    /// <summary>Declividade (m/m, positiva descendo) segurando a ponta de montante ou a de jusante.</summary>
+    public static void SetSlope(AcadDb.Database db, string handle, double slope, bool holdUpstream)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Pipe? p = Open<CivilDb.Pipe>(tr, db, handle, AcadDb.OpenMode.ForWrite);
+        if (p is null)
+            throw new InvalidOperationException("Tubo nao encontrado.");
+        bool startUp = p.FlowDirection != CivilDb.FlowDirectionType.EndToStart;
+        double s = Math.Abs(slope);
+        bool holdStart = startUp == holdUpstream;
+        // Segurando o inicio, a queda e no sentido start->end (negativa) quando o inicio e montante.
+        if (holdStart)
+            p.SetSlopeHoldStart(startUp ? -s : s);
+        else
+            p.SetSlopeHoldEnd(startUp ? -s : s);
+        tr.Commit();
+    }
+
+    /// <summary>"Match properties" de rede: Tudo, Declividade/Profundidade, Familia ou Regras.</summary>
+    public static int CopyProperties(AcadDb.Database db, string sourceHandle, IEnumerable<string> targets, string what)
+    {
+        int n = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Part? src = Open<CivilDb.Part>(tr, db, sourceHandle, AcadDb.OpenMode.ForRead);
+        if (src is null)
+            throw new InvalidOperationException("Peca de origem nao encontrada.");
+        bool all = what == "Tudo";
+        AcadDb.ObjectId sizeId = AcadDb.ObjectId.Null;
+        if (all || what == "Familia")
+            sizeId = SizeIdOf(tr, src);
+
+        foreach (string h in targets)
+        {
+            CivilDb.Part? dst = Open<CivilDb.Part>(tr, db, h, AcadDb.OpenMode.ForWrite);
+            if (dst is null || dst.GetType() != src.GetType())
+                continue;
+            if ((all || what == "Familia") && !sizeId.IsNull && (dst.PartFamilyId != src.PartFamilyId || SizeIdOf(tr, dst) != sizeId))
+            {
+                double zUp = 0, zDown = 0;
+                if (dst is CivilDb.Pipe pd)
+                {
+                    zUp = pd.StartPoint.Z - (pd.InnerHeight / 2.0);
+                    zDown = pd.EndPoint.Z - (pd.InnerHeight / 2.0);
+                }
+
+                dst.SwapPartFamilyAndSize(src.PartFamilyId, sizeId);
+                if (dst is CivilDb.Pipe pd2)
+                {
+                    double half = pd2.InnerHeight / 2.0;
+                    pd2.StartPoint = new Point3d(pd2.StartPoint.X, pd2.StartPoint.Y, zUp + half);
+                    pd2.EndPoint = new Point3d(pd2.EndPoint.X, pd2.EndPoint.Y, zDown + half);
+                }
+            }
+
+            if (all || what == "Regras")
+            {
+                if (!src.RuleSetStyleId.IsNull)
+                    dst.RuleSetStyleId = src.RuleSetStyleId;
+            }
+
+            if (src is CivilDb.Pipe sp && dst is CivilDb.Pipe dp && (all || what == "Declividade"))
+            {
+                bool srcStartUp = sp.FlowDirection != CivilDb.FlowDirectionType.EndToStart;
+                double srcSlope = sp.Length2D > 1e-9 ? ((srcStartUp ? sp.StartPoint.Z : sp.EndPoint.Z) - (srcStartUp ? sp.EndPoint.Z : sp.StartPoint.Z)) / sp.Length2D : 0;
+                bool dstStartUp = dp.FlowDirection != CivilDb.FlowDirectionType.EndToStart;
+                if (dstStartUp)
+                    dp.SetSlopeHoldStart(-Math.Abs(srcSlope));
+                else
+                    dp.SetSlopeHoldEnd(-Math.Abs(srcSlope));
+            }
+
+            if (src is CivilDb.Structure ss && dst is CivilDb.Structure ds && (all || what == "Profundidade"))
+            {
+                double depth = ss.RimElevation - ss.SumpElevation;
+                if (ds.ControlSumpBy != CivilDb.StructureControlSumpType.ByElevation)
+                    ds.ControlSumpBy = CivilDb.StructureControlSumpType.ByElevation;
+                ds.SumpElevation = ds.RimElevation - depth;
+            }
+
+            n++;
+        }
+
+        tr.Commit();
+        return n;
+    }
+
+    /// <summary>Id do PartSize atual da peca (pelo nome do tamanho dentro da familia).</summary>
+    private static AcadDb.ObjectId SizeIdOf(AcadDb.Transaction tr, CivilDb.Part part)
+    {
+        try
+        {
+            if (tr.GetObject(part.PartFamilyId, AcadDb.OpenMode.ForRead, false) is not CivilDb.Styles.PartFamily fam)
+                return AcadDb.ObjectId.Null;
+            string sizeName = part.PartSizeName;
+            for (int i = 0; i < fam.PartSizeCount; i++)
+            {
+                AcadDb.ObjectId sid = fam[i];
+                if (tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize size)
+                {
+                    try
+                    {
+                        if (string.Equals(size.SizeDataRecord.GetDataFieldBy("SizeName").Value?.ToString(), sizeName, StringComparison.OrdinalIgnoreCase))
+                            return sid;
+                    }
+                    catch
+                    {
+                        // Sem campo de nome: segue a comparacao pelo diametro.
+                    }
+                }
+            }
+
+            // Fallback: o tamanho com o mesmo diametro/largura interna.
+            double inner = part is CivilDb.Pipe pp ? pp.InnerDiameterOrWidth : part is CivilDb.Structure st ? st.InnerDiameterOrWidth : 0;
+            CivilDb.PartContextType ctx = part is CivilDb.Pipe ? CivilDb.PartContextType.PipeInnerDiameter : CivilDb.PartContextType.StructInnerDiameter;
+            for (int i = 0; i < fam.PartSizeCount; i++)
+            {
+                AcadDb.ObjectId sid = fam[i];
+                if (tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize size)
+                {
+                    try
+                    {
+                        if (size.SizeDataRecord.GetDataFieldBy(ctx).Value is double d && Math.Abs(d - inner) < 1e-6)
+                            return sid;
+                    }
+                    catch
+                    {
+                        // Contexto ausente.
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Diag(Module, "Tamanho atual nao identificado: " + ex.Message);
+        }
+
+        return AcadDb.ObjectId.Null;
+    }
+
+    /// <summary>Insere uma estrutura no meio do tubo (Network.BreakPipe): divide o tubo, mantem a declividade.</summary>
+    public static (string Structure, string Pipe) InsertStructure(AcadDb.Database db, string pipeHandle, Point3d point, AcadDb.ObjectId familyId, AcadDb.ObjectId sizeId)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Pipe? p = Open<CivilDb.Pipe>(tr, db, pipeHandle, AcadDb.OpenMode.ForWrite);
+        if (p is null)
+            throw new InvalidOperationException("Tubo nao encontrado.");
+        Point3d on = ((AcadDb.Curve)p).GetClosestPointTo(new Point3d(point.X, point.Y, p.StartPoint.Z), false);
+        CivilDb.Network net = (CivilDb.Network)tr.GetObject(p.NetworkId, AcadDb.OpenMode.ForWrite, false);
+        AcadDb.ObjectId newStructure = AcadDb.ObjectId.Null;
+        net.AddStructure(familyId, sizeId, new Point3d(on.X, on.Y, 0), 0, ref newStructure, false);
+        AcadDb.ObjectId newPipe = AcadDb.ObjectId.Null;
+        CivilDb.FlowDirectionMethodType method = p.FlowDirectionMethod;
+        net.BreakPipe(p.ObjectId, on, newStructure, ref newPipe);
+        if (!newPipe.IsNull && tr.GetObject(newPipe, AcadDb.OpenMode.ForWrite, false) is CivilDb.Pipe np)
+            np.FlowDirectionMethod = method;
+        if (tr.GetObject(newStructure, AcadDb.OpenMode.ForWrite, false) is CivilDb.Structure s)
+        {
+            // Fundo no menor fundo dos tubos ligados; tampa pela superficie se houver, senao a do tubo + 1,5 m.
+            double lowest = double.MaxValue;
+            for (int i = 0; i < s.ConnectedPipesCount; i++)
+            {
+                if (tr.GetObject(s.get_ConnectedPipe(i), AcadDb.OpenMode.ForRead, false) is CivilDb.Pipe cp)
+                    lowest = Math.Min(lowest, Math.Min(cp.StartPoint.Z, cp.EndPoint.Z) - (cp.InnerHeight / 2.0));
+            }
+
+            if (lowest < double.MaxValue)
+            {
+                s.ControlSumpBy = CivilDb.StructureControlSumpType.ByElevation;
+                s.SumpElevation = lowest;
+                double surf = s.SurfaceElevationAtInsertionPoint;
+                if (double.IsNaN(surf) || Math.Abs(surf) > 1e6 || surf < lowest + 0.3)
+                    s.RimElevation = lowest + 1.5;
+            }
+        }
+
+        string sh = newStructure.Handle.ToString(), ph = newPipe.IsNull ? "" : newPipe.Handle.ToString();
+        tr.Commit();
+        return (sh, ph);
+    }
+
+    /// <summary>Remove a estrutura e emenda os dois tubos (o de entrada e esticado ate a estrutura seguinte).</summary>
+    public static string RemoveStructure(AcadDb.Database db, string handle)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Structure? s = Open<CivilDb.Structure>(tr, db, handle, AcadDb.OpenMode.ForWrite);
+        if (s is null)
+            throw new InvalidOperationException("Estrutura nao encontrada.");
+        if (s.ConnectedPipesCount != 2)
+            return $"{s.Name} tem {s.ConnectedPipesCount} tubo(s) ligado(s): so remove com exatamente 2 (um entrando e um saindo).";
+
+        CivilDb.Pipe a = (CivilDb.Pipe)tr.GetObject(s.get_ConnectedPipe(0), AcadDb.OpenMode.ForWrite, false);
+        CivilDb.Pipe b = (CivilDb.Pipe)tr.GetObject(s.get_ConnectedPipe(1), AcadDb.OpenMode.ForWrite, false);
+        // Mantem o tubo que entra (jusante dele e a estrutura); o outro e apagado.
+        bool aIn = (a.FlowDirection == CivilDb.FlowDirectionType.StartToEnd && a.EndStructureId == s.ObjectId) ||
+                   (a.FlowDirection == CivilDb.FlowDirectionType.EndToStart && a.StartStructureId == s.ObjectId);
+        CivilDb.Pipe keep = aIn ? a : b, drop = aIn ? b : a;
+        bool keepEndHere = keep.EndStructureId == s.ObjectId;
+        AcadDb.ObjectId far = drop.StartStructureId == s.ObjectId ? drop.EndStructureId : drop.StartStructureId;
+        Point3d farPoint = drop.StartStructureId == s.ObjectId ? drop.EndPoint : drop.StartPoint;
+        string name = s.Name, dropName = drop.Name, keepName = keep.Name;
+
+        CivilDb.ConnectorPositionType pos = keepEndHere ? CivilDb.ConnectorPositionType.End : CivilDb.ConnectorPositionType.Start;
+        keep.Disconnect(pos);
+        drop.Disconnect(CivilDb.ConnectorPositionType.Start);
+        drop.Disconnect(CivilDb.ConnectorPositionType.End);
+        if (keepEndHere)
+            keep.EndPoint = farPoint;
+        else
+            keep.StartPoint = farPoint;
+        if (!far.IsNull)
+            keep.ConnectToStructure(pos, far, true);
+        drop.Erase();
+        s.Erase();
+        tr.Commit();
+        return $"{name} removida; {dropName} apagado e {keepName} esticado ate a estrutura seguinte.";
+    }
+
+    /// <summary>Caminho mais curto entre duas estruturas (Network.FindShortestNetworkPath).</summary>
+    public static (List<AcadDb.ObjectId> Ids, double Length) ShortestPath(AcadDb.Database db, AcadDb.ObjectId a, AcadDb.ObjectId b)
+    {
+        double len = 0;
+        List<AcadDb.ObjectId> ids = new();
+        try
+        {
+            AcadDb.ObjectIdCollection col = CivilDb.Network.FindShortestNetworkPath(a, b, ref len);
+            foreach (AcadDb.ObjectId id in col)
+                ids.Add(id);
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Aviso(Module, "FindShortestNetworkPath: " + ex.Message);
+        }
+
+        return (ids, len);
+    }
+
     private static void SetEndZ(CivilDb.Pipe p, bool start, double z)
     {
         if (start)
