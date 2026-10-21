@@ -137,3 +137,61 @@ O HYDRO não repete isso: a planilha do painel serve ao lote e ao cálculo, e o 
   DeviceModeler. Nunca refazer geometria dentro do overrule: enfileirar e aplicar no fim do comando.
 - **Realce no desenho** do que está selecionado no painel (e vice-versa), com setas do fluxo
   temporárias (transient graphics) ao passar o mouse sobre a rede.
+
+## 8. Lançamento por janela (pedido do usuário, 21/10 noite)
+
+Teste do usuário: o `HYLANCAR` por linha de comando é "horrível"; a barra **Network Layout Tools**
+do Civil e a do SOLIDOS são muito melhores. Refazer o lançamento como **janela de lançamento**
+(barra flutuante não modal, compacta, estilo Viário), que fica aberta enquanto se desenha:
+
+- Combos: **Rede** (ou nova), **Estrutura** (família → tamanho, com miniatura da peça e as medidas
+  principais), **Tubo** (família → Ø), **Superfície**, **Alignment** (opcional), **Regras**.
+- Campos: profundidade/fundo inicial, declividade (%), modo do fundo (pela declividade / pela
+  profundidade mínima / pelo tubo de chegada), queda nas estruturas, rotação (alinhada ao tubo / fixa).
+- Botões de modo (ícones, como na barra nativa): **Estruturas e tubos**, **Só tubos**, **Só
+  estruturas**, **Inverter sentido**, **Desfazer último**, **Ligar a existente** (clique numa
+  estrutura/tubo existente conecta em vez de criar).
+- Durante o desenho: jig com prévia (estrutura e tubo com o Ø e a declividade escolhidos, texto com
+  comprimento, declividade e fundo), snap nas estruturas existentes, e **mudar qualquer combo/campo
+  na janela vale já para o próximo clique**, sem reiniciar o comando (a janela e o jig conversam
+  por um estado compartilhado; o jig relê a cada `Sampler`).
+- Enter/botão direito termina o trecho; a janela continua aberta para o próximo.
+- O `HYLANCAR` de linha de comando pode ficar como reserva, mas o botão do painel abre a janela.
+
+## 9. Medidas das estruturas como variáveis, em lote e associativas (pedido central do usuário)
+
+O que o usuário quer de verdade: **transformar as medidas das estruturas (e tubos) em variáveis
+controláveis em lote, com facilidade, ao vivo e com edição associativa, igual ao painel do Viário.**
+Hoje muitas medidas vêm "capadas" do catálogo (listas fechadas); o saneamento do CSBIM (H5) já
+transformou listas em faixas, e o `HydroEditor` já sabe gravar `Part.PartData`. Falta a camada de
+uso:
+
+1. **Todas as medidas na lista e nas Propriedades.** Na categoria Estruturas (e Tubos), cada campo
+   do `PartData` da peça vira coluna/propriedade com nome legível (descrição do campo do catálogo),
+   unidade em m (catálogos em mm convertidos), faixa permitida (min–max) ou lista. Colunas
+   escolhíveis por família (menu "Colunas ▾"), porque cada família tem medidas diferentes.
+2. **Edição ao vivo.** Mudou o valor na lista/Propriedades → Enter → a peça se refaz no desenho na
+   hora (um UNDO por edição), com a mensagem de recusa se sair da faixa. Edição em lote nos marcados,
+   com valor absoluto, relativo (+0,10 / −0,30) ou expressão.
+3. **Edição associativa (o "Viário" das estruturas).** Cada medida pode ser **fixa** ou uma
+   **regra**: uma expressão guardada na própria estrutura (XData/Extension Dictionary `HYDRO_REGRAS`)
+   sobre variáveis da peça e da rede, por exemplo:
+   - `largura = max(Ø dos tubos ligados) + 2 × 0,15`
+   - `comprimento = largura`
+   - `altura_parede = tampa − fundo − altura_cone`
+   - `fundo = menor fundo dos tubos − 0,05` (degrau)
+   - `tampa = superfície + 0,02`
+   Quando um tubo ligado, a superfície ou a própria peça mudam, a regra é recalculada **no fim do
+   comando** (fila no `ObjectModified` → `CommandEnded`, como o Viário; nunca dentro do evento) e a
+   peça se refaz. Ligar/desligar a atualização automática (como o botão "Auto" do Viário), com
+   "Atualizar" manual.
+4. **Modelos de regra por família**: um conjunto de regras salvo por família de peça (no DWG e
+   exportável), aplicado em lote ("aplicar o modelo PV-DNIT às estruturas marcadas"). Mudar o
+   modelo atualiza todas as peças que o usam.
+5. **Grips de medida** no model (GripOverrule nas estruturas, filtrado pelas que têm regra/HYDRO):
+   arrastar largura/comprimento/altura com prévia e valor digitado; vira valor fixo (ou avisa que a
+   medida é regra).
+6. A avaliação das expressões fica em classe pura testável (sem AutoCAD), com erros claros
+   ("tubo ligado não tem Ø", "valor 1,80 fora da faixa 0,60–1,50 do catálogo").
+
+Prioridade: **§9 primeiro** (é o pedido central), depois §8.
