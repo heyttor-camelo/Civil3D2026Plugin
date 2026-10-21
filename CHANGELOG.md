@@ -1,3 +1,11 @@
+## 2.60.2 - HYDRO v0.3.0 (fase H2): bacias
+
+- `HYBACIA`: cria catchments a partir de polilinhas fechadas (varias de uma vez), com grupo (criado se nao existir), C, Tc e, opcionalmente, a estrutura de engolimento; nomes `Bacia-NN`;
+- `HYLIGARBACIA`: clique a bacia e a estrutura (Enter desliga), repetindo ate Enter; pelo menu de contexto numa estrutura, ela ja vem escolhida;
+- `HYTC`: Kirpich, Ven Te Chow, Dooge ou Kerby pelo comprimento do talvegue (padrao: o do catchment) e o desnivel digitado, com o minimo de projeto; grava `TimeOfConcentration` com metodo "definido pelo usuario". No painel, "Calcular Tc ▾" manda o comando com as bacias marcadas;
+- painel: categoria Bacias (area, C, Tc, estrutura, rede) com edicao de C, Tc e estrutura de destino nas Propriedades; aba Contribuicao (trechos a jusante com area acumulada e Q); a planta mostra o poligono de cada bacia e a linha ate a estrutura; Estruturas e Tubos ganham a coluna "A acum. [ha]" (soma das bacias a montante mesmo sem calcular; depois do calculo, o valor calculado);
+- decisao: a area usada e `Catchment.Area2d` (m2) convertida para ha; o Tc e o C sao sempre os do catchment (o Civil nao recalcula sozinho o Tc "definido pelo usuario").
+
 ## 2.60.1 - HYDRO v0.2.0 (fase H1): edicao em lote e edicao direta no model
 
 - **edicao em lote no painel** (Estruturas e Tubos): marque as linhas (caixinha, Espaco, menu do botao direito) e as Propriedades viram lote: tampa e fundo (valor ou +0.10 / -0.30), fundos de montante/jusante e declividade dos tubos, renomear com prefixo + numero, inverter sentido, aplicar regras, selecionar no desenho. Campo editado + Enter aplica; cada operacao e um UNDO (via `HYAPLICAR`). O menu "Editar em lote ▾" leva ao `HYTROCAR` com os marcados pre-selecionados;

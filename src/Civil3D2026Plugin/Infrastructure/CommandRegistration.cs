@@ -7,6 +7,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Drenagem.DrenNumCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroModelCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCatchmentCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.QTO.QtoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo.MFRebaixoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit.CorridorSplitCommands))]

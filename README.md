@@ -202,6 +202,8 @@ HYTROCAR / HYIGUALAR  -> familia/tamanho pela parts list (conexoes mantidas); ma
 HYCONECTAR / HYINVERTER -> ligar/desligar ponta do tubo; inverter sentido
 HYMOVER / HYINSERIR / HYREMOVER -> mover estrutura, inserir estrutura no tubo, remover e emendar
 HYCAMINHO             -> seleciona o caminho entre duas estruturas
+HYBACIA / HYLIGARBACIA -> bacia por polilinha fechada; ligar bacia a estrutura de engolimento
+HYTC                  -> tempo de concentracao (Kirpich, Ven Te Chow, Dooge, Kerby) com minimo de projeto
 ```
 
 Botao direito sobre tubo/estrutura abre o menu **HYDRO** com esses comandos; a dica no cursor mostra

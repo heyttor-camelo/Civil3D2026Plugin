@@ -104,6 +104,17 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Hydro",
+                "Bacias",
+                C3DVersions.Hydro,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Hydro.Bacia, "Bacia por polilinha", "Cria catchments a partir de polilinhas fechadas, com grupo, C, Tc e estrutura de engolimento."),
+                    new CommandDefinition(C3DCommands.Hydro.LigarBacia, "Ligar bacia a estrutura", "Clique a bacia e a estrutura de engolimento (Enter desliga); repete ate Enter."),
+                    new CommandDefinition(C3DCommands.Hydro.Tc, "Tempo de concentracao", "Kirpich, Ven Te Chow, Dooge ou Kerby pelo talvegue e desnivel de cada bacia, com o minimo de projeto; grava no catchment.")
+                }),
+
+            new(
                 "Drenagem",
                 "Excel de drenagem",
                 C3DVersions.DrenExcel,

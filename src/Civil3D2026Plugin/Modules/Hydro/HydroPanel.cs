@@ -747,6 +747,15 @@ internal sealed partial class HydroPanel : SW.Window
 
     private HydroResult? ResultOf(string handle) => _results.GetValueOrDefault(handle);
 
+    /// <summary>Soma das bacias a montante da estrutura (inclusive as dela), sem precisar do calculo.</summary>
+    private double UpstreamAreaHa(NetworkInfo net, string? structureHandle)
+    {
+        if (structureHandle is null)
+            return 0;
+        HashSet<string> up = net.Upstream(structureHandle);
+        return _snap.Catchments.Where(c => up.Contains(c.StructureHandle)).Sum(c => c.AreaHa);
+    }
+
     private (string[] Columns, double[] Widths, List<Row> Rows) BuildRows(string category)
     {
         List<Row> rows = new();
@@ -784,7 +793,7 @@ internal sealed partial class HydroPanel : SW.Window
                             s.Name, s.Family, s.Size, N(s.Rim, 3), N(s.Sump, 3), N(s.Depth, 2),
                             $"{s.PipesIn.Count}>{s.PipesOut.Count}" + (s.PipesUndefined.Count > 0 ? "?" : ""),
                             s.Catchments.Count > 0 ? string.Join(", ", s.Catchments) : "-",
-                            r is null ? "-" : N(r.AreaHa, 3), r is null ? "-" : N(r.Flow, 4),
+                            N(r?.AreaHa ?? UpstreamAreaHa(net, s.Handle), 3), r is null ? "-" : N(r.Flow, 4),
                             string.Join(" | ", s.Warnings.Concat(_violations.Where(v => v.Handle == s.Handle).Select(v => v.Text)))
                         }
                     });
@@ -808,14 +817,15 @@ internal sealed partial class HydroPanel : SW.Window
                         {
                             p.Name, from + " > " + to, p.Family, Mm(p.InnerDiameter), N(p.Length2D, 2), Pct(p.Slope),
                             N(p.UpInvert, 3), N(p.DownInvert, 3), N(p.MinCoverActual, 2),
+                            N(r?.AreaHa ?? UpstreamAreaHa(net, p.FromHandle), 3),
                             r is null ? N(p.FlowRate, 4) : N(r.Flow, 4), r is null ? "-" : N(r.DepthRatio * 100, 0) + " %", r is null ? "-" : N(r.Velocity, 2),
                             string.Join(" | ", p.Warnings.Concat(_violations.Where(v => v.Handle == p.Handle).Select(v => v.Text)))
                         }
                     });
                 }
 
-                return (new[] { "Tubo", "De > para", "Familia", "D [mm]", "L [m]", "i", "Fundo mont.", "Fundo jus.", "Recob. min [m]", "Q [m3/s]", "y/D", "V [m/s]", "Avisos" },
-                    new double[] { 90, 130, 120, 55, 65, 65, 80, 80, 80, 75, 50, 60, 240 }, rows);
+                return (new[] { "Tubo", "De > para", "Familia", "D [mm]", "L [m]", "i", "Fundo mont.", "Fundo jus.", "Recob. min [m]", "A acum. [ha]", "Q [m3/s]", "y/D", "V [m/s]", "Avisos" },
+                    new double[] { 90, 130, 120, 55, 65, 65, 80, 80, 80, 80, 75, 50, 60, 240 }, rows);
 
             case "BACIAS":
                 foreach (CatchmentInfo c in _snap.Catchments.OrderBy(c => c.Group, StringComparer.OrdinalIgnoreCase).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase))
@@ -1340,6 +1350,7 @@ internal sealed partial class HydroPanel : SW.Window
         Prop("Posicao", $"E {N(s.Point.X, 3)}  N {N(s.Point.Y, 3)}  rot {N(s.Rotation * 180 / Math.PI, 1)}°");
         Prop("Tubos", $"{s.PipesIn.Count} entrando, {s.PipesOut.Count} saindo" + (s.PipesUndefined.Count > 0 ? $", {s.PipesUndefined.Count} sem sentido" : ""));
         Prop("Bacias ligadas", s.Catchments.Count > 0 ? string.Join(", ", s.Catchments) : "-");
+        Prop("Area a montante (bacias)", N(UpstreamAreaHa(net!, s.Handle), 4) + " ha");
         Prop("Rule set", s.RuleSet.Length > 0 ? s.RuleSet : "-");
         if (s.Warnings.Count > 0)
             Prop("Avisos", string.Join("\n", s.Warnings), T.Warn);
