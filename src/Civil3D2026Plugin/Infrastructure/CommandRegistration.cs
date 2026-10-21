@@ -10,6 +10,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCatchmentCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCalcCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroLaunchCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCatalogCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.QTO.QtoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo.MFRebaixoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit.CorridorSplitCommands))]

@@ -153,9 +153,18 @@ internal sealed class NetworkInfo
     }
 }
 
+/// <summary>Parametro dimensional da peca (PartData): faixa Min/Max ou lista, em unidades do catalogo (mm).</summary>
+internal sealed record PartParam(string Name, string Description, string Context, double Value, double Min, double Max, string Units, bool IsRange, bool ReadOnly)
+{
+    public bool Editable => !ReadOnly && (IsRange || Max > Min);
+}
+
 /// <summary>Estrutura (PV, caixa, boca de lobo) da rede.</summary>
 internal sealed class StructureInfo
 {
+    /// <summary>Parametros dimensionais editaveis da peca (faixas do catalogo saneado).</summary>
+    public List<PartParam> Parameters { get; } = new();
+    public string FamilyGuid { get; set; } = "";
     public string Handle { get; init; } = "";
     public string Name { get; set; } = "";
     public string NetworkHandle { get; init; } = "";

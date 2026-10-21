@@ -131,7 +131,73 @@ internal static class HydroReader
         si.Hgl = Safe(() => s.HydraulicGradeLine, double.NaN);
         si.Egl = Safe(() => s.EnergyGradeLine, double.NaN);
         si.KnownFlow = Safe(() => s.KnownFlow);
+        si.FamilyGuid = "";
+        try
+        {
+            si.Parameters.AddRange(ReadParameters(s));
+        }
+        catch (Exception ex)
+        {
+            Infrastructure.PluginLog.Diag("Hydro", $"{s.Name}: parametros da peca nao lidos ({ex.Message}).");
+        }
+
         return si;
+    }
+
+    /// <summary>
+    /// Parametros numericos da peca (PartData) que vem de faixa ou lista do catalogo: os que o
+    /// saneamento CSBIM deixou editaveis (SIL/SIW do PV, SVPC/SHBW/SID das bocas...).
+    /// </summary>
+    public static List<PartParam> ReadParameters(CivilDb.Part part)
+    {
+        List<PartParam> list = new();
+        using CivilDb.PartDataRecord rec = part.PartData;
+        foreach (CivilDb.PartDataField f in rec.GetAllDataFields())
+        {
+            if (f.DataType != CivilDb.PartCatalogDataType.Double || f.Value is not double v)
+                continue;
+            if (!f.IsFromRange && !f.IsFromList)
+                continue;
+            double min = double.NaN, max = double.NaN;
+            bool range = f.IsFromRange;
+            if (range)
+            {
+                try
+                {
+                    using CivilDb.PartDataRange r = f.ValueRange;
+                    min = Convert.ToDouble(r.RangeMin, CultureInfo.InvariantCulture);
+                    max = Convert.ToDouble(r.RangeMax, CultureInfo.InvariantCulture);
+                }
+                catch
+                {
+                    range = false;
+                }
+            }
+
+            if (!range)
+            {
+                try
+                {
+                    using CivilDb.PartDataList l = f.ValueList;
+                    List<double> vals = new();
+                    for (int i = 0; i < l.Count; i++)
+                        vals.Add(Convert.ToDouble(l[i], CultureInfo.InvariantCulture));
+                    if (vals.Count > 0)
+                    {
+                        min = vals.Min();
+                        max = vals.Max();
+                    }
+                }
+                catch
+                {
+                    // Sem lista legivel.
+                }
+            }
+
+            list.Add(new PartParam(f.Name, f.Description, f.ContextString, v, min, max, f.Units, range, f.IsReadOnly));
+        }
+
+        return list;
     }
 
     private static PipeInfo ReadPipe(CivilDb.Pipe p, string networkHandle)

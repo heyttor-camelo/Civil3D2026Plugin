@@ -132,7 +132,8 @@ public static class CommandCatalog
                 C3DVersions.Hydro,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Hydro.Lancar, "Lancar PV > tubo > PV", "Cadeia de estruturas e tubos com linha elastica; fundo e declividade automaticos, [Desfazer] volta um, Enter termina. Numerar (DRENNUM) e importar planilha (DRENEXCEL) sao acoes da categoria Redes do painel.")
+                    new CommandDefinition(C3DCommands.Hydro.Lancar, "Lancar PV > tubo > PV", "Cadeia de estruturas e tubos com linha elastica; fundo e declividade automaticos, [Desfazer] volta um, Enter termina. Numerar (DRENNUM) e importar planilha (DRENEXCEL) sao acoes da categoria Redes do painel."),
+                    new CommandDefinition(C3DCommands.Hydro.Catalogo, "Catalogo de pecas CSBIM", "Catalogos ativos do desenho, apontar para os CSBIM saneados (SETPIPENETWORKCATALOG), reindexar (PARTCATALOGREGEN) e importar familias/tamanhos para uma parts list por capitulo.")
                 }),
 
             new(

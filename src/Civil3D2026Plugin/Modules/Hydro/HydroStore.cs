@@ -31,6 +31,10 @@ internal sealed class HydroSettings
     /// <summary>Ao mudar o fundo de uma estrutura, o que os tubos ligados fazem.</summary>
     public HydroStore.HoldMode HoldMode { get; set; } = HydroStore.HoldMode.OutraPonta;
 
+    /// <summary>Familia e tamanho padrao do lancamento (HYLANCAR), "Familia | Tamanho"; vazio = ultima usada na rede.</summary>
+    public string LaunchStructure { get; set; } = "";
+    public string LaunchPipe { get; set; } = "";
+
     public IdfEquation Idf => new(IdfName == "custom" ? "personalizada" : IdfName, IdfK, IdfA, IdfB, IdfC);
 
     public Criteria Criteria => new(MaxDepthRatio, MinVelocity, MaxVelocity, MinCover, MinSlope, MaxSlope, 0, MaxDrop, MinTc);
@@ -156,6 +160,8 @@ internal static class HydroStore
         yield return ("degrau", "Degrau maximo nas estruturas [m]", S(s.MaxDrop, 2));
         yield return ("diametros", "Diametros comerciais [mm]", string.Join(", ", s.Diameters.Select(d => Math.Round(d * 1000).ToString(CultureInfo.InvariantCulture))));
         yield return ("segurar", "Ao mudar o fundo da estrutura, os tubos seguram", s.HoldMode == HoldMode.OutraPonta ? "a outra ponta (muda declividade)" : "a declividade (tubo inteiro sobe/desce)");
+        yield return ("lancar.estrutura", "Lancamento: estrutura padrao (Familia | Tamanho)", s.LaunchStructure);
+        yield return ("lancar.tubo", "Lancamento: tubo padrao (Familia | Tamanho)", s.LaunchPipe);
     }
 
     /// <summary>Le os campos editados no painel (vazio = mantem).</summary>
@@ -217,6 +223,8 @@ internal static class HydroStore
                 s.HoldMode = value.StartsWith("a decl", StringComparison.OrdinalIgnoreCase) || value.StartsWith("decl", StringComparison.OrdinalIgnoreCase) || value == "1"
                     ? HoldMode.Declividade : HoldMode.OutraPonta;
                 break;
+            case "lancar.estrutura": s.LaunchStructure = value.Trim(); break;
+            case "lancar.tubo": s.LaunchPipe = value.Trim(); break;
         }
     }
 
@@ -227,7 +235,9 @@ internal static class HydroStore
         "vmin=" + S(s.MinVelocity, 3), "vmax=" + S(s.MaxVelocity, 3), "recob=" + S(s.MinCover, 3), "imin=" + S(s.MinSlope * 100, 4),
         "imax=" + S(s.MaxSlope * 100, 4), "degrau=" + S(s.MaxDrop, 3),
         "diametros=" + string.Join(",", s.Diameters.Select(d => S(d * 1000, 0))),
-        "segurar=" + (s.HoldMode == HoldMode.Declividade ? "1" : "0")
+        "segurar=" + (s.HoldMode == HoldMode.Declividade ? "1" : "0"),
+        "lancar.estrutura=" + s.LaunchStructure,
+        "lancar.tubo=" + s.LaunchPipe
     };
 
     // ---------------- NOD ----------------

@@ -124,6 +124,12 @@ No model (botao direito sobre o objeto abre o menu **HYDRO**; ou digite o comand
    `HYTABELA` com altura 2,5 e um ponto livre: tabela AutoCAD com a planilha.
 6. UNDO depois do calculo: desfaz vazoes, HGL e Property Sets de uma vez.
 
+## 5b. H5: catalogo CSBIM (15 min)
+
+Roteiro completo em `docs/HYDRO-CATALOGO.md` §4: `HYCATALOGO` (listar, Definir, Regenerar,
+Importar para a parts list CSBIM por capitulo), parametros de faixa por estrutura e em lote,
+`HYLANCAR` com as familias CSBIM e o aviso "CATALOGO: ..." no painel.
+
 ## 6. Regressao rapida
 
 - `DRENNUM` e `DRENEXCEL` continuam funcionando pelos botoes de Redes.

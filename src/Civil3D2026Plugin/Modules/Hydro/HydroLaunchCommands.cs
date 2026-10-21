@@ -88,14 +88,22 @@ public sealed class HydroLaunchCommands
             return;
         }
 
-        (AcadDb.ObjectId sf, AcadDb.ObjectId ss, string sLabel) = Choose(ed, "estrutura", structures, net.Structures.LastOrDefault()?.Family);
+        HydroSettings st = HydroStore.Load(db);
+        (AcadDb.ObjectId sf, AcadDb.ObjectId ss, string sLabel) = Choose(ed, "estrutura", structures, st.LaunchStructure, net.Structures.LastOrDefault()?.Family);
         if (sf.IsNull)
             return;
-        (AcadDb.ObjectId pf, AcadDb.ObjectId ps, string pLabel) = Choose(ed, "tubo", pipes, net.Pipes.LastOrDefault()?.Family);
+        (AcadDb.ObjectId pf, AcadDb.ObjectId ps, string pLabel) = Choose(ed, "tubo", pipes, st.LaunchPipe, net.Pipes.LastOrDefault()?.Family);
         if (pf.IsNull)
             return;
 
-        HydroSettings st = HydroStore.Load(db);
+        // O que foi escolhido vira o padrao do desenho (categoria Calculo > Lancamento).
+        if (st.LaunchStructure != sLabel || st.LaunchPipe != pLabel)
+        {
+            st.LaunchStructure = sLabel;
+            st.LaunchPipe = pLabel;
+            HydroStore.Save(db, st);
+        }
+
         PromptDoubleOptions so = new("\nDeclividade dos tubos [%]") { DefaultValue = st.MinSlope * 100, UseDefaultValue = true, AllowNegative = false };
         PromptDoubleResult sr = ed.GetDouble(so);
         if (sr.Status != PromptStatus.OK)
@@ -256,9 +264,20 @@ public sealed class HydroLaunchCommands
         tr.Commit();
     }
 
-    private static (AcadDb.ObjectId, AcadDb.ObjectId, string) Choose(Editor ed, string what, List<HydroEditor.FamilyChoice> families, string? preferred)
+    /// <summary>Escolha de familia/tamanho; o padrao e o salvo em Calculo ("Familia | Tamanho"), senao a ultima familia da rede.</summary>
+    private static (AcadDb.ObjectId, AcadDb.ObjectId, string) Choose(Editor ed, string what, List<HydroEditor.FamilyChoice> families, string saved, string? preferred)
     {
-        int def = Math.Max(0, families.FindIndex(f => f.Sizes.Count > 0 && string.Equals(f.Family, preferred, StringComparison.OrdinalIgnoreCase)));
+        string savedFamily = saved, savedSize = "";
+        int bar = saved.IndexOf('|');
+        if (bar > 0)
+        {
+            savedFamily = saved[..bar].Trim();
+            savedSize = saved[(bar + 1)..].Trim();
+        }
+
+        int def = families.FindIndex(f => f.Sizes.Count > 0 && string.Equals(f.Family, savedFamily, StringComparison.OrdinalIgnoreCase));
+        if (def < 0)
+            def = Math.Max(0, families.FindIndex(f => f.Sizes.Count > 0 && string.Equals(f.Family, preferred, StringComparison.OrdinalIgnoreCase)));
         if (families[def].Sizes.Count == 0)
             def = families.FindIndex(f => f.Sizes.Count > 0);
         ed.WriteMessage($"\nFamilias de {what}:");
@@ -278,10 +297,11 @@ public sealed class HydroLaunchCommands
         ed.WriteMessage($"\nTamanhos de {fam.Family}:");
         for (int i = 0; i < fam.Sizes.Count; i++)
             ed.WriteMessage($"\n  {i + 1}: {fam.Sizes[i].Size}");
-        PromptIntegerOptions so = new("\nTamanho") { LowerLimit = 1, UpperLimit = fam.Sizes.Count, DefaultValue = 1, UseDefaultValue = true };
+        int defSize = Math.Max(0, fam.Sizes.FindIndex(sz => string.Equals(sz.Size, savedSize, StringComparison.OrdinalIgnoreCase)));
+        PromptIntegerOptions so = new("\nTamanho") { LowerLimit = 1, UpperLimit = fam.Sizes.Count, DefaultValue = defSize + 1, UseDefaultValue = true };
         PromptIntegerResult sr = ed.GetInteger(so);
         if (sr.Status != PromptStatus.OK)
             return (AcadDb.ObjectId.Null, AcadDb.ObjectId.Null, "");
-        return (fam.FamilyId, fam.Sizes[sr.Value - 1].SizeId, fam.Family + " / " + fam.Sizes[sr.Value - 1].Size);
+        return (fam.FamilyId, fam.Sizes[sr.Value - 1].SizeId, fam.Family + " | " + fam.Sizes[sr.Value - 1].Size);
     }
 }

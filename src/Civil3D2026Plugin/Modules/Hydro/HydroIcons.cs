@@ -313,6 +313,14 @@ internal static class HydroIcons
             new Part("M16,4 a12,12 0 1,0 0.1,0", Red, 1.8),
             new Part("M11,11 L21,21 M21,11 L11,21", Red, 2.2)
         },
+        ["CATALOGO"] = new[]
+        {
+            new Part("M5,5 H27 V27 H5 Z", White, 1.4),
+            new Part("M5,12 H27 M5,19 H27 M12,5 V27", White, 0.9),
+            new Part("M7,7 H10 V10 H7 Z", Water, 1.0, Water),
+            new Part("M14,14 a2,2 0 1,0 0.1,0", White, 1.2),
+            new Part("M21,21 H25 V25 H21 Z", Yellow, 1.0, Yellow)
+        },
         ["IDF"] = new[]
         {
             new Part("M4,26 H28 M4,26 V4", White, 1.2),

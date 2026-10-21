@@ -63,6 +63,8 @@ public static class CommandNames
         public const string Tabela = "HYTABELA";
 
         public const string Lancar = "HYLANCAR";
+
+        public const string Catalogo = "HYCATALOGO";
     }
 
     public static class Qto

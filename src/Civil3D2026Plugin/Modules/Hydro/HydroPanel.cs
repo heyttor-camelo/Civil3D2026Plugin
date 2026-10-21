@@ -113,6 +113,7 @@ internal sealed partial class HydroPanel : SW.Window
     private static readonly Cmd[] Commands =
     {
         new("NOVAREDE", "REDES", "", "Nova rede", "Rede", "Cria uma Pipe Network vazia com a parts list e a superficie escolhidas (menu).", new[] { "O botao abre o menu com as parts lists do desenho." }),
+        new("CATALOGO", "REDES", "HYCATALOGO ", "Catalogo CSBIM", "Rede", "Mostra os catalogos de pecas ativos, aponta para os CSBIM saneados (SETPIPENETWORKCATALOG), reindexa e importa familias/tamanhos para uma parts list por capitulo.", new[] { "Definir: dialogo nativo com os catalogos CSBIM.", "Regenerar: PARTCATALOGREGEN.", "Importar: escolha estruturas/tubos, a parts list e os capitulos." }),
         new("LANCAR", "REDES", "HYLANCAR ", "Lancar PV > tubo > PV", "Rede", "Lanca estruturas e tubos em cadeia, com previa, na rede ativa.", new[] { "Clique o primeiro PV.", "Clique os proximos: cada clique cria o PV e o tubo.", "Enter termina." }),
         new("IMPORTAR", "REDES", "DRENEXCEL ", "Importar planilha", "Rede", "Aplica o dimensionamento da planilha Excel (DRENEXCEL) na rede.", new[] { "Escolha o .xlsx e siga a linha de comando." }),
         new("NUMERAR", "REDES", "DRENNUM ", "Numerar pelo fluxo", "Rede", "Numera estruturas e tubos pela hierarquia hidraulica (DRENNUM).", new[] { "Siga a janela de previa." }),
@@ -926,9 +927,12 @@ internal sealed partial class HydroPanel : SW.Window
 
         NetworkInfo? net = Net;
         int errs = _violations.Count(v => v.Severity == HydroSeverity.Erro);
+        string catalogWarn = net is null ? "" : CatalogNote(net);
+        if (catalogWarn.Length > 0)
+            catalogWarn = "CATALOGO: " + catalogWarn + " | ";
         Say(net is null
             ? $"Nenhuma Pipe Network no desenho | {_snap.Catchments.Count} bacia(s) | v{C3DVersions.Hydro}"
-            : $"Rede ativa: {net.Name} | {net.Structures.Count} estrutura(s), {net.Pipes.Count} tubo(s), {N(net.Length2D, 0)} m | " +
+            : catalogWarn + $"Rede ativa: {net.Name} | {net.Structures.Count} estrutura(s), {net.Pipes.Count} tubo(s), {N(net.Length2D, 0)} m | " +
               $"{_snap.Catchments.Count} bacia(s) | Verificacao: {errs} erro(s), {_violations.Count - errs} aviso(s) | " +
               $"{(_checked.Count > 0 ? _checked.Count + " marcado(s) | " : "")}v{C3DVersions.Hydro}");
     }
@@ -1321,10 +1325,51 @@ internal sealed partial class HydroPanel : SW.Window
         Prop("Tubos sem sentido", n.Pipes.Count(p => !p.Defined).ToString(CultureInfo.InvariantCulture));
         Prop("Familias de tubos", string.Join(", ", n.Pipes.Select(p => p.Family).Distinct().OrderBy(f => f)));
         Prop("Familias de estruturas", string.Join(", ", n.Structures.Select(s => s.Family).Distinct().OrderBy(f => f)));
+        string catalogNote = CatalogNote(n);
+        if (catalogNote.Length > 0)
+        {
+            Prop("Catalogo de pecas", catalogNote, T.Warn);
+            Act("Catalogo CSBIM (HYCATALOGO)", () => Send("HYCATALOGO ", "HYCATALOGO: siga a linha de comando."));
+        }
+        else
+        {
+            Prop("Catalogo de pecas", "familias da parts list vem do catalogo CSBIM saneado");
+        }
+
         if (n.Handle != Net?.Handle)
             Act("Usar esta rede no painel", () => { _networkHandle = n.Handle; Refresh(); }, true);
         Act("Zoom", () => ZoomTo(n.Bounds));
         _render = () => RenderPlan(n);
+    }
+
+    private List<HydroCatalog.CatalogInfo>? _catalogs;
+
+    /// <summary>Aviso quando a parts list da rede nao vem do catalogo CSBIM saneado (vazio = tudo certo).</summary>
+    private string CatalogNote(NetworkInfo n)
+    {
+        try
+        {
+            _catalogs ??= HydroCatalog.Scan();
+            if (n.PartsList.Length == 0)
+                return "a rede nao tem parts list";
+            Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+            if (doc is null)
+                return "";
+            (int total, int csbim) = HydroCatalog.CountCsbimFamilies(doc.Database, n.PartsList, _catalogs);
+            bool sanitized = _catalogs.Any(c => c.IsCsbim && c.Sanitized);
+            if (total == 0)
+                return $"parts list \"{n.PartsList}\" sem familias: importe do catalogo CSBIM";
+            if (csbim < total)
+                return $"{total - csbim} de {total} familia(s) da parts list \"{n.PartsList}\" nao vem do catalogo CSBIM";
+            if (!sanitized)
+                return "familias CSBIM, mas o catalogo nesta maquina nao esta saneado (tools/Sanitize-CsbimCatalog.ps1 -Apply + PARTCATALOGREGEN)";
+            return "";
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Diag(Module, "Verificacao do catalogo: " + ex.Message);
+            return "";
+        }
     }
 
     private void ShowStructure(StructureInfo s)
@@ -1359,6 +1404,16 @@ internal sealed partial class HydroPanel : SW.Window
         Act("Zoom", () => ZoomRow(_current!));
         Act("Selecionar", () => SelectHandles(new[] { s.Handle }));
         Act("Fundo no desenho (HYFUNDO)", () => Send("HYFUNDO ", "HYFUNDO: clique a estrutura."));
+
+        // Parametros dimensionais da peca (faixas do catalogo saneado): editaveis um a um.
+        List<PartParam> editable = s.Parameters.Where(p => p.Editable).ToList();
+        if (editable.Count > 0)
+        {
+            Category($"Parametros da peca ({editable.Count}) - {s.Family}");
+            foreach (PartParam p in editable)
+                EditProp("par:" + p.Name, $"{p.Description} [{p.Name}] {Range(p)}", N(p.Value, p.Units == "mm" ? 0 : 3), () => ApplyParameters(new[] { s }));
+            Act("Gravar parametros", () => ApplyParameters(new[] { s }));
+        }
         _render = () => RenderPlan(net, s.Handle);
     }
 
@@ -1370,7 +1425,19 @@ internal sealed partial class HydroPanel : SW.Window
         EditProp("fundo", "Fundo [m] (valor, ou +0.10 / -0.30)", "", () => ApplyBatchStructures(list));
         EditProp("prefixo", "Renomear: prefixo + numero (ex. PV-)", "", () => ApplyBatchStructures(list));
         Prop("Familia / tamanho", "use Trocar tipo (barra de comandos) ou o menu Editar em lote");
-        Act("Aplicar nos marcados", () => ApplyBatchStructures(list), true);
+
+        // Parametros de faixa comuns a todas as marcadas (mesmo nome): vazio = mantem.
+        List<PartParam> common = list.Select(s => s.Parameters.Where(p => p.Editable).Select(p => p.Name).ToHashSet(StringComparer.OrdinalIgnoreCase))
+            .Aggregate((a, b) => { a.IntersectWith(b); return a; })
+            .Select(name => list[0].Parameters.First(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
+        if (common.Count > 0)
+        {
+            Category($"Parametros da peca comuns ({common.Count})");
+            foreach (PartParam p in common)
+                EditProp("par:" + p.Name, $"{p.Description} [{p.Name}] {Range(p)}", "", () => ApplyParameters(list));
+        }
+
+        Act("Aplicar nos marcados", () => { ApplyBatchStructures(list); ApplyParameters(list, quiet: true); }, true);
         Act("Selecionar no desenho", () => SelectHandles(list.Select(s => s.Handle)));
         _render = () => RenderPlan(Net, null, list.Select(s => s.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
@@ -1785,6 +1852,84 @@ internal sealed partial class HydroPanel : SW.Window
                     prefix.Length > 0 ? prefix + (i++).ToString("00", CultureInfo.InvariantCulture) : null,
                     Relative(rim, s.Rim), Relative(sump, s.Sump), hold);
             }
+        });
+    }
+
+    private static string Range(PartParam p) =>
+        double.IsNaN(p.Min) || double.IsNaN(p.Max) ? (p.Units.Length > 0 ? p.Units : "") : $"{N(p.Min, 0)}..{N(p.Max, 0)} {p.Units}".Trim();
+
+    /// <summary>Le os campos "par:NOME" preenchidos e grava nas estruturas (validacao Min/Max antes de mandar).</summary>
+    private void ApplyParameters(IReadOnlyList<StructureInfo> list, bool quiet = false)
+    {
+        Dictionary<string, double> values = new(StringComparer.OrdinalIgnoreCase);
+        List<string> errors = new();
+        foreach ((string key, SW.FrameworkElement el) in _fields.Where(kv => kv.Key.StartsWith("par:", StringComparison.Ordinal)))
+        {
+            string name = key[4..];
+            if (el is not WC.TextBox box || box.Text.Trim().Length == 0)
+                continue;
+            double? v = Number(key);
+            if (v is null)
+            {
+                errors.Add(name + ": numero invalido");
+                continue;
+            }
+
+            foreach (StructureInfo s in list)
+            {
+                PartParam? p = s.Parameters.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (p is null)
+                    continue;
+                if (!double.IsNaN(p.Min) && !double.IsNaN(p.Max) && (v.Value < p.Min - 1e-9 || v.Value > p.Max + 1e-9))
+                {
+                    errors.Add($"{name}: {N(v.Value, 0)} fora da faixa {Range(p)} em {s.Name}");
+                    box.Foreground = WM.Brushes.Red;
+                }
+            }
+
+            values[name] = v.Value;
+        }
+
+        if (errors.Count > 0)
+        {
+            Say(string.Join(" | ", errors));
+            return;
+        }
+
+        if (values.Count == 0)
+        {
+            if (!quiet)
+                Say("Preencha ao menos um parametro.");
+            return;
+        }
+
+        // So grava o que mudou em cada estrutura.
+        List<(string Handle, Dictionary<string, double> Values)> jobs = new();
+        foreach (StructureInfo s in list)
+        {
+            Dictionary<string, double> own = new(StringComparer.OrdinalIgnoreCase);
+            foreach ((string name, double v) in values)
+            {
+                PartParam? p = s.Parameters.FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (p is not null && Math.Abs(p.Value - v) > 1e-9)
+                    own[name] = v;
+            }
+
+            if (own.Count > 0)
+                jobs.Add((s.Handle, own));
+        }
+
+        if (jobs.Count == 0)
+        {
+            if (!quiet)
+                Say("Nenhum parametro mudou.");
+            return;
+        }
+
+        RunApply($"Parametros em {jobs.Count} estrutura(s)", db =>
+        {
+            foreach ((string h, Dictionary<string, double> own) in jobs)
+                HydroEditor.SetParameters(db, h, own);
         });
     }
 

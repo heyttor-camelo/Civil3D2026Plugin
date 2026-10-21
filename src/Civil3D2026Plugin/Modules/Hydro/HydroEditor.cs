@@ -89,6 +89,78 @@ internal static class HydroEditor
         tr.Commit();
     }
 
+    /// <summary>
+    /// Grava parametros dimensionais da peca (PartData): le o registro, muda os campos pedidos e
+    /// devolve o registro a peca (Part.PartData tem setter na API 2026). Valores fora da faixa
+    /// Min/Max do catalogo sao recusados com mensagem. Retorna o que foi aplicado.
+    /// </summary>
+    public static string SetParameters(AcadDb.Database db, string handle, IReadOnlyDictionary<string, double> values)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Part? part = Open<CivilDb.Part>(tr, db, handle, AcadDb.OpenMode.ForWrite);
+        if (part is null)
+            throw new InvalidOperationException("Peca nao encontrada (handle " + handle + ").");
+        List<string> applied = new(), refused = new();
+        using (CivilDb.PartDataRecord rec = part.PartData)
+        {
+            foreach ((string name, double value) in values)
+            {
+                CivilDb.PartDataField f;
+                try
+                {
+                    f = rec.GetDataFieldBy(name);
+                }
+                catch
+                {
+                    refused.Add($"{name}: a peca nao tem esse parametro");
+                    continue;
+                }
+
+                if (f.IsReadOnly)
+                {
+                    refused.Add($"{name}: somente leitura");
+                    continue;
+                }
+
+                try
+                {
+                    if (f.IsFromRange)
+                    {
+                        using CivilDb.PartDataRange r = f.ValueRange;
+                        if (!r.IsValidValue(value))
+                        {
+                            refused.Add($"{name}: {value} fora da faixa {r.RangeMin}..{r.RangeMax}");
+                            continue;
+                        }
+                    }
+                    else if (f.IsFromList)
+                    {
+                        using CivilDb.PartDataList l = f.ValueList;
+                        if (!l.IsValidValue(value))
+                        {
+                            refused.Add($"{name}: {value} nao esta na lista do catalogo");
+                            continue;
+                        }
+                    }
+                }
+                catch
+                {
+                    // Sem faixa/lista legivel: tenta gravar assim mesmo.
+                }
+
+                f.Value = value;
+                applied.Add($"{name}={value}");
+            }
+
+            if (applied.Count > 0)
+                part.PartData = rec;
+        }
+
+        tr.Commit();
+        PluginLog.Info(Module, $"{part.Name}: parametros {string.Join(", ", applied)}" + (refused.Count > 0 ? "; recusados: " + string.Join("; ", refused) : ""));
+        return (applied.Count > 0 ? $"{applied.Count} parametro(s) gravado(s)" : "nada gravado") + (refused.Count > 0 ? " (" + string.Join("; ", refused) + ")" : "");
+    }
+
     /// <summary>Move a estrutura em planta; os tubos ligados acompanham (o Civil mantem a conexao).</summary>
     public static void MoveStructure(AcadDb.Database db, string handle, Point3d to, bool keepSlopes)
     {
