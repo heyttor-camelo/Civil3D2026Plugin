@@ -185,7 +185,7 @@ Log comum a todos os modulos: comandos do plugin (inicio, fim, falha e tempo), a
 
 Operacoes longas mostram uma janela de progresso (etapa, tempo, estimativa) que continua desenhando enquanto o AutoCAD trabalha; **Cancelar** para depois da etapa atual e o que ja foi feito fica.
 
-## HYDRO - apoio a Pipe Network (C3DHYDRO v0.1.0)
+## HYDRO - apoio a Pipe Network (C3DHYDRO v0.5.0)
 
 Modulo que deixa a Pipe Network nativa facil de editar, ligar, calcular e verificar; os objetos
 continuam sendo os do Civil (Network, Pipe, Structure, Catchment). Plano em `docs/HYDRO-PLANO.md`,
@@ -208,6 +208,7 @@ HYCALCULAR            -> racional acumulado + Manning; grava FlowRate, HGL/EGL e
 HYVERIFICAR           -> violacoes (lamina, V, recobrimento, degrau, declividade, sentido) e abre o painel
 HYDIMENSIONAR         -> menor diametro comercial que atende, com previa; aplica e recalcula
 HYTABELA              -> tabela AutoCAD com a planilha de dimensionamento
+HYLANCAR              -> lancar PV > tubo > PV em cadeia (linha elastica, [Desfazer], Enter termina)
 ```
 
 Botao direito sobre tubo/estrutura abre o menu **HYDRO** com esses comandos; a dica no cursor mostra

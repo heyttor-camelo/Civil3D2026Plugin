@@ -127,6 +127,15 @@ public static class CommandCatalog
                 }),
 
             new(
+                "Hydro",
+                "Lancamento",
+                C3DVersions.Hydro,
+                new[]
+                {
+                    new CommandDefinition(C3DCommands.Hydro.Lancar, "Lancar PV > tubo > PV", "Cadeia de estruturas e tubos com linha elastica; fundo e declividade automaticos, [Desfazer] volta um, Enter termina. Numerar (DRENNUM) e importar planilha (DRENEXCEL) sao acoes da categoria Redes do painel.")
+                }),
+
+            new(
                 "Drenagem",
                 "Excel de drenagem",
                 C3DVersions.DrenExcel,
