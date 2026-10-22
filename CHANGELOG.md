@@ -1,3 +1,7 @@
+## 2.64.1 - Layouts v1.9.1: viewport do papel contada como viewport nos layouts nao ativos
+
+- nos layouts que nao sao o ativo, o AutoCAD nao devolve a lista de viewports e a do papel vem sem o numero 1; se ela nao tinha o tamanho da folha (layout salvo com zoom), o explorador a mostrava como mais uma viewport. Agora a primeira viewport do bloco do layout e tratada como a do papel quando mostra o proprio papel em 1:1, tem o tamanho da folha ou cobre as outras; o log (Ctrl+Shift+L) diz qual foi escolhida. Vale tambem para ligar/desligar viewports e para o giro da seta do norte.
+
 ## 2.64.0 - Utilitarios v1.4.0: C3DORDEMDESENHO; Layouts v1.9.0: copiar/colar layer state
 
 - Explorador de layouts: **Copiar layer state desta viewport** e **Colar layer state** no botao direito da viewport na vista grafica e nas linhas da categoria Viewports (como o copiar/colar targets do Civil). Colar leva o VP freeze e os overrides de layer (cor, linetype, lineweight, plot style, transparencia) da viewport copiada para a viewport clicada, para as linhas selecionadas (Shift/Ctrl) ou para as viewports marcadas. A coluna Aplicado mostra "copia de ...".

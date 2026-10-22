@@ -291,10 +291,11 @@ internal static class LayoutReader
     }
 
     /// <summary>
-    /// Viewport do proprio papel (nao recebe override). E a primeira da lista do layout;
-    /// em layout ainda nao inicializado a lista vem vazia e vale a primeira do bloco.
+    /// Viewport do proprio papel (nao recebe override). No layout ativo ela e a primeira da lista
+    /// do layout (Number 1). Nos outros a lista pode vir vazia e o Number vem -1/0, mas a viewport
+    /// do papel continua no desenho: e a primeira viewport do bloco do layout.
     /// </summary>
-    private static HashSet<ObjectId> ViewportsDoPapel(Transaction tr, Autodesk.AutoCAD.DatabaseServices.Layout layout, BlockTableRecord btr)
+    internal static HashSet<ObjectId> ViewportsDoPapel(Transaction tr, Autodesk.AutoCAD.DatabaseServices.Layout layout, BlockTableRecord btr)
     {
         var set = new HashSet<ObjectId>();
         ObjectIdCollection ids = layout.GetViewports();
@@ -304,20 +305,37 @@ internal static class LayoutReader
             return set;
         }
 
-        // Layout nunca ativado: a viewport do papel ainda nao existe. So considera "papel" uma
-        // viewport do tamanho do papel (ou maior); as demais sao viewports de verdade.
-        double pw = layout.PlotPaperSize.X, ph = layout.PlotPaperSize.Y;
+        var vps = new List<Viewport>();
         foreach (ObjectId id in btr)
-        {
             if (tr.GetObject(id, OpenMode.ForRead) is Viewport vp)
-            {
-                bool tamanhoDoPapel = pw > 0 && ph > 0 &&
-                    ((vp.Width >= pw * 0.9 && vp.Height >= ph * 0.9) || (vp.Width >= ph * 0.9 && vp.Height >= pw * 0.9));
-                if (tamanhoDoPapel || vp.Number == 1)
-                    set.Add(id);
-                break;
-            }
+                vps.Add(vp);
+        if (vps.Count == 0)
+            return set;
+
+        Viewport primeira = vps[0];
+        if (vps.Any(v => v.Number == 1))
+        {
+            set.Add(vps.First(v => v.Number == 1).ObjectId);
+            return set;
         }
+
+        // A primeira viewport do bloco so nao e a do papel num layout criado pela API e nunca
+        // aberto (a do papel ainda nao existe). Aceita como papel se tiver cara de papel:
+        // do tamanho da folha ou maior, mostrando o proprio papel na escala 1:1,
+        // ou cobrindo o centro de todas as outras.
+        double pw = layout.PlotPaperSize.X, ph = layout.PlotPaperSize.Y;
+        bool tamanhoDoPapel = pw > 0 && ph > 0 &&
+            ((primeira.Width >= pw * 0.9 && primeira.Height >= ph * 0.9) || (primeira.Width >= ph * 0.9 && primeira.Height >= pw * 0.9));
+        bool vistaDoPapel = Math.Abs(primeira.ViewHeight - primeira.Height) <= 1e-6 * Math.Max(1.0, primeira.Height)
+            && primeira.ViewCenter.GetDistanceTo(new Point2d(primeira.CenterPoint.X, primeira.CenterPoint.Y)) <= 1e-3 * Math.Max(1.0, primeira.Height);
+        bool cobreAsOutras = vps.Count > 1 && vps.Skip(1).All(v =>
+            Math.Abs(v.CenterPoint.X - primeira.CenterPoint.X) <= primeira.Width / 2 &&
+            Math.Abs(v.CenterPoint.Y - primeira.CenterPoint.Y) <= primeira.Height / 2);
+
+        if (tamanhoDoPapel || vistaDoPapel || cobreAsOutras)
+            set.Add(primeira.ObjectId);
+        PluginLog.Diag("Layouts", $"{layout.LayoutName}: {vps.Count} viewport(s) no bloco; viewport do papel " +
+            (set.Count > 0 ? $"= {primeira.Handle} (tamanho {tamanhoDoPapel}, vista 1:1 {vistaDoPapel}, cobre {cobreAsOutras})" : "nao encontrada (layout nunca aberto)"));
         return set;
     }
 

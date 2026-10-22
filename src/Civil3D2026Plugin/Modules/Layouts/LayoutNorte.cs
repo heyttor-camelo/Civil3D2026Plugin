@@ -189,16 +189,12 @@ internal static class LayoutNorte
     private static List<(Viewport Vp, Extents2d Area)> Viewports(Transaction tr, BlockTableRecord btr)
     {
         var lista = new List<(Viewport, Extents2d)>();
-        ObjectId papel = ObjectId.Null;
+        var papel = new HashSet<ObjectId>();
         if (!btr.LayoutId.IsNull && tr.GetObject(btr.LayoutId, OpenMode.ForRead) is Autodesk.AutoCAD.DatabaseServices.Layout lay)
-        {
-            ObjectIdCollection ids = lay.GetViewports();
-            if (ids.Count > 0)
-                papel = ids[0];
-        }
+            papel = LayoutReader.ViewportsDoPapel(tr, lay, btr);
         foreach (ObjectId id in btr)
         {
-            if (id == papel || tr.GetObject(id, OpenMode.ForRead) is not Viewport vp || vp.Number == 1)
+            if (papel.Contains(id) || tr.GetObject(id, OpenMode.ForRead) is not Viewport vp || vp.Number == 1)
                 continue;
             if (!vp.ViewDirection.IsParallelTo(Vector3d.ZAxis))
                 continue;

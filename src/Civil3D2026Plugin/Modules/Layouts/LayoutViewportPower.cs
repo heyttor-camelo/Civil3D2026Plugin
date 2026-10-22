@@ -295,12 +295,11 @@ internal static class LayoutViewportPower
             if (poupar is not null && string.Equals(poupar, layout.LayoutName, StringComparison.OrdinalIgnoreCase))
                 continue;
 
-            ObjectIdCollection papel = layout.GetViewports();
-            ObjectId papelId = papel.Count > 0 ? papel[0] : ObjectId.Null;
             var btr = (BlockTableRecord)tr.GetObject(layout.BlockTableRecordId, OpenMode.ForRead);
+            HashSet<ObjectId> papel = LayoutReader.ViewportsDoPapel(tr, layout, btr);
             foreach (ObjectId id in btr)
             {
-                if (id == papelId || tr.GetObject(id, OpenMode.ForRead) is not Viewport vp)
+                if (papel.Contains(id) || tr.GetObject(id, OpenMode.ForRead) is not Viewport vp)
                     continue;
                 if (desligar)
                 {
