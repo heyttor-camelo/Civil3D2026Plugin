@@ -91,7 +91,8 @@ internal static class LayoutCamadasExternas
                     }
                 });
 
-                LayoutSheetSeries.Camadas(db, tmp, ObjectId.Null, destinos, "importada", avisos);
+                LayoutSheetSeries.Camadas(db, tmp, ObjectId.Null, destinos, "importada", avisos,
+                    $"de {Path.GetFileName(arquivo)} {origem.Rotulo.Split("   ")[0]}");
             }
             finally
             {

@@ -204,6 +204,7 @@ internal static class IconArt
         ["PP"] = ("juntar", null),
         ["C3DOBJLAYERS"] = ("camadas", null),
         ["C3DORDEMDESENHO"] = ("ordenar", null),
+        ["C3DCOPIARLAYERS"] = ("camadas", null),
         ["C3DLISP"] = ("lisp", null),
         ["C3DLISPLIST"] = ("lisp", "lista"),
         ["C3DLISPCARREGAR"] = ("lisp", "atualizar"),

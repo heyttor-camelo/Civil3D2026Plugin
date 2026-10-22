@@ -353,6 +353,18 @@ internal static class LayoutReader
         _ => 1000.0
     };
 
+    private static string? LayerStateGravado(Viewport vp)
+    {
+        try
+        {
+            return LayoutOps.LayerStateRegistrado(vp);
+        }
+        catch (System.Exception)
+        {
+            return null;
+        }
+    }
+
     private static SheetViewport LerViewport(Transaction tr, Viewport vp, SheetData folha, int indice)
     {
         WPoint[] contorno;
@@ -400,6 +412,7 @@ internal static class LayoutReader
             Travada = vp.Locked,
             EscalaCustom = vp.CustomScale,
             Planta = vp.ViewDirection.IsParallelTo(Vector3d.ZAxis),
+            Aplicado = LayerStateGravado(vp),
             Indice = indice
         };
     }

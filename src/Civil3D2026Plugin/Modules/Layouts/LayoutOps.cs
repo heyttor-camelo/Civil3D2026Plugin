@@ -52,6 +52,7 @@ internal static class LayoutOps
         Database db = doc.Database;
         LayerStateManager lsm = db.LayerStateManager;
         LayerStateMasks mascara = lsm.GetLayerStateMask(layerState);
+        var aplicadas = new List<ObjectId>();
 
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -60,6 +61,7 @@ internal static class LayoutOps
                 try
                 {
                     lsm.RestoreLayerState(layerState, id, 4, mascara);
+                    aplicadas.Add(id);
                     ok++;
                 }
                 catch (Autodesk.AutoCAD.Runtime.Exception)
@@ -70,7 +72,85 @@ internal static class LayoutOps
             tr.Commit();
         }
 
+        RegistrarLayerState(db, aplicadas, layerState);
         return new OpResult(ok, falhas, $"\"{layerState}\" aplicado em {ok} viewport(s)" + (falhas > 0 ? $"; {falhas} falha(s)." : "."));
+    }
+
+    /// <summary>XData da viewport com o ultimo layer state aplicado pelo plugin (nome e data).</summary>
+    public const string AppLayerState = "C3D_LAYERSTATE";
+
+    /// <summary>Grava na viewport o layer state aplicado (para as propriedades mostrarem depois).</summary>
+    public static void RegistrarLayerState(Database db, IEnumerable<ObjectId> viewports, string texto)
+    {
+        List<ObjectId> ids = viewports.Where(id => !id.IsNull && !id.IsErased).ToList();
+        if (ids.Count == 0)
+            return;
+        if (texto.Length > 250)
+            texto = texto.Substring(0, 250);
+        try
+        {
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
+            if (!rat.Has(AppLayerState))
+            {
+                rat.UpgradeOpen();
+                var r = new RegAppTableRecord { Name = AppLayerState };
+                rat.Add(r);
+                tr.AddNewlyCreatedDBObject(r, true);
+            }
+            string quando = DateTime.Now.ToString("dd/MM/yyyy HH:mm", System.Globalization.CultureInfo.InvariantCulture);
+            foreach (ObjectId id in ids)
+            {
+                // Mesmo em layer travada (comum na layer das viewports).
+                if (tr.GetObject(id, OpenMode.ForWrite, false, true) is Viewport vp)
+                    vp.XData = new ResultBuffer(
+                        new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppLayerState),
+                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, texto),
+                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, quando));
+            }
+            tr.Commit();
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("Layouts", $"Registro do layer state nas viewports: {ex.Message}");
+        }
+    }
+
+    /// <summary>Layer state registrado na viewport ("nome  (data)"), ou null.</summary>
+    public static string? LayerStateRegistrado(Viewport vp)
+    {
+        using ResultBuffer? rb = vp.GetXDataForApplication(AppLayerState);
+        if (rb is null)
+            return null;
+        TypedValue[] v = rb.AsArray();
+        string nome = v.Length > 1 ? v[1].Value as string ?? "" : "";
+        string quando = v.Length > 2 ? v[2].Value as string ?? "" : "";
+        return nome.Length == 0 ? null : quando.Length > 0 ? $"{nome}  ({quando})" : nome;
+    }
+
+    /// <summary>Quantas layers estao congeladas nesta viewport (VP freeze) e quantas tem override nela.</summary>
+    public static (int Congeladas, int ComOverride) ResumoCamadas(Database db, ObjectId vpId)
+    {
+        int congeladas = 0, overrides = 0;
+        using Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        if (tr.GetObject(vpId, OpenMode.ForRead) is Viewport vp)
+        {
+            congeladas = vp.GetFrozenLayers()?.Count ?? 0;
+            var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+            foreach (ObjectId id in lt)
+            {
+                try
+                {
+                    if (((LayerTableRecord)tr.GetObject(id, OpenMode.ForRead)).HasOverrides(vpId))
+                        overrides++;
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception)
+                {
+                }
+            }
+        }
+        tr.Commit();
+        return (congeladas, overrides);
     }
 
     // ------------------------------------------------------------------

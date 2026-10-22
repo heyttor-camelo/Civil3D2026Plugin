@@ -175,6 +175,7 @@ public static class CommandNames
         public const string Pp = "PP";
         public const string ObjLayers = "C3DOBJLAYERS";
         public const string OrdemDesenho = "C3DORDEMDESENHO";
+        public const string CopiarLayers = "C3DCOPIARLAYERS";
     }
 
     public static class Secao

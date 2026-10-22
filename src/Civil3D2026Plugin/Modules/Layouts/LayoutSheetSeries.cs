@@ -1343,8 +1343,9 @@ internal static class LayoutSheetSeries
             Camadas(db, s.LayerStatePerfil, m.VpPerfil, frames.Select(f => f.VpPerfil), "perfil", avisos);
     }
 
-    internal static void Camadas(Database db, string nomeado, ObjectId vpBase, IEnumerable<ObjectId> destinos, string qual, List<string> avisos)
+    internal static void Camadas(Database db, string nomeado, ObjectId vpBase, IEnumerable<ObjectId> destinos, string qual, List<string> avisos, string? registro = null)
     {
+        var aplicadas = new List<ObjectId>();
         List<ObjectId> alvo = destinos.Where(Valido).ToList();
         if (alvo.Count == 0)
             return;
@@ -1378,6 +1379,7 @@ internal static class LayoutSheetSeries
                 try
                 {
                     lsm.RestoreLayerState(estado, vp, 4, mascara);
+                    aplicadas.Add(vp);
                 }
                 catch (System.Exception ex)
                 {
@@ -1385,6 +1387,7 @@ internal static class LayoutSheetSeries
                 }
             }
             tr.Commit();
+            LayoutOps.RegistrarLayerState(db, aplicadas, registro ?? (temporario ? $"camadas da viewport de {qual} do layout base" : estado));
         }
         catch (System.Exception ex)
         {
@@ -1410,14 +1413,14 @@ internal static class LayoutSheetSeries
     /// Colar layer state: leva o VP freeze e os overrides (cor, linetype, lineweight, plot style,
     /// transparencia) da viewport de origem para as viewports de destino.
     /// </summary>
-    public static OpResult ColarCamadas(Document doc, ObjectId vpOrigem, IReadOnlyList<ObjectId> destinos)
+    public static OpResult ColarCamadas(Document doc, ObjectId vpOrigem, IReadOnlyList<ObjectId> destinos, string nomeOrigem)
     {
         if (!Valido(vpOrigem))
             throw new InvalidOperationException("A viewport copiada nao existe mais; copie de novo.");
         List<ObjectId> alvo = destinos.Where(d => d != vpOrigem).ToList();
         var avisos = new List<string>();
         using (doc.LockDocument())
-            Camadas(doc.Database, "", vpOrigem, alvo, "origem", avisos);
+            Camadas(doc.Database, "", vpOrigem, alvo, "origem", avisos, "copia de " + nomeOrigem);
         foreach (string a in avisos)
             PluginLog.Aviso(Mod, "Colar layer state: " + a);
         return new OpResult(alvo.Count - avisos.Count, avisos.Count,

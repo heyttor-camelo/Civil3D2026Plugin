@@ -204,6 +204,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("LSIMPORTAR", "abrir", "Importar layer state de outro DWG", "Layer state",
             "Traz o VP freeze e os overrides de layer de uma viewport de outro DWG/DWT e aplica nas viewports marcadas.",
             new[] { "Marque as viewports que recebem.", "Escolha o arquivo e a viewport de origem." }, p => p.ImportarCamadas(p.VpsMarcadas())),
+        new("COPIARLAYERS", "camadas", "Estado das layers de outro DWG", "Layer state",
+            "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; as layers de xref casam pelo arquivo do xref (comando C3DCOPIARLAYERS).",
+            new[] { "Escolha o arquivo.", "Modo [Xrefs/Todas] na linha de comando." }, p => p.Enviar(C3DCommands.Utilitarios.CopiarLayers)),
         new("ORDEMDES", "ordenar", "Ordem de desenho de outro DWG", "Geral",
             "Copia a ordem de desenho (draw order) de outro DWG/DWT para este desenho, por layer ou por objeto (comando C3DORDEMDESENHO).",
             new[] { "Escolha o arquivo.", "Modo [Layers/Objetos] e espacos [Model/Layouts/Todos] na linha de comando." }, p => p.Enviar(C3DCommands.Utilitarios.OrdemDesenho)),
@@ -1635,7 +1638,7 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private void Colar(ObjectId origem, string nomeOrigem, List<ObjectId> destino)
     {
-        Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino));
+        Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino, nomeOrigem));
         foreach (SheetViewport v in _folhas.SelectMany(f => f.Viewports))
             if (destino.Contains(v.Id))
                 v.Aplicado = "copia de " + nomeOrigem;
@@ -1849,8 +1852,21 @@ internal sealed partial class LayoutPanel : SW.Window
                 p.Children.Add(Prop("Centro", $"{v.Centro.X:0.##}, {v.Centro.Y:0.##}"));
                 p.Children.Add(Prop("Travada", v.Travada ? "sim" : "nao"));
                 p.Children.Add(Prop("Ligada", v.Ligada ? "sim" : "nao"));
-                if (v.Aplicado is not null)
-                    p.Children.Add(Prop("Layer state aplicado", v.Aplicado));
+                p.Children.Add(Prop("Layer state aplicado", v.Aplicado ?? "(nenhum registrado)"));
+                if (Doc is Document docVp)
+                {
+                    try
+                    {
+                        (int congeladas, int overrides) = LayoutOps.ResumoCamadas(docVp.Database, v.Id);
+                        p.Children.Add(Prop("Layers congeladas nesta viewport", congeladas.ToString()));
+                        p.Children.Add(Prop("Layers com override nesta viewport", overrides.ToString()));
+                    }
+                    catch (System.Exception ex)
+                    {
+                        PluginLog.Diag("Layouts", "Resumo das camadas da viewport: " + ex.Message);
+                    }
+                }
+                p.Children.Add(Label("O layer state fica registrado na viewport quando e aplicado pelo plugin (aplicar, colar, importar ou layout base). Se depois as layers forem mudadas a mao, o registro continua com o ultimo aplicado; as contagens acima sao as atuais."));
                 break;
             case LayerStateItem s:
                 p.Children.Add(Label(s.Nome, true));

@@ -77,6 +77,12 @@ public static class UtilCatalog
             "Escolha o DWG ou DWT que tem a ordem de desenho (draw order) desejada e ela e aplicada no desenho atual. Por layer: cada layer vai para a posicao que tem na origem, entre quaisquer desenhos com os mesmos nomes de layer. Por objeto: cada objeto vai para a posicao exata do mesmo objeto na origem, so quando um desenho e copia do outro (Save As). Objetos sem correspondencia ficam onde estao.",
             new[] { C3DCommands.Utilitarios.OrdemDesenho },
             new[] { "Escolha o DWG/DWT de origem (pode estar aberto).", "Modo [Layers/Objetos] e espacos [Model/Layouts/Todos] (Enter repete).", "Um UNDO desfaz tudo." },
+            "nativo"),
+
+        new UtilTool("Copiar estado das layers de outro desenho", "camadas",
+            "Copia on/off, freeze, lock, plot, cor, linetype, lineweight e transparencia das layers de outro DWG ou DWT. As layers de xref casam pelo arquivo do xref, nao pelo nome: BASE|EIXO na origem vale para BASE_v2|EIXO aqui se os dois apontam para o mesmo arquivo. Xrefs so copia as layers dos xrefs; Todas copia tambem as do proprio desenho, pelo nome. Liga o VISRETAIN para o estado nao se perder ao recarregar.",
+            new[] { C3DCommands.Utilitarios.CopiarLayers },
+            new[] { "Escolha o DWG/DWT de origem (pode estar aberto).", "Modo [Xrefs/Todas] (Enter repete).", "Um UNDO desfaz tudo." },
             "nativo")
     };
 }
