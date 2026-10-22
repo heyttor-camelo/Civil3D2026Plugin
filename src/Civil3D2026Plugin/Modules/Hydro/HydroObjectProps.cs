@@ -217,7 +217,7 @@ internal static class HydroObjectProps
             }
             catch (Exception ex)
             {
-                errors.Add(ex is TargetInvocationException { InnerException: not null } tie ? tie.InnerException.Message : ex.Message);
+                errors.Add(ex is TargetInvocationException { InnerException: not null } tie ? tie.InnerException!.Message : ex.Message);
             }
         }
 

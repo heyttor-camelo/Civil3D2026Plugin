@@ -1252,10 +1252,10 @@ internal sealed partial class HydroPanel : SW.Window
         SW.FrameworkElementFactory box = new(typeof(WC.TextBox));
         box.SetBinding(WC.TextBox.TextProperty, new WD.Binding($"Cells[{column}]") { Mode = WD.BindingMode.OneWay });
         box.SetValue(WC.Control.BorderThicknessProperty, new SW.Thickness(0, 0, 0, 1));
-        box.SetValue(WC.Control.BorderBrushProperty, T.Line);
+        box.SetValue(WC.Control.BorderBrushProperty, (_dark ? Dark : Light).Line);
         box.SetValue(WC.Control.BackgroundProperty, WM.Brushes.Transparent);
-        box.SetValue(WC.Control.ForegroundProperty, T.Text);
-        box.SetValue(WC.TextBox.CaretBrushProperty, T.Text);
+        box.SetValue(WC.Control.ForegroundProperty, (_dark ? Dark : Light).Text);
+        box.SetValue(WC.TextBox.CaretBrushProperty, (_dark ? Dark : Light).Text);
         box.SetValue(WC.Control.PaddingProperty, new SW.Thickness(0));
         box.SetValue(SW.FrameworkElement.TagProperty, column);
         if (numeric)
