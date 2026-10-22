@@ -5,10 +5,11 @@
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File tools\Export-PartData.ps1 -Out docs\HYDRO-PARTDATA.md
 .EXAMPLE
-  ... -Catalogs 'FDX Metric Structures'
+  ... -Catalogs 'FDX Metric Structures' -All   (-All inclui as distâncias/diâmetros ocultos do modelo)
 #>
 param([string]$Root = 'C:\ProgramData\Autodesk\C3D 2026\enu\Pipes Catalog', [string]$Out = 'docs\HYDRO-PARTDATA.md',
-      [string[]]$Catalogs = @('U3929348-IRIWUEH-393J4J2-DIJFI', 'Metric Structures'))
+      [string[]]$Catalogs = @('U3929348-IRIWUEH-393J4J2-DIJFI', 'Metric Structures'),
+      [switch]$All)
 $ErrorActionPreference = 'Stop'
 $inv = [Globalization.CultureInfo]::InvariantCulture
 
@@ -53,7 +54,7 @@ function Family($xmlPath, $catDir) {
         Sort-Object { $rank[$_.LocalName] }, { $_.name }
     foreach ($c in $rows) {
         $kind = $c.LocalName; $vis = $c.visible -eq '1'
-        if (-not $vis -and $c.context -match $geomCtx) { $hidden++; continue }
+        if (-not $All -and -not $vis -and $c.context -match $geomCtx) { $hidden++; continue }
         switch ($kind) {
             'ColumnRangeList' {
                 $it = @{}; foreach ($i in $c.Item) { $it[$i.rangeVal] = Fmt $i.InnerText }
@@ -112,7 +113,7 @@ W '| `ColumnConstList` (Itens) | `IsFromList = true` — só os valores da lista
 W '| `ColumnConst` | valor fixo da família |'
 W '| `ColumnCalc` | calculado pela fórmula a partir dos outros campos |'
 W ''
-W 'O HYDRO (`HydroReader`) mostra/edita só os campos com `IsFromRange` ou `IsFromList`; as tabelas abaixo destacam esses na coluna "Origem" (`faixa`/`lista`). Colunas de catálogo (`Catalog_*`, versão, flags) e as distâncias ocultas usadas só para desenhar o modelo são omitidas; os `Geometry_ModelParameter` ocultos ficam porque guardam o valor de referência do `.dwg` do modelo.'
+W ('O HYDRO (`HydroReader`) mostra/edita só os campos com `IsFromRange` ou `IsFromList`; as tabelas abaixo destacam esses na coluna "Origem" (`faixa`/`lista`). Colunas de catálogo (`Catalog_*`, versão, flags) são omitidas' + $(if ($All) { '; todas as outras aparecem, inclusive as distâncias e diâmetros ocultos usados para desenhar o modelo (`Geometry_Distance2D/3D`, `BodyGeometry_Diameter`).' } else { ', assim como as distâncias ocultas usadas só para desenhar o modelo; os `Geometry_ModelParameter` ocultos ficam porque guardam o valor de referência do `.dwg` do modelo.' }))
 W ''
 if (-not (Test-Path (Join-Path $Root 'FDX Metric Structures'))) {
     W ('> **O catálogo "FDX Metric Structures" não está nesta máquina ({0}).** Ele é montado por `tools/Merge-PartCatalogs.ps1` (Country Kit BRA + CSBIM saneado, capítulos `CSBIM-*`; ver `DIARIO.md` 2026-10-21) e fica na máquina do trabalho e no Drive (`1 FDX ENGENHARIA\...\FDX-Catalogo-2026-10-21`). No FDX as famílias CSBIM são as mesmas (`CSBIM-ALAS\BDCC` = `ALAS\BDCC`, `CSBIM-DRENAGEM\PV DNIT` = `DRENAGEM\PV DNIT`), mas já saneadas: as listas dimensionais viram faixas. Para listar o FDX: `tools\Export-PartData.ps1 -Catalogs ''FDX Metric Structures''` numa máquina com ele instalado.' -f $env:COMPUTERNAME)
