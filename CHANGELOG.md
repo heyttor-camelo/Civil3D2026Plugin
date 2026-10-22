@@ -1,3 +1,8 @@
+## 2.64.0 - Utilitarios v1.4.0: C3DORDEMDESENHO
+
+- `C3DORDEMDESENHO` (tambem na lista do `C3DLISP`): escolha no navegador o DWG/DWT que tem a ordem de desenho (draw order) desejada e ela e aplicada no desenho atual, no Model, nos layouts ou nos dois. Modo **Layers** (padrao): cada layer vai para a posicao que tem na origem (mediana das posicoes dos objetos dela), entre quaisquer desenhos com os mesmos nomes de layer; layout sem par de mesmo nome na origem usa a ordem do Model dela. Modo **Objetos**: cada objeto vai para a posicao do objeto de mesmo handle e mesmo tipo na origem, para quando um desenho e copia do outro (Save As); avisa quando poucos objetos casam. Objetos sem correspondencia nao saem do lugar. Se a origem estiver aberta no editor, le direto dela. Um UNDO desfaz tudo.
+- `tools/icones/ribbon.py`: volta a ter o `PEDCAMPOS`, que so existia no `IconArt.cs` gerado.
+
 ## 2.63.0 - HYDRO v0.8.0: controle total das pecas, edicao na lista, peca 3D e monitor rapido
 
 - **Monitor** redesenhado numa superficie so (DrawingContext em vez de milhares de Shapes): pan/zoom sem travar em rede grande, redesenho agrupado por quadro, so desenha o que esta na tela; **setas** novas (cabeca cheia com contorno, uma a cada ~110 px, tamanho pela espessura do tubo); **hover** destaca a peca e mostra os dados na barra; **clique** seleciona a peca na lista; botao **Cor** pinta os tubos por lamina (y/D), velocidade, recobrimento ou declividade, com legenda; estruturas com regra tem um ponto;
