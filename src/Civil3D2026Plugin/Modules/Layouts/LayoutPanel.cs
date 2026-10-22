@@ -1746,10 +1746,8 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private void Colar(ObjectId origem, string nomeOrigem, List<ObjectId> destino)
     {
+        // O Executar rele o desenho: a coluna Aplicado vem do que ficou gravado em cada viewport.
         Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino, nomeOrigem));
-        foreach (SheetViewport v in _folhas.SelectMany(f => f.Viewports))
-            if (destino.Contains(v.Id))
-                v.Aplicado = "copia de " + nomeOrigem;
         if (_category == "VIEWPORTS")
             FillList();
     }
@@ -3287,10 +3285,6 @@ internal sealed partial class LayoutPanel : SW.Window
         string arquivo = dlg.FileName;
         List<ObjectId> alvo = destinos.ToList();
         Executar(() => LayoutCamadasExternas.Importar(doc, arquivo, origem, alvo));
-        string nome = System.IO.Path.GetFileNameWithoutExtension(arquivo) + " " + origem.Rotulo.Split("   ")[0];
-        foreach (SheetViewport v in _folhas.SelectMany(f => f.Viewports))
-            if (alvo.Contains(v.Id))
-                v.Aplicado = "de " + nome;
         if (_category == "VIEWPORTS")
             FillList();
     }

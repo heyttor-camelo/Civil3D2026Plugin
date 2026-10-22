@@ -1,3 +1,7 @@
+## 2.67.2 - Layouts v1.12.2: colar/importar layer state guarda o nome original
+
+- ao colar ou importar o layer state de uma viewport, o registro leva o nome do layer state que estava gravado nela, ex. "WALDYR (copiado de 04 #1)", em vez de so "copia de 04 #1" (que fica quando a origem nao tem registro). Colar de uma copia continua apontando para o nome original.
+
 ## 2.67.1 - Layouts v1.12.1: Colar layer state aparece na vista
 
 - o menu do botao direito das viewports na vista grafica era montado so ao desenhar a vista; depois de "Copiar layer state", as outras viewports nao mostravam "Colar". Agora o menu e montado ao abrir.

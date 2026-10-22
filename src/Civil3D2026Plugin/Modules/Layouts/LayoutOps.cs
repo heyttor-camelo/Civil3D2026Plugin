@@ -128,6 +128,30 @@ internal static class LayoutOps
         return nome.Length == 0 ? null : quando.Length > 0 ? $"{nome}  ({quando})" : nome;
     }
 
+    /// <summary>So o nome do layer state registrado na viewport (sem a data), ou null.</summary>
+    public static string? NomeRegistrado(Transaction tr, ObjectId vpId)
+    {
+        if (vpId.IsNull || vpId.IsErased || tr.GetObject(vpId, OpenMode.ForRead) is not Viewport vp)
+            return null;
+        using ResultBuffer? rb = vp.GetXDataForApplication(AppLayerState);
+        TypedValue[] v = rb?.AsArray() ?? Array.Empty<TypedValue>();
+        string nome = v.Length > 1 ? v[1].Value as string ?? "" : "";
+        return nome.Length == 0 ? null : nome;
+    }
+
+    /// <summary>
+    /// Texto gravado ao colar/importar: o nome do layer state original (o registrado na viewport de
+    /// origem) e de onde veio, ex. "WALDYR (copiado de 04 #1)"; sem registro, "copia de 04 #1".
+    /// </summary>
+    public static string TextoHerdado(string? original, string origem)
+    {
+        if (string.IsNullOrEmpty(original))
+            return "copia de " + origem;
+        int i = original.IndexOf(" (copiado de ", StringComparison.Ordinal);
+        string nome = i > 0 ? original.Substring(0, i) : original;
+        return nome.StartsWith("copia de ", StringComparison.Ordinal) ? "copia de " + origem : $"{nome} (copiado de {origem})";
+    }
+
     /// <summary>Quantas layers estao congeladas nesta viewport (VP freeze) e quantas tem override nela.</summary>
     public static (int Congeladas, int ComOverride) ResumoCamadas(Database db, ObjectId vpId)
     {

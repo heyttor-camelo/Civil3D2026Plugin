@@ -1419,8 +1419,14 @@ internal static class LayoutSheetSeries
             throw new InvalidOperationException("A viewport copiada nao existe mais; copie de novo.");
         List<ObjectId> alvo = destinos.Where(d => d != vpOrigem).ToList();
         var avisos = new List<string>();
+        string? original;
+        using (Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction())
+        {
+            original = LayoutOps.NomeRegistrado(tr, vpOrigem);
+            tr.Commit();
+        }
         using (doc.LockDocument())
-            Camadas(doc.Database, "", vpOrigem, alvo, "origem", avisos, "copia de " + nomeOrigem);
+            Camadas(doc.Database, "", vpOrigem, alvo, "origem", avisos, LayoutOps.TextoHerdado(original, nomeOrigem));
         foreach (string a in avisos)
             PluginLog.Aviso(Mod, "Colar layer state: " + a);
         return new OpResult(alvo.Count - avisos.Count, avisos.Count,

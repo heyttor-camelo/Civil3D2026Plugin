@@ -62,6 +62,7 @@ internal static class LayoutCamadasExternas
         string tmp = "C3D_TMP_IMPORT_" + origem.Handle.ToString("X");
         Database db = doc.Database;
         var avisos = new List<string>();
+        string? original = null;
 
         using (doc.LockDocument())
         {
@@ -74,6 +75,11 @@ internal static class LayoutCamadasExternas
                     if (!src.TryGetObjectId(new Handle(origem.Handle), out ObjectId vpId) || vpId.IsErased)
                         throw new InvalidOperationException("A viewport nao existe mais no arquivo de origem.");
 
+                    using (Transaction trSrc = src.TransactionManager.StartOpenCloseTransaction())
+                    {
+                        original = LayoutOps.NomeRegistrado(trSrc, vpId);
+                        trSrc.Commit();
+                    }
                     LayerStateManager lsm = src.LayerStateManager;
                     if (lsm.HasLayerState(tmp))
                         lsm.DeleteLayerState(tmp);
@@ -92,7 +98,7 @@ internal static class LayoutCamadasExternas
                 });
 
                 LayoutSheetSeries.Camadas(db, tmp, ObjectId.Null, destinos, "importada", avisos,
-                    $"de {Path.GetFileName(arquivo)} {origem.Rotulo.Split("   ")[0]}");
+                    LayoutOps.TextoHerdado(original, $"{Path.GetFileName(arquivo)} {origem.Rotulo.Split("   ")[0]}"));
             }
             finally
             {
