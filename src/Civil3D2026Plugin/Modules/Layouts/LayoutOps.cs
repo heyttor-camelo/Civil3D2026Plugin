@@ -141,7 +141,12 @@ internal static class LayoutOps
             {
                 try
                 {
-                    if (((LayerTableRecord)tr.GetObject(id, OpenMode.ForRead)).HasOverrides(vpId))
+                    var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForRead);
+                    if (!ltr.HasOverrides)
+                        continue;
+                    LayerViewportProperties o = ltr.GetViewportOverrides(vpId);
+                    if (o.IsColorOverridden || o.IsLinetypeOverridden || o.IsLineWeightOverridden ||
+                        o.IsPlotStyleOverridden || o.IsTransparencyOverridden)
                         overrides++;
                 }
                 catch (Autodesk.AutoCAD.Runtime.Exception)

@@ -1,3 +1,7 @@
+## 2.66.1 - Correcao de compilacao
+
+- `LayoutOps.ResumoCamadas`: `LayerTableRecord.HasOverrides` e propriedade (qualquer viewport); o override de cada viewport vem de `GetViewportOverrides` (CS1955).
+
 ## 2.66.0 - Utilitarios v1.6.0: C3DCOPIARLAYERS; Layouts v1.11.0: layer state registrado na viewport
 
 - `C3DCOPIARLAYERS` (Ribbon, lista do `C3DLISP` e barra do explorador de layouts, grupo Layer state): copia on/off, freeze, lock, plot, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT. As layers de xref casam pelo **arquivo** do xref, nao pelo nome (`BASE|EIXO` na origem vale para `BASE_v2|EIXO` aqui); linetypes de xref sao trocados do mesmo jeito. Modo Xrefs (padrao) so mexe nas layers dos xrefs; Todas inclui as do proprio desenho, pelo nome. A layer atual nao e congelada. Com VISRETAIN = 0 passa para 1, para o estado nao voltar ao recarregar o xref.
