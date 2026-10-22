@@ -1464,9 +1464,11 @@ internal sealed partial class LayoutPanel : SW.Window
                 StrokeDashArray = vp.Ligada ? null : new WM.DoubleCollection { 3, 2 },
                 Cursor = WI.Cursors.Hand,
                 ToolTip = DicaViewport(folha, vp),
-                ContextMenu = MenuViewport(folha, vp)
+                // Montado na hora de abrir: depois de "Copiar layer state" as outras viewports ja mostram "Colar".
+                ContextMenu = new WC.ContextMenu()
             };
             SheetViewport v = vp;
+            forma.ContextMenuOpening += (_, _) => forma.ContextMenu = MenuViewport(folha, v);
             forma.MouseEnter += (_, _) => { if (!_vpsMarcadas.Contains(v.Id)) forma.Fill = _vpHover; };
             forma.MouseLeave += (_, _) => { if (!_vpsMarcadas.Contains(v.Id)) forma.Fill = FillEstado(v); };
             forma.MouseRightButtonDown += (_, _) => MostrarFolha(folha);

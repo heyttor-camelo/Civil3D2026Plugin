@@ -1,3 +1,7 @@
+## 2.67.1 - Layouts v1.12.1: Colar layer state aparece na vista
+
+- o menu do botao direito das viewports na vista grafica era montado so ao desenhar a vista; depois de "Copiar layer state", as outras viewports nao mostravam "Colar". Agora o menu e montado ao abrir.
+
 ## 2.67.0 - Layouts v1.12.0: visual no estilo do Project Explorer
 
 - Explorador de layouts: as categorias saem da faixa de cima e viram a **navegacao na coluna da esquerda** (icone, nome e quantidade alinhada a direita, marca de destaque na selecionada), com divisor arrastavel e largura lembrada;
