@@ -66,6 +66,7 @@ internal sealed partial class HydroPanel : SW.Window
     private NetworkInfo? Net => _snap.Find(_networkHandle) ?? _snap.Networks.FirstOrDefault();
     private HydroSettings _settings = new();
     private List<HydroViolation> _violations = new();
+    private ILookup<string, HydroViolation> _violationsByHandle = Array.Empty<HydroViolation>().ToLookup(v => v.Handle);
     private Dictionary<string, HydroResult> _results = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly HashSet<string> _checked = new(StringComparer.OrdinalIgnoreCase);
@@ -223,7 +224,29 @@ internal sealed partial class HydroPanel : SW.Window
         if (doc is null || !Attached.Add(doc))
             return;
         doc.CommandEnded += OnCommandEnded;
+        doc.Database.ObjectModified += OnDbChanged;
+        doc.Database.ObjectAppended += OnDbChanged;
+        doc.Database.ObjectErased += OnDbErased;
         doc.BeginDocumentClose += (_, _) => Detach(doc);
+    }
+
+    /// <summary>
+    /// Houve mudanca em objeto da rede (ou nos dados do HYDRO) desde a ultima leitura. Sem isso o
+    /// painel relia todas as redes no fim de QUALQUER comando (zoom, pan, selecao...), o que
+    /// travava em rede grande.
+    /// </summary>
+    private static bool _dirty = true;
+
+    private static void OnDbChanged(object? sender, AcadDb.ObjectEventArgs e) => MarkDirty(e.DBObject);
+
+    private static void OnDbErased(object? sender, AcadDb.ObjectErasedEventArgs e) => MarkDirty(e.DBObject);
+
+    private static void MarkDirty(AcadDb.DBObject? obj)
+    {
+        if (_dirty || obj is null)
+            return;
+        if (obj is CivilDb.Part or CivilDb.Network or CivilDb.Catchment or AcadDb.Xrecord or AcadDb.DBDictionary)
+            _dirty = true;
     }
 
     private static void Detach(Document doc)
@@ -233,6 +256,9 @@ internal sealed partial class HydroPanel : SW.Window
         try
         {
             doc.CommandEnded -= OnCommandEnded;
+            doc.Database.ObjectModified -= OnDbChanged;
+            doc.Database.ObjectAppended -= OnDbChanged;
+            doc.Database.ObjectErased -= OnDbErased;
         }
         catch
         {
@@ -249,7 +275,7 @@ internal sealed partial class HydroPanel : SW.Window
     private static void OnCommandEnded(object? sender, CommandEventArgs e)
     {
         // Comandos de so leitura do proprio painel nao precisam reler.
-        if (e.GlobalCommandName.StartsWith("C3DHYDRO", StringComparison.OrdinalIgnoreCase))
+        if (e.GlobalCommandName.StartsWith("C3DHYDRO", StringComparison.OrdinalIgnoreCase) || !_dirty)
             return;
         NotifyChanged();
     }
@@ -259,6 +285,7 @@ internal sealed partial class HydroPanel : SW.Window
         if (_instance is null)
             return;
         _instance.Attach(e.Document);
+        _dirty = true;
         NotifyChanged();
     }
 
@@ -366,10 +393,14 @@ internal sealed partial class HydroPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 280 });
         _list.SelectionMode = WC.SelectionMode.Extended;
         _list.SelectionChanged += (_, _) => OnRowSelected();
-        _list.MouseDoubleClick += (_, _) => ZoomCurrent();
+        _list.MouseDoubleClick += (_, e) =>
+        {
+            if (!InCellEditor(e.OriginalSource))
+                ZoomCurrent();
+        };
         _list.PreviewKeyDown += (_, e) =>
         {
-            if (e.Key == WI.Key.Space && Checkable && _list.SelectedItems.Count > 0)
+            if (e.Key == WI.Key.Space && Checkable && _list.SelectedItems.Count > 0 && !InCellEditor(e.OriginalSource))
             {
                 List<Row> sel = _list.SelectedItems.OfType<Row>().ToList();
                 bool mark = sel.Any(r => !r.Checked);
@@ -608,6 +639,7 @@ internal sealed partial class HydroPanel : SW.Window
     private void Refresh()
     {
         _refreshCount++;
+        _dirty = false;
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
         {
@@ -628,6 +660,7 @@ internal sealed partial class HydroPanel : SW.Window
                 _violations = HydroChecker.Check(n, _snap, _settings, _results);
             else
                 _violations = new List<HydroViolation>();
+            _violationsByHandle = _violations.ToLookup(v => v.Handle, StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception ex)
         {
@@ -705,6 +738,22 @@ internal sealed partial class HydroPanel : SW.Window
         FillCategories();
         BuildCommandBar();
         FillList();
+    }
+
+    /// <summary>Se o evento veio de dentro de uma celula editavel (TextBox) da lista.</summary>
+    private static bool InCellEditor(object? source)
+    {
+        SW.DependencyObject? d = source as SW.DependencyObject;
+        while (d is not null)
+        {
+            if (d is WC.TextBox)
+                return true;
+            if (d is WC.ListViewItem)
+                return false;
+            d = d is SW.Media.Visual or SW.Media.Media3D.Visual3D ? WM.VisualTreeHelper.GetParent(d) : SW.LogicalTreeHelper.GetParent(d);
+        }
+
+        return false;
     }
 
     private bool Checkable => _category is "ESTRUTURAS" or "TUBOS" or "BACIAS";
@@ -794,7 +843,7 @@ internal sealed partial class HydroPanel : SW.Window
                             $"{s.PipesIn.Count}>{s.PipesOut.Count}" + (s.PipesUndefined.Count > 0 ? "?" : ""),
                             s.Catchments.Count > 0 ? string.Join(", ", s.Catchments) : "-",
                             N(r?.AreaHa ?? UpstreamAreaHa(net, s.Handle), 3), r is null ? "-" : N(r.Flow, 4),
-                            string.Join(" | ", s.Warnings.Concat(_violations.Where(v => v.Handle == s.Handle).Select(v => v.Text)))
+                            string.Join(" | ", s.Warnings.Concat(_violationsByHandle[s.Handle].Select(v => v.Text)))
                         }
                     });
                 }
@@ -842,7 +891,7 @@ internal sealed partial class HydroPanel : SW.Window
                             N(p.UpInvert, 3), N(p.DownInvert, 3), N(p.MinCoverActual, 2),
                             N(r?.AreaHa ?? UpstreamAreaHa(net, p.FromHandle), 3),
                             r is null ? N(p.FlowRate, 4) : N(r.Flow, 4), r is null ? "-" : N(r.DepthRatio * 100, 0) + " %", r is null ? "-" : N(r.Velocity, 2),
-                            string.Join(" | ", p.Warnings.Concat(_violations.Where(v => v.Handle == p.Handle).Select(v => v.Text)))
+                            string.Join(" | ", p.Warnings.Concat(_violationsByHandle[p.Handle].Select(v => v.Text)))
                         }
                     });
                 }
@@ -909,8 +958,8 @@ internal sealed partial class HydroPanel : SW.Window
         foreach (Row r in rows)
         {
             string warn = r.Cells.Length > 0 ? r.Cells[^1] : "";
-            bool hasViolation = r.Data is StructureInfo s ? _violations.Any(v => v.Handle == s.Handle && v.Severity == HydroSeverity.Erro)
-                : r.Data is PipeInfo p && _violations.Any(v => v.Handle == p.Handle && v.Severity == HydroSeverity.Erro);
+            bool hasViolation = r.Data is StructureInfo s ? _violationsByHandle[s.Handle].Any(v => v.Severity == HydroSeverity.Erro)
+                : r.Data is PipeInfo p && _violationsByHandle[p.Handle].Any(v => v.Severity == HydroSeverity.Erro);
             if (r.Data is HydroViolation hv)
             {
                 r.Flag = hv.Severity == HydroSeverity.Erro ? "✖" : "⚠";
@@ -936,9 +985,11 @@ internal sealed partial class HydroPanel : SW.Window
         }
 
         _rows = rows;
+        _columns = columns;
+        Func<int, bool> editable = i => i < columns.Length && EditableColumn(_category, columns[i]);
         _list.View = Checkable
-            ? ListViewFor(columns, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked))
-            : ListViewFor(columns, widths, rows);
+            ? ListViewFor(columns, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked), editable, CommitCell)
+            : ListViewFor(columns, widths, rows, editable: editable, commit: CommitCell);
         _list.ItemsSource = rows;
 
         Row? keep = rows.FirstOrDefault(r => r.Id == _selectedRow) ?? rows.FirstOrDefault();
@@ -957,6 +1008,120 @@ internal sealed partial class HydroPanel : SW.Window
             : catalogWarn + $"Rede ativa: {net.Name} | {net.Structures.Count} estrutura(s), {net.Pipes.Count} tubo(s), {N(net.Length2D, 0)} m | " +
               $"{_snap.Catchments.Count} bacia(s) | Verificacao: {errs} erro(s), {_violations.Count - errs} aviso(s) | " +
               $"{(_checked.Count > 0 ? _checked.Count + " marcado(s) | " : "")}v{C3DVersions.Hydro}");
+    }
+
+    private string[] _columns = Array.Empty<string>();
+
+    /// <summary>Colunas da lista que aceitam edicao direto na celula.</summary>
+    private bool EditableColumn(string category, string column) => category switch
+    {
+        "ESTRUTURAS" => column is "Estrutura" or "Tampa" or "Fundo" or "Prof. [m]" ||
+                        (column.EndsWith(" [m]", StringComparison.Ordinal) && _paramColumns.Contains(column[..^4])),
+        "TUBOS" => column is "Tubo" or "D [mm]" or "i" or "Fundo mont." or "Fundo jus.",
+        "BACIAS" => column is "C" or "Tc [min]",
+        "CALCULO" => column == "Valor",
+        _ => false
+    };
+
+    /// <summary>
+    /// Grava a celula editada. Vale para a linha, ou para todas as marcadas/selecionadas quando a
+    /// linha faz parte delas (edicao em lote direto na lista). Mesmas regras da aba Propriedades.
+    /// </summary>
+    private void CommitCell(Row row, int col, string text)
+    {
+        if (col >= _columns.Length)
+            return;
+        string column = _columns[col];
+        List<Row> targets = Targets();
+        if (!targets.Contains(row))
+            targets = new List<Row> { row };
+        targets = targets.Where(r => r.Data?.GetType() == row.Data?.GetType()).ToList();
+        _selectedRow = row.Id;
+        switch (row.Data)
+        {
+            case StructureInfo s:
+            {
+                List<StructureInfo> list = targets.Select(r => (StructureInfo)r.Data!).ToList();
+                if (column == "Estrutura")
+                {
+                    ApplyStructureEdits(new[] { s }, new List<(string, string)>(), text, "", false);
+                    return;
+                }
+
+                string target = column switch
+                {
+                    "Tampa" => HydroRules.Rim,
+                    "Fundo" => HydroRules.Sump,
+                    "Prof. [m]" => DepthTarget,
+                    _ => column[..^4]
+                };
+                ApplyStructureEdits(list, new List<(string, string)> { (target, text) }, "", "", list.Count > 1);
+                return;
+            }
+
+            case PipeInfo p:
+            {
+                List<PipeInfo> list = targets.Select(r => (PipeInfo)r.Data!).ToList();
+                if (column == "Tubo")
+                {
+                    RunApply("Renomear " + p.Name, db => HydroEditor.EditPipe(db, p.Handle, text, null, null, null));
+                    return;
+                }
+
+                string t = text.Replace("%", "").Trim();
+                RunApply(list.Count > 1 ? $"{column} em {list.Count} tubo(s)" : $"{column} de {p.Name}", db =>
+                {
+                    foreach (PipeInfo x in list)
+                    {
+                        switch (column)
+                        {
+                            case "D [mm]":
+                                if (Relative(t, x.InnerDiameter * 1000) is double mm && mm > 0)
+                                    HydroEditor.ResizePipe(db, x.Handle, mm / 1000);
+                                break;
+                            case "i":
+                                if (Relative(t, x.Slope * 100) is double pct)
+                                    HydroEditor.EditPipe(db, x.Handle, null, null, null, pct / 100);
+                                break;
+                            case "Fundo mont.":
+                                if (Relative(t, x.UpInvert) is double up)
+                                    HydroEditor.EditPipe(db, x.Handle, null, up, null, null);
+                                break;
+                            case "Fundo jus.":
+                                if (Relative(t, x.DownInvert) is double down)
+                                    HydroEditor.EditPipe(db, x.Handle, null, null, down, null);
+                                break;
+                        }
+                    }
+                });
+                return;
+            }
+
+            case CatchmentInfo c:
+            {
+                List<CatchmentInfo> list = targets.Select(r => (CatchmentInfo)r.Data!).ToList();
+                RunApply(list.Count > 1 ? $"{column} em {list.Count} bacia(s)" : $"{column} de {c.Name}", db =>
+                {
+                    foreach (CatchmentInfo x in list)
+                    {
+                        if (column == "C" && Relative(text, x.C) is double cc && cc >= 0)
+                            HydroEditor.EditCatchment(db, x.Handle, cc, null, null);
+                        else if (column == "Tc [min]" && Relative(text, x.Tc) is double tc && tc >= 0)
+                            HydroEditor.EditCatchment(db, x.Handle, null, tc, null);
+                    }
+                });
+                return;
+            }
+
+            case string key when _category == "CALCULO":
+            {
+                Dictionary<string, string> values = HydroStore.Describe(_settings).ToDictionary(d => d.Key, d => d.Value, StringComparer.Ordinal);
+                values[key] = text;
+                HydroSettings settings = HydroStore.FromFields(_settings, k => values.GetValueOrDefault(k, ""));
+                RunApply("Parametro " + key, db => HydroStore.Save(db, settings));
+                return;
+            }
+        }
     }
 
     private void OnChecksChanged()
@@ -1007,7 +1172,8 @@ internal sealed partial class HydroPanel : SW.Window
     }
 
     private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null,
-        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false)
+        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false,
+        Func<int, bool>? editable = null, Action<Row, int, string>? commit = null)
     {
         WC.GridView view = new();
 
@@ -1051,22 +1217,99 @@ internal sealed partial class HydroPanel : SW.Window
             }
 
             bool numeric = rows is not null && IsNumeric(rows, i);
-            SW.FrameworkElementFactory cell = new(typeof(WC.TextBlock));
-            cell.SetBinding(WC.TextBlock.TextProperty, new WD.Binding($"Cells[{i}]"));
-            if (numeric)
+            bool canEdit = commit is not null && editable?.Invoke(i) == true;
+            SW.FrameworkElementFactory cell = canEdit ? EditableCell(i, numeric, commit!) : new(typeof(WC.TextBlock));
+            if (!canEdit)
             {
-                cell.SetValue(WC.TextBlock.TextAlignmentProperty, SW.TextAlignment.Right);
-                cell.SetValue(WC.TextBlock.FontFamilyProperty, MonoFont);
-                cell.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
+                cell.SetBinding(WC.TextBlock.TextProperty, new WD.Binding($"Cells[{i}]"));
+                if (numeric)
+                {
+                    cell.SetValue(WC.TextBlock.TextAlignmentProperty, SW.TextAlignment.Right);
+                    cell.SetValue(WC.TextBlock.FontFamilyProperty, MonoFont);
+                    cell.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
+                }
             }
 
-            WC.GridViewColumnHeader header = new() { Content = columns[i] };
+            WC.GridViewColumnHeader header = new()
+            {
+                Content = canEdit ? "✎ " + columns[i] : columns[i],
+                ToolTip = canEdit ? "Coluna editavel: clique na celula, digite e Enter (Esc desfaz). Aceita valor, +0,10 / -0,30 e =regra nas medidas.\nSe a linha estiver marcada (ou selecionada junto com outras), grava em todas." : null
+            };
             if (numeric)
                 header.HorizontalContentAlignment = SW.HorizontalAlignment.Right;
             view.Columns.Add(new WC.GridViewColumn { Header = header, Width = i < widths.Length ? widths[i] : 80, CellTemplate = new SW.DataTemplate { VisualTree = cell } });
         }
 
         return view;
+    }
+
+    /// <summary>
+    /// Celula editavel da lista: TextBox sem borda que parece texto. Enter (ou sair da celula)
+    /// grava se mudou; Esc volta ao valor. Ao entrar, a linha vira a selecionada.
+    /// </summary>
+    private static SW.FrameworkElementFactory EditableCell(int column, bool numeric, Action<Row, int, string> commit)
+    {
+        SW.FrameworkElementFactory box = new(typeof(WC.TextBox));
+        box.SetBinding(WC.TextBox.TextProperty, new WD.Binding($"Cells[{column}]") { Mode = WD.BindingMode.OneWay });
+        box.SetValue(WC.Control.BorderThicknessProperty, new SW.Thickness(0, 0, 0, 1));
+        box.SetValue(WC.Control.BorderBrushProperty, T.Line);
+        box.SetValue(WC.Control.BackgroundProperty, WM.Brushes.Transparent);
+        box.SetValue(WC.Control.ForegroundProperty, T.Text);
+        box.SetValue(WC.TextBox.CaretBrushProperty, T.Text);
+        box.SetValue(WC.Control.PaddingProperty, new SW.Thickness(0));
+        box.SetValue(SW.FrameworkElement.TagProperty, column);
+        if (numeric)
+        {
+            box.SetValue(WC.TextBox.TextAlignmentProperty, SW.TextAlignment.Right);
+            box.SetValue(WC.Control.FontFamilyProperty, MonoFont);
+            box.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
+        }
+
+        void Commit(WC.TextBox b)
+        {
+            if (b.DataContext is not Row row || b.Tag is not int col || col >= row.Cells.Length)
+                return;
+            string text = b.Text.Trim();
+            if (text == row.Cells[col].Trim() || text.Length == 0 || b.Uid == "done")
+                return;
+            b.Uid = "done";
+            commit(row, col, text);
+        }
+
+        box.AddHandler(SW.UIElement.KeyDownEvent, new WI.KeyEventHandler((o, e) =>
+        {
+            if (o is not WC.TextBox b)
+                return;
+            if (e.Key == WI.Key.Enter)
+            {
+                Commit(b);
+                e.Handled = true;
+            }
+            else if (e.Key == WI.Key.Escape && b.DataContext is Row row && b.Tag is int col && col < row.Cells.Length)
+            {
+                b.Text = row.Cells[col];
+                b.SelectAll();
+                e.Handled = true;
+            }
+        }));
+        box.AddHandler(SW.UIElement.LostKeyboardFocusEvent, new WI.KeyboardFocusChangedEventHandler((o, _) =>
+        {
+            if (o is WC.TextBox b)
+                Commit(b);
+        }));
+        box.AddHandler(SW.UIElement.GotKeyboardFocusEvent, new WI.KeyboardFocusChangedEventHandler((o, _) =>
+        {
+            if (o is not WC.TextBox b)
+                return;
+            b.Uid = "";
+            b.SelectAll();
+            SW.DependencyObject? up = b;
+            while (up is not null and not WC.ListViewItem)
+                up = WM.VisualTreeHelper.GetParent(up);
+            if (up is WC.ListViewItem item && !item.IsSelected && WC.ItemsControl.ItemsControlFromItemContainer(item) is WC.ListView lv)
+                lv.SelectedItem = item.DataContext;
+        }));
+        return box;
     }
 
     private sealed class IconConverter : WD.IValueConverter
@@ -1428,15 +1671,9 @@ internal sealed partial class HydroPanel : SW.Window
         Act("Fundo no desenho (HYFUNDO)", () => Send("HYFUNDO ", "HYFUNDO: clique a estrutura."));
 
         // Medidas da peca (PartData) em metros: valor fixo, relativo ou "=regra" associativa.
-        List<PartParam> editable = s.Parameters.Where(p => p.Editable).ToList();
-        if (editable.Count > 0)
-        {
-            Category($"Medidas da peca ({editable.Count}) - {s.Family}");
-            foreach (PartParam p in editable)
-                MeasureProp(s, p.Name, $"{p.Description} [{p.Name}] {RangeM(p)}", p.Meters, () => ApplyStructures(new[] { s }, false));
-        }
-
+        MeasuresSection(s.Parameters, s, s.Family, () => ApplyStructures(new[] { s }, false));
         RulesSection(new[] { s });
+        AllPropertiesSection(new[] { s.Handle });
         _render = () => RenderPlan(net, s.Handle);
     }
 
@@ -1454,16 +1691,178 @@ internal sealed partial class HydroPanel : SW.Window
             .Aggregate((a, b) => { a.IntersectWith(b); return a; })
             .Select(name => list[0].Parameters.First(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
         if (common.Count > 0)
-        {
-            Category($"Medidas da peca comuns ({common.Count})");
-            foreach (PartParam p in common)
-                MeasureProp(null, p.Name, $"{p.Description} [{p.Name}] {RangeM(p)}", 0, () => ApplyStructures(list, true));
-        }
+            MeasuresSection(common, null, "comuns aos marcados", () => ApplyStructures(list, true));
 
         RulesSection(list);
+        AllPropertiesSection(list.Select(s => s.Handle).ToList());
         Act("Aplicar nos marcados", () => ApplyStructures(list, true), true);
         Act("Selecionar no desenho", () => SelectHandles(list.Select(s => s.Handle)));
         _render = () => RenderPlan(Net, null, list.Select(s => s.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private bool _showAllProps;
+
+    /// <summary>
+    /// Todas as propriedades do objeto nativo (lidas por reflexao, so quando aberto). Cada campo
+    /// grava sozinho: Enter na caixa ou escolha na lista. Com varias pecas, mostra os valores da
+    /// primeira e grava em todas.
+    /// </summary>
+    private void AllPropertiesSection(IReadOnlyList<string> handles)
+    {
+        if (handles.Count == 0)
+            return;
+        WC.Expander exp = new()
+        {
+            Header = handles.Count > 1 ? $"Todas as propriedades do objeto ({handles.Count} pecas; valores da primeira)" : "Todas as propriedades do objeto (avancado)",
+            Foreground = T.Text,
+            FontWeight = SW.FontWeights.Bold,
+            IsExpanded = false,
+            Margin = new SW.Thickness(0, 4, 0, 2)
+        };
+        WC.StackPanel host = new();
+        SW.Documents.TextElement.SetFontWeight(host, SW.FontWeights.Normal);
+        exp.Content = host;
+        _props.Children.Add(exp);
+        bool filled = false;
+        void Fill()
+        {
+            if (filled)
+                return;
+            filled = true;
+            AcadDb.Database? db = AcApp.DocumentManager.MdiActiveDocument?.Database;
+            if (db is null)
+                return;
+            List<ObjProp> props;
+            try
+            {
+                props = HydroObjectProps.Read(db, handles[0]);
+            }
+            catch (Exception ex)
+            {
+                host.Children.Add(new WC.TextBlock { Text = "Nao foi possivel ler: " + ex.Message, Foreground = T.Warn });
+                return;
+            }
+
+            WC.StackPanel keep = _props;
+            _props = host;
+            try
+            {
+                foreach (IGrouping<string, ObjProp> g in props.GroupBy(x => x.Group))
+                {
+                    Category($"{g.Key} ({g.Count()})");
+                    foreach (ObjProp op in g)
+                    {
+                        string key = "obj:" + op.Key;
+                        string prop = op.Key;
+                        switch (op.Kind)
+                        {
+                            case "ro":
+                                Prop(op.Label, op.Value, T.Muted);
+                                break;
+                            case "bool":
+                            case "enum":
+                            case "ref":
+                                ChoiceProp(key, op.Label, op.Choices.Select(c => (c, c)), op.Value, () => ApplyObjProp(handles, prop, Text(key)));
+                                break;
+                            default:
+                                WC.TextBox box = EditProp(key, op.Label, op.Value);
+                                box.Tag = op.Value;
+                                box.ToolTip = op.Kind switch
+                                {
+                                    "num" => "Numero, +0,10 / -0,30 (relativo) ou expressao. Enter grava.",
+                                    "ang" => "Angulo em graus (ou +15 / -15). Enter grava.",
+                                    "point" => "X; Y; Z (ou X; Y para manter o Z). Enter grava.",
+                                    _ => "Enter grava."
+                                };
+                                box.KeyDown += (_, e) =>
+                                {
+                                    if (e.Key != WI.Key.Enter)
+                                        return;
+                                    e.Handled = true;
+                                    if (box.Text.Trim() != (box.Tag as string ?? ""))
+                                        ApplyObjProp(handles, prop, box.Text);
+                                };
+                                break;
+                        }
+                    }
+                }
+            }
+            finally
+            {
+                _props = keep;
+            }
+        }
+
+        exp.Expanded += (_, _) =>
+        {
+            _showAllProps = true;
+            Fill();
+        };
+        exp.Collapsed += (_, _) => _showAllProps = false;
+        if (_showAllProps)
+        {
+            exp.IsExpanded = true;
+            Fill();
+        }
+    }
+
+    private void ApplyObjProp(IReadOnlyList<string> handles, string key, string text)
+    {
+        List<string> list = handles.ToList();
+        RunApply(list.Count > 1 ? $"{key} em {list.Count} peca(s)" : "Editar " + key, db =>
+        {
+            string msg = HydroObjectProps.Write(db, list, key, text);
+            AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\n[HYDRO] " + msg);
+        });
+    }
+
+    /// <summary>
+    /// Medidas da peca em tres grupos: as do catalogo (faixa/lista), as fixas da familia (gravacao
+    /// direta, o Civil pode recusar) e as internas do desenho do modelo (so leitura, recolhidas).
+    /// </summary>
+    private void MeasuresSection(IReadOnlyList<PartParam> parameters, StructureInfo? s, string title, Action enter)
+    {
+        List<PartParam> catalog = parameters.Where(p => p.Editable && !p.Fixed).ToList();
+        List<PartParam> fixedOnes = parameters.Where(p => p.Editable && p.Fixed).ToList();
+        List<PartParam> locked = parameters.Where(p => !p.Editable).ToList();
+        if (catalog.Count > 0)
+        {
+            Category($"Medidas da peca ({catalog.Count}) - {title}");
+            foreach (PartParam p in catalog)
+                MeasureProp(s, p.Name, $"{p.Description} [{p.Name}] {RangeM(p)}", s is null ? 0 : p.Meters, enter);
+        }
+
+        if (fixedOnes.Count > 0)
+        {
+            Category($"Medidas fixas da familia ({fixedOnes.Count})");
+            foreach (PartParam p in fixedOnes)
+                MeasureProp(s, p.Name, $"{p.Description} [{p.Name}] fixo no catalogo", s is null ? 0 : p.Meters, enter);
+        }
+
+        if (locked.Count > 0 && s is not null)
+        {
+            WC.Expander exp = new()
+            {
+                Header = $"Medidas internas do desenho do modelo ({locked.Count}, so leitura)",
+                Foreground = T.Muted,
+                IsExpanded = false,
+                Margin = new SW.Thickness(0, 2, 0, 2)
+            };
+            WC.StackPanel inner = new();
+            foreach (PartParam p in locked)
+            {
+                inner.Children.Add(new WC.TextBlock
+                {
+                    Text = $"{p.Name}  {N(p.Value, 3)} {p.Units}   {p.Description} ({p.Context})",
+                    Foreground = T.Muted,
+                    FontFamily = MonoFont,
+                    Margin = new SW.Thickness(8, 1, 4, 1)
+                });
+            }
+
+            exp.Content = inner;
+            _props.Children.Add(exp);
+        }
     }
 
     /// <summary>
@@ -1625,7 +2024,91 @@ internal sealed partial class HydroPanel : SW.Window
         Act("Zoom", () => ZoomRow(_current!));
         Act("Selecionar", () => SelectHandles(new[] { p.Handle }));
         Act("Inverter sentido", () => RunApply("Inverter " + p.Name, db => HydroEditor.Reverse(db, new[] { p.Handle })));
+        PipeMeasuresSection(new[] { p.Handle });
+        AllPropertiesSection(new[] { p.Handle });
         _render = () => RenderPlan(net, p.Handle);
+    }
+
+    /// <summary>
+    /// Medidas da peca do tubo (PartData: diametro, espessura, etc.), lidas na hora. Enter grava a
+    /// medida em todos os tubos (valor em m, ou +0,05 / -0,05 relativo a cada um).
+    /// </summary>
+    private void PipeMeasuresSection(IReadOnlyList<string> handles)
+    {
+        AcadDb.Database? db = AcApp.DocumentManager.MdiActiveDocument?.Database;
+        if (db is null || handles.Count == 0)
+            return;
+        List<PartParam> parameters;
+        try
+        {
+            parameters = HydroObjectProps.ReadPartParams(db, handles[0]);
+        }
+        catch (Exception ex)
+        {
+            Prop("Medidas da peca", "nao lidas: " + ex.Message, T.Warn);
+            return;
+        }
+
+        List<PartParam> editable = parameters.Where(x => x.Editable).ToList();
+        if (editable.Count == 0)
+            return;
+        Category(handles.Count > 1 ? $"Medidas da peca ({editable.Count}; valores do primeiro)" : $"Medidas da peca ({editable.Count})");
+        foreach (PartParam pp in editable)
+        {
+            string text = handles.Count > 1 ? "" : N(pp.Meters, 4);
+            WC.TextBox box = EditProp("pmed:" + pp.Name, $"{pp.Description} [{pp.Name}] {(pp.Fixed ? "fixo no catalogo" : RangeM(pp))}", text);
+            box.Tag = text;
+            box.ToolTip = "Valor em m, ou +0,05 / -0,05 relativo. Enter grava.";
+            string name = pp.Name;
+            box.KeyDown += (_, e) =>
+            {
+                if (e.Key != WI.Key.Enter)
+                    return;
+                e.Handled = true;
+                string t = box.Text.Trim();
+                if (t.Length > 0 && t != (box.Tag as string ?? ""))
+                    ApplyPartParam(handles, name, t);
+            };
+        }
+    }
+
+    /// <summary>Grava uma medida de PartData (texto em m, absoluto ou relativo) em cada peca.</summary>
+    private void ApplyPartParam(IReadOnlyList<string> handles, string name, string text)
+    {
+        List<string> list = handles.ToList();
+        RunApply(list.Count > 1 ? $"{name} em {list.Count} peca(s)" : "Editar " + name, db =>
+        {
+            List<string> msgs = new();
+            foreach (string h in list)
+            {
+                PartParam? pp = HydroObjectProps.ReadPartParams(db, h).FirstOrDefault(x => x.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (pp is null)
+                {
+                    msgs.Add($"{h}: sem {name}");
+                    continue;
+                }
+
+                double? v;
+                try
+                {
+                    v = HydroRuleEngine.EditValue(text, pp.Meters);
+                }
+                catch (HydroExprException ex)
+                {
+                    msgs.Add(ex.Message);
+                    continue;
+                }
+
+                if (v is null)
+                    continue;
+                double catalog = v.Value / pp.Factor;
+                if (!pp.IsRange && pp.List.Count > 0)
+                    catalog = HydroRuleEngine.SnapUp(catalog, pp.List, out _);
+                msgs.Add(HydroEditor.SetParameters(db, h, new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) { [pp.Name] = catalog }));
+            }
+
+            AcApp.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\n[HYDRO] " + name + ": " + string.Join("; ", msgs.Distinct().Take(6)));
+        });
     }
 
     private void ShowPipesBatch(List<PipeInfo> list)
@@ -1640,6 +2123,8 @@ internal sealed partial class HydroPanel : SW.Window
         Act("Inverter sentido", () => RunApply($"Inverter {list.Count} tubo(s)", db => HydroEditor.Reverse(db, list.Select(p => p.Handle))));
         Act("Aplicar regras", () => RunApply($"Regras em {list.Count} tubo(s)", db => HydroEditor.ApplyRules(db, list.Select(p => p.Handle))));
         Act("Selecionar no desenho", () => SelectHandles(list.Select(p => p.Handle)));
+        PipeMeasuresSection(list.Select(p => p.Handle).ToList());
+        AllPropertiesSection(list.Select(p => p.Handle).ToList());
         _render = () => RenderPlan(Net, null, list.Select(p => p.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
 
@@ -2031,6 +2516,17 @@ internal sealed partial class HydroPanel : SW.Window
             edits.Add((key[4..], t));
         }
 
+        ApplyStructureEdits(list, edits, name, prefix, batch);
+    }
+
+    /// <summary>
+    /// Nucleo da edicao das estruturas (aba e celulas da lista): alvo = tampa, fundo, "prof"
+    /// (profundidade, grava o fundo) ou nome de medida da peca; texto = valor, +/- ou =regra.
+    /// </summary>
+    private const string DepthTarget = "prof";
+
+    private void ApplyStructureEdits(IReadOnlyList<StructureInfo> list, List<(string Target, string Text)> edits, string name, string prefix, bool batch)
+    {
         bool rename = (!batch && name.Length > 0 && name != list[0].Name) || prefix.Length > 0;
         if (edits.Count == 0 && !rename)
         {
@@ -2048,7 +2544,37 @@ internal sealed partial class HydroPanel : SW.Window
             double? rim = null, sump = null;
             foreach ((string target, string text) in edits)
             {
-                bool isRim = target == HydroRules.Rim, isSump = target == HydroRules.Sump;
+                bool isRim = target == HydroRules.Rim, isSump = target == HydroRules.Sump, isDepth = target == DepthTarget;
+                if (isDepth && text.StartsWith('='))
+                {
+                    errors.Add("Profundidade: escreva a regra no fundo (ex. =tampa - 1,50)");
+                    continue;
+                }
+
+                if (isDepth)
+                {
+                    double? d;
+                    try
+                    {
+                        d = HydroRuleEngine.EditValue(text, s.Depth);
+                    }
+                    catch (HydroExprException ex)
+                    {
+                        errors.Add($"Profundidade: {ex.Message}");
+                        continue;
+                    }
+
+                    if (d is null)
+                        continue;
+                    if (s.Rules.ContainsKey(HydroRules.Sump))
+                    {
+                        bool fromTpl = s.OwnRules.Template.Length > 0 && _snap.Templates.TryGetValue(s.OwnRules.Template, out HydroRuleTemplate? tp) && tp.Rules.ContainsKey(HydroRules.Sump);
+                        rules[HydroRules.Sump] = fromTpl ? "" : null;
+                    }
+                    sump = (rim ?? s.Rim) - d.Value;
+                    continue;
+                }
+
                 PartParam? p = isRim || isSump ? null : s.Parameters.FirstOrDefault(x => x.Name.Equals(target, StringComparison.OrdinalIgnoreCase));
                 if (!isRim && !isSump && p is null)
                 {

@@ -156,7 +156,17 @@ internal sealed class NetworkInfo
 /// <summary>Parametro dimensional da peca (PartData): faixa Min/Max ou lista, em unidades do catalogo (mm).</summary>
 internal sealed record PartParam(string Name, string Description, string Context, double Value, double Min, double Max, string Units, bool IsRange, bool ReadOnly)
 {
-    public bool Editable => !ReadOnly && (IsRange || Max > Min);
+    /// <summary>
+    /// Editavel no painel: tudo que nao e somente leitura nem interno do desenho do modelo
+    /// (faixa, lista e tambem os valores fixos da familia, como WTh/FTh).
+    /// </summary>
+    public bool Editable => !ReadOnly && !Internal;
+
+    /// <summary>Valor fixo da familia (nem faixa nem lista): o Civil pode recusar ou recalcular.</summary>
+    public bool Fixed => !IsRange && List.Count == 0;
+
+    /// <summary>Campo oculto que o Part Builder usa para desenhar (Geometry_*, BodyGeometry_*).</summary>
+    public bool Internal { get; init; }
 
     /// <summary>Valores da lista fechada do catalogo (vazio quando e faixa).</summary>
     public IReadOnlyList<double> List { get; init; } = Array.Empty<double>();

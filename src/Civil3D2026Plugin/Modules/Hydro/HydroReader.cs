@@ -164,8 +164,8 @@ internal static class HydroReader
     }
 
     /// <summary>
-    /// Parametros numericos da peca (PartData) que vem de faixa ou lista do catalogo: os que o
-    /// saneamento CSBIM deixou editaveis (SIL/SIW do PV, SVPC/SHBW/SID das bocas...).
+    /// Todos os parametros numericos da peca (PartData): faixa, lista, fixos da familia e os
+    /// internos do desenho do modelo (Geometry_*, marcados Internal). Os de catalogo sao omitidos.
     /// </summary>
     public static List<PartParam> ReadParameters(CivilDb.Part part)
     {
@@ -175,7 +175,8 @@ internal static class HydroReader
         {
             if (f.DataType != CivilDb.PartCatalogDataType.Double || f.Value is not double v)
                 continue;
-            if (!f.IsFromRange && !f.IsFromList)
+            string context = f.ContextString ?? "";
+            if (context.StartsWith("Catalog_", StringComparison.OrdinalIgnoreCase))
                 continue;
             double min = double.NaN, max = double.NaN;
             List<double> vals = new();
@@ -194,7 +195,8 @@ internal static class HydroReader
                 }
             }
 
-            if (!range)
+            // So le a lista quando ha lista: ler ValueList de campo fixo dispara excecao (lento em rede grande).
+            if (!range && f.IsFromList)
             {
                 try
                 {
@@ -213,7 +215,12 @@ internal static class HydroReader
                 }
             }
 
-            list.Add(new PartParam(f.Name, f.Description, f.ContextString, v, min, max, f.Units, range, f.IsReadOnly) { List = vals.OrderBy(x => x).ToList() });
+            bool fromList = !range && f.IsFromList;
+            list.Add(new PartParam(f.Name, f.Description, context, v, min, max, f.Units, range, f.IsReadOnly)
+            {
+                List = fromList ? vals.OrderBy(x => x).ToList() : new List<double>(),
+                Internal = context.StartsWith("Geometry_", StringComparison.OrdinalIgnoreCase) || context.StartsWith("BodyGeometry_", StringComparison.OrdinalIgnoreCase)
+            });
         }
 
         return list;
