@@ -160,6 +160,17 @@ O que pode falhar aqui: `Part.PartData` com setter pode nao regenerar o solido (
 o tamanho); o `ObjectModified` pode disparar em comandos que so leem (inofensivo: nada muda);
 o UNDO da troca de tubo e do recalculo sao dois passos (o recalculo roda depois do comando).
 
+## 5d. v0.8.0: controle total, lista editavel, peca 3D, monitor (15 min)
+
+1. Abra uma rede grande. Arraste e role no monitor: deve ficar fluido. ZOOM/PAN no desenho nao devem mais "piscar" o painel.
+2. Passe o mouse num tubo/estrutura do monitor: destaca e mostra os dados embaixo. Clique: a peca fica selecionada na lista.
+3. Botao **Cor** > Lamina / Velocidade / Recobrimento / Declividade: tubos pintados e legenda no canto.
+4. Estruturas: clique na celula **Tampa** de uma linha, digite `+0,10` e Enter: so ela sobe 10 cm. Marque 3 linhas, edite a celula **Prof.** de uma delas com `1,50`: as 3 ficam com 1,50 m.
+5. Tubos: celula **i** = `1` (1 %) e celula **D** = `400`: confere no desenho.
+6. Aba Propriedades de um PV: "Medidas fixas da familia" mostra WTh/FTh; troque WTh para `0,25` e Enter. Anote se o Civil aceitou (o solido muda) ou recusou (mensagem na linha de comando).
+7. Abra "Todas as propriedades do objeto": troque o estilo, a camada e a rotacao (graus). Num tubo, troque o estilo e a superficie de referencia.
+8. Botao **Peca 3D** num PV: gire e de zoom; clique numa cota (SIL/SIW...), digite um valor e veja a previa; "Aplicar no desenho".
+
 ## 6. Regressao rapida
 
 - `DRENNUM` e `DRENEXCEL` continuam funcionando pelos botoes de Redes.

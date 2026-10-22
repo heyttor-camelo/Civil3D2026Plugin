@@ -673,6 +673,16 @@ internal sealed partial class HydroPanel : SW.Window
         FillCategories();
         BuildCommandBar();
         FillList();
+        HydroPart3DWindow.Refreshed(h =>
+        {
+            foreach (NetworkInfo n in _snap.Networks)
+            {
+                if (n.StructureByHandle.TryGetValue(h, out StructureInfo? x))
+                    return (x, n);
+            }
+
+            return (null, null);
+        });
     }
 
     private int CountFor(string category) => category switch
@@ -1669,12 +1679,21 @@ internal sealed partial class HydroPanel : SW.Window
         Act("Zoom", () => ZoomRow(_current!));
         Act("Selecionar", () => SelectHandles(new[] { s.Handle }));
         Act("Fundo no desenho (HYFUNDO)", () => Send("HYFUNDO ", "HYFUNDO: clique a estrutura."));
+        Act("Peca 3D", () => OpenPart3D(s));
 
         // Medidas da peca (PartData) em metros: valor fixo, relativo ou "=regra" associativa.
         MeasuresSection(s.Parameters, s, s.Family, () => ApplyStructures(new[] { s }, false));
         RulesSection(new[] { s });
         AllPropertiesSection(new[] { s.Handle });
         _render = () => RenderPlan(net, s.Handle);
+    }
+
+    /// <summary>Abre (ou troca) o editor da peca em 3D; grava pelo mesmo caminho da aba Propriedades.</summary>
+    private void OpenPart3D(StructureInfo s)
+    {
+        if (Net is not NetworkInfo net)
+            return;
+        HydroPart3DWindow.Open(s, net, (x, edits) => ApplyStructureEdits(new[] { x }, edits, "", "", false), GoTo);
     }
 
     private void ShowStructuresBatch(List<StructureInfo> list)
