@@ -47,14 +47,31 @@ internal sealed partial class HydroPanel
     private static readonly WM.Brush StructureBrush = Brush(235, 240, 245);
     private static readonly WM.Brush CatchmentBrush = Brush(230, 90, 230);
     private static readonly WM.Brush CatchmentFill = Frozen(new WM.SolidColorBrush(WM.Color.FromArgb(40, 230, 90, 230)));
-    private static readonly WM.Brush GroundBrush = Brush(110, 210, 110);
+    private static readonly WM.Brush GroundBrush = Brush(150, 200, 110);
     private static readonly WM.Brush OtherNetwork = Brush(130, 135, 140);
     private static readonly WM.Brush RulerBrush = Brush(44, 46, 50);
     private static readonly WM.Brush OkBrush = Brush(110, 210, 110);
     private static readonly WM.Brush WarnBrush = Brush(244, 196, 64);
     private static readonly WM.Brush BadBrush = Brush(240, 70, 70);
     private static readonly WM.Brush NoDataBrush = Brush(140, 145, 150);
+    private static readonly WM.Brush MutedText = Brush(150, 153, 158);
     private static readonly WM.Typeface MonoFace = new("Consolas");
+
+    // Perfil (cores no espirito da "Network View" do Project Explorer: solo sombreado, faixa de
+    // recobrimento minimo, tubo com parede e interior, lamina e linha piezometrica).
+    private static readonly WM.Brush SoilFill = Frozen(new WM.LinearGradientBrush(
+        WM.Color.FromArgb(150, 122, 98, 66), WM.Color.FromArgb(40, 122, 98, 66), 90));
+    private static readonly WM.Brush CoverZoneFill = Frozen(new WM.SolidColorBrush(WM.Color.FromArgb(46, 244, 196, 64)));
+    private static readonly WM.Brush CoverZoneLine = Frozen(new WM.SolidColorBrush(WM.Color.FromArgb(150, 244, 196, 64)));
+    private static readonly WM.Brush PipeWallFill = Brush(128, 134, 142);
+    private static readonly WM.Brush PipeInsideFill = Brush(30, 32, 36);
+    private static readonly WM.Brush WaterFill = Frozen(new WM.SolidColorBrush(WM.Color.FromArgb(185, 64, 146, 255)));
+    private static readonly WM.Brush HglBrush = Brush(110, 190, 255);
+    private static readonly WM.Brush StructureFill = Brush(46, 48, 53);
+    private static readonly WM.Brush OrdinateBrush = Frozen(new WM.SolidColorBrush(WM.Color.FromArgb(90, 205, 205, 205)));
+
+    /// <summary>Exageros verticais oferecidos no perfil (Shift+roda percorre a lista).</summary>
+    private static readonly double[] Exaggerations = { 1, 2, 2.5, 5, 10, 20, 25, 50, 100, 200 };
 
     /// <summary>O que a cor dos tubos mostra no monitor.</summary>
     private enum ColorMode
@@ -65,6 +82,9 @@ internal sealed partial class HydroPanel
         Recobrimento,
         Declividade
     }
+
+    /// <summary>Area clicavel do perfil: retangulo (estrutura) ou segmento com tolerancia (tubo).</summary>
+    private sealed record ProfileHit(string Handle, string Text, SW.Rect Box, SW.Point A, SW.Point B, double Tol);
 
     private ColorMode _colorMode = ColorMode.Rede;
     private double _vScale, _vCx, _vCy, _vOx, _vOy;
@@ -79,6 +99,14 @@ internal sealed partial class HydroPanel
     private WM.DrawingContext? _dc;
     private double _dip = 1;
     private readonly Dictionary<(WM.Brush, double, bool), WM.Pen> _pens = new();
+
+    // Estado do perfil: exagero (0 = automatico), caminho mostrado e areas clicaveis.
+    private double _profileExag;
+    private double _exagNow = 1;
+    private string? _profileStart;
+    private string? _profileNet;
+    private readonly HashSet<string> _profileMembers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<ProfileHit> _profileHits = new();
 
     private static WM.Brush Frozen(WM.Brush b)
     {
@@ -113,7 +141,9 @@ internal sealed partial class HydroPanel
             return;
         SW.Point p = e.GetPosition(_graphic);
         P2 w = ToWorld(p);
-        _coords.Text = _profileShown ? $"dist {w.X,9:0.00} m   cota {w.Y,9:0.000}" : $"E {w.X,12:0.000}   N {w.Y,12:0.000}";
+        _coords.Text = _profileShown
+            ? $"dist {w.X,9:0.00} m   cota {w.Y / Math.Max(_exagNow, 1e-9),9:0.000}"
+            : $"E {w.X,12:0.000}   N {w.Y,12:0.000}";
         if (_dragFrom is SW.Point f && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
         {
             if (Math.Abs(p.X - _pressAt.X) + Math.Abs(p.Y - _pressAt.Y) > 3)
@@ -124,9 +154,9 @@ internal sealed partial class HydroPanel
             return;
         }
 
-        if (_profileShown)
+        (string? handle, string text) = _profileShown ? UnderProfile(p) : Under(w);
+        if (_profileShown && handle is null && _profileHits.Count == 0)
             return;
-        (string? handle, string text) = Under(w);
         _graphicInfo.Text = text;
         if (handle != _hover)
         {
@@ -139,6 +169,22 @@ internal sealed partial class HydroPanel
     {
         if (_vScale <= 0)
             return;
+
+        // Shift+roda no perfil: troca o exagero vertical (como a lista de escalas do Project Explorer).
+        if (_profileShown && (WI.Keyboard.Modifiers & WI.ModifierKeys.Shift) != 0)
+        {
+            double now = _profileExag > 0 ? _profileExag : _exagNow;
+            int i = Array.FindIndex(Exaggerations, x => x >= now - 1e-9);
+            if (i < 0)
+                i = Exaggerations.Length - 1;
+            i = Math.Clamp(e.Delta > 0 ? i + 1 : i - 1, 0, Exaggerations.Length - 1);
+            _profileExag = Exaggerations[i];
+            _pan = new P2(_pan.X, 0);
+            RequestRender();
+            e.Handled = true;
+            return;
+        }
+
         SW.Point p = e.GetPosition(_graphic);
         P2 before = ToWorld(p);
         double factor = e.Delta > 0 ? 1.25 : 0.8;
@@ -158,6 +204,8 @@ internal sealed partial class HydroPanel
         {
             _zoom = 1;
             _pan = new P2(0, 0);
+            if (_profileShown && (WI.Keyboard.Modifiers & WI.ModifierKeys.Shift) != 0)
+                _profileExag = 0;
             RequestRender();
             return;
         }
@@ -173,13 +221,25 @@ internal sealed partial class HydroPanel
         bool click = _dragFrom is not null && !_dragged && e.ChangedButton == WI.MouseButton.Left;
         _dragFrom = null;
         _graphic.ReleaseMouseCapture();
-        if (!click || _profileShown || _vScale <= 0)
+        if (!click || _vScale <= 0)
             return;
 
-        // Clique simples no monitor seleciona a peca na lista (troca de categoria se precisar).
-        (string? handle, _) = Under(ToWorld(e.GetPosition(_graphic)));
+        // Clique simples (planta ou perfil) seleciona a peca na lista (troca de categoria se precisar).
+        SW.Point at = e.GetPosition(_graphic);
+        (string? handle, _) = _profileShown ? UnderProfile(at) : Under(ToWorld(at));
         if (handle is not null)
             ShowInPanel(handle);
+    }
+
+    private string StructureText(StructureInfo s) =>
+        $"{s.Name}: tampa {N(s.Rim, 3)}  fundo {N(s.Sump, 3)}  prof {N(s.Depth, 2)} m  ({s.Family} / {s.Size})" +
+        (double.IsNaN(s.Hgl) ? "" : $"  HGL {N(s.Hgl, 3)}");
+
+    private string PipeText(PipeInfo p)
+    {
+        HydroResult? r = ResultOf(p.Handle);
+        return $"{p.Name}: D {Mm(p.InnerDiameter)} mm  L {N(p.Length2D, 2)} m  i {Pct(p.Slope)}  recob. {N(p.MinCoverActual, 2)} m" +
+            (r is null ? "" : $"  Q {N(r.Flow, 4)} m3/s  y/D {N(r.DepthRatio * 100, 0)}%  V {N(r.Velocity, 2)} m/s");
     }
 
     /// <summary>O que esta sob o cursor na planta: handle e texto da barra.</summary>
@@ -202,7 +262,7 @@ internal sealed partial class HydroPanel
         }
 
         if (s is not null)
-            return (s.Handle, $"{s.Name}: tampa {N(s.Rim, 3)}  fundo {N(s.Sump, 3)}  prof {N(s.Depth, 2)} m  ({s.Family} / {s.Size})");
+            return (s.Handle, StructureText(s));
 
         PipeInfo? p = null;
         best = tol;
@@ -216,14 +276,33 @@ internal sealed partial class HydroPanel
             }
         }
 
-        if (p is not null)
+        return p is null ? (null, "") : (p.Handle, PipeText(p));
+    }
+
+    /// <summary>O que esta sob o cursor no perfil (estruturas tem prioridade sobre tubos).</summary>
+    private (string? Handle, string Text) UnderProfile(SW.Point p)
+    {
+        foreach (ProfileHit h in _profileHits)
         {
-            HydroResult? r = ResultOf(p.Handle);
-            return (p.Handle, $"{p.Name}: D {Mm(p.InnerDiameter)} mm  L {N(p.Length2D, 2)} m  i {Pct(p.Slope)}  recob. {N(p.MinCoverActual, 2)} m" +
-                (r is null ? "" : $"  Q {N(r.Flow, 4)} m3/s  y/D {N(r.DepthRatio * 100, 0)}%  V {N(r.Velocity, 2)} m/s"));
+            if (!h.Box.IsEmpty && h.Box.Contains(p))
+                return (h.Handle, h.Text);
         }
 
-        return (null, "");
+        ProfileHit? best = null;
+        double bd = double.MaxValue;
+        foreach (ProfileHit h in _profileHits)
+        {
+            if (!h.Box.IsEmpty)
+                continue;
+            double d = DistToSeg(new P2(p.X, p.Y), new P2(h.A.X, h.A.Y), new P2(h.B.X, h.B.Y));
+            if (d <= h.Tol && d < bd)
+            {
+                bd = d;
+                best = h;
+            }
+        }
+
+        return best is null ? (null, "") : (best.Handle, best.Text);
     }
 
     private static double DistToSeg(P2 p, P2 a, P2 b)
@@ -257,6 +336,7 @@ internal sealed partial class HydroPanel
             _dip = 1;
         }
 
+        ResetLabels();
         return _graphic.ActualWidth >= 20 && _graphic.ActualHeight >= 20;
     }
 
@@ -314,6 +394,15 @@ internal sealed partial class HydroPanel
         _dc.DrawText(ft, new SW.Point(x, y));
     }
 
+    /// <summary>Texto simples (sem fundo) no centro horizontal dado, via cache.</summary>
+    private void TextCentered(string text, double cx, double y, double size, WM.Brush brush, bool bold = false)
+    {
+        if (_dc is null || text.Length == 0)
+            return;
+        WM.FormattedText ft = Ft(text, size, brush, bold);
+        _dc.DrawText(ft, new SW.Point(cx - (ft.Width / 2), y));
+    }
+
     private const double RulerLeft = 44;
     private const double RulerBottom = 16;
 
@@ -327,9 +416,11 @@ internal sealed partial class HydroPanel
         net ??= Net;
         if (_profileView && net is not null && highlight is not null)
         {
-            string? start = net.StructureByHandle.ContainsKey(highlight) ? highlight
-                : net.PipeByHandle.GetValueOrDefault(highlight)?.FromHandle;
-            if (start is not null)
+            // O perfil fica no mesmo caminho quando o item clicado ja faz parte dele.
+            string? start = _profileStart is not null && _profileNet == net.Handle && _profileMembers.Contains(highlight)
+                ? _profileStart
+                : net.StructureByHandle.ContainsKey(highlight) ? highlight : net.PipeByHandle.GetValueOrDefault(highlight)?.FromHandle;
+            if (start is not null && net.StructureByHandle.ContainsKey(start))
             {
                 RenderProfile(net, start, highlight);
                 return;
@@ -337,6 +428,7 @@ internal sealed partial class HydroPanel
         }
 
         _profileShown = false;
+        _profileHits.Clear();
         if (!Begin())
         {
             End();
@@ -389,14 +481,11 @@ internal sealed partial class HydroPanel
 
                     if (c.StructureHandle.Length > 0 && net?.StructureByHandle.GetValueOrDefault(c.StructureHandle) is StructureInfo target)
                         Line(ToScreen(c.Centroid), ToScreen(target.Point), hi ? HighlightBrush : CatchmentBrush, 1, true);
-
-                    if (_showNames && scale * Math.Sqrt(Math.Max(c.Area, 1)) > 30)
-                        Label(c.Name, ToScreen(c.Centroid).X - 10, ToScreen(c.Centroid).Y - 7, 10, CatchmentBrush);
                 }
             }
 
-            // Tubos.
-            int namesDrawn = 0;
+            // Tubos em lote (uma geometria por cor/espessura); realce e hover por baixo, direto.
+            List<(PipeInfo P, SW.Point A, SW.Point B, double Len, bool Hi)> pipeLabels = new();
             foreach (NetworkInfo n in shown)
             {
                 bool active = n.Handle == net?.Handle;
@@ -410,22 +499,20 @@ internal sealed partial class HydroPanel
                     WM.Brush brush = hi ? HighlightBrush : !active ? OtherNetwork : PipeColor(p);
                     double thickness = Math.Clamp(p.OuterDiameter * scale, 1.5, 8);
                     if (hi || hover)
-                        Line(a, b, hover && !hi ? HoverBrush : HighlightBrush, thickness + 3);
-                    Line(a, b, brush, thickness);
+                        Line(a, b, hover && !hi ? HoverBrush : HighlightBrush, thickness + 3.5);
+                    BatchLine(a, b, brush, thickness);
                     if (_showArrows && active && p.Defined)
-                        Arrows(a, b, brush, thickness);
+                        BatchArrows(a, b, brush, thickness);
                     double len = Math.Sqrt(((b.X - a.X) * (b.X - a.X)) + ((b.Y - a.Y) * (b.Y - a.Y)));
-                    if (_showNames && len > 60 && namesDrawn < 600)
-                    {
-                        namesDrawn++;
-                        SW.Point m = new((a.X + b.X) / 2, (a.Y + b.Y) / 2);
-                        Label(p.Name, m.X + 5, m.Y + 3, 10, hi ? HighlightBrush : GraphicText);
-                    }
+                    if (_showNames && active && len > 40)
+                        pipeLabels.Add((p, a, b, len, hi || hover));
                 }
             }
 
-            // Estruturas por cima.
-            namesDrawn = 0;
+            FlushBatches();
+
+            // Estruturas por cima; cada simbolo reserva o seu lugar para os rotulos nao o cobrirem.
+            List<(StructureInfo S, SW.Point C, double R, bool Hi)> structLabels = new();
             foreach (NetworkInfo n in shown)
             {
                 bool active = n.Handle == net?.Handle;
@@ -443,13 +530,14 @@ internal sealed partial class HydroPanel
                         Circle(c, Math.Max(r - 3, 1.2), null, 0, brush);
                     if (s.Warnings.Count > 0 || flagged.Contains(s.Handle))
                         Circle(new SW.Point(c.X + r, c.Y - r), 3, null, 0, T.Warn);
-                    if (_showNames && (scale > 0.3 || hi || hover) && namesDrawn < 800)
-                    {
-                        namesDrawn++;
-                        Label(s.Name, c.X + r + 2, c.Y - r - 6, 10, hi ? HighlightBrush : GraphicText);
-                    }
+                    Occupy(new SW.Rect(c.X - r - 1, c.Y - r - 1, (2 * r) + 2, (2 * r) + 2));
+                    if (_showNames && (active || hi || hover))
+                        structLabels.Add((s, c, r, hi || hover));
                 }
             }
+
+            if (_showNames)
+                DrawPlanLabels(structLabels, pipeLabels, scale);
 
             DrawRulers(w, h);
             if (_colorMode != ColorMode.Rede)
@@ -468,32 +556,38 @@ internal sealed partial class HydroPanel
     }
 
     /// <summary>
-    /// Setas do fluxo: cabecas cheias com contorno escuro (legiveis sobre qualquer fundo), uma a
-    /// cada ~110 px ao longo do tubo e sempre ao menos uma no meio; tamanho acompanha a espessura.
+    /// Rotulos da planta, por prioridade: realcados (sempre), estruturas, tubos mais longos.
+    /// Nenhum cobre outro nem um simbolo; com zoom, ganham dados (profundidade, D e i).
     /// </summary>
-    private void Arrows(SW.Point a, SW.Point b, WM.Brush brush, double thickness)
+    private void DrawPlanLabels(List<(StructureInfo S, SW.Point C, double R, bool Hi)> structures,
+        List<(PipeInfo P, SW.Point A, SW.Point B, double Len, bool Hi)> pipes, double scale)
     {
-        double dx = b.X - a.X, dy = b.Y - a.Y, len = Math.Sqrt((dx * dx) + (dy * dy));
-        double size = Math.Clamp(thickness * 2.2, 7, 14);
-        if (len < size * 2.2)
-            return;
-        dx /= len;
-        dy /= len;
-        int count = Math.Max(1, (int)(len / 110));
-        for (int i = 1; i <= count; i++)
+        bool detail = scale > 2.5;
+        foreach ((StructureInfo s, SW.Point c, double r, bool hi) in structures.Where(x => x.Hi))
+            LabelAround(detail ? $"{s.Name}  h {N(s.Depth, 2)}" : s.Name, c, r + 2, 11, HighlightBrush, force: true, bold: true, halo: HaloStrong);
+        foreach ((PipeInfo p, SW.Point a, SW.Point b, double _, bool hi) in pipes.Where(x => x.Hi))
+            LabelAlong($"{p.Name}  Ø{Mm(p.InnerDiameter)}  {Pct(p.Slope)}", a, b, 6, 10.5, HighlightBrush, force: true);
+
+        int count = 0;
+        foreach ((StructureInfo s, SW.Point c, double r, bool hi) in structures)
         {
-            double t = len * i / (count + 1);
-            SW.Point tip = new(a.X + (dx * (t + (size / 2))), a.Y + (dy * (t + (size / 2))));
-            SW.Point back = new(tip.X - (dx * size), tip.Y - (dy * size));
-            double half = size * 0.55;
-            SW.Point[] tri =
-            {
-                tip,
-                new(back.X - (dy * half), back.Y + (dx * half)),
-                new(back.X + (dx * size * 0.25), back.Y + (dy * size * 0.25)),
-                new(back.X + (dy * half), back.Y - (dx * half))
-            };
-            Poly(tri, GraphicBack, 1.2, brush, true);
+            if (hi || count > 900)
+                continue;
+            if (LabelAround(detail ? $"{s.Name}  h {N(s.Depth, 2)}" : s.Name, c, r + 2, 10.5, GraphicText))
+                count++;
+        }
+
+        count = 0;
+        foreach ((PipeInfo p, SW.Point a, SW.Point b, double len, bool hi) in pipes.OrderByDescending(x => x.Len))
+        {
+            if (hi || count > 700)
+                continue;
+            WM.Brush brush = MutedText;
+            bool done = len > 230 && LabelAlong($"{p.Name}  Ø{Mm(p.InnerDiameter)}  {Pct(p.Slope)}", a, b, 5, 10, brush);
+            if (!done)
+                done = LabelAlong(p.Name, a, b, 5, 10, brush);
+            if (done)
+                count++;
         }
     }
 
@@ -549,16 +643,19 @@ internal sealed partial class HydroPanel
         }
     }
 
-    private void SetupView(Bounds box, double w, double h)
+    private void SetupView(Bounds box, double w, double h) =>
+        SetupView(box, new SW.Rect(RulerLeft, 0, Math.Max(w - RulerLeft, 1), Math.Max(h - RulerBottom, 1)), 0.90);
+
+    /// <summary>Enquadra a caixa (mundo) no retangulo da tela, com zoom e deslocamento correntes.</summary>
+    private void SetupView(Bounds box, SW.Rect area, double fill)
     {
-        double dw = w - RulerLeft, dh = h - RulerBottom;
-        _vScale = 0.90 * Math.Min(dw / Math.Max(box.MaxX - box.MinX, 1e-6), dh / Math.Max(box.MaxY - box.MinY, 1e-6)) * _zoom;
+        _vScale = fill * Math.Min(area.Width / Math.Max(box.MaxX - box.MinX, 1e-6), area.Height / Math.Max(box.MaxY - box.MinY, 1e-6)) * _zoom;
         if (double.IsInfinity(_vScale) || _vScale > 1e6)
             _vScale = 1;
         _vCx = ((box.MinX + box.MaxX) / 2.0) + _pan.X;
         _vCy = ((box.MinY + box.MaxY) / 2.0) + _pan.Y;
-        _vOx = RulerLeft + (dw / 2.0);
-        _vOy = dh / 2.0;
+        _vOx = area.X + (area.Width / 2.0);
+        _vOy = area.Y + (area.Height / 2.0);
     }
 
     private void DrawGrid(double w, double h)
@@ -609,10 +706,22 @@ internal sealed partial class HydroPanel
     // Perfil e IDF
     // ------------------------------------------------------------------
 
-    /// <summary>Perfil do caminho de montante para jusante a partir de uma estrutura.</summary>
+    private const double ProfileTop = 22;
+    private const double BandRow = 15;
+
+    private static double Ground(StructureInfo s) => double.IsNaN(s.SurfaceElevation) ? s.Rim : s.SurfaceElevation;
+
+    /// <summary>
+    /// Perfil do caminho de montante para jusante a partir de uma estrutura, no modelo da
+    /// "Network View" do Project Explorer: grade, solo sombreado, faixa de recobrimento minimo,
+    /// tubos com parede/interior/lamina, linha piezometrica, estruturas na largura real, nomes no
+    /// topo com linha de chamada e faixa de dados embaixo (distancia, terreno, tampa, fundo,
+    /// profundidade). Shift+roda muda o exagero vertical; hover e clique como na planta.
+    /// </summary>
     private void RenderProfile(NetworkInfo net, string startHandle, string? highlight)
     {
         _profileShown = true;
+        _profileHits.Clear();
         if (!Begin())
         {
             End();
@@ -623,89 +732,238 @@ internal sealed partial class HydroPanel
         {
             double w = _graphic.ActualWidth, h = _graphic.ActualHeight;
             List<PipeInfo> path = net.PathDownstream(startHandle);
-            List<(double S, StructureInfo S0)> nodes = new();
-            double s = 0;
             StructureInfo? first = net.StructureByHandle.GetValueOrDefault(startHandle);
             if (first is null)
                 return;
-            nodes.Add((0, first));
+
+            if (_profileStart != startHandle || _profileNet != net.Handle)
+            {
+                _profileStart = startHandle;
+                _profileNet = net.Handle;
+                _profileMembers.Clear();
+                _profileMembers.Add(startHandle);
+                foreach (PipeInfo p in path)
+                {
+                    _profileMembers.Add(p.Handle);
+                    if (p.ToHandle is not null)
+                        _profileMembers.Add(p.ToHandle);
+                }
+            }
+
+            List<(double S, StructureInfo St)> nodes = new() { (0, first) };
+            List<double> pipeStart = new();
+            double s = 0;
             foreach (PipeInfo p in path)
             {
+                pipeStart.Add(s);
                 s += p.Length2D;
                 if (p.ToHandle is string to && net.StructureByHandle.GetValueOrDefault(to) is StructureInfo ts)
                     nodes.Add((s, ts));
             }
 
-            double minZ = nodes.Min(n => n.S0.Sump), maxZ = nodes.Max(n => Math.Max(n.S0.Rim, double.IsNaN(n.S0.SurfaceElevation) ? n.S0.Rim : n.S0.SurfaceElevation));
             double total = Math.Max(s, 1);
-            double exag = Math.Max(1, (total / Math.Max(maxZ - minZ, 0.5)) / 4);
+            double minCover = _settings.Criteria.MinCover;
+            double minZ = Math.Min(nodes.Min(n => n.St.Sump), path.Count == 0 ? double.MaxValue : path.Min(p => Math.Min(p.UpInvert, p.DownInvert)));
+            double maxZ = nodes.Max(n => Math.Max(n.St.Rim, Ground(n.St)));
+            double range = Math.Max(maxZ - minZ, 0.5);
 
-            // Escala vertical exagerada: mundo = (dist, cota * exag).
-            Bounds box = new(0, minZ * exag, total, maxZ * exag);
-            SetupView(box.Inflate(total * 0.03), w, h);
+            // Faixa de dados embaixo: some em monitores baixos.
+            string[] rows = h >= 300 ? new[] { "Dist.", "Terreno", "Tampa", "Fundo", "Prof." } : h >= 200 ? new[] { "Dist.", "Tampa", "Fundo" } : Array.Empty<string>();
+            double band = rows.Length * BandRow;
+            SW.Rect plot = new(RulerLeft, ProfileTop, Math.Max(w - RulerLeft - 6, 10), Math.Max(h - ProfileTop - band - 4, 10));
+
+            // Exagero automatico: o desnivel ocupa ~1/4 da largura, arredondado para a lista.
+            double auto = Math.Max(1, total / range * (plot.Height / plot.Width) / 1.2);
+            auto = Exaggerations.LastOrDefault(x => x <= auto, 1);
+            double exag = _profileExag > 0 ? _profileExag : auto;
+            _exagNow = exag;
+
+            Bounds box = new(0, (minZ - (range * 0.08)) * exag, total, (maxZ + (range * 0.05)) * exag);
+            SetupView(box.Inflate(total * 0.02), plot, 0.97);
             SW.Point P(double dist, double z) => ToScreen(new P2(dist, z * exag));
 
-            double dh = h - RulerBottom;
-            double stepZ = NiceStep((maxZ - minZ) / 6);
-            for (double z = Math.Floor(minZ / stepZ) * stepZ; z <= maxZ + stepZ; z += stepZ)
-            {
-                double py = P(0, z).Y;
-                if (py > 0 && py < dh)
-                    Line(new SW.Point(RulerLeft, py), new SW.Point(w, py), GraphicGrid, 1);
-            }
+            _dc!.PushClip(new WM.RectangleGeometry(plot));
 
-            // Terreno (tampa ou superficie).
-            Poly(nodes.Select(n => P(n.S, double.IsNaN(n.S0.SurfaceElevation) ? n.S0.Rim : n.S0.SurfaceElevation)).ToList(), GroundBrush, 1.5);
-
-            // Tubos: fundo e geratriz superior, lamina calculada e seta do fluxo.
-            double dist = 0;
-            foreach (PipeInfo p in path)
+            // Grade: cotas e distancias com passo "redondo".
+            double stepZ = NiceStep(range / Math.Max(plot.Height / 45, 2));
+            double zLo = ToWorld(new SW.Point(0, plot.Bottom)).Y / exag, zHi = ToWorld(new SW.Point(0, plot.Top)).Y / exag;
+            if (_showGrid)
             {
-                bool hi = p.Handle == highlight;
-                WM.Brush brush = hi ? HighlightBrush : PipeColor(p);
-                SW.Point a = P(dist, p.UpInvert), b = P(dist + p.Length2D, p.DownInvert);
-                SW.Point a2 = P(dist, p.UpInvert + p.InnerDiameter), b2 = P(dist + p.Length2D, p.DownInvert + p.InnerDiameter);
-                Line(a, b, brush, hi ? 2.5 : 1.5);
-                Line(a2, b2, brush, hi ? 2.5 : 1.5);
-                HydroResult? r = ResultOf(p.Handle);
-                if (r is not null && r.DepthRatio > 0)
-                    Line(P(dist, p.UpInvert + (r.DepthRatio * p.InnerDiameter)), P(dist + p.Length2D, p.DownInvert + (r.DepthRatio * p.InnerDiameter)), Brush(80, 160, 255), 1, true);
-                if (_showArrows)
-                    Arrows(new SW.Point((a.X + a2.X) / 2, (a.Y + a2.Y) / 2), new SW.Point((b.X + b2.X) / 2, (b.Y + b2.Y) / 2), brush, 2);
-                if (_showNames)
-                    Label($"{p.Name}  D{Mm(p.InnerDiameter)}  i={Pct(p.Slope)}  L={N(p.Length2D, 1)}", ((a.X + b.X) / 2) - 40, Math.Min(a.Y, b.Y) + 6, 10, hi ? HighlightBrush : GraphicText);
-                dist += p.Length2D;
-            }
-
-            // Estruturas: retangulo da tampa ao fundo.
-            foreach ((double d, StructureInfo st) in nodes)
-            {
-                bool hi = st.Handle == highlight;
-                double half = Math.Max(Math.Max(st.InnerDiameter, 0.8) * _vScale / 2, 3);
-                SW.Point top = P(d, st.Rim), bottom = P(d, st.Sump);
-                Rect(top.X - half, top.Y, half * 2, Math.Max(bottom.Y - top.Y, 1), GraphicBack, hi ? HighlightBrush : StructureBrush, hi ? 2.5 : 1.4);
-                if (_showNames)
+                for (double z = Math.Floor(zLo / stepZ) * stepZ; z <= zHi; z += stepZ)
                 {
-                    Label(st.Name, top.X - half, top.Y - 16, 10, hi ? HighlightBrush : GraphicText);
-                    Label($"T {N(st.Rim, 2)} F {N(st.Sump, 2)}", top.X + half + 2, bottom.Y - 12, 9, GraphicText);
+                    double py = Math.Round(P(0, z).Y) + 0.5;
+                    Line(new SW.Point(plot.Left, py), new SW.Point(plot.Right, py), GraphicGrid, 1);
+                }
+
+                double dLo = ToWorld(new SW.Point(plot.Left, 0)).X, dHi = ToWorld(new SW.Point(plot.Right, 0)).X;
+                double stepD = NiceStep((dHi - dLo) / Math.Max(plot.Width / 90, 2));
+                for (double d = Math.Ceiling(dLo / stepD) * stepD; d <= dHi; d += stepD)
+                {
+                    double px = Math.Round(P(d, 0).X) + 0.5;
+                    Line(new SW.Point(px, plot.Top), new SW.Point(px, plot.Bottom), GraphicGrid, 1);
                 }
             }
 
-            // Reguas: distancia embaixo e cota a esquerda.
-            Rect(0, 0, RulerLeft, dh, RulerBrush);
-            Rect(0, dh, w, RulerBottom, RulerBrush);
-            double stepX = NiceStep(total / 8);
-            for (double x = 0; x <= total + 1e-6; x += stepX)
-                Label(x.ToString("0", CultureInfo.InvariantCulture), P(x, minZ).X + 2, dh + 1, 9, GraphicText);
-            for (double z = Math.Floor(minZ / stepZ) * stepZ; z <= maxZ + stepZ; z += stepZ)
+            // Solo sombreado abaixo do terreno e faixa de recobrimento minimo.
+            List<SW.Point> ground = nodes.Select(n => P(n.S, Ground(n.St))).ToList();
+            if (ground.Count >= 2)
             {
-                double py = P(0, z).Y;
-                if (py > 0 && py < dh)
-                    Label(z.ToString("0.0", CultureInfo.InvariantCulture), 2, py - 6, 9, GraphicText);
+                List<SW.Point> soil = new(ground) { new SW.Point(ground[^1].X, plot.Bottom + 2), new SW.Point(ground[0].X, plot.Bottom + 2) };
+                Poly(soil, null, 0, SoilFill, true);
+                if (minCover > 0)
+                {
+                    List<SW.Point> zone = new(ground);
+                    zone.AddRange(nodes.Select(n => P(n.S, Ground(n.St) - minCover)).Reverse());
+                    Poly(zone, null, 0, CoverZoneFill, true);
+                    Poly(nodes.Select(n => P(n.S, Ground(n.St) - minCover)).ToList(), CoverZoneLine, 1, null, false, true);
+                }
+
+                Poly(ground, GroundBrush, 1.8);
             }
 
-            _graphicInfo.Text = $"Perfil de {first.Name} para jusante: {path.Count} trecho(s), {N(total, 1)} m, exagero vertical {N(exag, 1)}x";
-            _coords.Text = "";
+            // Ordenadas: da faixa dos nomes ate a tampa de cada estrutura.
+            foreach ((double d, StructureInfo st) in nodes)
+            {
+                SW.Point top = P(d, st.Rim);
+                Line(new SW.Point(top.X, plot.Top), top, OrdinateBrush, 1, true);
+            }
+
+            // Tubos: parede, interior, lamina calculada, linha piezometrica e seta do fluxo.
+            for (int k = 0; k < path.Count; k++)
+            {
+                PipeInfo p = path[k];
+                double x0 = pipeStart[k], x1 = x0 + p.Length2D;
+                bool hi = p.Handle == highlight;
+                bool hover = p.Handle == _hover;
+                double hIn = p.InnerHeight > 0 ? p.InnerHeight : p.InnerDiameter;
+                double wall = Math.Max((p.OuterDiameter - p.InnerDiameter) / 2, 0);
+                double i0 = p.UpInvert, i1 = p.DownInvert;
+                WM.Brush outline = hi ? HighlightBrush : hover ? HoverBrush : PipeColor(p);
+
+                if (wall > 0)
+                    Poly(new[] { P(x0, i0 - wall), P(x1, i1 - wall), P(x1, i1 + hIn + wall), P(x0, i0 + hIn + wall) }, null, 0, PipeWallFill, true);
+                SW.Point a = P(x0, i0), b = P(x1, i1), a2 = P(x0, i0 + hIn), b2 = P(x1, i1 + hIn);
+                Poly(new[] { a, b, b2, a2 }, outline, hi || hover ? 2.2 : 1.2, PipeInsideFill, true);
+
+                HydroResult? r = ResultOf(p.Handle);
+                if (r is not null && r.DepthRatio > 0)
+                {
+                    double y = Math.Min(r.DepthRatio, 1) * hIn;
+                    Poly(new[] { a, b, P(x1, i1 + y), P(x0, i0 + y) }, null, 0, WaterFill, true);
+                }
+
+                if (!double.IsNaN(p.HglUp) && !double.IsNaN(p.HglDown))
+                {
+                    double hu = p.StartIsUpstream ? p.HglUp : p.HglDown, hd = p.StartIsUpstream ? p.HglDown : p.HglUp;
+                    Line(P(x0, hu), P(x1, hd), HglBrush, 1.4, true);
+                }
+
+                SW.Point ca = new((a.X + a2.X) / 2, (a.Y + a2.Y) / 2), cb = new((b.X + b2.X) / 2, (b.Y + b2.Y) / 2);
+                if (_showArrows)
+                    BatchArrows(ca, cb, outline, Math.Clamp(Math.Abs(a2.Y - a.Y) / 2, 2, 5));
+                double tol = Math.Max(Math.Abs(a2.Y - a.Y) / 2 + 3, 5);
+                _profileHits.Add(new ProfileHit(p.Handle, PipeText(p), SW.Rect.Empty, ca, cb, tol));
+            }
+
+            FlushBatches();
+
+            // Estruturas na largura real (minimo legivel), tampa marcada.
+            foreach ((double d, StructureInfo st) in nodes)
+            {
+                bool hi = st.Handle == highlight;
+                bool hover = st.Handle == _hover;
+                double half = Math.Max(Math.Max(st.InnerDiameter, 0.6) * _vScale / 2, 4);
+                SW.Point top = P(d, st.Rim), bottom = P(d, st.Sump);
+                SW.Rect body = new(top.X - half, top.Y, half * 2, Math.Max(bottom.Y - top.Y, 2));
+                WM.Brush edge = hi ? HighlightBrush : hover ? HoverBrush : StructureBrush;
+                Rect(body.X, body.Y, body.Width, body.Height, StructureFill, edge, hi || hover ? 2.4 : 1.3);
+                Line(new SW.Point(body.Left - 3, top.Y), new SW.Point(body.Right + 3, top.Y), edge, 3);
+                _profileHits.Insert(0, new ProfileHit(st.Handle, StructureText(st), SW.Rect.Inflate(body, 3, 3), default, default, 0));
+            }
+
+            // Rotulo de cada tubo acima da geratriz superior, se couber.
+            if (_showNames)
+            {
+                for (int k = 0; k < path.Count; k++)
+                {
+                    PipeInfo p = path[k];
+                    double x0 = pipeStart[k], x1 = x0 + p.Length2D;
+                    double hIn = p.InnerHeight > 0 ? p.InnerHeight : p.InnerDiameter;
+                    double wall = Math.Max((p.OuterDiameter - p.InnerDiameter) / 2, 0);
+                    SW.Point a = P(x0, p.UpInvert + hIn + wall), b = P(x1, p.DownInvert + hIn + wall);
+                    WM.Brush brush = p.Handle == highlight ? HighlightBrush : GraphicText;
+                    if (!LabelAlong($"{p.Name}  Ø{Mm(p.InnerDiameter)}  i {Pct(p.Slope)}  L {N(p.Length2D, 1)}", a, b, 4, 10, brush))
+                        LabelAlong($"Ø{Mm(p.InnerDiameter)}  {Pct(p.Slope)}", a, b, 4, 9.5, brush);
+                }
+            }
+
+            _dc.Pop();
+
+            // Faixa dos nomes no topo (com a ordenada como linha de chamada).
+            Rect(0, 0, w, ProfileTop, RulerBrush);
+            if (_showNames)
+            {
+                foreach ((double d, StructureInfo st) in nodes.OrderByDescending(n => n.St.Handle == highlight))
+                {
+                    double x = P(d, 0).X;
+                    if (x < plot.Left - 20 || x > plot.Right + 20)
+                        continue;
+                    bool hi = st.Handle == highlight;
+                    WM.FormattedText ft = Ft(st.Name, 10.5, hi ? HighlightBrush : GraphicText, true);
+                    LabelAt(st.Name, x - ((ft.Width + 6) / 2), 3, 10.5, hi ? HighlightBrush : GraphicText, force: hi, bold: true);
+                }
+            }
+
+            // Regua de cotas a esquerda.
+            Rect(0, ProfileTop, RulerLeft, plot.Height + 4, RulerBrush);
+            for (double z = Math.Floor(zLo / stepZ) * stepZ; z <= zHi; z += stepZ)
+            {
+                double py = P(0, z).Y;
+                if (py > plot.Top + 4 && py < plot.Bottom - 4)
+                    Label(z.ToString(stepZ < 1 ? "0.0" : "0", CultureInfo.InvariantCulture), 2, py - 6, 9, GraphicText);
+            }
+
+            // Faixa de dados.
+            if (rows.Length > 0)
+            {
+                double y0 = h - band;
+                Rect(0, y0 - 4, w, band + 4, RulerBrush);
+                for (int k = 0; k < rows.Length; k++)
+                {
+                    double ry = y0 + (k * BandRow);
+                    Line(new SW.Point(0, Math.Round(ry - 1) + 0.5), new SW.Point(w, Math.Round(ry - 1) + 0.5), GraphicGrid, 1);
+                    Label(rows[k], 3, ry, 9, MutedText);
+                }
+
+                Line(new SW.Point(RulerLeft - 0.5, y0 - 4), new SW.Point(RulerLeft - 0.5, h), GraphicGrid, 1);
+                foreach ((double d, StructureInfo st) in nodes)
+                {
+                    double x = P(d, 0).X;
+                    if (x < plot.Left - 2 || x > plot.Right + 2)
+                        continue;
+                    bool hi = st.Handle == highlight;
+                    WM.Brush brush = hi ? HighlightBrush : GraphicText;
+                    for (int k = 0; k < rows.Length; k++)
+                    {
+                        string v = rows[k] switch
+                        {
+                            "Dist." => N(d, 2),
+                            "Terreno" => N(Ground(st), 2),
+                            "Tampa" => N(st.Rim, 2),
+                            "Fundo" => N(st.Sump, 2),
+                            _ => N(st.Depth, 2)
+                        };
+                        WM.FormattedText ft = Ft(v, 9, brush);
+                        LabelAt(v, x - ((ft.Width + 6) / 2), y0 + (k * BandRow), 9, brush, force: hi);
+                    }
+                }
+            }
+
+            if (_hover is null)
+            {
+                _graphicInfo.Text = $"Perfil de {first.Name} para jusante: {path.Count} trecho(s), {N(total, 1)} m, exagero {N(exag, 1)}x" +
+                    (_profileExag > 0 ? "" : " (auto)") + "  |  Shift+roda = exagero, Shift+duplo clique = exagero automatico, clique seleciona";
+            }
         }
         finally
         {
@@ -717,6 +975,8 @@ internal sealed partial class HydroPanel
     private void RenderIdf()
     {
         _profileShown = true;
+        _profileHits.Clear();
+        _exagNow = 1;
         if (!Begin())
         {
             End();

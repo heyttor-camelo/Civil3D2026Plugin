@@ -171,6 +171,13 @@ o UNDO da troca de tubo e do recalculo sao dois passos (o recalculo roda depois 
 7. Abra "Todas as propriedades do objeto": troque o estilo, a camada e a rotacao (graus). Num tubo, troque o estilo e a superficie de referencia.
 8. Botao **Peca 3D** num PV: gire e de zoom; clique numa cota (SIL/SIW...), digite um valor e veja a previa; "Aplicar no desenho".
 
+## 5e. v0.9.0: monitor e perfil (10 min)
+
+1. Planta de uma rede grande: nomes das estruturas com fundo, sem sobrepor; nomes dos tubos ao longo do tubo. De zoom: aparecem `h` das estruturas e D/i dos tubos longos.
+2. Ligue **Perfil do caminho** e clique numa estrutura de montante: faixa de nomes no topo, faixa de dados embaixo (Dist./Terreno/Tampa/Fundo/Prof.), solo sombreado, faixa de recobrimento minimo, tubos com parede e lamina azul (depois do calculo), piezometrica tracejada.
+3. Passe o mouse no perfil: a cota mostrada embaixo deve bater com a cota real (antes saia multiplicada pelo exagero). Hover destaca tubo/estrutura; clique seleciona na lista e o perfil continua no mesmo caminho.
+4. **Shift+roda** no perfil: o exagero muda (aparece na barra). Shift+duplo clique: volta ao automatico.
+5. Monitor baixo (arraste o divisor): a faixa de dados reduz para 3 linhas e some abaixo de ~200 px.
 ## 6. Regressao rapida
 
 - `DRENNUM` e `DRENEXCEL` continuam funcionando pelos botoes de Redes.

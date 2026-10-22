@@ -1,3 +1,21 @@
+## 2.69.0 - HYDRO v0.9.0: monitor refeito (perfil no estilo do Project Explorer, nomes legiveis)
+
+**Perfil do caminho**
+- Faixa de nomes no topo (com ordenada ate a tampa) e faixa de dados embaixo: Dist., Terreno, Tampa, Fundo, Prof. de cada estrutura (some em monitores baixos).
+- Solo sombreado abaixo do terreno e faixa de recobrimento minimo (criterio do calculo) tracejada.
+- Tubo com parede (diametro externo), interior escuro, lamina calculada (y/D) em azul, linha piezometrica tracejada e seta do fluxo.
+- Estruturas na largura real (minimo legivel), tampa marcada. Rotulo de cada tubo (nome, D, i, L) acima da geratriz, quando cabe.
+- Exagero vertical automatico arredondado (1, 2, 2,5, 5, 10, 20...) e **Shift+roda** para trocar; Shift+duplo clique volta ao automatico.
+- Hover e clique no perfil (como na planta). Clicar num item do mesmo caminho nao reinicia o perfil.
+- Corrigido: a cota mostrada sob o cursor saia multiplicada pelo exagero.
+
+**Planta**
+- Nomes com fundo, sem sobrepor uns aos outros nem os simbolos; nome do tubo ao longo do tubo; prioridade para o item realcado, depois estruturas, depois os tubos mais longos.
+- Com zoom, mais dados: profundidade das estruturas e D/i dos tubos longos.
+- Tubos e setas desenhados em lote (uma geometria por cor), textos em cache: redes grandes redesenham mais rapido.
+
+**Docs**
+- `docs/REF-PROJECT-EXPLORER.md`: como a Network View do Project Explorer desenha perfil e planta (referencia usada aqui).
 ## 2.68.0 - Viario v0.10.0: painel leve em redes grandes e hachura em blocos
 
 Para redes de municipio inteiro (centenas de vias de quilometros), com a atualizacao automatica ligada ou desligada.
