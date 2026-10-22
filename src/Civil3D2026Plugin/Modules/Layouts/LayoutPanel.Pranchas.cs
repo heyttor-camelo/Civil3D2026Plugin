@@ -635,7 +635,8 @@ internal sealed partial class LayoutPanel
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Layout base de outro desenho",
-            Filter = "Desenhos e templates (*.dwg;*.dwt)|*.dwg;*.dwt|Todos os arquivos (*.*)|*.*"
+            Filter = "Desenhos e templates (*.dwg;*.dwt)|*.dwg;*.dwt|Todos os arquivos (*.*)|*.*",
+            InitialDirectory = PastaDoDesenho()
         };
         if (dlg.ShowDialog(this) != true)
             return;

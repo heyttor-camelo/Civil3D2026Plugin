@@ -201,6 +201,12 @@ internal sealed partial class LayoutPanel : SW.Window
         new("LAYERSTATE", "camadas", "Aplicar layer state", "Layer state",
             "Restaura o layer state escolhido como override nas viewports marcadas.",
             new[] { "Escolha o layer state na lista.", "Marque as viewports nas miniaturas.", "Aplicar." }, p => p.AplicarLayerState()),
+        new("LSIMPORTAR", "abrir", "Importar layer state de outro DWG", "Layer state",
+            "Traz o VP freeze e os overrides de layer de uma viewport de outro DWG/DWT e aplica nas viewports marcadas.",
+            new[] { "Marque as viewports que recebem.", "Escolha o arquivo e a viewport de origem." }, p => p.ImportarCamadas(p.VpsMarcadas())),
+        new("ORDEMDES", "ordenar", "Ordem de desenho de outro DWG", "Geral",
+            "Copia a ordem de desenho (draw order) de outro DWG/DWT para este desenho, por layer ou por objeto (comando C3DORDEMDESENHO).",
+            new[] { "Escolha o arquivo.", "Modo [Layers/Objetos] e espacos [Model/Layouts/Todos] na linha de comando." }, p => p.Enviar(C3DCommands.Utilitarios.OrdemDesenho)),
         new("CARIMBO", "bloco", "Aplicar carimbo", "Carimbo",
             "Escreve os valores preenchidos nas tags do bloco de carimbo, nos layouts marcados.",
             new[] { "Escolha o bloco na lista.", "Preencha as tags na aba Carimbo.", "Marque os layouts e aplique." }, p => p.AplicarCarimbo()),
@@ -1603,6 +1609,11 @@ internal sealed partial class LayoutPanel : SW.Window
                 MostrarStatus($"Layer state de {nomeAlvo} copiado. Botao direito em outra viewport (ou nas linhas selecionadas): Colar layer state.");
             }).ToolTip = "Guarda o VP freeze e os overrides de layer (cor, linetype, lineweight, plot style, transparencia) desta viewport para colar em outras.";
         }
+
+        List<ObjectId> clicadas = alvo.Select(v => v.Id).ToList();
+        Novo(alvo.Count == 1 ? "Importar layer state de viewport de outro DWG..." : $"Importar layer state de outro DWG nas {alvo.Count} viewport(s)...", "abrir",
+            () => ImportarCamadas(clicadas))
+            .ToolTip = "Escolha o DWG/DWT e a viewport dele: o VP freeze e os overrides de layer dela sao aplicados aqui.";
 
         if (_camadasCopiadas is null)
             return itens;
@@ -3076,12 +3087,83 @@ internal sealed partial class LayoutPanel : SW.Window
         return p;
     }
 
+    /// <summary>Pasta do desenho atual, para os navegadores de arquivo abrirem nela ("" se nao foi salvo).</summary>
+    private string PastaDoDesenho()
+    {
+        try
+        {
+            string? nome = Doc?.Database.Filename;
+            string? pasta = string.IsNullOrEmpty(nome) ? null : System.IO.Path.GetDirectoryName(nome);
+            return pasta is not null && System.IO.Directory.Exists(pasta) ? pasta : "";
+        }
+        catch (System.Exception)
+        {
+            return "";
+        }
+    }
+
+    /// <summary>Importar layer state de uma viewport de outro DWG para as viewports dadas.</summary>
+    private void ImportarCamadas(IReadOnlyList<ObjectId> destinos)
+    {
+        if (Doc is not Document doc)
+            return;
+        if (destinos.Count == 0)
+        {
+            Say("Marque (ou selecione na lista) as viewports que recebem o layer state.");
+            return;
+        }
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Layer state de uma viewport de outro desenho",
+            Filter = "Desenhos e templates (*.dwg;*.dwt)|*.dwg;*.dwt|Todos os arquivos (*.*)|*.*",
+            InitialDirectory = PastaDoDesenho()
+        };
+        if (dlg.ShowDialog(this) != true)
+            return;
+        if (string.Equals(System.IO.Path.GetFullPath(dlg.FileName), System.IO.Path.GetFullPath(doc.Database.Filename), StringComparison.OrdinalIgnoreCase))
+        {
+            Say("Esse e o proprio desenho atual; use Copiar/Colar layer state no botao direito da viewport.");
+            return;
+        }
+
+        List<ViewportExterna> vps;
+        try
+        {
+            vps = LayoutCamadasExternas.Viewports(dlg.FileName);
+        }
+        catch (System.Exception ex)
+        {
+            Say("Nao foi possivel ler o arquivo: " + ex.Message);
+            return;
+        }
+        if (vps.Count == 0)
+        {
+            Say("O arquivo nao tem viewports nos layouts.");
+            return;
+        }
+        string? rotulo = EscolherDaLista("Viewport de origem", $"Viewports de {System.IO.Path.GetFileName(dlg.FileName)} (layout, numero, escala, tamanho):", vps.Select(v => v.Rotulo).ToList());
+        ViewportExterna? origem = vps.FirstOrDefault(v => v.Rotulo == rotulo);
+        if (origem is null)
+            return;
+
+        string arquivo = dlg.FileName;
+        List<ObjectId> alvo = destinos.ToList();
+        Executar(() => LayoutCamadasExternas.Importar(doc, arquivo, origem, alvo));
+        string nome = System.IO.Path.GetFileNameWithoutExtension(arquivo) + " " + origem.Rotulo.Split("   ")[0];
+        foreach (SheetViewport v in _folhas.SelectMany(f => f.Viewports))
+            if (alvo.Contains(v.Id))
+                v.Aplicado = "de " + nome;
+        if (_category == "VIEWPORTS")
+            FillList();
+    }
+
     private void ImportarPageSetups()
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Importar page setups",
-            Filter = "Desenhos e templates (*.dwg;*.dwt)|*.dwg;*.dwt|Todos os arquivos (*.*)|*.*"
+            Filter = "Desenhos e templates (*.dwg;*.dwt)|*.dwg;*.dwt|Todos os arquivos (*.*)|*.*",
+            InitialDirectory = PastaDoDesenho()
         };
         if (dlg.ShowDialog(this) != true)
             return;

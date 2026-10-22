@@ -400,20 +400,19 @@ public static class CommandCatalog
                 C3DVersions.Utilitarios,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Utilitarios.AllToRgb, "Cores ACI para RGB", "Converte a cor ACI para RGB: dos objetos, das layers deles ou dos dois."),
-                    new CommandDefinition(C3DCommands.Utilitarios.Tlen, "Comprimento total", "Soma o comprimento das curvas selecionadas."),
-                    new CommandDefinition(C3DCommands.Utilitarios.JobeCount, "Numerar textos", "Acrescenta numero sequencial aos textos, na ordem de leitura."),
-                    new CommandDefinition(C3DCommands.Utilitarios.SmartHatch, "Hachura ignorando gaps", "Hachura SOLID clicando dentro de area com aberturas no contorno."),
-                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Abre o explorador de layouts na categoria Layer state."),
-                    new CommandDefinition(C3DCommands.Utilitarios.Moff, "Varios offsets", "Varios offsets em polilinhas fechadas, para dentro ou para fora."),
+                    new CommandDefinition(C3DCommands.Utilitarios.AllToRgb, "Cores ACI para RGB", "Converte a cor ACI para RGB: dos objetos, das layers deles ou dos dois.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.Tlen, "Comprimento total", "Soma o comprimento das curvas selecionadas.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.JobeCount, "Numerar textos", "Acrescenta numero sequencial aos textos, na ordem de leitura.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.SmartHatch, "Hachura ignorando gaps", "Hachura SOLID clicando dentro de area com aberturas no contorno.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.LsLayouts, "Layer state em layouts", "Abre o explorador de layouts na categoria Layer state.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.Moff, "Varios offsets", "Varios offsets em polilinhas fechadas, para dentro ou para fora.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.MoffSet, "Varios offsets (alias)", "Mesmo que MOFF.", ShowInRibbon: false),
-                    new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite."),
-                    new CommandDefinition(C3DCommands.Utilitarios.Kb, "Marcacao de meio-fio", "Face do meio-fio e linha central tracejada na layer Kerb Line."),
-                    new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01."),
-                    new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT."),
+                    new CommandDefinition(C3DCommands.Utilitarios.SeparaCurvas, "Separar curvas por raio", "Quebra polilinhas em retos, curvas acima e ate o raio limite.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.Kb, "Marcacao de meio-fio", "Face do meio-fio e linha central tracejada na layer Kerb Line.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.OrdemDesenho, "Copiar ordem de desenho", "Copia a ordem de desenho (draw order) de outro DWG/DWT, por layer ou por objeto.")
-                },
-                ShowInRibbon: false),
+                }),
 
             new(
                 "LISPs",

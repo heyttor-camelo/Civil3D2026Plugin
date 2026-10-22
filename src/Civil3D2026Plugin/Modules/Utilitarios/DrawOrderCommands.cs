@@ -43,6 +43,9 @@ public sealed class DrawOrderCommands
             Filter = "Desenho ou template (*.dwg;*.dwt)|*.dwg;*.dwt",
             PreferCommandLine = false
         };
+        // Abre o navegador na pasta do desenho atual.
+        if (!string.IsNullOrEmpty(destDb.Filename) && Path.GetDirectoryName(destDb.Filename) is string pasta && Directory.Exists(pasta))
+            pfo.InitialDirectory = pasta;
         PromptFileNameResult pfr = ed.GetFileNameForOpen(pfo);
         if (pfr.Status != PromptStatus.OK)
             return;

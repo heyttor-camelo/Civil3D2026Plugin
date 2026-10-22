@@ -1343,7 +1343,7 @@ internal static class LayoutSheetSeries
             Camadas(db, s.LayerStatePerfil, m.VpPerfil, frames.Select(f => f.VpPerfil), "perfil", avisos);
     }
 
-    private static void Camadas(Database db, string nomeado, ObjectId vpBase, IEnumerable<ObjectId> destinos, string qual, List<string> avisos)
+    internal static void Camadas(Database db, string nomeado, ObjectId vpBase, IEnumerable<ObjectId> destinos, string qual, List<string> avisos)
     {
         List<ObjectId> alvo = destinos.Where(Valido).ToList();
         if (alvo.Count == 0)

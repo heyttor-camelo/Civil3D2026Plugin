@@ -1,3 +1,9 @@
+## 2.65.0 - Layouts v1.10.0: importar layer state de viewport de outro DWG; Utilitarios v1.5.0: botao da ordem de desenho
+
+- Explorador de layouts: **Importar layer state de viewport de outro DWG** no botao direito da viewport (vista grafica e linhas da categoria Viewports) e na barra (grupo Layer state, aplica nas viewports marcadas). Escolhe o DWG/DWT e a viewport dele numa lista (layout, numero, escala, tamanho); o VP freeze e os overrides de layer dela viram um layer state temporario, trazido para este desenho (`ImportLayerStateFromDb`, ou por um .las temporario), restaurado nas viewports e apagado dos dois desenhos. Se o arquivo estiver aberto no editor, le direto dele.
+- Botao **Ordem de desenho de outro DWG** (`C3DORDEMDESENHO`) na barra do explorador de layouts (grupo Geral) e na Ribbon, num painel proprio dos Utilitarios (os demais utilitarios continuam fora da Ribbon).
+- Os navegadores de arquivo de `C3DORDEMDESENHO`, `C3DOBJLAYERS`, importar page setups, layout base e layer state abrem na pasta do desenho atual.
+
 ## 2.64.1 - Layouts v1.9.1: viewport do papel contada como viewport nos layouts nao ativos
 
 - nos layouts que nao sao o ativo, o AutoCAD nao devolve a lista de viewports e a do papel vem sem o numero 1; se ela nao tinha o tamanho da folha (layout salvo com zoom), o explorador a mostrava como mais uma viewport. Agora a primeira viewport do bloco do layout e tratada como a do papel quando mostra o proprio papel em 1:1, tem o tamanho da folha ou cobre as outras; o log (Ctrl+Shift+L) diz qual foi escolhida. Vale tambem para ligar/desligar viewports e para o giro da seta do norte.
