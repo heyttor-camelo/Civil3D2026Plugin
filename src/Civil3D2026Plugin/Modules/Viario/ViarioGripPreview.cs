@@ -22,6 +22,7 @@ namespace Civil3D2026Plugin.Modules.Viario;
 internal sealed class ViarioGripPreview : DrawableOverrule
 {
     private static ViarioGripPreview? _instance;
+    private static bool _armed;
     private static bool _busy;
 
     private sealed class Cache
@@ -31,6 +32,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         public DateTime At;
         public List<AxisInput> Axes = new();
         public HashSet<string> Keys = new();
+        public bool HasKeys;
         public EngineSettings Settings = new();
     }
 
@@ -41,10 +43,10 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         if (_instance is not null)
             return;
 
+        // O overrule so fica ligado durante comandos de arraste (Arm/Disarm): fora deles,
+        // as milhares de polilinhas de uma rede grande sao desenhadas sem passar por aqui.
         _instance = new ViarioGripPreview();
         _instance.SetXDataFilter(ViarioStore.RegApp);
-        Overrule.AddOverrule(RXObject.GetClass(typeof(AcadDb.Polyline)), _instance, false);
-        Overrule.Overruling = true;
     }
 
     public static void Unregister()
@@ -52,6 +54,36 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         if (_instance is null)
             return;
 
+        Disarm();
+        _instance = null;
+        _cache = null;
+    }
+
+    /// <summary>Comando que arrasta geometria comecando: liga o overrule.</summary>
+    public static void Arm(string? command)
+    {
+        if (_instance is null || _armed || !IsDragCommand(command))
+            return;
+
+        try
+        {
+            Overrule.AddOverrule(RXObject.GetClass(typeof(AcadDb.Polyline)), _instance, false);
+            Overrule.Overruling = true;
+            _armed = true;
+        }
+        catch
+        {
+            // Sem preview; o arraste segue normal.
+        }
+    }
+
+    /// <summary>Fim do comando: desliga o overrule.</summary>
+    public static void Disarm()
+    {
+        if (_instance is null || !_armed)
+            return;
+
+        _armed = false;
         try
         {
             Overrule.RemoveOverrule(RXObject.GetClass(typeof(AcadDb.Polyline)), _instance);
@@ -60,9 +92,6 @@ internal sealed class ViarioGripPreview : DrawableOverrule
         {
             // Encerramento.
         }
-
-        _instance = null;
-        _cache = null;
     }
 
     /// <summary>A rede mudou: o proximo arraste recolhe os eixos de novo.</summary>
@@ -89,6 +118,8 @@ internal sealed class ViarioGripPreview : DrawableOverrule
 
             _busy = true;
             // Atualizacao automatica desligada (rede grande): so a concordancia, sem a rede.
+            if (!ViarioSync.IsAuto(doc.Database) && !ViarioStore.IsChained(pl))
+                return result;
             Preview(doc, pl, wd, ViarioSync.IsAuto(doc.Database));
         }
         catch
@@ -112,17 +143,24 @@ internal sealed class ViarioGripPreview : DrawableOverrule
                c.Contains("SCALE") || c.Contains("MIRROR");
     }
 
-    private static Cache Current(Document doc)
+    private static Cache Current(Document doc, bool network)
     {
         AcadDb.Database db = doc.Database;
         string command = doc.CommandInProgress ?? string.Empty;
         if (_cache is not null && ReferenceEquals(_cache.Db, db) && _cache.Command == command &&
-            (DateTime.UtcNow - _cache.At).TotalSeconds < 20)
+            (_cache.HasKeys || !network) && (DateTime.UtcNow - _cache.At).TotalSeconds < 20)
         {
             return _cache;
         }
 
-        (List<AxisInput> axes, HashSet<string> keys) = ViarioSync.CurrentAxes(db);
+        // Sem a rede (atualizacao manual) as chaves das linhas existentes nao sao lidas:
+        // numa rede grande sao dezenas de milhares de polilinhas.
+        List<AxisInput> axes;
+        HashSet<string> keys = new();
+        if (network)
+            (axes, keys) = ViarioSync.CurrentAxes(db);
+        else
+            axes = ViarioSync.CurrentAxesOnly(db);
         _cache = new Cache
         {
             Db = db,
@@ -130,6 +168,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
             At = DateTime.UtcNow,
             Axes = axes,
             Keys = keys,
+            HasKeys = network,
             Settings = ViarioSync.EngineSettingsFor(db)
         };
         return _cache;
@@ -137,7 +176,7 @@ internal sealed class ViarioGripPreview : DrawableOverrule
 
     private static void Preview(Document doc, AcadDb.Polyline clone, WorldDraw wd, bool network)
     {
-        Cache cache = Current(doc);
+        Cache cache = Current(doc, network);
         if (cache.Axes.Count == 0)
             return;
 

@@ -91,6 +91,21 @@ internal sealed class ViarioPanel : SW.Window
     private List<Row> _rows = new();
     private SignageOptions _signage = new();
     private List<Hint> _hints = new();
+
+    // Recomendacoes guardadas enquanto a rede, os eixos e os registros nao mudam.
+    private object? _hintsResult;
+    private ulong _hintsAxes;
+    private string _hintsRecords = "";
+
+    // Indices montados a cada leitura (listas de centenas de eixos sem varreduras repetidas).
+    private Dictionary<string, int> _axisIndex = new(StringComparer.Ordinal);
+    private Dictionary<string, int> _nodeCount = new(StringComparer.Ordinal);
+    private Dictionary<(long, long), List<CornerInfo>> _cornerCells = new();
+    private Dictionary<CornerInfo, int> _cornerOrder = new();
+    private Dictionary<string, List<Hint>> _hintsByTarget = new(StringComparer.Ordinal);
+    private Dictionary<(long, long), List<Hint>> _hintCells = new();
+    private Dictionary<Hint, int> _hintOrder = new();
+    private const double HintCell = 30.0;
     private bool _civilActive;
     private bool _signExists;
     private bool _refreshQueued;
@@ -316,6 +331,10 @@ internal sealed class ViarioPanel : SW.Window
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
         _coords = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), FontFamily = MonoFont };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
+        // So as linhas visiveis sao montadas (listas de centenas de eixos).
+        WC.VirtualizingPanel.SetIsVirtualizing(_list, true);
+        WC.VirtualizingPanel.SetVirtualizationMode(_list, WC.VirtualizationMode.Recycling);
+        WC.ScrollViewer.SetCanContentScroll(_list, true);
         _find = new WC.TextBox { Width = 160, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, VerticalContentAlignment = SW.VerticalAlignment.Center };
         _tabStrip = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         _tabContent = new WC.ContentControl();
@@ -336,7 +355,18 @@ internal sealed class ViarioPanel : SW.Window
         WC.StackPanel findPanel = new() { Orientation = WC.Orientation.Horizontal };
         findPanel.Children.Add(new WC.TextBlock { Text = "Localizar:", Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 4, 0) });
         findPanel.Children.Add(_find);
-        _find.TextChanged += (_, _) => FillList();
+        // Localizar: espera a digitacao parar (listas de centenas de eixos).
+        System.Windows.Threading.DispatcherTimer findTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
+        findTimer.Tick += (_, _) =>
+        {
+            findTimer.Stop();
+            FillList();
+        };
+        _find.TextChanged += (_, _) =>
+        {
+            findTimer.Stop();
+            findTimer.Start();
+        };
         WC.DockPanel.SetDock(findPanel, WC.Dock.Right);
         commandRow.Children.Add(findPanel);
         commandRow.Children.Add(BuildCommandBar());
@@ -999,6 +1029,18 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         menu.Items.Add(transp);
+
+        WC.MenuItem blocks = new() { Header = "Blocos (redes grandes): " + (_settings.HachuraBloco > 0 ? N(_settings.HachuraBloco) + " m" : "sem recorte") };
+        foreach (double b in new[] { 250.0, 500.0, 1000.0, 2000.0, 0.0 })
+        {
+            WC.MenuItem mi = new() { Header = b > 0 ? N(b) + " m" : "sem recorte (uma hachura por contorno)", IsCheckable = true, IsChecked = Math.Abs(b - _settings.HachuraBloco) < 1e-9 };
+            double v = b;
+            mi.Click += (_, _) => Send($"C3DVIARIOHACHURA B {v.ToString(CultureInfo.InvariantCulture)} ", "Hachura refeita em blocos de " + (v > 0 ? N(v) + " m." : "contorno inteiro."));
+            blocks.Items.Add(mi);
+        }
+
+        blocks.ToolTip = "A hachura e recortada numa grade de blocos: cada bloco vira hachuras pequenas e so os blocos que mudaram sao refeitos.";
+        menu.Items.Add(blocks);
         menu.Items.Add(new WC.Separator());
         WC.MenuItem hide = new() { Header = "Ocultar (desliga a layer VIARIO-PAVIMENTO)", IsEnabled = exists && visible };
         hide.Click += (_, _) => Send("C3DVIARIOHACHURA O ", "Hachura oculta.");
@@ -1023,11 +1065,9 @@ internal sealed class ViarioPanel : SW.Window
                 tr.Commit();
             }
 
-            if (regenerateHatch && ViarioHatchSync.Exists(db) && AcApp.DocumentManager.MdiActiveDocument is Document doc)
-            {
-                (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
-                ViarioHatchSync.Sync(doc, axes, result, create: false);
-            }
+            // So o estilo: as hachuras existentes trocam o padrao sem recalcular a rede.
+            if (regenerateHatch && AcApp.DocumentManager.MdiActiveDocument is Document doc)
+                ViarioHatchSync.Restyle(doc);
         }, regenerate: false);
     }
 
@@ -1261,11 +1301,23 @@ internal sealed class ViarioPanel : SW.Window
             _settings = ViarioStore.LoadSettings(db);
             _engine = ViarioSync.EngineSettingsFor(db);
             _signage = ViarioStore.LoadSignage(db);
-            _names = ViarioCivil.AxisNames(db);
-            _ownNames = ViarioStore.ReadAxisNames(db, _axes.Select(a => a.Key));
+            _ownNames = ViarioSync.AxisNames(db, _axes.Select(a => a.Key));
             _civilActive = ViarioCivil.IsActive(db);
+            _names = _civilActive ? ViarioCivil.AxisNames(db) : new Dictionary<string, string>();
             _signExists = ViarioSignageSync.Exists(db);
-            _hints = ViarioNorms.Check(_axes, _result, _engine, _sections);
+
+            // Recomendacoes so sao refeitas quando a rede, os eixos ou os registros mudam.
+            ulong stamp = HintsStamp(_axes);
+            string records = ViarioStore.RecordsSignature(db);
+            if (!ReferenceEquals(_hintsResult, _result) || _hintsAxes != stamp || _hintsRecords != records)
+            {
+                _hints = ViarioNorms.Check(_axes, _result, _engine, _sections);
+                _hintsResult = _result;
+                _hintsAxes = stamp;
+                _hintsRecords = records;
+            }
+
+            BuildIndexes();
         }
         catch (Exception ex)
         {
@@ -1411,7 +1463,7 @@ internal sealed class ViarioPanel : SW.Window
                             a.Path.Segs.Count.ToString(CultureInfo.InvariantCulture), a.Path.Segs.Count(s => s.IsArc).ToString(CultureInfo.InvariantCulture),
                             a.Path.Segs.Any(s => s.IsArc) ? N(a.Path.Segs.Where(s => s.IsArc).Min(s => s.Radius), 2) : "-",
                             a.Path.Closed ? "anel" : a.Chained ? "mantida" : "livre",
-                            a.Radius is double r ? N(r) : "secao", _result.Nodes.Count(n => n.AxisKeys.Contains(a.Key)).ToString(CultureInfo.InvariantCulture),
+                            a.Radius is double r ? N(r) : "secao", (_nodeCount.TryGetValue(a.Key, out int nodes) ? nodes : 0).ToString(CultureInfo.InvariantCulture),
                             a.Events.Count == 0 ? "-" : string.Join(", ", a.Events.Select(e => KindName(e.Kind)))
                         }
                     });
@@ -1716,13 +1768,119 @@ internal sealed class ViarioPanel : SW.Window
         _ownNames.TryGetValue(axis.Key, out string? own) ? own :
         _names.TryGetValue(axis.Key, out string? name) ? name : (axis.Path.Closed ? $"Rotatoria {index + 1}" : $"Eixo {index + 1}");
 
-    private string AxisLabel(string key)
+    private string AxisLabel(string key) =>
+        _axisIndex.TryGetValue(key, out int i) ? AxisName(_axes[i], i) : key;
+
+    private List<CornerInfo> CornersAt(NodeInfo nd)
     {
-        int i = _axes.FindIndex(a => a.Key == key);
-        return i >= 0 ? AxisName(_axes[i], i) : key;
+        // Mesma ordem da lista de esquinas da rede.
+        List<CornerInfo> found = new();
+        foreach ((long, long) cell in Cells(nd.Point, 0.5, 1.0))
+        {
+            if (_cornerCells.TryGetValue(cell, out List<CornerInfo>? list))
+                found.AddRange(list.Where(c => V2.Dist(c.Node, nd.Point) < 0.5));
+        }
+
+        return found.Count < 2 ? found : found.Distinct().OrderBy(c => _cornerOrder[c]).ToList();
     }
 
-    private List<CornerInfo> CornersAt(NodeInfo nd) => _result.Corners.Where(c => V2.Dist(c.Node, nd.Point) < 0.5).ToList();
+    private static IEnumerable<(long, long)> Cells(V2 p, double radius, double size)
+    {
+        long x0 = (long)Math.Floor((p.X - radius) / size), x1 = (long)Math.Floor((p.X + radius) / size);
+        long y0 = (long)Math.Floor((p.Y - radius) / size), y1 = (long)Math.Floor((p.Y + radius) / size);
+        for (long x = x0; x <= x1; x++)
+        {
+            for (long y = y0; y <= y1; y++)
+                yield return (x, y);
+        }
+    }
+
+    private static (long, long) Cell(V2 p, double size) => ((long)Math.Floor(p.X / size), (long)Math.Floor(p.Y / size));
+
+    /// <summary>Marca dos dados que mudam as recomendacoes (geometria, secao, raio e elementos de cada eixo).</summary>
+    private static ulong HintsStamp(List<AxisInput> axes)
+    {
+        ulong hash = AxesStamp(axes);
+        void Mix(long v)
+        {
+            hash ^= (ulong)v;
+            hash *= 1099511628211UL;
+        }
+
+        foreach (AxisInput a in axes)
+        {
+            // O cache de leitura devolve o mesmo GPath enquanto o eixo nao muda.
+            Mix(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a.Path));
+            Mix(a.Section.Id.GetHashCode(StringComparison.Ordinal));
+            Mix(a.Radius is double r ? BitConverter.DoubleToInt64Bits(r) : -1);
+            Mix(a.Events.Count);
+            Mix(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a.Events));
+            Mix(a.Chained ? 1 : 0);
+        }
+
+        return hash;
+    }
+
+    /// <summary>Indices por chave e por posicao (eixos, nos, esquinas e recomendacoes).</summary>
+    private void BuildIndexes()
+    {
+        _axisIndex = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (int i = 0; i < _axes.Count; i++)
+            _axisIndex.TryAdd(_axes[i].Key, i);
+
+        _nodeCount = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (NodeInfo nd in _result.Nodes)
+        {
+            foreach (string key in nd.AxisKeys.Distinct())
+                _nodeCount[key] = _nodeCount.TryGetValue(key, out int n) ? n + 1 : 1;
+        }
+
+        _cornerCells = new Dictionary<(long, long), List<CornerInfo>>();
+        _cornerOrder = new Dictionary<CornerInfo, int>(ReferenceEqualityComparer.Instance);
+        foreach (CornerInfo c in _result.Corners)
+        {
+            _cornerOrder.TryAdd(c, _cornerOrder.Count);
+            (long, long) cell = Cell(c.Node, 1.0);
+            if (!_cornerCells.TryGetValue(cell, out List<CornerInfo>? list))
+                _cornerCells[cell] = list = new List<CornerInfo>();
+            list.Add(c);
+        }
+
+        _hintsByTarget = new Dictionary<string, List<Hint>>(StringComparer.Ordinal);
+        _hintCells = new Dictionary<(long, long), List<Hint>>();
+        _hintOrder = new Dictionary<Hint, int>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < _hints.Count; i++)
+        {
+            Hint h = _hints[i];
+            _hintOrder[h] = i;
+            if (!_hintsByTarget.TryGetValue(h.Target, out List<Hint>? list))
+                _hintsByTarget[h.Target] = list = new List<Hint>();
+            list.Add(h);
+            if (h.Where is V2 p)
+            {
+                (long, long) cell = Cell(p, HintCell);
+                if (!_hintCells.TryGetValue(cell, out List<Hint>? near))
+                    _hintCells[cell] = near = new List<Hint>();
+                near.Add(h);
+            }
+        }
+    }
+
+    private IEnumerable<Hint> HintsOf(string target) =>
+        _hintsByTarget.TryGetValue(target, out List<Hint>? list) ? list : Enumerable.Empty<Hint>();
+
+    /// <summary>Recomendacoes a ate radius do ponto (radius ate HintCell), na ordem original.</summary>
+    private IEnumerable<Hint> HintsNear(V2 p, double radius)
+    {
+        List<Hint> found = new();
+        foreach ((long, long) cell in Cells(p, radius, HintCell))
+        {
+            if (_hintCells.TryGetValue(cell, out List<Hint>? list))
+                found.AddRange(list.Where(h => h.Where is V2 q && V2.Dist(q, p) < radius));
+        }
+
+        return found.OrderBy(h => _hintOrder[h]);
+    }
 
     private static string EventIcon(AxisEventKind kind) => kind switch
     {
@@ -1746,20 +1904,23 @@ internal sealed class ViarioPanel : SW.Window
         switch (row.Data)
         {
             case RoadSection s:
-                return _hints.Where(h => h.Topic == "Secao" && h.Target == s.Id);
+                return HintsOf(s.Id).Where(h => h.Topic == "Secao");
             case AxisInput a when _category == "EIXOS":
-                return _hints.Where(h => h.Target == a.Key || (h.Topic == "Secao" && h.Target == a.Section.Id));
+                return HintsOf(a.Key).Concat(a.Section.Id == a.Key ? Enumerable.Empty<Hint>() : HintsOf(a.Section.Id).Where(h => h.Topic == "Secao"))
+                    .OrderBy(h => _hintOrder[h]);
             case ValueTuple<AxisInput, AxisEvent> pair:
                 string prefix = KindName(pair.Item2.Kind).Split(' ')[0];
-                return _hints.Where(h => h.Topic == "Elemento" && h.Target == pair.Item1.Key && h.Message.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
+                return HintsOf(pair.Item1.Key).Where(h => h.Topic == "Elemento" && h.Message.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
             case string slipKey when _category == "ELEMENTOS":
-                return _hints.Where(h => h.Topic == "Elemento" && h.Target == slipKey);
+                return HintsOf(slipKey).Where(h => h.Topic == "Elemento");
             case NodeInfo nd:
-                return _hints.Where(h => h.Topic is "No" or "Esquina" or "Rotatoria" && h.Where is V2 p && V2.Dist(p, nd.Point) < 30.0);
+                return HintsNear(nd.Point, 30.0).Where(h => h.Topic is "No" or "Esquina" or "Rotatoria");
             case CornerInfo c:
-                return _hints.Where(h => h.Target == c.Key);
+                return HintsOf(c.Key);
             case OutputLine isl:
-                return _hints.Where(h => h.Topic == "Ilha" && h.Where is V2 p && ViarioEngine.RingContains(isl.Segs, p));
+                Box2 ib = Bounds(isl.Segs);
+                return _hints.Where(h => h.Topic == "Ilha" && h.Where is V2 p && p.X >= ib.MinX && p.X <= ib.MaxX && p.Y >= ib.MinY && p.Y <= ib.MaxY &&
+                                         ViarioEngine.RingContains(isl.Segs, p));
             case Hint h:
                 return new[] { h };
             default:
@@ -3428,14 +3589,16 @@ internal sealed class ViarioPanel : SW.Window
         EditProp("HachuraAngulo", "Angulo (graus)", N(_settings.HachuraAngulo));
         CheckProp("HachuraSolida", "Solido com transparencia", _settings.HachuraSolida);
         EditProp("HachuraTransparencia", "Transparencia do solido (%)", _settings.HachuraTransparencia.ToString(CultureInfo.InvariantCulture));
+        EditProp("HachuraBloco", "Blocos da hachura (m, 0 = sem recorte)", N(_settings.HachuraBloco))
+            .ToolTip = "Redes grandes: a hachura e recortada numa grade de blocos deste tamanho; so os blocos que mudam sao refeitos.";
         Prop("Layer ", ViarioHatchSync.Layer);
         Category("Painel");
         Prop("Tema", (_dark ? "escuro" : "claro") + " (Preferencias...)");
         Act("Salvar", () =>
         {
             double? snap = Number("SnapTolerance", 1e-6), capture = Number("Capture"), setback = Number("MedianSetback"), cotaEscala = Number("CotaEscala");
-            double? hEsc = Number("HachuraEscala", 1e-6), hAng = Number("HachuraAngulo", -360), hTr = Number("HachuraTransparencia");
-            if (snap is null || capture is null || setback is null || cotaEscala is null || hEsc is null || hAng is null || hTr is null)
+            double? hEsc = Number("HachuraEscala", 1e-6), hAng = Number("HachuraAngulo", -360), hTr = Number("HachuraTransparencia"), hBl = Number("HachuraBloco");
+            if (snap is null || capture is null || setback is null || cotaEscala is null || hEsc is null || hAng is null || hTr is null || hBl is null)
             {
                 Say("Corrija os valores em vermelho.");
                 return;
@@ -3453,9 +3616,15 @@ internal sealed class ViarioPanel : SW.Window
                 _settings.HachuraAngulo = hAng.Value;
                 _settings.HachuraSolida = Checked("HachuraSolida");
                 _settings.HachuraTransparencia = (int)Math.Round(Math.Clamp(hTr.Value, 0, 90));
-                using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-                ViarioStore.SaveSettings(tr, db, _settings);
-                tr.Commit();
+                _settings.HachuraBloco = hBl.Value <= 0 ? 0 : Math.Max(hBl.Value, ViarioHatch.MinTile);
+                using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    ViarioStore.SaveSettings(tr, db, _settings);
+                    tr.Commit();
+                }
+
+                if (AcApp.DocumentManager.MdiActiveDocument is Document doc)
+                    ViarioHatchSync.Restyle(doc);
             });
         }, true);
         _render = () => RenderMap(null, null);
@@ -3618,28 +3787,30 @@ internal sealed class ViarioPanel : SW.Window
     {
         public readonly List<(List<V2> Points, WM.Brush Brush, double Thickness, bool Closed, WM.Brush? Fill, bool Dashed)> Items = new();
         public readonly List<Box2> Boxes = new();
+        public readonly List<Lod> Lods = new();
         public readonly List<V2> Markers = new();
 
         public Shapes()
         {
         }
 
-        /// <summary>Copia (as listas de pontos sao compartilhadas).</summary>
+        /// <summary>Copia (as listas de pontos e os niveis de detalhe sao compartilhados).</summary>
         public Shapes(Shapes from)
         {
             Items.AddRange(from.Items);
             Boxes.AddRange(from.Boxes);
+            Lods.AddRange(from.Lods);
             Markers.AddRange(from.Markers);
         }
 
-        public void Add(IEnumerable<Seg> segs, WM.Brush brush, double thickness, bool closed = false, WM.Brush? fill = null, bool dashed = false)
+        public void Add(IEnumerable<Seg> segs, WM.Brush brush, double thickness, bool closed = false, WM.Brush? fill = null, bool dashed = false) =>
+            Add(Lod.Of(segs), brush, thickness, closed, fill, dashed);
+
+        public void Add(Lod lod, WM.Brush brush, double thickness, bool closed = false, WM.Brush? fill = null, bool dashed = false)
         {
-            List<V2> pts = Sample(segs);
-            Box2 box = Box2.Empty;
-            foreach (V2 p in pts)
-                box = box.Add(p);
-            Items.Add((pts, brush, thickness, closed, fill, dashed));
-            Boxes.Add(box);
+            Items.Add((lod.Points, brush, thickness, closed, fill, dashed));
+            Boxes.Add(lod.Box);
+            Lods.Add(lod);
         }
 
         public void Highlight(IEnumerable<Seg> segs) => Add(segs, HighlightBrush, 2.5);
@@ -3647,26 +3818,92 @@ internal sealed class ViarioPanel : SW.Window
         public void Marker(V2 p) => Markers.Add(p);
     }
 
-    // Linhas da rede ja amostradas para a vista (refeitas so quando a rede, os eixos ou o
-    // "Eixos" mudam - nao a cada zoom/arraste).
-    private Shapes? _netShapes;
-    private object? _netShapesResult;
-    private ulong _netShapesAxes;
-    private bool _netShapesWithAxes;
+    /// <summary>
+    /// Pontos de uma linha da vista com versoes simplificadas para os zooms afastados
+    /// (pontos a menos de 0,25 / 1 / 4 / 16 / 64 / 256 m do anterior saem). Com a rede inteira
+    /// na tela, uma via de quilometros vira poucas dezenas de pontos em vez de milhares.
+    /// </summary>
+    private sealed class Lod
+    {
+        private static readonly double[] Tolerances = { 0.25, 1.0, 4.0, 16.0, 64.0, 256.0 };
+        private readonly List<V2>?[] _levels = new List<V2>?[Tolerances.Length];
+
+        public List<V2> Points { get; }
+        public Box2 Box { get; }
+
+        private Lod(List<V2> points)
+        {
+            Points = points;
+            Box2 box = Box2.Empty;
+            foreach (V2 p in points)
+                box = box.Add(p);
+            Box = box;
+        }
+
+        public static Lod Of(IEnumerable<Seg> segs) => new(Sample(segs));
+
+        /// <summary>Pontos para a escala (px por m): erro abaixo de 0,7 px.</summary>
+        public List<V2> For(double scale)
+        {
+            double allowed = 0.7 / Math.Max(scale, 1e-12);
+            int level = -1;
+            for (int k = 0; k < Tolerances.Length && Tolerances[k] <= allowed; k++)
+                level = k;
+            if (level < 0 || Points.Count < 8)
+                return Points;
+            return _levels[level] ??= Decimate(Points, Tolerances[level]);
+        }
+
+        private static List<V2> Decimate(List<V2> pts, double tol)
+        {
+            List<V2> result = new() { pts[0] };
+            V2 last = pts[0];
+            for (int i = 1; i < pts.Count - 1; i++)
+            {
+                if (Math.Abs(pts[i].X - last.X) >= tol || Math.Abs(pts[i].Y - last.Y) >= tol)
+                {
+                    result.Add(pts[i]);
+                    last = pts[i];
+                }
+            }
+
+            result.Add(pts[^1]);
+            return result;
+        }
+    }
+
+    // Linhas da rede ja amostradas para a vista: refeitas so quando a rede muda (nao a cada
+    // zoom/arraste). Os eixos sao amostrados uma vez por geometria (o cache de leitura devolve
+    // o mesmo GPath enquanto o eixo nao muda): editar um eixo nao reamostra os outros.
+    private Shapes? _lineShapes;
+    private object? _lineShapesResult;
+    private Dictionary<GPath, Lod> _axisLods = new(ReferenceEqualityComparer.Instance);
 
     private Shapes NetworkShapes()
     {
-        ulong axesStamp = _showAxes ? AxesStamp(_axes) : 0;
-        if (_netShapes is null || !ReferenceEquals(_netShapesResult, _result) || _netShapesAxes != axesStamp ||
-            _netShapesWithAxes != _showAxes)
+        if (_lineShapes is null || !ReferenceEquals(_lineShapesResult, _result))
         {
-            _netShapes = BuildNetworkShapes();
-            _netShapesResult = _result;
-            _netShapesAxes = axesStamp;
-            _netShapesWithAxes = _showAxes;
+            _lineShapes = BuildLineShapes();
+            _lineShapesResult = _result;
         }
 
-        return new Shapes(_netShapes);
+        Shapes sh = new(_lineShapes);
+        if (_showAxes)
+        {
+            Dictionary<GPath, Lod> lods = new(ReferenceEqualityComparer.Instance);
+            WM.Brush axisBrush = Brush(220, 80, 80);
+            foreach (AxisInput a in _axes)
+            {
+                if (!_axisLods.TryGetValue(a.Path, out Lod? lod))
+                    lod = Lod.Of(a.Path.Segs);
+                lods[a.Path] = lod;
+                sh.Add(lod, axisBrush, 0.7, dashed: true);
+            }
+
+            _axisLods = lods;
+        }
+
+        return sh;
     }
 
     /// <summary>Marca da geometria dos eixos (chave, inicio, fim, comprimento e trechos de cada um).</summary>
@@ -3701,7 +3938,7 @@ internal sealed class ViarioPanel : SW.Window
         return hash;
     }
 
-    private Shapes BuildNetworkShapes()
+    private Shapes BuildLineShapes()
     {
         Shapes sh = new();
         foreach (OutputLine line in _result.Lines)
@@ -3716,12 +3953,6 @@ internal sealed class ViarioPanel : SW.Window
                 _ => (Brush(220, 90, 220), 1.1)
             };
             sh.Add(line.Segs, brush, t, line.Closed, line.Level == EdgeLevel.Ilha ? Brush(90, 60, 90) : null);
-        }
-
-        if (_showAxes)
-        {
-            foreach (AxisInput a in _axes)
-                sh.Add(a.Path.Segs, Brush(220, 80, 80), 0.7, dashed: true);
         }
 
         return sh;
@@ -3925,9 +4156,14 @@ internal sealed class ViarioPanel : SW.Window
 
         for (int i = 0; i < sh.Items.Count; i++)
         {
-            (List<V2> pts, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) = sh.Items[i];
-            if (pts.Count < 2 || !sh.Boxes[i].Intersects(visible))
+            (List<V2> full, WM.Brush brush, double thickness, bool closed, WM.Brush? fill, bool dashed) = sh.Items[i];
+            Box2 itemBox = sh.Boxes[i];
+            if (full.Count < 2 || !itemBox.Intersects(visible))
                 continue;
+            // Menor que um pixel: nao aparece.
+            if ((itemBox.MaxX - itemBox.MinX) * scale < 0.6 && (itemBox.MaxY - itemBox.MinY) * scale < 0.6)
+                continue;
+            List<V2> pts = sh.Lods[i].For(scale);
 
             double th = thickness < 0 ? Math.Max(0.6, -thickness * scale) : thickness;
             if (fill is not null)
@@ -4039,9 +4275,14 @@ internal sealed class ViarioPanel : SW.Window
     {
         double dh = _vH - RulerBottom;
         int budget = Show("estacas") ? 400 : 0;
+        V2 c0 = ToWorld(new SW.Point(RulerLeft, dh)), c1 = ToWorld(new SW.Point(_vW, 0));
+        Box2 visible = new(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y), Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y));
         for (int i = 0; i < _axes.Count; i++)
         {
             AxisInput a = _axes[i];
+            // Eixo fora da tela: nem percorre as estacas.
+            if (!a.Path.Bounds().Intersects(visible))
+                continue;
             double len = a.Path.Length;
             for (double s = 0; s <= len + 1e-6 && budget > 0; s += stStep)
             {

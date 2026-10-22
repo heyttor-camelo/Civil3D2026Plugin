@@ -1141,7 +1141,7 @@ internal static class ViarioCivil
     {
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
-        int hatches = 0, loopsTag = -1;
+        int hatches = 0, loopsTag = 0;
         foreach (AcadDb.ObjectId id in ms)
         {
             if (!id.ObjectClass.DxfName.Equals("HATCH", StringComparison.OrdinalIgnoreCase))
@@ -1149,7 +1149,8 @@ internal static class ViarioCivil
             if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Hatch h && ViarioStore.ReadTag(h, out string loops) == ViarioHatchSync.TagHatch)
             {
                 hatches++;
-                int.TryParse(loops, out loopsTag);
+                if (int.TryParse(loops, out int n))
+                    loopsTag += n;
             }
         }
 
@@ -1159,10 +1160,11 @@ internal static class ViarioCivil
             return;
         }
 
-        ViarioHatch.Plan plan = ViarioHatch.Build(axes, result);
-        bool good = hatches == 1 && loopsTag == plan.Loops.Count && plan.Warnings.Count == 0;
-        lines.Add($"{(good ? "OK   " : "FALHA")} Hachura: {hatches} hachura(s), {loopsTag} laco(s), esperado {plan.Loops.Count} " +
-                  $"({plan.Loops.Count(l => l.Outer)} externo(s), {plan.Loops.Count(l => !l.Outer)} furo(s), {plan.Caps} tampa(s)); avisos {plan.Warnings.Count}.");
+        ViarioHatch.Plan plan = ViarioHatch.Build(axes, result, ViarioStore.LoadSettings(db).HachuraBloco);
+        int outers = plan.Loops.Count(l => l.Outer);
+        bool good = hatches == outers && loopsTag == plan.Loops.Count && plan.Warnings.Count == 0;
+        lines.Add($"{(good ? "OK   " : "FALHA")} Hachura: {hatches} hachura(s), {loopsTag} laco(s), esperado {outers} hachura(s) e {plan.Loops.Count} laco(s) " +
+                  $"({outers} externo(s), {plan.Loops.Count(l => !l.Outer)} furo(s), {plan.Caps} tampa(s), {plan.ByTile().Count()} bloco(s)); avisos {plan.Warnings.Count}.");
         foreach (string w in plan.Warnings.Take(4))
             lines.Add("  AVISO hachura: " + w);
         if (good) ok++; else fail++;

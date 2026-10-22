@@ -54,6 +54,25 @@ internal static class ViarioSync
 
         /// <summary>Linhas geradas mexidas fora da regeneracao (UNDO, edicao manual).</summary>
         public bool LinesTouched;
+
+        /// <summary>
+        /// Eixos ja lidos do desenho (geometria, XData e nome). Sai do cache quando o objeto e
+        /// aberto para escrita, modificado ou apagado: numa rede de centenas de vias, cada leitura
+        /// so le de novo os eixos mexidos.
+        /// </summary>
+        public readonly Dictionary<AcadDb.ObjectId, CachedAxis> AxisCache = new();
+    }
+
+    private sealed class CachedAxis
+    {
+        public string Key = "";
+        public GPath? Path;
+        public string SectionId = "";
+        public double? Radius;
+        public List<AxisEvent> Events = new();
+        public bool Chained;
+        public bool InModel;
+        public string Name = "";
     }
 
     private sealed class Snapshot
@@ -148,7 +167,10 @@ internal static class ViarioSync
         db.ObjectModified += OnObjectModified;
         db.ObjectOpenedForModify += OnObjectOpenedForModify;
         db.ObjectErased += OnObjectErased;
+        doc.CommandWillStart += OnCommandWillStart;
         doc.CommandEnded += OnCommandEnded;
+        doc.CommandCancelled += OnCommandStopped;
+        doc.CommandFailed += OnCommandStopped;
     }
 
     private static void Detach(Document doc)
@@ -163,7 +185,10 @@ internal static class ViarioSync
             db.ObjectModified -= OnObjectModified;
             db.ObjectOpenedForModify -= OnObjectOpenedForModify;
             db.ObjectErased -= OnObjectErased;
+            doc.CommandWillStart -= OnCommandWillStart;
             doc.CommandEnded -= OnCommandEnded;
+            doc.CommandCancelled -= OnCommandStopped;
+            doc.CommandFailed -= OnCommandStopped;
             States.Remove(db);
             ViarioCivil.Forget(db);
         }
@@ -200,6 +225,7 @@ internal static class ViarioSync
                 return;
 
             DbState state = State(obj.Database);
+            state.AxisCache.Remove(obj.ObjectId);
             string? tag = ViarioStore.ReadTag(obj, out _);
 
             if (tag == ViarioStore.TagAxis)
@@ -227,6 +253,10 @@ internal static class ViarioSync
     {
         try
         {
+            // Aberto para escrita: a leitura guardada deixa de valer (mesmo dentro da transacao).
+            if (IsCandidate(e.DBObject) && States.TryGetValue(e.DBObject.Database, out DbState? cached))
+                cached.AxisCache.Remove(e.DBObject.ObjectId);
+
             if (_syncing || e.DBObject is not AcadDb.Polyline pl || pl.Closed || pl.NumberOfVertices < 3)
                 return;
             DbState state = State(pl.Database);
@@ -250,6 +280,7 @@ internal static class ViarioSync
                 return;
 
             DbState state = State(obj.Database);
+            state.AxisCache.Remove(obj.ObjectId);
             string? tag = ViarioStore.ReadTag(obj, out _);
 
             if (tag == ViarioStore.TagGenerated)
@@ -285,6 +316,7 @@ internal static class ViarioSync
                 return;
 
             DbState state = State(obj.Database);
+            state.AxisCache.Remove(obj.ObjectId);
             string? tag = ViarioStore.ReadTag(obj, out _);
 
             if (tag == ViarioStore.TagGenerated)
@@ -381,8 +413,13 @@ internal static class ViarioSync
     // Disparo da atualizacao
     // ------------------------------------------------------------------
 
+    private static void OnCommandWillStart(object? sender, CommandEventArgs e) => ViarioGripPreview.Arm(e.GlobalCommandName);
+
+    private static void OnCommandStopped(object? sender, CommandEventArgs e) => ViarioGripPreview.Disarm();
+
     private static void OnCommandEnded(object? sender, CommandEventArgs e)
     {
+        ViarioGripPreview.Disarm();
         if (sender is not Document doc || Suspended)
             return;
 
@@ -498,29 +535,75 @@ internal static class ViarioSync
         foreach (AcadDb.ObjectId id in state.Axes.ToList())
         {
             if (id.IsNull || id.IsErased)
-                continue;
-
-            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve curve)
-                continue;
-
-            if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained))
             {
-                state.Axes.Remove(id);
+                state.AxisCache.Remove(id);
                 continue;
             }
 
-            if (!string.Equals(curve.BlockName, AcadDb.BlockTableRecord.ModelSpace, StringComparison.OrdinalIgnoreCase))
+            if (!state.AxisCache.TryGetValue(id, out CachedAxis? c))
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve curve)
+                    continue;
+
+                if (!ViarioStore.ReadAxis(curve, out string sectionId, out double? radius, out List<AxisEvent> events, out bool chained))
+                {
+                    state.Axes.Remove(id);
+                    continue;
+                }
+
+                bool inModel = string.Equals(curve.BlockName, AcadDb.BlockTableRecord.ModelSpace, StringComparison.OrdinalIgnoreCase);
+                c = new CachedAxis
+                {
+                    Key = curve.Handle.ToString() ?? string.Empty,
+                    Path = inModel ? ViarioStore.ToPath(curve) : null,
+                    SectionId = sectionId,
+                    Radius = radius,
+                    Events = events,
+                    Chained = chained,
+                    InModel = inModel,
+                    Name = ViarioStore.AxisName(curve)
+                };
+
+                // Objeto aberto para escrita nesta transacao: le de novo na proxima vez.
+                if (!curve.IsWriteEnabled)
+                    state.AxisCache[id] = c;
+            }
+
+            if (!c.InModel || c.Path is null)
                 continue;
 
-            GPath? path = ViarioStore.ToPath(curve);
-            if (path is null)
-                continue;
-
-            RoadSection section = sections.TryGetValue(sectionId, out RoadSection? sec) ? sec : fallback;
-            axes.Add(new AxisInput(curve.Handle.ToString() ?? string.Empty, path, section, radius, events, chained));
+            RoadSection section = sections.TryGetValue(c.SectionId, out RoadSection? sec) ? sec : fallback;
+            axes.Add(new AxisInput(c.Key, c.Path, section, c.Radius, c.Events, c.Chained));
         }
 
         return axes;
+    }
+
+    /// <summary>Nomes proprios dos eixos (chave = handle), do cache de leitura: sem abrir os eixos de novo.</summary>
+    public static Dictionary<string, string> AxisNames(AcadDb.Database db, IEnumerable<string> keys)
+    {
+        DbState state = State(db);
+        Dictionary<string, string> cached = new(StringComparer.Ordinal);
+        foreach (CachedAxis c in state.AxisCache.Values)
+            cached[c.Key] = c.Name;
+
+        Dictionary<string, string> names = new(StringComparer.Ordinal);
+        List<string> missing = new();
+        foreach (string key in keys)
+        {
+            if (!cached.TryGetValue(key, out string? name))
+                missing.Add(key);
+            else if (name.Length > 0)
+                names[key] = name;
+        }
+
+        if (missing.Count > 0)
+        {
+            foreach ((string key, string name) in ViarioStore.ReadAxisNames(db, missing))
+                names[key] = name;
+        }
+
+        return names;
     }
 
     /// <summary>Configuracao do motor a partir do DWG.</summary>
@@ -556,6 +639,13 @@ internal static class ViarioSync
         return (new List<AxisInput>(axes), result, ExistingKeys(db, tr));
     }
 
+    /// <summary>So os eixos atuais (do cache de leitura), sem calcular a rede nem ler as linhas geradas.</summary>
+    public static List<AxisInput> CurrentAxesOnly(AcadDb.Database db)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        return CollectAxes(db, tr, SectionMap(db));
+    }
+
     /// <summary>Eixos atuais e chaves das linhas existentes, sem calcular a rede.</summary>
     public static (List<AxisInput> Axes, HashSet<string> ExistingKeys) CurrentAxes(AcadDb.Database db)
     {
@@ -571,6 +661,8 @@ internal static class ViarioSync
     {
         DbState state = State(db);
         bool auto = IsAuto(db);
+        // O painel passa a mostrar esta versao: o Idle nao precisa avisar de novo.
+        state.NotifiedVersion = state.Version;
         if (Valid(db, state) is Snapshot last)
             return new NetworkView(new List<AxisInput>(last.Axes), last.Result, !auto && state.Pending, false);
 

@@ -1,3 +1,24 @@
+## 2.68.0 - Viario v0.10.0: painel leve em redes grandes e hachura em blocos
+
+Para redes de municipio inteiro (centenas de vias de quilometros), com a atualizacao automatica ligada ou desligada.
+
+**Painel e desenho**
+- Os eixos ficam guardados depois de lidos (geometria, XData e nome). So os eixos mexidos sao lidos de novo; antes, cada atualizacao do painel relia todas as polilinhas e os nomes.
+- A vista grafica desenha cada linha com o detalhe que cabe no zoom: com a rede inteira na tela, uma via de quilometros vira dezenas de pontos, e o que fica menor que um pixel nao e desenhado. Clicar numa linha da lista ou dar zoom nao redesenha mais milhoes de pontos.
+- Editar um eixo nao reamostra a rede inteira na vista, so aquele eixo. Estacas so sao percorridas nos eixos que aparecem na tela.
+- As recomendacoes DNIT so sao recalculadas quando a rede, os eixos ou as secoes mudam. As listas (eixos, nos, esquinas, avisos) usam indices em vez de varrer tudo por linha.
+- Lista virtualizada (so as linhas visiveis sao montadas) e Localizar espera a digitacao parar.
+- O preview da rede no arraste de grips (overrule) so fica ligado durante comandos de arraste. Antes ele passava por todas as polilinhas do modulo a cada regen, zoom ou pan do AutoCAD, mesmo com a atualizacao automatica desligada. Com ela desligada, o arraste nao le mais as linhas geradas.
+- Uma edicao pelo painel atualizava o painel duas vezes; agora uma.
+- Recomendacoes DNIT: nos de cada eixo agrupados uma vez (rede de teste com 800 vias: 470 ms para 110 ms).
+
+**Hachura do pavimento (C3DVIARIOHACHURA)**
+- Calculo do contorno refeito com grade espacial: encadeamento, tampas, cruzamentos e classificacao de furos nao crescem mais com o quadrado da rede. Rede de teste com 800 vias e 2.900 km: 146 s para 8 s, com os mesmos lacos, ponto a ponto.
+- **Blocos**: a hachura e recortada numa grade (padrao 500 m; `C3DVIARIOHACHURA > Blocos`, menu da hachura no painel ou Config). Cada bloco vira hachuras pequenas, com poucos furos (na rede de teste, no maximo 23 furos e 350 vertices por hachura, contra uma hachura com 6.000 furos). Area total conferida igual a da hachura sem recorte. Rede de teste: 1,5 s.
+- A hachura acompanha a rede refazendo **so os blocos que mudaram** (assinatura da geometria gravada em cada hachura). Bloco com hachura apagada a mao e refeito.
+- Trocar padrao, escala, angulo ou transparencia so troca o estilo das hachuras existentes, sem recalcular a rede.
+- `0` em Blocos volta ao comportamento anterior (uma hachura por contorno externo).
+
 ## 2.67.2 - Layouts v1.12.2: colar/importar layer state guarda o nome original
 
 - ao colar ou importar o layer state de uma viewport, o registro leva o nome do layer state que estava gravado nela, ex. "WALDYR (copiado de 04 #1)", em vez de so "copia de 04 #1" (que fica quando a origem nao tem registro). Colar de uma copia continua apontando para o nome original.

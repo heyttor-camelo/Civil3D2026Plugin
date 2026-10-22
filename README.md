@@ -233,14 +233,14 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Rede viaria (C3DVIARIO v0.9.0)
+## Rede viaria (C3DVIARIO v0.10.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Ocultar/Mostrar/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
-C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Ocultar/Mostrar] hachura unica so do pavimento (furos: quadras, canteiros, ilhas); acompanha a rede
+C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Blocos/Ocultar/Mostrar] hachura so do pavimento (furos: quadras, canteiros, ilhas), recortada em blocos de 500 m (Blocos); acompanha a rede refazendo so os blocos que mudam
 C3DVIARIOCOTAR       -> cadeia de cotas da secao segue o cursor sobre o eixo; clique grava (faixas, canteiro, passeio e largura total); [Detalhe/Estilo/Escala/Remover]
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos como no Vehicle Tracking: [Tangent/Arc/Undo] (T reta na direcao corrente, A arco tangente pelo ponto, U desfaz; clicar no ultimo vertice desfaz); [Free/Chain] alterna lancamento livre; [COncordancia] Manter/Liberar/Selecionar/Vertice (reconcordar dois trechos); [Inverter] inverte o sentido do eixo

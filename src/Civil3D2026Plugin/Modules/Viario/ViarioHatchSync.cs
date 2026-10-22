@@ -26,9 +26,12 @@ internal static class ViarioHatchSync
 
     public static bool Exists(AcadDb.Database db) => Find(db).Count > 0;
 
-    private static List<AcadDb.ObjectId> Find(AcadDb.Database db)
+    /// <summary>Hachura do modulo no desenho: bloco da grade e assinaturas gravadas nela.</summary>
+    private readonly record struct Existing(AcadDb.ObjectId Id, string Tile, string Geometry, string Style, int Loops, int InTile);
+
+    private static List<Existing> Find(AcadDb.Database db)
     {
-        List<AcadDb.ObjectId> ids = new();
+        List<Existing> found = new();
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
@@ -36,33 +39,99 @@ internal static class ViarioHatchSync
         {
             if (!id.ObjectClass.DxfName.Equals("HATCH", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Hatch h && ViarioStore.ReadTag(h, out _) == TagHatch)
-                ids.Add(id);
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Hatch h || ViarioStore.ReadValues(h) is not { } v || v[0] != TagHatch)
+                continue;
+            // Hachuras antigas (sem bloco) ficam com bloco vazio e sao sempre refeitas.
+            found.Add(new Existing(id, v.Count > 2 ? v[2] : "", v.Count > 3 ? v[3] : "", v.Count > 4 ? v[4] : "",
+                v.Count > 1 && int.TryParse(v[1], out int n) ? n : 0, v.Count > 5 && int.TryParse(v[5], out int t) ? t : -1));
         }
 
-        return ids;
+        return found;
     }
 
-    /// <summary>Gera/atualiza a hachura. Devolve o numero de lacos (ou -1 se nao existe e create=false).</summary>
-    public static int Sync(Document doc, IReadOnlyList<AxisInput> axes, ViarioResult result, bool create, List<string>? messages = null)
+    /// <summary>Estilo gravado na hachura: muda o padrao sem refazer o contorno.</summary>
+    private static string StyleKey(ViarioStore.Settings s) => s.HachuraSolida
+        ? FormattableString.Invariant($"SOLID|{Math.Clamp(s.HachuraTransparencia, 0, 90)}")
+        : FormattableString.Invariant($"{PatternName(s)}|{ScaleOf(s):0.######}|{s.HachuraAngulo:0.######}");
+
+    private static string PatternName(ViarioStore.Settings s) =>
+        s.HachuraSolida ? "SOLID" : (string.IsNullOrWhiteSpace(s.HachuraPadrao) ? "ANSI31" : s.HachuraPadrao);
+
+    private static double ScaleOf(ViarioStore.Settings s) => s.HachuraEscala > 0 ? s.HachuraEscala : 20.0;
+
+    private static void ApplyStyle(AcadDb.Hatch hatch, ViarioStore.Settings settings)
+    {
+        bool solid = settings.HachuraSolida;
+        if (!solid)
+        {
+            hatch.PatternScale = ScaleOf(settings);
+            hatch.PatternAngle = settings.HachuraAngulo * Math.PI / 180.0;
+        }
+
+        hatch.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, PatternName(settings));
+        hatch.Transparency = solid
+            ? new AcColors.Transparency((byte)Math.Round(255.0 * (100 - Math.Clamp(settings.HachuraTransparencia, 0, 90)) / 100.0))
+            : new AcColors.Transparency(AcColors.TransparencyMethod.ByLayer);
+    }
+
+    /// <summary>
+    /// Gera/atualiza a hachura. Devolve o numero de lacos (ou -1 se nao existe e create=false).
+    /// A hachura e recortada em blocos (Config: HachuraBloco) e so os blocos cujo contorno
+    /// mudou sao refeitos; os demais so trocam o estilo, se ele mudou. rebuild refaz tudo.
+    /// </summary>
+    public static int Sync(Document doc, IReadOnlyList<AxisInput> axes, ViarioResult result, bool create, List<string>? messages = null,
+        bool rebuild = false)
     {
         AcadDb.Database db = doc.Database;
-        List<AcadDb.ObjectId> existing = Find(db);
+        List<Existing> existing = Find(db);
         if (existing.Count == 0 && !create)
             return -1;
 
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
-        ViarioHatch.Plan plan = ViarioHatch.Build(axes, result);
+        ViarioHatch.Plan plan = ViarioHatch.Build(axes, result, settings.HachuraBloco);
         messages?.AddRange(plan.Warnings);
+        string style = StyleKey(settings);
+
+        Dictionary<string, (string Geometry, List<ViarioHatch.Loop> Loops)> wanted = new(StringComparer.Ordinal);
+        foreach (IGrouping<(int X, int Y), ViarioHatch.Loop> tile in plan.ByTile())
+        {
+            List<ViarioHatch.Loop> inTile = tile.ToList();
+            wanted[ViarioHatch.TileKey(tile.Key)] = (ViarioHatch.Signature(inTile), inTile);
+        }
 
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         ViarioStore.EnsureRegApp(tr, db);
         ViarioStore.EnsureLayer(tr, db, Layer, 8);
 
-        foreach (AcadDb.ObjectId id in existing)
+        // Blocos iguais ficam (com o estilo atualizado); os demais sao apagados e refeitos.
+        HashSet<string> keep = new(StringComparer.Ordinal);
+        int loops = 0;
+        if (!rebuild)
         {
-            if (!id.IsErased)
-                tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+            foreach (IGrouping<string, Existing> group in existing.GroupBy(e => e.Tile))
+            {
+                if (group.Key.Length > 0 && wanted.TryGetValue(group.Key, out var want) && group.All(e => e.Geometry == want.Geometry && e.InTile == group.Count()))
+                    keep.Add(group.Key);
+            }
+        }
+
+        foreach (Existing e in existing)
+        {
+            if (e.Id.IsErased)
+                continue;
+            if (!keep.Contains(e.Tile))
+            {
+                tr.GetObject(e.Id, AcadDb.OpenMode.ForWrite).Erase();
+                continue;
+            }
+
+            loops += e.Loops;
+            if (e.Style == style)
+                continue;
+            AcadDb.Hatch h = (AcadDb.Hatch)tr.GetObject(e.Id, AcadDb.OpenMode.ForWrite);
+            ApplyStyle(h, settings);
+            h.EvaluateHatch(true);
+            Tag(h, e, style);
         }
 
         if (plan.Loops.Count == 0)
@@ -74,74 +143,98 @@ internal static class ViarioHatchSync
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
 
-        bool solid = settings.HachuraSolida;
-        string pattern = solid ? "SOLID" : (string.IsNullOrWhiteSpace(settings.HachuraPadrao) ? "ANSI31" : settings.HachuraPadrao);
-
         // Uma HATCH por contorno externo, com os seus furos. Num unico objeto com
         // varios "externos" o AutoCAD se perde na paridade quando dois contornos se
         // tocam; separados, um laco ruim derruba so a sua regiao, e a area de cada
         // hachura pode ser conferida com a esperada.
-        int loops = 0;
-        foreach (ViarioHatch.Loop outer in plan.Loops.Where(l => l.Outer))
+        foreach ((string tileKey, (string geometry, List<ViarioHatch.Loop> tileLoops)) in wanted)
         {
-            AcadDb.Hatch hatch = new();
-            hatch.SetDatabaseDefaults(db);
-            hatch.Layer = Layer;
-            hatch.Normal = Vector3d.ZAxis;
-            hatch.Elevation = 0.0;
-            ms.AppendEntity(hatch);
-            tr.AddNewlyCreatedDBObject(hatch, true);
-
-            if (!solid)
-            {
-                hatch.PatternScale = settings.HachuraEscala > 0 ? settings.HachuraEscala : 20.0;
-                hatch.PatternAngle = settings.HachuraAngulo * Math.PI / 180.0;
-            }
-
-            hatch.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, pattern);
-            hatch.Associative = false;
-            hatch.HatchStyle = AcadDb.HatchStyle.Normal;
-
-            int added = 0;
-            if (AppendLoop(hatch, outer, AcadDb.HatchLoopTypes.External, messages))
-                added++;
-            foreach (ViarioHatch.Loop hole in outer.Holes)
-            {
-                if (AppendLoop(hatch, hole, AcadDb.HatchLoopTypes.Default, messages))
-                    added++;
-            }
-
-            if (added == 0)
-            {
-                hatch.Erase();
+            if (keep.Contains(tileKey))
                 continue;
-            }
 
-            try
+            List<(AcadDb.Hatch Hatch, int Loops)> made = new();
+            foreach (ViarioHatch.Loop outer in tileLoops.Where(l => l.Outer))
             {
-                hatch.EvaluateHatch(true);
-                double expected = ViarioHatch.NetArea(outer);
-                double got = hatch.Area;
-                if (expected > 1.0 && Math.Abs(got - expected) > Math.Max(1.0, 0.01 * expected))
+                AcadDb.Hatch hatch = new();
+                hatch.SetDatabaseDefaults(db);
+                hatch.Layer = Layer;
+                hatch.Normal = Vector3d.ZAxis;
+                hatch.Elevation = 0.0;
+                ms.AppendEntity(hatch);
+                tr.AddNewlyCreatedDBObject(hatch, true);
+                ApplyStyle(hatch, settings);
+                hatch.Associative = false;
+                hatch.HatchStyle = AcadDb.HatchStyle.Normal;
+
+                int added = 0;
+                if (AppendLoop(hatch, outer, AcadDb.HatchLoopTypes.External, messages))
+                    added++;
+                foreach (ViarioHatch.Loop hole in outer.Holes)
                 {
-                    string where = outer.Crossing is V2 x ? $"perto de {x}" : $"com inicio em {outer.Segs[0].A}";
-                    messages?.Add($"Hachura {where}: area {got:0.#} m2, esperada {expected:0.#} m2 (contorno com problema; confira as faces de meio-fio nesse trecho).");
+                    if (AppendLoop(hatch, hole, AcadDb.HatchLoopTypes.Default, messages))
+                        added++;
                 }
-            }
-            catch (System.Exception ex)
-            {
-                messages?.Add($"Hachura com inicio em {outer.Segs[0].A} nao avaliada: {ex.Message}");
+
+                if (added == 0)
+                {
+                    hatch.Erase();
+                    continue;
+                }
+
+                try
+                {
+                    hatch.EvaluateHatch(true);
+                    double expected = ViarioHatch.NetArea(outer);
+                    double got = hatch.Area;
+                    if (expected > 1.0 && Math.Abs(got - expected) > Math.Max(1.0, 0.01 * expected))
+                    {
+                        string where = outer.Crossing is V2 x ? $"perto de {x}" : $"com inicio em {outer.Segs[0].A}";
+                        messages?.Add($"Hachura {where}: area {got:0.#} m2, esperada {expected:0.#} m2 (contorno com problema; confira as faces de meio-fio nesse trecho).");
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    messages?.Add($"Hachura com inicio em {outer.Segs[0].A} nao avaliada: {ex.Message}");
+                }
+
+                made.Add((hatch, added));
+                loops += added;
             }
 
-            if (solid)
-                hatch.Transparency = new AcColors.Transparency((byte)Math.Round(255.0 * (100 - Math.Clamp(settings.HachuraTransparencia, 0, 90)) / 100.0));
-
-            ViarioStore.SetTag(hatch, TagHatch, added.ToString(CultureInfo.InvariantCulture));
-            loops += added;
+            // Cada hachura sabe quantas o bloco tem: uma apagada a mao faz o bloco ser refeito.
+            foreach ((AcadDb.Hatch hatch, int added) in made)
+                ViarioStore.SetTag(hatch, TagHatch, added.ToString(CultureInfo.InvariantCulture), tileKey, geometry, style, made.Count.ToString(CultureInfo.InvariantCulture));
         }
 
         tr.Commit();
         return loops;
+    }
+
+    private static void Tag(AcadDb.Hatch h, Existing e, string style) =>
+        ViarioStore.SetTag(h, TagHatch, e.Loops.ToString(CultureInfo.InvariantCulture), e.Tile, e.Geometry, style, e.InTile.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>Troca so o estilo das hachuras existentes (padrao, escala, solido), sem refazer o contorno.</summary>
+    public static int Restyle(Document doc)
+    {
+        AcadDb.Database db = doc.Database;
+        List<Existing> existing = Find(db);
+        if (existing.Count == 0)
+            return 0;
+        ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
+        string style = StyleKey(settings);
+        int count = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (Existing e in existing.Where(e => !e.Id.IsErased && e.Style != style))
+        {
+            AcadDb.Hatch h = (AcadDb.Hatch)tr.GetObject(e.Id, AcadDb.OpenMode.ForWrite);
+            ApplyStyle(h, settings);
+            h.EvaluateHatch(true);
+            Tag(h, e, style);
+            count++;
+        }
+
+        tr.Commit();
+        return count;
     }
 
     private static bool AppendLoop(AcadDb.Hatch hatch, ViarioHatch.Loop loop, AcadDb.HatchLoopTypes type, List<string>? messages)
@@ -174,12 +267,16 @@ internal static class ViarioHatchSync
     public static bool Remove(Document doc)
     {
         AcadDb.Database db = doc.Database;
-        List<AcadDb.ObjectId> ids = Find(db);
-        if (ids.Count == 0)
+        List<Existing> found = Find(db);
+        if (found.Count == 0)
             return false;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-        foreach (AcadDb.ObjectId id in ids)
-            tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+        foreach (Existing e in found)
+        {
+            if (!e.Id.IsErased)
+                tr.GetObject(e.Id, AcadDb.OpenMode.ForWrite).Erase();
+        }
+
         tr.Commit();
         return true;
     }
@@ -217,9 +314,10 @@ internal static class ViarioHatchSync
         ViarioStore.Settings settings = ViarioStore.LoadSettings(db);
 
         PromptKeywordOptions options = new(
-            $"\nHachura do pavimento [Gerar/Remover/PAdrao/Escala/SOlido/Ocultar/Mostrar/PAInel] <Gerar> " +
-            $"(atual: {(settings.HachuraSolida ? $"SOLID {settings.HachuraTransparencia}% transparente" : $"{settings.HachuraPadrao} escala {settings.HachuraEscala:0.##} angulo {settings.HachuraAngulo:0.#}")}): ",
-            "Gerar Remover PAdrao Escala SOlido Ocultar Mostrar PAInel")
+            $"\nHachura do pavimento [Gerar/Remover/PAdrao/Escala/SOlido/Blocos/Ocultar/Mostrar/PAInel] <Gerar> " +
+            $"(atual: {(settings.HachuraSolida ? $"SOLID {settings.HachuraTransparencia}% transparente" : $"{settings.HachuraPadrao} escala {settings.HachuraEscala:0.##} angulo {settings.HachuraAngulo:0.#}")}, " +
+            $"{(settings.HachuraBloco > 0 ? $"blocos de {settings.HachuraBloco:0.#} m" : "sem blocos")}): ",
+            "Gerar Remover PAdrao Escala SOlido Blocos Ocultar Mostrar PAInel")
         {
             AllowNone = true
         };
@@ -298,12 +396,39 @@ internal static class ViarioHatchSync
                 Save(db, settings);
                 break;
             }
+            case "Blocos":
+            {
+                PromptDoubleOptions bo = new($"\nLado dos blocos da hachura em m (0 = sem recorte; minimo {ViarioHatch.MinTile:0}) <{settings.HachuraBloco:0.#}>: ")
+                {
+                    AllowNegative = false, AllowZero = true, AllowNone = true
+                };
+                PromptDoubleResult br = ed.GetDouble(bo);
+                if (br.Status == PromptStatus.OK)
+                    settings.HachuraBloco = br.Value <= 0 ? 0 : Math.Max(br.Value, ViarioHatch.MinTile);
+                else if (br.Status != PromptStatus.None)
+                    return;
+                Save(db, settings);
+                break;
+            }
+        }
+
+        // So o estilo mudou e a hachura ja existe: troca o padrao sem recalcular o contorno.
+        if (exists && choice is "PAdrao" or "Escala" or "SOlido")
+        {
+            int restyled = Restyle(doc);
+            ed.WriteMessage($"\n  Estilo aplicado em {restyled} hachura(s); contorno mantido.");
+            return;
         }
 
         (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
         List<string> messages = new();
-        int loops = Sync(doc, axes, result, create: true, messages);
-        ed.WriteMessage($"\n  Hachura do pavimento {(exists ? "atualizada" : "criada")}: {loops} laco(s) (contorno + furos) na layer {Layer}; acompanha a rede.");
+        System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
+        int loops = Sync(doc, axes, result, create: true, messages, rebuild: choice == "Blocos");
+        int hatches = Find(db).Count;
+        ed.WriteMessage($"\n  Hachura do pavimento {(exists ? "atualizada" : "criada")}: {hatches} hachura(s), {loops} laco(s) (contorno + furos) na layer {Layer}" +
+                        $"{(settings.HachuraBloco > 0 ? $", em blocos de {settings.HachuraBloco:0.#} m" : "")}; acompanha a rede ({clock.Elapsed.TotalSeconds:0.0} s).");
+        if (ViarioSync.IsPending(db))
+            ed.WriteMessage("\n  A rede esta pendente (atualizacao manual): a hachura segue os eixos atuais; \"Atualizar rede\" refaz as linhas.");
         foreach (string m in messages.Distinct().Take(12))
             ed.WriteMessage("\n  [HACHURA] " + m);
         if (messages.Count == 0)

@@ -79,6 +79,9 @@ internal static class ViarioStore
         public double HachuraAngulo { get; set; }
         public bool HachuraSolida { get; set; }
         public int HachuraTransparencia { get; set; } = 70;
+
+        /// <summary>Lado dos blocos em que a hachura e recortada (m; 0 = uma hachura por contorno, sem recorte).</summary>
+        public double HachuraBloco { get; set; } = 500.0;
     }
 
     // ------------------------------------------------------------------
@@ -543,6 +546,8 @@ internal static class ViarioStore
             if (v[11].Value is int tp) settings.HachuraTransparencia = tp;
             else if (v[11].Value is short tp16) settings.HachuraTransparencia = tp16;
         }
+        if (v.Length >= 13 && v[12].Value is double bloco && bloco >= 0)
+            settings.HachuraBloco = bloco;
         return settings;
     }
 
@@ -560,7 +565,8 @@ internal static class ViarioStore
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.HachuraEscala),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.HachuraAngulo),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.HachuraSolida ? 1 : 0),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.HachuraTransparencia)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, s.HachuraTransparencia),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, s.HachuraBloco)));
     }
 
     // ------------------------------------------------------------------

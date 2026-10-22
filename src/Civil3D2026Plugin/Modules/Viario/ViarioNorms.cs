@@ -300,11 +300,24 @@ internal static class ViarioNorms
                 hints.Add(Make(HintLevel.Info, $"Intersecao com angulo de {N(deg)} graus (ideal 75-90)"));
         }
 
-        // Nos muito proximos no mesmo eixo (intersecoes deslocadas).
+        // Nos muito proximos no mesmo eixo (intersecoes deslocadas). Nos de cada eixo
+        // agrupados uma vez (na ordem da rede), em vez de varrer todos os nos por eixo.
+        Dictionary<string, List<NodeInfo>> nodesOf = new();
+        foreach (NodeInfo nd in result.Nodes)
+        {
+            foreach (string key in nd.AxisKeys.Distinct())
+            {
+                if (!nodesOf.TryGetValue(key, out List<NodeInfo>? list))
+                    nodesOf[key] = list = new List<NodeInfo>();
+                list.Add(nd);
+            }
+        }
+
         foreach (AxisInput axis in axes.Where(a => !a.Path.Closed))
         {
-            List<double> st = result.Nodes
-                .Where(nd => nd.AxisKeys.Contains(axis.Key))
+            if (!nodesOf.TryGetValue(axis.Key, out List<NodeInfo>? mine))
+                continue;
+            List<double> st = mine
                 .Select(nd => axis.Path.Project(nd.Point))
                 .Where(p => p.Dist < 0.5)
                 .Select(p => p.S)
