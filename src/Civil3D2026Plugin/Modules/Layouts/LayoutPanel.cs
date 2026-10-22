@@ -44,6 +44,9 @@ internal sealed partial class LayoutPanel : SW.Window
     private SheetData? _folhaAtual;
     private readonly HashSet<string> _layoutsMarcados = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<ObjectId> _vpsMarcadas = new();
+
+    /// <summary>Viewport copiada pelo "Copiar layer state" (botao direito), e o nome dela para os menus.</summary>
+    private (ObjectId Id, string Nome)? _camadasCopiadas;
     private string? _layerState;
     private string? _bloco;
     private List<PageSetupItem> _pageSetups = new();
@@ -516,6 +519,9 @@ internal sealed partial class LayoutPanel : SW.Window
             MarcarSelecionados(!rv0.Checked);
         };
         _list.MouseDoubleClick += (_, _) => OnRowDoubleClick();
+        // O menu e montado na hora, pelas linhas selecionadas; precisa de um ContextMenu para o evento disparar.
+        _list.ContextMenu = new WC.ContextMenu();
+        _list.ContextMenuOpening += (_, e) => MenuLista(e);
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, VerticalAlignment = SW.VerticalAlignment.Stretch, Background = T.Back, ResizeDirection = WC.GridResizeDirection.Columns, ResizeBehavior = WC.GridResizeBehavior.PreviousAndNext, Cursor = WI.Cursors.SizeWE };
         WC.Grid.SetColumn(splitV, 1);
@@ -1548,6 +1554,9 @@ internal sealed partial class LayoutPanel : SW.Window
                 vp.Aplicado = _layerState;
             }, "camadas");
         menu.Items.Add(new WC.Separator());
+        foreach (WC.MenuItem mi in ItensCamadas(new[] { vp }, $"{folha.Nome} #{vp.Indice}"))
+            menu.Items.Add(mi);
+        menu.Items.Add(new WC.Separator());
         if (vp.Planta)
         {
             Item("Plan & Profile: viewport de PLANTA do layout base", () => DefinirModelo(folha, vp, planta: true), "prancha");
@@ -1565,6 +1574,96 @@ internal sealed partial class LayoutPanel : SW.Window
                     _list.SelectedItem = item;
         });
         return menu;
+    }
+
+    /// <summary>
+    /// Copiar/colar layer state entre viewports, como o copiar/colar targets do Civil:
+    /// copiar guarda a viewport; colar leva o VP freeze e os overrides dela para as escolhidas.
+    /// <paramref name="alvo"/> sao as viewports clicadas (ou as linhas selecionadas na lista).
+    /// </summary>
+    private List<WC.MenuItem> ItensCamadas(IReadOnlyList<SheetViewport> alvo, string nomeAlvo)
+    {
+        var itens = new List<WC.MenuItem>();
+        WC.MenuItem Novo(string texto, string? icone, Action acao)
+        {
+            var mi = new WC.MenuItem { Header = texto };
+            if (icone is not null)
+                mi.Icon = new WC.Image { Source = IconOf(icone), Width = 16, Height = 16 };
+            mi.Click += (_, _) => acao();
+            itens.Add(mi);
+            return mi;
+        }
+
+        if (alvo.Count == 1)
+        {
+            SheetViewport vp = alvo[0];
+            Novo("Copiar layer state desta viewport", "copiar", () =>
+            {
+                _camadasCopiadas = (vp.Id, nomeAlvo);
+                MostrarStatus($"Layer state de {nomeAlvo} copiado. Botao direito em outra viewport (ou nas linhas selecionadas): Colar layer state.");
+            }).ToolTip = "Guarda o VP freeze e os overrides de layer (cor, linetype, lineweight, plot style, transparencia) desta viewport para colar em outras.";
+        }
+
+        if (_camadasCopiadas is null)
+            return itens;
+        (ObjectId origem, string nomeOrigem) = _camadasCopiadas.Value;
+
+        List<ObjectId> destino = alvo.Select(v => v.Id).Where(id => id != origem).ToList();
+        if (destino.Count > 0)
+        {
+            string onde = destino.Count == 1 && alvo.Count == 1 ? "nesta viewport" : $"nas {destino.Count} viewport(s) selecionada(s)";
+            Novo($"Colar layer state de {nomeOrigem} {onde}", "camadas", () => Colar(origem, nomeOrigem, destino));
+        }
+
+        List<ObjectId> marcadas = _vpsMarcadas.Where(id => id != origem).ToList();
+        if (marcadas.Count > 0 && !marcadas.SequenceEqual(destino))
+            Novo($"Colar layer state de {nomeOrigem} nas {marcadas.Count} viewport(s) marcada(s)", "camadas", () => Colar(origem, nomeOrigem, marcadas));
+
+        return itens;
+    }
+
+    private void Colar(ObjectId origem, string nomeOrigem, List<ObjectId> destino)
+    {
+        Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino));
+        foreach (SheetViewport v in _folhas.SelectMany(f => f.Viewports))
+            if (destino.Contains(v.Id))
+                v.Aplicado = "copia de " + nomeOrigem;
+        if (_category == "VIEWPORTS")
+            FillList();
+    }
+
+    /// <summary>Botao direito nas linhas da lista de viewports: copiar/colar layer state.</summary>
+    private void MenuLista(WC.ContextMenuEventArgs e)
+    {
+        if (_category != "VIEWPORTS")
+        {
+            e.Handled = true;
+            return;
+        }
+        List<SheetViewport> sel = _list.SelectedItems.OfType<WC.ListViewItem>()
+            .Select(i => (i.Tag as Row)?.Data).OfType<SheetViewport>().ToList();
+        if (sel.Count == 0)
+        {
+            e.Handled = true;
+            return;
+        }
+        string nome = sel.Count == 1 ? NomeViewport(sel[0]) : $"{sel.Count} viewports";
+        List<WC.MenuItem> itens = ItensCamadas(sel, nome);
+        if (itens.Count == 0)
+        {
+            e.Handled = true;
+            return;
+        }
+        var menu = new WC.ContextMenu();
+        foreach (WC.MenuItem mi in itens)
+            menu.Items.Add(mi);
+        _list.ContextMenu = menu;
+    }
+
+    private string NomeViewport(SheetViewport vp)
+    {
+        SheetData? f = _folhas.FirstOrDefault(x => x.Viewports.Contains(vp));
+        return f is null ? $"#{vp.Indice}" : $"{f.Nome} #{vp.Indice}";
     }
 
     private void ZoomViewport(SheetData folha, SheetViewport vp)

@@ -1,5 +1,6 @@
-## 2.64.0 - Utilitarios v1.4.0: C3DORDEMDESENHO
+## 2.64.0 - Utilitarios v1.4.0: C3DORDEMDESENHO; Layouts v1.9.0: copiar/colar layer state
 
+- Explorador de layouts: **Copiar layer state desta viewport** e **Colar layer state** no botao direito da viewport na vista grafica e nas linhas da categoria Viewports (como o copiar/colar targets do Civil). Colar leva o VP freeze e os overrides de layer (cor, linetype, lineweight, plot style, transparencia) da viewport copiada para a viewport clicada, para as linhas selecionadas (Shift/Ctrl) ou para as viewports marcadas. A coluna Aplicado mostra "copia de ...".
 - `C3DORDEMDESENHO` (tambem na lista do `C3DLISP`): escolha no navegador o DWG/DWT que tem a ordem de desenho (draw order) desejada e ela e aplicada no desenho atual, no Model, nos layouts ou nos dois. Modo **Layers** (padrao): cada layer vai para a posicao que tem na origem (mediana das posicoes dos objetos dela), entre quaisquer desenhos com os mesmos nomes de layer; layout sem par de mesmo nome na origem usa a ordem do Model dela. Modo **Objetos**: cada objeto vai para a posicao do objeto de mesmo handle e mesmo tipo na origem, para quando um desenho e copia do outro (Save As); avisa quando poucos objetos casam. Objetos sem correspondencia nao saem do lugar. Se a origem estiver aberta no editor, le direto dela. Um UNDO desfaz tudo.
 - `tools/icones/ribbon.py`: volta a ter o `PEDCAMPOS`, que so existia no `IconArt.cs` gerado.
 

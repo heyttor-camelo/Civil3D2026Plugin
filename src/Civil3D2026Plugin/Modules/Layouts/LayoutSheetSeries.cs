@@ -1406,6 +1406,24 @@ internal static class LayoutSheetSeries
         }
     }
 
+    /// <summary>
+    /// Colar layer state: leva o VP freeze e os overrides (cor, linetype, lineweight, plot style,
+    /// transparencia) da viewport de origem para as viewports de destino.
+    /// </summary>
+    public static OpResult ColarCamadas(Document doc, ObjectId vpOrigem, IReadOnlyList<ObjectId> destinos)
+    {
+        if (!Valido(vpOrigem))
+            throw new InvalidOperationException("A viewport copiada nao existe mais; copie de novo.");
+        List<ObjectId> alvo = destinos.Where(d => d != vpOrigem).ToList();
+        var avisos = new List<string>();
+        using (doc.LockDocument())
+            Camadas(doc.Database, "", vpOrigem, alvo, "origem", avisos);
+        foreach (string a in avisos)
+            PluginLog.Aviso(Mod, "Colar layer state: " + a);
+        return new OpResult(alvo.Count - avisos.Count, avisos.Count,
+            $"Layer state colado em {alvo.Count} viewport(s)" + (avisos.Count > 0 ? $"; {avisos.Count} aviso(s) no log (Ctrl+Shift+L)." : "."));
+    }
+
     /// <summary>Reaplica o layout base (page setup e camadas das viewports) em todas as folhas da serie.</summary>
     public static OpResult ReaplicarLayoutBase(Document doc, ObjectId eixo)
     {
