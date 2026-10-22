@@ -111,7 +111,8 @@ internal static class HydroReader
                     if (tr.GetObject(cid, AcadDb.OpenMode.ForRead, false) is not CivilDb.Catchment c)
                         continue;
                     CatchmentInfo ci = ReadCatchment(c, g.Name);
-                    if (!c.ReferenceDischargeObjectId.IsNull && structuresById.TryGetValue(c.ReferenceDischargeObjectId, out StructureInfo? target))
+                    AcadDb.ObjectId discharge = CatchmentApi.GetDischarge(c);
+                    if (!discharge.IsNull && structuresById.TryGetValue(discharge, out StructureInfo? target))
                     {
                         ci.StructureHandle = target.Handle;
                         ci.StructureName = target.Name;
@@ -299,7 +300,7 @@ internal static class HydroReader
         ci.C = Safe(() => c.RunoffCoefficient);
         ci.Tc = Safe(() => c.TimeOfConcentration);
         ci.TcMethod = Safe(() => c.TimeOfConcentrationCalculationMethod.ToString());
-        ci.FlowLength = Safe(() => c.FlowPathLength);
+        ci.FlowLength = CatchmentApi.GetFlowPathLength(c);
         ci.NetworkName = Safe(() => c.ReferencePipeNetworkName);
         try
         {

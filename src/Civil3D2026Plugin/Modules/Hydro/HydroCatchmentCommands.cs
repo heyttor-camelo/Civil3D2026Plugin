@@ -213,7 +213,7 @@ public sealed class HydroCatchmentCommands
             {
                 CivilDb.Catchment c = (CivilDb.Catchment)tr.GetObject(id, AcadDb.OpenMode.ForRead);
                 name = c.Name;
-                length = c.FlowPathLength;
+                length = CatchmentApi.GetFlowPathLength(c);
                 area = c.Area2d;
                 current = c.TimeOfConcentration;
             }

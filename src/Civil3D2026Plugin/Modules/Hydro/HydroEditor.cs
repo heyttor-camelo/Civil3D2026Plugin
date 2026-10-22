@@ -632,14 +632,14 @@ internal static class HydroEditor
         {
             if (structureHandle.Length == 0)
             {
-                cat.ReferenceDischargeObjectId = AcadDb.ObjectId.Null;
+                CatchmentApi.SetDischarge(cat, AcadDb.ObjectId.Null);
             }
             else
             {
                 AcadDb.ObjectId? sid = HydroReader.Id(db, structureHandle);
                 if (sid is null)
                     throw new InvalidOperationException("Estrutura nao encontrada.");
-                cat.ReferenceDischargeObjectId = sid.Value;
+                CatchmentApi.SetDischarge(cat, sid.Value);
             }
         }
 
@@ -690,7 +690,7 @@ internal static class HydroEditor
         cat.TimeOfConcentrationCalculationMethod = CivilDb.TimeOfConcentrationCalculationMethod.CalculationMethodUserDefined;
         cat.TimeOfConcentration = tc;
         if (!string.IsNullOrEmpty(structureHandle) && HydroReader.Id(db, structureHandle) is AcadDb.ObjectId sid)
-            cat.ReferenceDischargeObjectId = sid;
+            CatchmentApi.SetDischarge(cat, sid);
         string handle = cat.Handle.ToString();
         tr.Commit();
         return handle;
