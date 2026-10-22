@@ -86,7 +86,7 @@ internal sealed partial class HydroPanel : SW.Window
 
     private WC.WrapPanel _categoryBar = new();
     private WC.StackPanel _commandBar = new();
-    private WC.Canvas _graphic = new();
+    private HydroMonitorSurface _graphic = new();
     private WC.TextBlock _graphicInfo = new();
     private WC.TextBlock _coords = new();
     private WC.ListView _list = new();
@@ -291,7 +291,7 @@ internal sealed partial class HydroPanel : SW.Window
 
         _categoryBar = new WC.WrapPanel { Margin = new SW.Thickness(4, 4, 4, 0) };
         _commandBar = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        _graphic = new WC.Canvas { Background = GraphicBack, ClipToBounds = true };
+        _graphic = new HydroMonitorSurface { Background = GraphicBack, ClipToBounds = true };
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
         _coords = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), FontFamily = MonoFont };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
@@ -323,26 +323,17 @@ internal sealed partial class HydroPanel : SW.Window
         root.Children.Add(commandRow);
 
         WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = _graphic, Margin = new SW.Thickness(4, 0, 4, 0) };
-        _graphic.SizeChanged += (_, _) => _render?.Invoke();
+        _graphic.SizeChanged += (_, _) => RequestRender();
         _graphic.MouseMove += OnGraphicMouseMove;
         _graphic.MouseWheel += OnGraphicWheel;
-        _graphic.MouseDown += (_, e) =>
+        _graphic.MouseDown += OnGraphicMouseDown;
+        _graphic.MouseUp += OnGraphicMouseUp;
+        _graphic.MouseLeave += (_, _) =>
         {
-            if (e.ClickCount == 2)
-            {
-                _zoom = 1;
-                _pan = new P2(0, 0);
-                _render?.Invoke();
+            if (_hover is null)
                 return;
-            }
-
-            _dragFrom = e.GetPosition(_graphic);
-            _graphic.CaptureMouse();
-        };
-        _graphic.MouseUp += (_, _) =>
-        {
-            _dragFrom = null;
-            _graphic.ReleaseMouseCapture();
+            _hover = null;
+            RequestRender();
         };
         WC.Grid.SetRow(graphic, 2);
         root.Children.Add(graphic);
@@ -354,6 +345,9 @@ internal sealed partial class HydroPanel : SW.Window
         toggles.Children.Add(Toggle("Setas", () => _showArrows, v => _showArrows = v));
         toggles.Children.Add(Toggle("Bacias", () => _showCatchments, v => _showCatchments = v));
         toggles.Children.Add(Toggle("Perfil do caminho", () => _profileView, v => _profileView = v));
+        WC.Button colorButton = new() { Content = "Cor \u25BE", Margin = new SW.Thickness(6, 1, 2, 1), Padding = new SW.Thickness(6, 0, 6, 0), ToolTip = "Colorir os tubos por lamina, velocidade, recobrimento ou declividade" };
+        colorButton.Click += (_, _) => OpenColorMenu(colorButton);
+        toggles.Children.Add(colorButton);
         WC.DockPanel.SetDock(toggles, WC.Dock.Left);
         graphicBar.Children.Add(toggles);
         WC.DockPanel.SetDock(_coords, WC.Dock.Right);
