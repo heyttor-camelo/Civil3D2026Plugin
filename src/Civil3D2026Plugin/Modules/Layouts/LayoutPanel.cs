@@ -69,7 +69,11 @@ internal sealed partial class LayoutPanel : SW.Window
     // Controles
     // ------------------------------------------------------------------
 
-    private WC.WrapPanel _categoryBar = new();
+    /// <summary>Navegacao das categorias, na coluna da esquerda (como a arvore do Project Explorer).</summary>
+    private WC.StackPanel _categoryBar = new();
+
+    /// <summary>Cabecalho da categoria aberta: icone, nome e quantidade.</summary>
+    private WC.StackPanel _categoryHeader = new();
     private WC.StackPanel _commandBar = new();
     private WC.Canvas _graphic = new();
     private WC.TextBlock _graphicInfo = new();
@@ -330,8 +334,8 @@ internal sealed partial class LayoutPanel : SW.Window
     private LayoutPanel()
     {
         Title = "Layouts - Explorador";
-        Width = 1100;
-        Height = 740;
+        Width = 1280;
+        Height = 760;
         MinWidth = 760;
         MinHeight = 520;
         ShowInTaskbar = false;
@@ -373,10 +377,11 @@ internal sealed partial class LayoutPanel : SW.Window
         Resources.Clear();
         AddStyles();
 
-        _categoryBar = new WC.WrapPanel { Margin = new SW.Thickness(4, 4, 4, 0) };
+        _categoryBar = new WC.StackPanel { Margin = new SW.Thickness(0, 2, 0, 4) };
+        _categoryHeader = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(8, 6, 8, 2) };
         _graphic = new WC.Canvas { Background = ToolTheme.GraphicBack, ClipToBounds = true };
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
-        _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
+        _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text, AlternationCount = 2 };
         _find = new WC.TextBox { Width = 160, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, VerticalContentAlignment = SW.VerticalAlignment.Center };
         _tabStrip = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         _tabContent = new WC.ContentControl();
@@ -390,7 +395,7 @@ internal sealed partial class LayoutPanel : SW.Window
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 200 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
 
-        root.Children.Add(_categoryBar);
+        root.Children.Add(_categoryHeader);
 
         WC.DockPanel commandRow = new() { Margin = new SW.Thickness(4, 2, 4, 2) };
         WC.StackPanel findPanel = new() { Orientation = WC.Orientation.Horizontal };
@@ -558,7 +563,48 @@ internal sealed partial class LayoutPanel : SW.Window
         root.Children.Add(footer);
 
         BuildCommandBar();
-        return root;
+
+        // Coluna da esquerda com as categorias (navegacao) | divisor | area de trabalho.
+        WC.Grid outer = new();
+        outer.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(LayoutSettings.GetDouble("nav_largura", 190)), MinWidth = 140, MaxWidth = 360 });
+        outer.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
+        outer.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
+
+        WC.DockPanel nav = new() { Background = T.Pane };
+        var navTitulo = new WC.TextBlock
+        {
+            Text = "EXPLORADOR DE LAYOUTS",
+            Foreground = T.Muted,
+            FontSize = 10.5,
+            FontWeight = SW.FontWeights.SemiBold,
+            Margin = new SW.Thickness(10, 8, 8, 4)
+        };
+        WC.DockPanel.SetDock(navTitulo, WC.Dock.Top);
+        nav.Children.Add(navTitulo);
+        nav.Children.Add(new WC.ScrollViewer
+        {
+            Content = _categoryBar,
+            VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = WC.ScrollBarVisibility.Disabled
+        });
+        outer.Children.Add(new WC.Border { Child = nav, BorderBrush = T.Line, BorderThickness = new SW.Thickness(0, 0, 1, 0) });
+
+        WC.GridSplitter splitNav = new()
+        {
+            Width = 5,
+            HorizontalAlignment = SW.HorizontalAlignment.Stretch,
+            VerticalAlignment = SW.VerticalAlignment.Stretch,
+            Background = T.Back,
+            ResizeDirection = WC.GridResizeDirection.Columns,
+            ResizeBehavior = WC.GridResizeBehavior.PreviousAndNext,
+            Cursor = WI.Cursors.SizeWE
+        };
+        splitNav.DragCompleted += (_, _) => LayoutSettings.Set("nav_largura", outer.ColumnDefinitions[0].ActualWidth);
+        WC.Grid.SetColumn(splitNav, 1);
+        outer.Children.Add(splitNav);
+        WC.Grid.SetColumn(root, 2);
+        outer.Children.Add(root);
+        return outer;
     }
 
     private void AddStyles()
@@ -567,14 +613,16 @@ internal sealed partial class LayoutPanel : SW.Window
         header.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Hover));
         header.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         header.Setters.Add(new SW.Setter(WC.Control.BorderBrushProperty, T.Line));
-        header.Setters.Add(new SW.Setter(WC.Control.PaddingProperty, new SW.Thickness(4, 2, 4, 2)));
+        header.Setters.Add(new SW.Setter(WC.Control.PaddingProperty, new SW.Thickness(6, 4, 6, 4)));
+        header.Setters.Add(new SW.Setter(WC.Control.BorderThicknessProperty, new SW.Thickness(0, 0, 1, 1)));
+        header.Setters.Add(new SW.Setter(WC.Control.FontWeightProperty, SW.FontWeights.SemiBold));
         header.Setters.Add(new SW.Setter(WC.Control.HorizontalContentAlignmentProperty, SW.HorizontalAlignment.Left));
         Resources[typeof(WC.GridViewColumnHeader)] = header;
 
         // Linha da lista com selecao nas cores do tema.
         SW.FrameworkElementFactory bd = new(typeof(WC.Border), "Bd");
         bd.SetValue(WC.Border.BackgroundProperty, new SW.TemplateBindingExtension(WC.Control.BackgroundProperty));
-        bd.SetValue(WC.Border.PaddingProperty, new SW.Thickness(0, 1, 0, 1));
+        bd.SetValue(WC.Border.PaddingProperty, new SW.Thickness(0, 3, 0, 3));
         SW.FrameworkElementFactory presenter = new(typeof(WC.GridViewRowPresenter));
         presenter.SetValue(WC.GridViewRowPresenter.ColumnsProperty, new SW.TemplateBindingExtension(WC.GridView.ColumnCollectionProperty));
         presenter.SetValue(WC.ContentPresenter.ContentProperty, new SW.TemplateBindingExtension(WC.ContentControl.ContentProperty));
@@ -590,10 +638,26 @@ internal sealed partial class LayoutPanel : SW.Window
         item.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
         item.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, WM.Brushes.Transparent));
         item.Setters.Add(new SW.Setter(WC.Control.TemplateProperty, rowTemplate));
+        // Linhas alternadas, como as grades do Project Explorer.
+        SW.Trigger alternada = new() { Property = WC.ItemsControl.AlternationIndexProperty, Value = 1 };
+        alternada.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, Alternada()));
+        item.Triggers.Add(alternada);
         Resources[typeof(WC.ListViewItem)] = item;
 
         // Botoes, caixas de texto, checkboxes e ComboBox no tema (comum a todas as janelas do plugin).
         ToolStyles.Aplicar(Resources, T);
+    }
+
+    /// <summary>Fundo das linhas alternadas: o tom de hover do tema bem suave.</summary>
+    private WM.Brush Alternada()
+    {
+        if (T.Hover is WM.SolidColorBrush s)
+        {
+            var b = new WM.SolidColorBrush(s.Color) { Opacity = 0.45 };
+            b.Freeze();
+            return b;
+        }
+        return WM.Brushes.Transparent;
     }
 
     private void BuildCommandBar()
@@ -787,29 +851,71 @@ internal sealed partial class LayoutPanel : SW.Window
         foreach ((string id, string icon, string title) in Categories)
         {
             int count = CountFor(id);
-            WC.StackPanel content = new() { Orientation = WC.Orientation.Horizontal };
-            content.Children.Add(new WC.Image { Source = IconOf(icon), Width = 18, Height = 18 });
-            content.Children.Add(new WC.TextBlock
+            bool selected = id == _category;
+
+            // Linha da arvore: marca de selecao, icone, nome e quantidade alinhada a direita.
+            WC.DockPanel linha = new() { LastChildFill = true };
+            var marca = new WC.Border { Width = 3, Background = selected ? T.Accent : WM.Brushes.Transparent, Margin = new SW.Thickness(0, 0, 8, 0) };
+            WC.DockPanel.SetDock(marca, WC.Dock.Left);
+            linha.Children.Add(marca);
+            var img = new WC.Image { Source = IconOf(icon), Width = 16, Height = 16, VerticalAlignment = SW.VerticalAlignment.Center };
+            WC.DockPanel.SetDock(img, WC.Dock.Left);
+            linha.Children.Add(img);
+            var qtd = new WC.TextBlock
             {
-                Text = " " + title + (count >= 0 ? $" ({count})" : ""),
+                Text = count >= 0 ? count.ToString(CultureInfo.InvariantCulture) : "",
+                Foreground = T.Muted,
+                VerticalAlignment = SW.VerticalAlignment.Center,
+                Margin = new SW.Thickness(6, 0, 10, 0)
+            };
+            WC.DockPanel.SetDock(qtd, WC.Dock.Right);
+            linha.Children.Add(qtd);
+            linha.Children.Add(new WC.TextBlock
+            {
+                Text = title,
                 Foreground = T.Text,
-                VerticalAlignment = SW.VerticalAlignment.Center
+                FontWeight = selected ? SW.FontWeights.SemiBold : SW.FontWeights.Normal,
+                VerticalAlignment = SW.VerticalAlignment.Center,
+                Margin = new SW.Thickness(8, 0, 0, 0),
+                TextTrimming = SW.TextTrimming.CharacterEllipsis
             });
 
-            bool selected = id == _category;
             WC.Button button = new()
             {
-                Content = content,
-                ToolTip = title,
-                Padding = new SW.Thickness(5, 2, 7, 2),
-                Margin = new SW.Thickness(0, 0, 2, 0),
+                Content = linha,
+                ToolTip = title + (count >= 0 ? $" ({count})" : ""),
+                Padding = new SW.Thickness(0, 5, 0, 5),
+                HorizontalContentAlignment = SW.HorizontalAlignment.Stretch,
                 Background = selected ? T.Selected : WM.Brushes.Transparent,
-                BorderBrush = selected ? T.Accent : WM.Brushes.Transparent,
-                BorderThickness = new SW.Thickness(0, 0, 0, 2)
+                BorderBrush = WM.Brushes.Transparent,
+                BorderThickness = new SW.Thickness(0)
             };
             string cat = id;
             button.Click += (_, _) => SelectCategory(cat);
             _categoryBar.Children.Add(button);
+
+            if (selected)
+            {
+                _categoryHeader.Children.Clear();
+                _categoryHeader.Children.Add(new WC.Image { Source = IconOf(icon), Width = 20, Height = 20, VerticalAlignment = SW.VerticalAlignment.Center });
+                _categoryHeader.Children.Add(new WC.TextBlock
+                {
+                    Text = title,
+                    Foreground = T.Text,
+                    FontSize = 15,
+                    FontWeight = SW.FontWeights.SemiBold,
+                    VerticalAlignment = SW.VerticalAlignment.Center,
+                    Margin = new SW.Thickness(8, 0, 0, 0)
+                });
+                if (count >= 0)
+                    _categoryHeader.Children.Add(new WC.TextBlock
+                    {
+                        Text = $"{count} {(count == 1 ? "item" : "itens")}",
+                        Foreground = T.Muted,
+                        VerticalAlignment = SW.VerticalAlignment.Bottom,
+                        Margin = new SW.Thickness(10, 0, 0, 2)
+                    });
+            }
         }
     }
 
@@ -1797,21 +1903,35 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private WC.StackPanel Form() => new() { Margin = new SW.Thickness(12, 10, 12, 10) };
 
+    /// <summary>Texto da aba; o negrito vira a faixa de titulo de secao (como na grade de propriedades).</summary>
     private WC.TextBlock Label(string t, bool bold = false) => new()
     {
         Text = t,
         Foreground = bold ? T.Text : T.Muted,
-        FontWeight = bold ? SW.FontWeights.Bold : SW.FontWeights.Normal,
-        Margin = new SW.Thickness(0, 6, 0, 2),
+        FontWeight = bold ? SW.FontWeights.SemiBold : SW.FontWeights.Normal,
+        Background = bold ? T.Hover : WM.Brushes.Transparent,
+        Padding = bold ? new SW.Thickness(6, 3, 6, 3) : new SW.Thickness(0),
+        Margin = new SW.Thickness(0, bold ? 8 : 6, 0, 2),
         TextWrapping = SW.TextWrapping.Wrap
     };
 
-    private WC.TextBlock Prop(string nome, string valor)
+    /// <summary>Linha da grade de propriedades: nome a esquerda (coluna fixa), valor a direita, linha fina embaixo.</summary>
+    private SW.FrameworkElement Prop(string nome, string valor)
     {
-        var tb = new WC.TextBlock { Margin = new SW.Thickness(0, 2, 0, 2), TextWrapping = SW.TextWrapping.Wrap, Foreground = T.Text };
-        tb.Inlines.Add(new SW.Documents.Run(nome + ": ") { Foreground = T.Muted });
-        tb.Inlines.Add(new SW.Documents.Run(valor));
-        return tb;
+        var g = new WC.Grid();
+        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(150) });
+        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
+        g.Children.Add(new WC.TextBlock { Text = nome, Foreground = T.Muted, TextWrapping = SW.TextWrapping.Wrap, Margin = new SW.Thickness(6, 0, 8, 0) });
+        var v = new WC.TextBlock { Text = valor, Foreground = T.Text, TextWrapping = SW.TextWrapping.Wrap };
+        WC.Grid.SetColumn(v, 1);
+        g.Children.Add(v);
+        return new WC.Border
+        {
+            Child = g,
+            BorderBrush = T.Line,
+            BorderThickness = new SW.Thickness(0, 0, 0, 1),
+            Padding = new SW.Thickness(0, 3, 0, 3)
+        };
     }
 
     private WC.Button ActionButton(string text, Action action)

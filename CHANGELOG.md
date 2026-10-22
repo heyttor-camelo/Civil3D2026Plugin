@@ -1,3 +1,11 @@
+## 2.67.0 - Layouts v1.12.0: visual no estilo do Project Explorer
+
+- Explorador de layouts: as categorias saem da faixa de cima e viram a **navegacao na coluna da esquerda** (icone, nome e quantidade alinhada a direita, marca de destaque na selecionada), com divisor arrastavel e largura lembrada;
+- cabecalho da categoria aberta (icone, nome e quantidade de itens) acima da barra de comandos;
+- lista com **linhas alternadas**, linhas mais altas e cabecalho em negrito com grade;
+- aba Propriedades como **grade de propriedades**: nome numa coluna fixa, valor ao lado, linha fina entre os itens e titulos de secao em faixa;
+- o monitor (vista dos layouts) nao mudou.
+
 ## 2.66.1 - Correcao de compilacao
 
 - `LayoutOps.ResumoCamadas`: `LayerTableRecord.HasOverrides` e propriedade (qualquer viewport); o override de cada viewport vem de `GetViewportOverrides` (CS1955).
