@@ -54,6 +54,23 @@ internal sealed class PlacaItem
     /// <summary>Area da placa no SinC (m2).</summary>
     public double AreaSinC => LarguraSinC * AlturaSinC;
 
+    /// <summary>Area do projeto (m2) quando informada, senao a do SinC.</summary>
+    public double AreaProjetoM2
+    {
+        get
+        {
+            string t = (AreaProjeto ?? "").Trim().Replace(" m²", "").Replace("m2", "").Trim();
+            if (double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) && v > 0)
+                return v;
+            if (double.TryParse(t.Replace('.', '_').Replace(',', '.').Replace("_", ""), NumberStyles.Float, CultureInfo.InvariantCulture, out v) && v > 0)
+                return v;
+            return 0.0;
+        }
+    }
+
+    /// <summary>Area usada na regra do suporte: a do projeto, se houver; senao a do SinC.</summary>
+    public double AreaRegra => AreaProjetoM2 > 0 ? AreaProjetoM2 : AreaSinC;
+
     public bool Vinculada => Lado != 0 && AxisKey.Length > 0;
     public V2 Ponto => new(E, N);
 
@@ -528,8 +545,11 @@ internal static class ViarioPlacas
 
     public const string SuporteSimples = "Coluna Simples";
     public const string SuporteDuplo = "Coluna Dupla";
-    public const string SuporteSemiPortico = "Semi-Pórtico";
+    public const string SuporteTriplo = "Coluna Tripla";
+    public const string SuporteBraco = "Braço Projetado";
+    public const string SuporteSemiPortico = "Semi Pórtico Simples";
     public const string SuportePortico = "Pórtico";
+    public static readonly string[] SuporteTipos = { SuporteSimples, SuporteDuplo, SuporteTriplo, SuporteBraco, SuporteSemiPortico, SuportePortico };
 
     /// <summary>
     /// Tipo de suporte pela area da placa: ate 2,00 m2 coluna simples; de 2,01 a 6,00 m2 coluna

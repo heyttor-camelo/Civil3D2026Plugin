@@ -416,20 +416,19 @@ internal static class ViarioAtrativos
                 return;
         }
 
-        PromptOpenFileOptions fo = new("\nKML/KMZ com os atrativos") { Filter = "Google Earth (*.kmz;*.kml)|*.kmz;*.kml|Todos (*.*)|*.*" };
-        PromptFileNameResult fr = ed.GetFileNameForOpen(fo);
-        if (fr.Status != PromptStatus.OK)
+        string? kmz = ViarioPlacaSync.AskFile(ed, "KML/KMZ com os atrativos", "Google Earth (*.kmz;*.kml)|*.kmz;*.kml|Todos (*.*)|*.*", "kmz");
+        if (kmz is null)
             return;
 
         List<AtrativoItem> items;
         try
         {
-            items = ReadKml(fr.StringResult);
+            items = ReadKml(kmz);
         }
         catch (System.Exception ex)
         {
             ed.WriteMessage("\n  Nao foi possivel ler o arquivo: " + ex.Message);
-            PluginLog.Erro(Modulo, "Falha ao ler " + fr.StringResult, ex);
+            PluginLog.Erro(Modulo, "Falha ao ler " + kmz, ex);
             return;
         }
 

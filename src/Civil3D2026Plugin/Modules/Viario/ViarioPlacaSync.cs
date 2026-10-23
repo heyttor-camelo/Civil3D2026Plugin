@@ -155,12 +155,20 @@ internal static class ViarioPlacaSync
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
         Dictionary<string, AcadDb.ObjectId> blocks = new(StringComparer.OrdinalIgnoreCase);
+        HashSet<string> existentes = new(Scan(tr, db).Select(x => x.Placa.Id), StringComparer.OrdinalIgnoreCase);
+        int repetidas = 0;
 
         foreach (PlacaItem p in cat.Placas)
         {
+            if (existentes.Contains(p.Id))
+            {
+                repetidas++;
+                continue; // ja esta no desenho (use Remover antes para reinserir)
+            }
+
             if (!ViarioPlacas.Link(p, axes, names, o.DistanciaMaxima))
                 semEixo++;
-            p.SuporteTipo = o.Suportes ? ViarioPlacas.SupportType(p.AreaSinC, p.LarguraSinC, o.AreaSimples, o.AreaDuplo, o.LarguraPortico) : "";
+            p.SuporteTipo = o.Suportes ? ViarioPlacas.SupportType(p.AreaRegra, p.LarguraSinC, o.AreaSimples, o.AreaDuplo, o.LarguraPortico) : "";
 
             string blockName = p.Codigo + "_SV";
             if (!blocks.TryGetValue(blockName, out AcadDb.ObjectId blockId))
@@ -180,9 +188,13 @@ internal static class ViarioPlacaSync
         }
 
         tr.Commit();
-        PluginLog.Info(Modulo, $"Importadas {inseridas} placas ({semEixo} sem eixo, {semArquivo.Count} sem arquivo) de {cat.Fonte}.");
+        PluginLog.Info(Modulo, $"Importadas {inseridas} placas ({semEixo} sem eixo, {semArquivo.Count} sem arquivo, {repetidas} ja existiam) de {cat.Fonte}.");
+        UltimasRepetidas = repetidas;
         return (inseridas, semEixo, semArquivo);
     }
+
+    /// <summary>Placas puladas na ultima importacao por ja existirem no desenho.</summary>
+    public static int UltimasRepetidas { get; private set; }
 
     private static Dictionary<string, string> AxisLabels(AcadDb.Database db, List<AxisInput> axes)
     {
@@ -209,9 +221,12 @@ internal static class ViarioPlacaSync
         AcadDb.ObjectId blockId, PlacaItem p, Opcoes o)
     {
         double rad = p.Rotacao * Math.PI / 180.0;
+        bool comSuporte = o.Suportes && p.SuporteTipo.Length > 0;
+        V2 ldcOff = comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc;
+        V2 placaOff = ldcOff + ((OffsetPlaca - OffsetLdc) * o.Escala);
 
-        // Linha de chamada no ponto de implantacao.
-        AcadDb.BlockReference ldc = new(Local(p, OffsetLdc, 1.0), ldcId) { Rotation = rad };
+        // Linha de chamada: sai do suporte (ponto que o SinC usa para cada tipo).
+        AcadDb.BlockReference ldc = new(Local(p, ldcOff, 1.0), ldcId) { Rotation = rad };
         ldc.SetDatabaseDefaults(db);
         ldc.Layer = LayerLdc;
         ms.AppendEntity(ldc);
@@ -219,7 +234,7 @@ internal static class ViarioPlacaSync
         ViarioStore.SetTag(ldc, TagLdc, p.Id);
 
         // Placa na ponta da linha de chamada.
-        AcadDb.BlockReference br = new(Local(p, OffsetPlaca, o.Escala), blockId)
+        AcadDb.BlockReference br = new(Local(p, placaOff, 1.0), blockId)
         {
             Rotation = rad,
             ScaleFactors = new Scale3d(o.Escala)
@@ -252,14 +267,15 @@ internal static class ViarioPlacaSync
         }
 
         // Suporte no ponto de implantacao; a placa guarda o handle dele (Handle_Suporte).
-        if (o.Suportes && p.SuporteTipo.Length > 0)
+        AcadDb.ObjectId supId = comSuporte ? EnsureSupportBlock(tr, db, p.SuporteTipo) : AcadDb.ObjectId.Null;
+        if (!supId.IsNull)
         {
-            AcadDb.ObjectId supId = EnsureSupportBlock(tr, db, p.SuporteTipo, p);
             AcadDb.BlockReference sup = new(new Point3d(p.E, p.N, 0.0), supId) { Rotation = rad };
             sup.SetDatabaseDefaults(db);
             sup.Layer = LayerSuporte;
             ms.AppendEntity(sup);
             tr.AddNewlyCreatedDBObject(sup, true);
+            SetVisibility(sup, "Implant");
             AcadDb.BlockTableRecord supDef = (AcadDb.BlockTableRecord)tr.GetObject(supId, AcadDb.OpenMode.ForRead);
             Dictionary<string, string> supValues = SupportAttributeValues(p, o);
             foreach (AcadDb.ObjectId entId in supDef)
@@ -297,7 +313,7 @@ internal static class ViarioPlacaSync
 
     private static Dictionary<string, string> SupportAttributeValues(PlacaItem p, Opcoes o) => new(StringComparer.OrdinalIgnoreCase)
     {
-        ["Altura"] = p.AlturaSuporte.Length > 0 ? p.AlturaSuporte.Replace('.', ',').TrimEnd('m') + "m" : "",
+        ["Altura"] = p.AlturaSuporte.Length > 0 ? p.AlturaSuporte.Replace('.', ',').TrimEnd('m').Trim() + "m" : DefaultHeight(p.SuporteTipo),
         ["Tipo"] = p.SuporteTipo,
         ["Nort"] = "N: " + Coord(p.N),
         ["Est"] = "E: " + Coord(p.E),
@@ -315,7 +331,7 @@ internal static class ViarioPlacaSync
         ["Situação"] = o.Situacao,
         ["Nort"] = "N: " + Coord(p.N),
         ["Est"] = "E: " + Coord(p.E),
-        ["Área"] = p.AreaDm2.ToString(CultureInfo.InvariantCulture),
+        ["Área"] = p.AreaSinC.ToString("0.###", CultureInfo.InvariantCulture).Replace(".", ""),
         ["Dimensão"] = p.DimensaoSinC,
         ["Eixo"] = p.AxisName,
         ["Estaca/KM"] = p.EstacaKm,
@@ -366,103 +382,133 @@ internal static class ViarioPlacaSync
     }
 
     /// <summary>
-    /// Bloco do suporte, gerado em codigo no mesmo molde do "Coluna Dupla_SVS" visto num desenho
-    /// do SinC (geometria na layer sinC_Suporte; atributos Altura, Tipo, Nort, Est visiveis e
-    /// Eixo, Estaca/KM, Lado, Material, Secao, Situacao invisiveis, em sinC_ATT_Suporte).
-    /// Portico/semi-portico: o vao e tirado do afastamento da placa ao eixo.
+    /// Nome do bloco do SinC para cada tipo de suporte (os blocos vem de um DXF gerado pelo
+    /// SinC, embutido na DLL: Resources/sinC_suportes.dxf.gz, com visibilidade Implantar/
+    /// Retirar/Remanejar/Manter).
     /// </summary>
-    private static AcadDb.ObjectId EnsureSupportBlock(AcadDb.Transaction tr, AcadDb.Database db, string tipo, PlacaItem p)
+    public static string SupportBlockName(string tipo) => tipo switch
     {
-        string name = tipo switch
-        {
-            ViarioPlacas.SuporteSimples => "Coluna Simples_SVS",
-            ViarioPlacas.SuporteDuplo => "Coluna Dupla_SVS",
-            ViarioPlacas.SuporteSemiPortico => "Semi-Portico_SVS",
-            _ => "Portico_SVS"
-        };
-        // Portico: um bloco por vao (arredondado ao metro), ja que os postes ficam dos dois lados da pista.
-        double span = 0.0;
-        if (tipo == ViarioPlacas.SuportePortico)
-        {
-            span = Math.Max(4.0, Math.Round(p.Vinculada ? 2.0 * p.Offset : p.LarguraSinC + 2.0));
-            name += "_" + span.ToString("0", CultureInfo.InvariantCulture);
-        }
+        ViarioPlacas.SuporteSimples => "Coluna Simples_SVS",
+        ViarioPlacas.SuporteDuplo => "Coluna Dupla_SVS",
+        ViarioPlacas.SuporteTriplo => "Coluna Tripla_SVS",
+        ViarioPlacas.SuporteBraco => "Braço Projetado_SVS",
+        ViarioPlacas.SuporteSemiPortico => "Semi Pórtico Simples_SVS",
+        ViarioPlacas.SuportePortico => "Pórtico_SVS",
+        _ => "Coluna Dupla_SVS"
+    };
 
+    /// <summary>Onde a linha de chamada sai do suporte (sistema local do bloco), medido nos desenhos do SinC.</summary>
+    public static V2 LdcOffset(string tipo) => tipo switch
+    {
+        ViarioPlacas.SuporteBraco => new V2(-3.362, -0.165),
+        ViarioPlacas.SuporteSemiPortico => new V2(-3.742, -0.387),
+        ViarioPlacas.SuportePortico => new V2(2.42, -0.385),
+        _ => new V2(0.0, -0.275)
+    };
+
+    /// <summary>Altura padrao do suporte no SinC (quando o projeto nao informa).</summary>
+    private static string DefaultHeight(string tipo) => tipo is ViarioPlacas.SuporteBraco or ViarioPlacas.SuporteSemiPortico or ViarioPlacas.SuportePortico ? "5,5m" : "2,0m";
+
+    private static string? _supportsDxf;
+
+    /// <summary>Descompacta o DXF dos suportes (recurso da DLL) para %TEMP% uma vez por sessao.</summary>
+    private static string? SupportsDxfPath()
+    {
+        if (_supportsDxf is not null && File.Exists(_supportsDxf))
+            return _supportsDxf;
+        try
+        {
+            using Stream? res = typeof(ViarioPlacaSync).Assembly.GetManifestResourceStream("Viario\\sinC_suportes.dxf.gz");
+            if (res is null)
+                return null;
+            string path = Path.Combine(Path.GetTempPath(), "Civil3D2026Plugin", "sinC_suportes.dxf");
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            using (FileStream fs = new(path, FileMode.Create, FileAccess.Write, FileShare.None))
+            using (System.IO.Compression.GZipStream gz = new(res, System.IO.Compression.CompressionMode.Decompress))
+                gz.CopyTo(fs);
+            _supportsDxf = path;
+            return path;
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro(Modulo, "Falha ao extrair o DXF dos suportes do SinC", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Traz do DXF embutido o bloco do suporte (e os demais, de uma vez) para o desenho, com a
+    /// definicao dinamica do SinC. Retorna ObjectId.Null se nao conseguir.
+    /// </summary>
+    private static AcadDb.ObjectId EnsureSupportBlock(AcadDb.Transaction tr, AcadDb.Database db, string tipo)
+    {
+        string name = SupportBlockName(tipo);
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         if (bt.Has(name))
             return bt[name];
 
-        bt.UpgradeOpen();
-        AcadDb.BlockTableRecord btr = new() { Name = name, Origin = Point3d.Origin };
-        AcadDb.ObjectId id = bt.Add(btr);
-        tr.AddNewlyCreatedDBObject(btr, true);
+        string? dxf = SupportsDxfPath();
+        if (dxf is null)
+            return AcadDb.ObjectId.Null;
 
-        void Post(double x, double y, double r)
+        try
         {
-            AcadDb.Circle c = new(new Point3d(x, y, 0.0), Vector3d.ZAxis, r);
-            c.SetDatabaseDefaults(db);
-            c.Layer = LayerSuporteGeo;
-            btr.AppendEntity(c);
-            tr.AddNewlyCreatedDBObject(c, true);
-            AcadDb.Hatch h = new();
-            h.SetDatabaseDefaults(db);
-            h.Layer = LayerSuporteGeo;
-            btr.AppendEntity(h);
-            tr.AddNewlyCreatedDBObject(h, true);
-            h.SetHatchPattern(AcadDb.HatchPatternType.PreDefined, "SOLID");
-            h.AppendLoop(AcadDb.HatchLoopTypes.Outermost, new AcadDb.ObjectIdCollection { c.ObjectId });
-            h.EvaluateHatch(true);
+            using AcadDb.Database side = new(false, true);
+            side.DxfIn(dxf, null);
+            AcadDb.ObjectIdCollection ids = new();
+            using (AcadDb.Transaction st = side.TransactionManager.StartOpenCloseTransaction())
+            {
+                AcadDb.BlockTable sbt = (AcadDb.BlockTable)st.GetObject(side.BlockTableId, AcadDb.OpenMode.ForRead);
+                foreach (AcadDb.ObjectId id in sbt)
+                {
+                    AcadDb.BlockTableRecord r = (AcadDb.BlockTableRecord)st.GetObject(id, AcadDb.OpenMode.ForRead);
+                    if (r.Name.EndsWith("_SVS", StringComparison.OrdinalIgnoreCase) && !bt.Has(r.Name))
+                        ids.Add(id);
+                }
+            }
+
+            if (ids.Count > 0)
+            {
+                AcadDb.IdMapping map = new();
+                db.WblockCloneObjects(ids, db.BlockTableId, map, AcadDb.DuplicateRecordCloning.Ignore, false);
+            }
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro(Modulo, "Falha ao importar os blocos de suporte do SinC", ex);
+            return AcadDb.ObjectId.Null;
         }
 
-        void Bar(double x0, double x1, double y, double t)
-        {
-            AcadDb.Polyline pl = new();
-            pl.SetDatabaseDefaults(db);
-            pl.Layer = LayerSuporteGeo;
-            pl.AddVertexAt(0, new Point2d(x0, y), 0.0, 0.0, 0.0);
-            pl.AddVertexAt(1, new Point2d(x1, y), 0.0, 0.0, 0.0);
-            pl.AddVertexAt(2, new Point2d(x1, y - t), 0.0, 0.0, 0.0);
-            pl.AddVertexAt(3, new Point2d(x0, y - t), 0.0, 0.0, 0.0);
-            pl.Closed = true;
-            btr.AppendEntity(pl);
-            tr.AddNewlyCreatedDBObject(pl, true);
-        }
-
-        switch (tipo)
-        {
-            case ViarioPlacas.SuporteSimples:
-                Post(0.0, 0.0, 0.15);
-                break;
-            case ViarioPlacas.SuporteDuplo:
-                Post(-0.55, 0.0, 0.15);
-                Post(0.55, 0.0, 0.15);
-                Bar(-0.9, 0.9, -0.25, 0.025);
-                break;
-            case ViarioPlacas.SuporteSemiPortico:
-                // Poste no ponto; braco sobre a pista (lado -X local = para o eixo).
-                Post(0.0, 0.0, 0.22);
-                Bar(-(p.LarguraSinC + 0.5), 0.0, 0.15, 0.30);
-                break;
-            default:
-                Post(0.0, 0.0, 0.22);
-                Post(-span, 0.0, 0.22);
-                Bar(-span, 0.0, 0.15, 0.30);
-                break;
-        }
-
-        double y2 = 0.0;
-        foreach (string tag in SupVisibleTags)
-        {
-            AddAtt(tr, db, btr, tag, new Point3d(1.0, y2, 0.0), false, LayerAttSuporte);
-            y2 -= 1.8;
-        }
-
-        foreach (string tag in SupInvisibleTags)
-            AddAtt(tr, db, btr, tag, new Point3d(-15.0, -5.0, 0.0), true, LayerAttSuporte);
-
-        return id;
+        bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        return bt.Has(name) ? bt[name] : AcadDb.ObjectId.Null;
     }
 
+    /// <summary>Estado de visibilidade "Implantar" nos blocos dinamicos do SinC (se existir).</summary>
+    private static void SetVisibility(AcadDb.BlockReference br, string contains)
+    {
+        try
+        {
+            if (!br.IsDynamicBlock)
+                return;
+            foreach (AcadDb.DynamicBlockReferenceProperty prop in br.DynamicBlockReferencePropertyCollection)
+            {
+                if (prop.ReadOnly || (prop.PropertyTypeCode != 5 && !prop.PropertyName.StartsWith("Visib", StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                foreach (object v in prop.GetAllowedValues())
+                {
+                    if (v is string sv && sv.Contains(contains, StringComparison.OrdinalIgnoreCase))
+                    {
+                        prop.Value = sv;
+                        return;
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Bloco sem propriedade de visibilidade: fica no estado padrao.
+        }
+    }
     /// <summary>
     /// Bloco da placa: importa o T-xxx_SV.dwg do SinC como definicao de bloco (se ainda nao
     /// existe no desenho) e acrescenta os 15 atributos nas posicoes que o SinC usa.
@@ -794,6 +840,102 @@ internal static class ViarioPlacaSync
     public static Box2 ZoomBox(PlacaItem p) => new(p.E - 40, p.N - 40, p.E + 40, p.N + 40);
 
     // ------------------------------------------------------------------
+    // Caminhos lembrados (por usuario) e dialogos de arquivo/pasta
+    // ------------------------------------------------------------------
+
+    private static readonly string PathsFile = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "viario-placas.txt");
+
+    /// <summary>Ultimo caminho usado para uma chave (pastaSinC, catalogo, kmz), ou "".</summary>
+    public static string Remembered(string key)
+    {
+        try
+        {
+            if (!File.Exists(PathsFile))
+                return "";
+            foreach (string line in File.ReadAllLines(PathsFile))
+            {
+                if (line.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase))
+                    return line[(key.Length + 1)..].Trim();
+            }
+        }
+        catch
+        {
+            // conveniencia
+        }
+
+        return "";
+    }
+
+    public static void Remember(string key, string value)
+    {
+        try
+        {
+            Dictionary<string, string> all = new(StringComparer.OrdinalIgnoreCase);
+            if (File.Exists(PathsFile))
+            {
+                foreach (string line in File.ReadAllLines(PathsFile))
+                {
+                    int eq = line.IndexOf('=');
+                    if (eq > 0)
+                        all[line[..eq]] = line[(eq + 1)..];
+                }
+            }
+
+            all[key] = value;
+            Directory.CreateDirectory(Path.GetDirectoryName(PathsFile)!);
+            File.WriteAllLines(PathsFile, all.Select(kv => kv.Key + "=" + kv.Value));
+        }
+        catch
+        {
+            // conveniencia
+        }
+    }
+
+    /// <summary>Dialogo de pasta (Windows), comecando na ultima usada. Null = cancelou.</summary>
+    public static string? AskFolder(string title, string key, string? suggestion = null)
+    {
+        string initial = suggestion is not null && Directory.Exists(suggestion) ? suggestion : Remembered(key);
+        Microsoft.Win32.OpenFolderDialog dlg = new() { Title = title, Multiselect = false };
+        if (initial.Length > 0 && Directory.Exists(initial))
+            dlg.InitialDirectory = initial;
+        if (dlg.ShowDialog() != true)
+            return null;
+        string folder = dlg.FolderName;
+        if (!Directory.Exists(folder))
+            return null;
+        Remember(key, folder);
+        return folder;
+    }
+
+    /// <summary>Dialogo de arquivo, comecando na pasta do ultimo usado. Null = cancelou.</summary>
+    public static string? AskFile(Editor ed, string title, string filter, string key)
+    {
+        PromptOpenFileOptions fo = new("\n" + title) { Filter = filter };
+        string last = Remembered(key);
+        try
+        {
+            if (last.Length > 0)
+            {
+                string? dir = Path.GetDirectoryName(last);
+                if (!string.IsNullOrEmpty(dir) && Directory.Exists(dir))
+                    fo.InitialDirectory = dir;
+                if (File.Exists(last))
+                    fo.InitialFileName = Path.GetFileName(last);
+            }
+        }
+        catch
+        {
+            // caminho invalido
+        }
+
+        PromptFileNameResult fr = ed.GetFileNameForOpen(fo);
+        if (fr.Status != PromptStatus.OK)
+            return null;
+        Remember(key, fr.StringResult);
+        return fr.StringResult;
+    }
+
+    // ------------------------------------------------------------------
     // Comando C3DVIARIOPLACAS
     // ------------------------------------------------------------------
 
@@ -827,23 +969,19 @@ internal static class ViarioPlacaSync
     private static void ImportCommand(Document doc)
     {
         Editor ed = doc.Editor;
-        PromptOpenFileOptions fo = new("\nCatalogo das placas (JSON ou CSV gerado da planilha do projeto)")
-        {
-            Filter = "Catalogo de placas (*.json;*.csv)|*.json;*.csv|Todos (*.*)|*.*"
-        };
-        PromptFileNameResult fr = ed.GetFileNameForOpen(fo);
-        if (fr.Status != PromptStatus.OK)
+        string? catalogo = AskFile(ed, "Catalogo das placas (JSON ou CSV gerado da planilha do projeto)", "Catalogo de placas (*.json;*.csv)|*.json;*.csv|Todos (*.*)|*.*", "catalogo");
+        if (catalogo is null)
             return;
 
         PlacaCatalog cat;
         try
         {
-            cat = ViarioPlacas.Load(fr.StringResult);
+            cat = ViarioPlacas.Load(catalogo);
         }
         catch (System.Exception ex)
         {
             ed.WriteMessage("\n  Nao foi possivel ler o catalogo: " + ex.Message);
-            PluginLog.Erro(Modulo, "Falha ao ler " + fr.StringResult, ex);
+            PluginLog.Erro(Modulo, "Falha ao ler " + catalogo, ex);
             return;
         }
 
@@ -853,17 +991,12 @@ internal static class ViarioPlacaSync
             return;
         }
 
-        string pastaPadrao = Directory.Exists(cat.PastaSinC) ? cat.PastaSinC : (Path.GetDirectoryName(fr.StringResult) ?? "");
-        PromptStringOptions po = new($"\nPasta dos T-xxx_SV.dwg do SinC <{pastaPadrao}>: ") { AllowSpaces = true };
-        PromptResult pr = ed.GetString(po);
-        if (pr.Status == PromptStatus.Cancel)
+        // Pasta dos T-xxx_SV.dwg: a do catalogo, se existir nesta maquina; senao a ultima usada (dialogo).
+        string? pasta = Directory.Exists(cat.PastaSinC) && File.Exists(Path.Combine(cat.PastaSinC, cat.Placas[0].Codigo + "_SV.dwg")) ? cat.PastaSinC : null;
+        pasta ??= AskFolder("Pasta do SinC com os T-xxx_SV.dwg", "pastaSinC", Path.GetDirectoryName(catalogo));
+        if (pasta is null)
             return;
-        string pasta = string.IsNullOrWhiteSpace(pr.StringResult) ? pastaPadrao : pr.StringResult.Trim().Trim('"');
-        if (!Directory.Exists(pasta))
-        {
-            ed.WriteMessage("\n  Pasta nao encontrada: " + pasta);
-            return;
-        }
+        ed.WriteMessage("\n  Pasta do SinC: " + pasta);
 
         Opcoes o = new();
         PromptDoubleOptions dmax = new($"\nDistancia maxima do ponto ao eixo para amarrar (m) <{o.DistanciaMaxima.ToString("0", CultureInfo.InvariantCulture)}>: ")
@@ -899,7 +1032,8 @@ internal static class ViarioPlacaSync
     {
         Editor ed = doc.Editor;
         (int inseridas, int semEixo, List<string> semArquivo) = Import(doc, cat, pasta, o);
-        ed.WriteMessage($"\n  {inseridas} placa(s) inserida(s) de {cat.Placas.Count}; {semEixo} sem eixo a menos de {o.DistanciaMaxima:0} m (ficam sem Eixo/Estaca/Lado).");
+        ed.WriteMessage($"\n  {inseridas} placa(s) inserida(s) de {cat.Placas.Count}; {semEixo} sem eixo a menos de {o.DistanciaMaxima:0} m (ficam sem Eixo/Estaca/Lado)." +
+                        (UltimasRepetidas > 0 ? $" {UltimasRepetidas} ja estavam no desenho e foram puladas (Remover antes para reinserir)." : ""));
         if (semArquivo.Count > 0)
             ed.WriteMessage($"\n  Sem arquivo _SV.dwg na pasta ({semArquivo.Count}): {string.Join(", ", semArquivo.Take(20))}{(semArquivo.Count > 20 ? "..." : "")}");
         ed.WriteMessage("\n  Atributos no padrao do SinC (Codigo, Situacao, Nort, Est, Area, Dimensao, Eixo, Estaca/KM, Lado...). " +
@@ -915,16 +1049,10 @@ internal static class ViarioPlacaSync
     private static void ImportFolderCommand(Document doc)
     {
         Editor ed = doc.Editor;
-        PromptStringOptions po = new("\nPasta do SinC com os .pla e T-xxx_SV.dwg <C:\\sinC\\Local\\Placas\\Placas 2D>: ") { AllowSpaces = true };
-        PromptResult pr = ed.GetString(po);
-        if (pr.Status == PromptStatus.Cancel)
+        string? pasta = AskFolder("Pasta do SinC com os .pla e T-xxx_SV.dwg", "pastaSinC", @"C:\sinC\Local\Placas\Placas 2D");
+        if (pasta is null)
             return;
-        string pasta = string.IsNullOrWhiteSpace(pr.StringResult) ? @"C:\sinC\Local\Placas\Placas 2D" : pr.StringResult.Trim().Trim('"');
-        if (!Directory.Exists(pasta))
-        {
-            ed.WriteMessage("\n  Pasta nao encontrada: " + pasta);
-            return;
-        }
+        ed.WriteMessage("\n  Pasta: " + pasta);
 
         List<string> avisos = new();
         PlacaCatalog cat;
@@ -967,13 +1095,11 @@ internal static class ViarioPlacaSync
         if (completar)
         {
             string? file = guess;
-            if (file is null || (cr.Status == PromptStatus.OK && cr.StringResult == "Sim" && guess is null))
+            if (file is null)
             {
-                PromptOpenFileOptions fo = new("\nCatalogo do projeto (JSON ou CSV)") { Filter = "Catalogo de placas (*.json;*.csv)|*.json;*.csv|Todos (*.*)|*.*" };
-                PromptFileNameResult fr = ed.GetFileNameForOpen(fo);
-                if (fr.Status != PromptStatus.OK)
+                file = AskFile(ed, "Catalogo do projeto (JSON ou CSV)", "Catalogo de placas (*.json;*.csv)|*.json;*.csv|Todos (*.*)|*.*", "catalogo");
+                if (file is null)
                     return;
-                file = fr.StringResult;
             }
 
             try

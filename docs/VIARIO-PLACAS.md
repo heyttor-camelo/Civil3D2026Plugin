@@ -98,3 +98,12 @@ KML/KMZ -> `AtrativoItem` (nome sem o DMS colado, categoria = pasta do KML, lat/
 hachura SOLID 70% transparente, ponto central, atributos NOME (visivel, altura 0,35), CATEGORIA, LAT, LON, FONTE
 (invisiveis); inserido com escala = raio (m) na layer `VIARIO-ATRATIVOS` (cor 6), XData `ATRATIVO`. O painel le a
 posicao e o raio do proprio bloco (mover/escalar no desenho vale).
+
+## Suportes v2 (blocos do SinC)
+
+`Resources/sinC_suportes.dxf.gz` = DXF gerado pelo SinC so com as definicoes `*_SVS` (10 tipos) e `sinC_LDC`; e extraido
+em `%TEMP%\Civil3D2026Plugin\sinC_suportes.dxf` e os blocos entram no desenho por `WblockCloneObjects` (mantem a
+definicao dinamica). A referencia recebe o estado de visibilidade "Implantar". Posicao da linha de chamada em
+relacao ao suporte (sistema local): coluna (0; -0,275), braco projetado (-3,362; -0,165), semi-portico simples
+(-3,742; -0,387), portico (2,42; -0,385); a placa fica em LDC + (5,657; -6,157). `Área` = m2 sem a virgula.
+Regra do suporte pela area do projeto (tabela do PDF) quando existe; senao pela area do SinC.

@@ -1643,13 +1643,14 @@ internal sealed class ViarioPanel : SW.Window
                         Cells = new[]
                         {
                             p.Id, p.Codigo, p.Vinculada ? AxisLabel(p.AxisKey) : "(sem eixo)", p.EstacaTexto, p.LadoTexto,
-                            p.Vinculada ? N(p.Offset, 1) : "", p.Trecho, p.MensagemResumo
+                            p.Vinculada ? N(p.Offset, 1) : "", N(p.AreaSinC, 2), p.AreaProjetoM2 > 0 ? N(p.AreaProjetoM2, 2) : "",
+                            p.SuporteTipo, p.Trecho, p.MensagemResumo
                         }
                     });
                 }
 
-                return (new[] { "Id", "SinC", "Eixo", "Estaca", "Lado", "Afast. [m]", "Trecho", "Mensagens" },
-                    new double[] { 90, 60, 170, 80, 45, 70, 55, 320 }, rows);
+                return (new[] { "Id", "SinC", "Eixo", "Estaca", "Lado", "Afast. [m]", "Area SinC [m2]", "Area proj. [m2]", "Suporte", "Trecho", "Mensagens" },
+                    new double[] { 90, 60, 170, 80, 45, 70, 90, 90, 120, 55, 320 }, rows);
 
             case "ATRATIVOS":
                 foreach (AtrativoItem a in _atrativos)
@@ -2314,13 +2315,27 @@ internal sealed class ViarioPanel : SW.Window
                         Act("Nova secao", () => NewSection(null), true);
                     if (_category == "PLACAS")
                     {
-                        Prop("Placas", $"{_placas.Count} no desenho, {_placas.Count(p => !p.Vinculada)} sem eixo");
+                        Prop("Placas", $"{_placas.Count} no desenho, {_placas.Count(p => !p.Vinculada)} sem eixo, {N(_placas.Sum(p => p.AreaSinC), 2)} m2 (SinC)");
+                        foreach (IGrouping<string, PlacaItem> g in _placas.Where(p => p.SuporteTipo.Length > 0).GroupBy(p => p.SuporteTipo).OrderByDescending(g => g.Count()))
+                            Prop(g.Key, g.Count().ToString(CultureInfo.InvariantCulture));
                         Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."), true);
                         Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos: siga a linha de comando."));
                         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
                     }
 
-                    _render = () => RenderMap(null, null);
+                    if (_category == "ATRATIVOS")
+                    {
+                        Prop("Atrativos", $"{_atrativos.Count} no desenho");
+                        foreach (IGrouping<string, AtrativoItem> g in _atrativos.GroupBy(a => a.Categoria).OrderByDescending(g => g.Count()))
+                            Prop(g.Key.Length > 0 ? g.Key : "(sem categoria)", g.Count().ToString(CultureInfo.InvariantCulture));
+                        Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."), true);
+                        Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
+                    }
+
+                    if (_category is "PLACAS" or "ATRATIVOS")
+                        _render = () => RenderOverview(_category);
+                    else
+                        _render = () => RenderMap(null, null);
                 }
 
                 break;
@@ -3632,9 +3647,10 @@ internal sealed class ViarioPanel : SW.Window
             Prop("Descricao do trecho", p.TrechoDescricao);
         Prop("Sentido / item", $"{p.Sentido}-{p.Item:00}");
         Prop("Mensagens", p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-");
-        Prop("Dimensoes", $"SinC {p.DimensaoSinC} ({p.AreaDm2} dm2)" + (p.DimensaoProjeto.Length > 0 ? $" | projeto {p.DimensaoProjeto}" : ""));
-        if (p.Suporte.Length > 0)
-            Prop("Suporte", p.Suporte);
+        Prop("Dimensoes", $"SinC {p.DimensaoSinC}" + (p.DimensaoProjeto.Length > 0 ? $" | projeto {p.DimensaoProjeto}" : ""));
+        Prop("Area", $"SinC {N(p.AreaSinC, 2)} m2" + (p.AreaProjetoM2 > 0 ? $" | projeto {N(p.AreaProjetoM2, 2)} m2" : ""));
+        Prop("Suporte", (p.SuporteTipo.Length > 0 ? p.SuporteTipo + " (pela area)" : "nao inserido") + (p.Suporte.Length > 0 ? $" | projeto: {p.Suporte}" : "")
+            + (p.AlturaSuporte.Length > 0 ? $" | altura {p.AlturaSuporte} m" : ""));
         Prop("E / N", $"{N(p.E)} ; {N(p.N)}");
         Category("Vinculo com a rede");
         if (p.Vinculada)
@@ -3690,12 +3706,104 @@ internal sealed class ViarioPanel : SW.Window
         Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."));
         V2 w = a.Ponto;
         double r = Math.Max(a.Raio * 4, 80);
-        _render = () => RenderMap(new Box2(w.X - r, w.Y - r, w.X + r, w.Y + r), sh =>
+        _render = () =>
         {
-            sh.Marker(w);
-            foreach (PlacaItem p in placas)
-                sh.Marker(p.Ponto);
+            RenderMap(new Box2(w.X - r, w.Y - r, w.X + r, w.Y + r), sh =>
+            {
+                sh.Marker(w);
+                foreach (PlacaItem p in placas)
+                    sh.Marker(p.Ponto);
+            });
+            if (_vScale <= 0)
+                return;
+            DrawAxisLabelsNear(w, Math.Max(400, r * 2));
+            DrawPointLabels(_placas.Select(q => (q.Ponto, q.Codigo, GraphicText)), 80);
+            DrawPointLabels(_atrativos.Where(x => !ReferenceEquals(x, a)).Select(x => (x.Ponto, x.Nome, AtrativoBrush)), 40);
+            DrawPointLabels(new[] { (w, a.Nome + (a.Categoria.Length > 0 ? "  (" + a.Categoria + ")" : ""), HighlightBrush) }, 1, true);
+        };
+    }
+
+    private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);
+
+    /// <summary>Nomes dos eixos que passam a menos de <paramref name="maxDist"/> m do ponto, no pe da perpendicular.</summary>
+    private void DrawAxisLabelsNear(V2 w, double maxDist)
+    {
+        if (_vScale <= 0)
+            return;
+        double x0 = _vCx - ((_vOx - RulerLeft) / _vScale), x1 = _vCx + ((_vW - _vOx) / _vScale);
+        double y0 = _vCy - ((_vH - RulerBottom - _vOy) / _vScale), y1 = _vCy + (_vOy / _vScale);
+        Box2 visible = new(x0, y0, x1, y1);
+        HashSet<(int, int)> used = new();
+        for (int i = 0; i < _axes.Count; i++)
+        {
+            AxisInput a = _axes[i];
+            if (!a.Path.Bounds().Intersects(visible))
+                continue;
+            (double s, V2 q, double d) = a.Path.Project(w);
+            if (d > maxDist)
+                continue;
+            SW.Point sp = ToScreen(q);
+            if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
+                continue;
+            V2 n = a.Path.TangentAt(s).Left;
+            double lx = sp.X - (n.X * 14) + 3, ly = sp.Y + (n.Y * 14) - 14;
+            if (!used.Add(((int)(lx / 60), (int)(ly / 16))))
+                continue; // rotulo em cima de outro
+            Label(AxisName(a, i), lx, ly, 10);
+        }
+    }
+
+    /// <summary>Texto ao lado de cada ponto visivel (ate <paramref name="max"/>), com fundo para leitura.</summary>
+    private void DrawPointLabels(IEnumerable<(V2 P, string Text, WM.Brush Brush)> items, int max, bool bold = false)
+    {
+        if (_vScale <= 0)
+            return;
+        int count = 0;
+        foreach ((V2 p, string text, WM.Brush brush) in items)
+        {
+            SW.Point sp = ToScreen(p);
+            if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
+                continue;
+            WC.Border b = new()
+            {
+                Background = Brush(32, 34, 38),
+                BorderBrush = brush,
+                BorderThickness = new SW.Thickness(bold ? 1 : 0.5),
+                Padding = new SW.Thickness(3, 0, 3, 0),
+                Child = new WC.TextBlock { Text = text, Foreground = brush, FontSize = bold ? 11 : 9.5, FontFamily = UiFont, FontWeight = bold ? SW.FontWeights.Bold : SW.FontWeights.Normal }
+            };
+            WC.Canvas.SetLeft(b, sp.X + 6);
+            WC.Canvas.SetTop(b, sp.Y - 18);
+            _graphic.Children.Add(b);
+            if (++count >= max)
+                break;
+        }
+    }
+
+    /// <summary>Vista geral da categoria Placas/Atrativos: todos os pontos com rotulo.</summary>
+    private void RenderOverview(string category)
+    {
+        List<V2> pts = category == "PLACAS" ? _placas.Select(p => p.Ponto).ToList() : _atrativos.Select(a => a.Ponto).ToList();
+        Box2? focus = null;
+        if (pts.Count > 0)
+        {
+            Box2 box = Box2.Empty;
+            foreach (V2 p in pts)
+                box = box.Add(p);
+            focus = box.Inflate(Math.Max(50, (box.MaxX - box.MinX) * 0.05));
+        }
+
+        RenderMap(focus, sh =>
+        {
+            foreach (V2 p in pts)
+                sh.Marker(p);
         });
+        if (_vScale <= 0)
+            return;
+        if (category == "PLACAS")
+            DrawPointLabels(_placas.Select(p => (p.Ponto, p.Codigo, GraphicText)), 250);
+        else
+            DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 250);
     }
 
     /// <summary>Se a mensagem da placa cita o atrativo (compara sem acentos, ignorando "Cach.", "Baln." etc.).</summary>
@@ -3759,27 +3867,11 @@ internal sealed class ViarioPanel : SW.Window
         if (_vScale <= 0)
             return;
 
-        // Nomes dos eixos em volta do ponto (mesmo com o texto "eixos" desligado).
-        if (!Show("eixos"))
-        {
-            double x0 = _vCx - ((_vOx - RulerLeft) / _vScale), x1 = _vCx + ((_vW - _vOx) / _vScale);
-            double y0 = _vCy - ((_vH - RulerBottom - _vOy) / _vScale), y1 = _vCy + (_vOy / _vScale);
-            Box2 visible = new(x0, y0, x1, y1);
-            for (int i = 0; i < _axes.Count; i++)
-            {
-                AxisInput a = _axes[i];
-                if (!a.Path.Bounds().Intersects(visible))
-                    continue;
-                (double s, V2 q, double d) = a.Path.Project(w);
-                if (d > 400)
-                    continue;
-                SW.Point sp = ToScreen(q);
-                if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
-                    continue;
-                V2 n = a.Path.TangentAt(s).Left;
-                Label(AxisName(a, i), sp.X - (n.X * 12) + 3, sp.Y + (n.Y * 12) - 14, 10);
-            }
-        }
+        // Nomes dos eixos em volta do ponto, codigo desta e das placas vizinhas, atrativos.
+        DrawAxisLabelsNear(w, 400);
+        DrawPointLabels(_placas.Where(q => !ReferenceEquals(q, p)).Select(q => (q.Ponto, q.Codigo, GraphicText)), 60);
+        DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 40);
+        DrawPointLabels(new[] { (w, p.Id + "  " + p.Codigo, HighlightBrush) }, 1, true);
 
         // Cartao da placa.
         double cw = Math.Max(160, Math.Min(_vW * 0.42, 420));
@@ -3847,7 +3939,7 @@ internal sealed class ViarioPanel : SW.Window
             ty += size + 4;
         }
 
-        Line($"{p.Id}  ·  {p.Codigo}  ·  {p.DimensaoSinC}  ·  {p.AreaDm2} dm²", 11, HighlightBrush);
+        Line($"{p.Id}  ·  {p.Codigo}  ·  {p.DimensaoSinC}  ·  {N(p.AreaSinC, 2)} m²" + (p.SuporteTipo.Length > 0 ? "  ·  " + p.SuporteTipo : ""), 11, HighlightBrush);
         Line(p.Vinculada ? $"{AxisLabel(p.AxisKey)}  ·  est. {p.EstacaTexto}  ·  {p.LadoTexto}  ·  {N(p.Offset, 1)} m do eixo" : "sem eixo vinculado", 10, GraphicText);
         Line(p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-", 10, GraphicText);
         _graphic.Children.Add(frame);
