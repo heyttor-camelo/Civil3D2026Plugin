@@ -730,9 +730,9 @@ internal static class ViarioPlacaSync
                     }
                     else
                     {
-                        foreach (Curve2d c in loop.Curves)
+                        foreach (Curve2d curve in loop.Curves)
                         {
-                            Point2d[] sample = c.GetSamplePoints(c is LineSegment2d ? 2 : 10);
+                            Point2d[] sample = curve.GetSamplePoints(curve is LineSegment2d ? 2 : 10);
                             foreach (Point2d q in sample)
                                 pts.Add(new V2(q.X, q.Y));
                         }

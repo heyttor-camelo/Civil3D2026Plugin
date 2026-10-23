@@ -301,7 +301,7 @@ internal static class ViarioAtrativos
                 }
             }
 
-            ViarioStore.SetTag(br, Tag, Chunks(a.Serialize()));
+            ViarioStore.SetTag(br, Chunks(a.Serialize()));
             n++;
         }
 
@@ -310,9 +310,10 @@ internal static class ViarioAtrativos
         return n;
     }
 
+    /// <summary>Tag + texto em pedacos de 250 caracteres (limite de cada string do XData).</summary>
     private static string[] Chunks(string text)
     {
-        List<string> values = new();
+        List<string> values = new() { Tag };
         for (int i = 0; i < text.Length; i += 250)
             values.Add(text.Substring(i, Math.Min(250, text.Length - i)));
         return values.ToArray();
@@ -329,7 +330,7 @@ internal static class ViarioAtrativos
             br.UpgradeOpen();
             br.ScaleFactors = new Scale3d(raio);
             a.Raio = raio;
-            ViarioStore.SetTag(br, Tag, Chunks(a.Serialize()));
+            ViarioStore.SetTag(br, Chunks(a.Serialize()));
             n++;
         }
 
