@@ -294,11 +294,9 @@ public sealed class LayoutCommands
             return;
         Editor ed = doc.Editor;
         PadraoConjunto p = PadraoConjunto.Ler();
-        ed.WriteMessage("
-Padrao atual: " + p.Resumo() + ".");
+        ed.WriteMessage("\nPadrao atual: " + p.Resumo() + ".");
 
-        var pk = new PromptKeywordOptions("
-Malha, norte e escala [Inserir/Padrao/Configurar/Remover] <Inserir>: ", "Inserir Padrao Configurar Remover") { AllowNone = true };
+        var pk = new PromptKeywordOptions("\nMalha, norte e escala [Inserir/Padrao/Configurar/Remover] <Inserir>: ", "Inserir Padrao Configurar Remover") { AllowNone = true };
         PromptResult rk = ed.GetKeywords(pk);
         if (rk.Status != PromptStatus.OK && rk.Status != PromptStatus.None)
             return;
@@ -315,34 +313,28 @@ Malha, norte e escala [Inserir/Padrao/Configurar/Remover] <Inserir>: ", "Inserir
         {
             if (!emLayout)
             {
-                ed.WriteMessage("
-Abra o layout com a viewport ajustada.");
+                ed.WriteMessage("\nAbra o layout com a viewport ajustada.");
                 return;
             }
             if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
                 ed.SwitchToPaperSpace();
-            var peo = new PromptEntityOptions("
-Clique a viewport onde malha, norte e escala foram ajustados: ");
-            peo.SetRejectMessage("
-O objeto selecionado nao e uma viewport.");
+            var peo = new PromptEntityOptions("\nClique a viewport onde malha, norte e escala foram ajustados: ");
+            peo.SetRejectMessage("\nO objeto selecionado nao e uma viewport.");
             peo.AddAllowedClass(typeof(Viewport), true);
             PromptEntityResult per = ed.GetEntity(peo);
             if (per.Status != PromptStatus.OK)
                 return;
             OpResult r = LayoutConjunto.LerPadrao(doc, per.ObjectId, out PadraoConjunto novo);
-            ed.WriteMessage("
-" + r.Mensagem);
+            ed.WriteMessage("\n" + r.Mensagem);
             if (r.Falhas == 0)
-                ed.WriteMessage("
-Novo padrao: " + novo.Resumo() + ".");
+                ed.WriteMessage("\nNovo padrao: " + novo.Resumo() + ".");
             PluginLog.Info("Layouts", "Malha/norte/escala: " + r.Mensagem);
             return;
         }
 
         // Viewports: clicadas no layout, todas do layout atual ou todas dos layouts.
         System.Collections.Generic.List<ObjectId> vps;
-        var pko = new PromptKeywordOptions("
-Viewports [Selecionar/Layout/Todas] <Selecionar>: ", "Selecionar Layout Todas") { AllowNone = true };
+        var pko = new PromptKeywordOptions("\nViewports [Selecionar/Layout/Todas] <Selecionar>: ", "Selecionar Layout Todas") { AllowNone = true };
         PromptResult rv = ed.GetKeywords(pko);
         if (rv.Status != PromptStatus.OK && rv.Status != PromptStatus.None)
             return;
@@ -353,8 +345,7 @@ Viewports [Selecionar/Layout/Todas] <Selecionar>: ", "Selecionar Layout Todas") 
         }
         else if (!emLayout)
         {
-            ed.WriteMessage("
-Abra um layout (ou use Todas).");
+            ed.WriteMessage("\nAbra um layout (ou use Todas).");
             return;
         }
         else if (quais == "Layout")
@@ -365,8 +356,7 @@ Abra um layout (ou use Todas).");
         {
             if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
                 ed.SwitchToPaperSpace();
-            var pso = new PromptSelectionOptions { MessageForAdding = "
-Selecione as viewports: " };
+            var pso = new PromptSelectionOptions { MessageForAdding = "\nSelecione as viewports: " };
             PromptSelectionResult psr = ed.GetSelection(pso, new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, "VIEWPORT") }));
             if (psr.Status != PromptStatus.OK)
                 return;
@@ -374,8 +364,7 @@ Selecione as viewports: " };
         }
 
         OpResult res = acao == "Remover" ? LayoutConjunto.Remover(doc, vps) : LayoutConjunto.Inserir(doc, vps, p);
-        ed.WriteMessage("
-" + res.Mensagem);
+        ed.WriteMessage("\n" + res.Mensagem);
         PluginLog.Info("Layouts", "Malha/norte/escala: " + res.Mensagem);
     }
 
@@ -383,15 +372,13 @@ Selecione as viewports: " };
     {
         bool SimNao(string pergunta, bool atual)
         {
-            var o = new PromptKeywordOptions($"
-{pergunta} [Sim/Nao] <{(atual ? "Sim" : "Nao")}>: ", "Sim Nao") { AllowNone = true };
+            var o = new PromptKeywordOptions($"\n{pergunta} [Sim/Nao] <{(atual ? "Sim" : "Nao")}>: ", "Sim Nao") { AllowNone = true };
             PromptResult r = ed.GetKeywords(o);
             return r.Status == PromptStatus.OK ? r.StringResult == "Sim" : atual;
         }
         double Numero(string pergunta, double atual)
         {
-            var o = new PromptDoubleOptions("
-" + pergunta) { DefaultValue = atual, UseDefaultValue = true, AllowNegative = false, AllowZero = false };
+            var o = new PromptDoubleOptions("\n" + pergunta) { DefaultValue = atual, UseDefaultValue = true, AllowNegative = false, AllowZero = false };
             PromptDoubleResult r = ed.GetDouble(o);
             return r.Status == PromptStatus.OK ? r.Value : atual;
         }
@@ -401,13 +388,11 @@ Selecione as viewports: " };
         {
             p.MalhaMm = Numero("Distancia aproximada entre as linhas da malha no papel (mm; o intervalo sai redondo: 50, 100, 200, 500 m...)", p.MalhaMm);
             p.MalhaTexto = Numero("Altura do texto das coordenadas (mm)", p.MalhaTexto);
-            var o = new PromptKeywordOptions($"
-Malha em [Linhas/Cruzes] <{(p.MalhaCruzes ? "Cruzes" : "Linhas")}>: ", "Linhas Cruzes") { AllowNone = true };
+            var o = new PromptKeywordOptions($"\nMalha em [Linhas/Cruzes] <{(p.MalhaCruzes ? "Cruzes" : "Linhas")}>: ", "Linhas Cruzes") { AllowNone = true };
             PromptResult r = ed.GetKeywords(o);
             if (r.Status == PromptStatus.OK)
                 p.MalhaCruzes = r.StringResult == "Cruzes";
-            var ps = new PromptStringOptions($"
-Layer da malha <{p.MalhaLayer}>: ") { AllowSpaces = true };
+            var ps = new PromptStringOptions($"\nLayer da malha <{p.MalhaLayer}>: ") { AllowSpaces = true };
             PromptResult rs = ed.GetString(ps);
             if (rs.Status == PromptStatus.OK && rs.StringResult.Trim().Length > 0)
                 p.MalhaLayer = rs.StringResult.Trim();
@@ -422,8 +407,7 @@ Layer da malha <{p.MalhaLayer}>: ") { AllowSpaces = true };
             p.EscalaTexto = Numero("Altura do texto da escala grafica (mm)", p.EscalaTexto);
         }
         p.Salvar();
-        ed.WriteMessage("
-Padrao salvo: " + p.Resumo() + ". A posicao de norte e escala vem do [Padrao] (ajuste numa viewport e leia).");
+        ed.WriteMessage("\nPadrao salvo: " + p.Resumo() + ". A posicao de norte e escala vem do [Padrao] (ajuste numa viewport e leia).");
     }
 
     /// <summary>
