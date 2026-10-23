@@ -900,7 +900,7 @@ internal static class ViarioPlacaSync
                     // Laco que a API nao devolve: pula.
                 }
 
-                pts = Simplify(pts, 0.04);
+                pts = Simplify(pts, 0.008);
                 if (pts.Count < 3)
                     continue;
                 loops.Add(pts);
@@ -947,7 +947,7 @@ internal static class ViarioPlacaSync
             {
                 V2 a = outp[^2], b = pts[i], n = pts[i + 1];
                 double cross = Math.Abs(V2.Cross(b - a, n - a));
-                if (cross < tol * V2.Dist(a, n) * 0.5)
+                if (cross < tol * V2.Dist(a, n) * 0.1)
                     continue;
             }
 
@@ -997,6 +997,63 @@ internal static class ViarioPlacaSync
         return (new List<Seg> { Seg.Line(l0, l1), Seg.Line(l1, l2) },
                 new List<Seg> { Seg.Line(c0, c1), Seg.Line(c1, c2), Seg.Line(c2, c3), Seg.Line(c3, c0) },
                 p.Ponto);
+    }
+
+    private static readonly Dictionary<string, string?> ImageCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Imagem da placa gerada pelo SinC: T-xxx.jpg/.png ao lado dos arquivos ou IMG.png dentro do
+    /// T-xxx.pla (extraida para %TEMP%). Null quando nao ha pasta do SinC nesta maquina.
+    /// </summary>
+    public static string? SignImagePath(string codigo, string? pasta = null)
+    {
+        lock (ImageCache)
+        {
+            if (ImageCache.TryGetValue(codigo, out string? cached) && (cached is null || File.Exists(cached)))
+                return cached;
+        }
+
+        string? found = null;
+        foreach (string dir in new[] { pasta ?? "", Remembered("pastaSinC"), @"C:\sinC\Local\Placas\Placas 2D" }.Where(d => d.Length > 0 && Directory.Exists(d)).Distinct())
+        {
+            foreach (string ext in new[] { ".png", ".jpg", ".jpeg" })
+            {
+                string f = Path.Combine(dir, codigo + ext);
+                if (File.Exists(f))
+                {
+                    found = f;
+                    break;
+                }
+            }
+
+            if (found is not null)
+                break;
+
+            string pla = Path.Combine(dir, codigo + ".pla");
+            if (!File.Exists(pla))
+                continue;
+            try
+            {
+                string outp = Path.Combine(Path.GetTempPath(), "Civil3D2026Plugin", "placas", codigo + ".png");
+                Directory.CreateDirectory(Path.GetDirectoryName(outp)!);
+                using System.IO.Compression.ZipArchive zip = System.IO.Compression.ZipFile.OpenRead(pla);
+                System.IO.Compression.ZipArchiveEntry? entry = zip.GetEntry("IMG.png") ?? zip.GetEntry("THUMB.png");
+                if (entry is not null)
+                {
+                    entry.ExtractToFile(outp, true);
+                    found = outp;
+                    break;
+                }
+            }
+            catch
+            {
+                // .pla sem imagem ou bloqueado
+            }
+        }
+
+        lock (ImageCache)
+            ImageCache[codigo] = found;
+        return found;
     }
 
     /// <summary>Zoom numa placa (caixa de 60 m em volta do ponto).</summary>

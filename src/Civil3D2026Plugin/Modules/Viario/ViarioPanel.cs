@@ -12,6 +12,7 @@ using WC = System.Windows.Controls;
 using WD = System.Windows.Data;
 using WI = System.Windows.Input;
 using WM = System.Windows.Media;
+using WMI = System.Windows.Media.Imaging;
 using WS = System.Windows.Shapes;
 
 namespace Civil3D2026Plugin.Modules.Viario;
@@ -3908,6 +3909,26 @@ internal sealed class ViarioPanel : SW.Window
         if (o.X < -wPx * 2 || o.Y < -wPx * 2 || o.X > _vW + (wPx * 2) || o.Y > _vH + (wPx * 2))
             return;
 
+        // Imagem do SinC (leve): o retangulo do bloco recebe a imagem girada e escalada.
+        V2 origem0 = rect[0].A;
+        if (SignBitmap(p.Codigo) is WMI.BitmapSource bmp)
+        {
+            double bw = p.LarguraSinC * ViarioPlacaSync.FatorSinC, bh = p.AlturaSinC * ViarioPlacaSync.FatorSinC;
+            WM.Matrix im = WM.Matrix.Identity;
+            im.Scale(bw / bmp.PixelWidth, -bh / bmp.PixelHeight); // px -> unidades do bloco (y para baixo)
+            im.Scale(p.Escala, p.Escala);
+            im.Rotate(p.Rotacao);
+            im.Translate(origem0.X, origem0.Y);
+            im.Scale(_vScale, -_vScale);
+            im.Translate(_vOx - (_vCx * _vScale), _vOy + (_vCy * _vScale));
+            WM.MatrixTransform ixf = new(im);
+            ixf.Freeze();
+            WC.Image image = new() { Source = bmp, Width = bmp.PixelWidth, Height = bmp.PixelHeight, Stretch = WM.Stretch.Fill, RenderTransform = ixf };
+            WM.RenderOptions.SetBitmapScalingMode(image, wPx < 200 ? WM.BitmapScalingMode.LowQuality : WM.BitmapScalingMode.Linear);
+            _graphic.Children.Add(image);
+            return;
+        }
+
         ViarioPlacaSync.SignShape? shape = null;
         try
         {
@@ -3944,6 +3965,37 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     private static readonly Dictionary<string, List<(WM.Geometry, WM.Brush, bool)>> SignGeoCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, WMI.BitmapSource?> SignBitmapCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Imagem da placa (T-xxx.jpg/png ou IMG.png do .pla), decodificada a 480 px e congelada; null sem arquivo.</summary>
+    private static WMI.BitmapSource? SignBitmap(string codigo)
+    {
+        if (SignBitmapCache.TryGetValue(codigo, out WMI.BitmapSource? cached))
+            return cached;
+        WMI.BitmapSource? result = null;
+        try
+        {
+            string? file = ViarioPlacaSync.SignImagePath(codigo);
+            if (file is not null)
+            {
+                WMI.BitmapImage bi = new();
+                bi.BeginInit();
+                bi.CacheOption = WMI.BitmapCacheOption.OnLoad;
+                bi.DecodePixelWidth = 480;
+                bi.UriSource = new Uri(file, UriKind.Absolute);
+                bi.EndInit();
+                bi.Freeze();
+                result = bi;
+            }
+        }
+        catch
+        {
+            // imagem invalida: cai no desenho do bloco
+        }
+
+        SignBitmapCache[codigo] = result;
+        return result;
+    }
 
     /// <summary>
     /// Hachuras do bloco como geometrias congeladas em coordenadas do bloco, na ordem original de
@@ -4185,6 +4237,8 @@ internal sealed class ViarioPanel : SW.Window
         double pad = 8;
         double drawW = cw - (2 * pad);
         double drawH = shape is null ? 0 : drawW * shape.Height / shape.Width;
+        if (shape is null && SignBitmap(p.Codigo) is WMI.BitmapSource b0)
+            drawH = drawW * b0.PixelHeight / b0.PixelWidth;
         double textH = 58;
         double ch = drawH + textH + (2 * pad);
         WC.Canvas card = new() { Width = cw, Height = ch, Background = Brush(32, 34, 38), ClipToBounds = true };
@@ -4195,7 +4249,20 @@ internal sealed class ViarioPanel : SW.Window
         WC.Canvas.SetLeft(frame, RulerLeft + 10);
         WC.Canvas.SetTop(frame, 10);
 
-        if (shape is not null)
+        WMI.BitmapSource? bmp = SignBitmap(p.Codigo);
+        if (bmp is not null)
+        {
+            drawH = drawW * bmp.PixelHeight / bmp.PixelWidth;
+            ch = drawH + textH + (2 * pad);
+            card.Height = ch;
+            frame.Height = ch;
+            WC.Image im = new() { Source = bmp, Width = drawW, Height = drawH, Stretch = WM.Stretch.Fill };
+            WM.RenderOptions.SetBitmapScalingMode(im, WM.BitmapScalingMode.HighQuality);
+            WC.Canvas.SetLeft(im, pad);
+            WC.Canvas.SetTop(im, pad);
+            card.Children.Add(im);
+        }
+        else if (shape is not null)
         {
             double k = drawW / shape.Width;
             WM.Matrix cm = WM.Matrix.Identity;
@@ -4206,7 +4273,7 @@ internal sealed class ViarioPanel : SW.Window
             foreach ((WM.Geometry geo, WM.Brush brush, _) in SignGeometry(p.Codigo, shape))
                 card.Children.Add(new WS.Path { Data = geo, Fill = brush, RenderTransform = cxf });
         }
-        else
+        else if (bmp is null)
         {
             WC.TextBlock none = new() { Text = "(bloco " + p.Codigo + "_SV nao esta no desenho)", Foreground = T.Muted, FontSize = 10, FontFamily = UiFont };
             WC.Canvas.SetLeft(none, pad);
