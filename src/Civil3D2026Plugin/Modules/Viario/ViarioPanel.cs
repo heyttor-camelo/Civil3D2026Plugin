@@ -2553,6 +2553,7 @@ internal sealed class ViarioPanel : SW.Window
                         foreach (IGrouping<string, AtrativoItem> g in _atrativos.GroupBy(a => a.Categoria).OrderByDescending(g => g.Count()))
                             Prop(g.Key.Length > 0 ? g.Key : "(sem categoria)", g.Count().ToString(CultureInfo.InvariantCulture));
                         Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."), true);
+                        Act("Novo ponto (clique)...", () => Send("C3DVIARIOATRATIVOS N ", "Novo atrativo: clique no desenho e informe o nome."));
                         Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
                     }
 
@@ -3946,6 +3947,7 @@ internal sealed class ViarioPanel : SW.Window
 
         Act("Zoom", ZoomCurrent, true);
         Act("Google Maps", () => OpenUrl($"https://www.google.com/maps/search/?api=1&query={a.Lat.ToString("0.#######", CultureInfo.InvariantCulture)},{a.Lon.ToString("0.#######", CultureInfo.InvariantCulture)}"));
+        Act("Novo ponto (clique)...", () => Send("C3DVIARIOATRATIVOS N ", "Novo atrativo: clique no desenho e informe o nome."));
         Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
         Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."));
         V2 w = a.Ponto;

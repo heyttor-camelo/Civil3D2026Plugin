@@ -128,6 +128,63 @@ internal static class ViarioAtrativos
         return list;
     }
 
+    /// <summary>Novo atrativo clicando no desenho: nome, categoria e raio; bloco em vermelho (ponto levantado a mao).</summary>
+    private static void NewByClick(Document doc)
+    {
+        Editor ed = doc.Editor;
+        int zone = 21;
+        bool south = true;
+        try
+        {
+            string code = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument.Settings.DrawingSettings.UnitZoneSettings.CoordinateSystemCode ?? "";
+            if (Civil3D2026Plugin.Modules.Quadros.GeoConversion.TryParseZone(code, out int z, out bool s))
+            {
+                zone = z;
+                south = s;
+            }
+        }
+        catch
+        {
+            // sem sistema de coordenadas: fuso padrao
+        }
+
+        double raio = 25.0;
+        List<AtrativoItem> existentes = Read(doc.Database);
+        if (existentes.Count > 0)
+            raio = existentes[0].Raio;
+
+        while (true)
+        {
+            PromptPointOptions po = new("\nPonto do atrativo (Enter termina): ") { AllowNone = true };
+            PromptPointResult pr = ed.GetPoint(po);
+            if (pr.Status != PromptStatus.OK)
+                return;
+            Point3d w = pr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+
+            PromptStringOptions no = new("\nNome: ") { AllowSpaces = true };
+            PromptResult nr = ed.GetString(no);
+            if (nr.Status != PromptStatus.OK || string.IsNullOrWhiteSpace(nr.StringResult))
+                return;
+            PromptStringOptions co = new("\nCategoria <Levantamento em campo>: ") { AllowSpaces = true };
+            PromptResult cr = ed.GetString(co);
+            if (cr.Status == PromptStatus.Cancel)
+                return;
+            string categoria = string.IsNullOrWhiteSpace(cr.StringResult) ? "Levantamento em campo" : cr.StringResult.Trim();
+            PromptDoubleOptions ro = new($"\nRaio (m) <{raio.ToString("0.#", CultureInfo.InvariantCulture)}>: ") { AllowNone = true, AllowNegative = false, AllowZero = false, DefaultValue = raio, UseDefaultValue = true };
+            PromptDoubleResult rr = ed.GetDouble(ro);
+            if (rr.Status == PromptStatus.Cancel)
+                return;
+            if (rr.Status == PromptStatus.OK)
+                raio = rr.Value;
+
+            (double lat, double lon) = Civil3D2026Plugin.Modules.Quadros.GeoConversion.UtmToGeographic(w.X, w.Y, zone, south);
+            AtrativoItem a = new() { Nome = nr.StringResult.Trim(), Categoria = categoria, E = w.X, N = w.Y, Lat = lat, Lon = lon, Fonte = "clique no desenho" };
+            Insert(doc, new[] { a }, raio, 6, corBloco: 1);
+            ed.WriteMessage($"\n  {a.Nome} inserido em E {w.X:0.00} N {w.Y:0.00} (vermelho).");
+            ViarioPanel.NotifyChanged(doc);
+        }
+    }
+
     private static XElement? Child(XElement e, string local) => e.Elements().FirstOrDefault(c => c.Name.LocalName == local);
 
     /// <summary>Tira coordenadas em graus/minutos/segundos coladas no nome ("Alto do Ceu 15°28'58.22"S 55°49'2.32"O").</summary>
@@ -251,8 +308,8 @@ internal static class ViarioAtrativos
         }
     }
 
-    /// <summary>Insere os atrativos (ja com E/N). Retorna quantos entraram.</summary>
-    public static int Insert(Document doc, IEnumerable<AtrativoItem> items, double raio, short cor)
+    /// <summary>Insere os atrativos (ja com E/N). Retorna quantos entraram. <paramref name="corBloco"/> > 0 pinta o bloco (ex.: 1 = vermelho).</summary>
+    public static int Insert(Document doc, IEnumerable<AtrativoItem> items, double raio, short cor, short corBloco = 0)
     {
         AcadDb.Database db = doc.Database;
         int n = 0;
@@ -271,6 +328,8 @@ internal static class ViarioAtrativos
             AcadDb.BlockReference br = new(new Point3d(a.E, a.N, 0.0), blockId) { ScaleFactors = new Scale3d(raio) };
             br.SetDatabaseDefaults(db);
             br.Layer = Layer;
+            if (corBloco > 0)
+                br.ColorIndex = corBloco;
             ms.AppendEntity(br);
             tr.AddNewlyCreatedDBObject(br, true);
             foreach (AcadDb.ObjectId entId in def)
@@ -367,8 +426,8 @@ internal static class ViarioAtrativos
         Editor ed = doc.Editor;
         int existing = Read(doc.Database).Count;
         PromptKeywordOptions options = new(
-            $"\nAtrativos turisticos ({existing} no desenho) [Importar/Raio/Listar/Remover/Painel] <Importar>: ",
-            "Importar Raio Listar Remover Painel")
+            $"\nAtrativos turisticos ({existing} no desenho) [Importar/Novo/Raio/Listar/Remover/Painel] <Importar>: ",
+            "Importar Novo Raio Listar Remover Painel")
         {
             AllowNone = true
         };
@@ -378,6 +437,10 @@ internal static class ViarioAtrativos
 
         switch (r.Status == PromptStatus.OK ? r.StringResult : "Importar")
         {
+            case "Novo":
+                NewByClick(doc);
+                return;
+
             case "Raio":
             {
                 PromptDoubleOptions po = new("\nNovo raio dos circulos (m): ") { AllowNegative = false, AllowZero = false };
