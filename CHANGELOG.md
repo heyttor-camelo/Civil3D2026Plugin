@@ -2,6 +2,7 @@
 
 - `C3DVIARIOPLACAS > ARrumar > Esticar` (e "Esticar chamada" no painel): clique a nova ponta da chamada; a placa vai junto, o suporte e a saida da chamada ficam. A ponta fica gravada na placa (XData) e vale para Rotacionar, Mover, Alinhar, Girar180, Lado e Escalar. `Padrao` volta a chamada do SinC.
 - Linha de chamada **explodida** (polilinha ou linhas na layer `sinC_LinhaDeChamada` ou `0`, encadeadas a partir da origem da placa) agora gira, move e escala junto com a placa e o suporte, sem deformar, e a ponta encosta na placa. Bloco `sinC_LDC` esticado vira polilinha (o bloco nao estica).
+- Chamada explodida achada pela **saida do suporte** (onde ela nasce), nao so pela ponta na placa: no desenho de teste (VIAS_CHAPADA) as 121 chamadas explodidas estavam com metade da escala da placa (escala 5 x 10) e a ponta ate 60 m longe da placa; todas sao reconhecidas. Ao arrumar/escalar, a ponta volta a encostar na placa e a posicao atual da placa (movida a mao) e mantida.
 - `COordenadas` com chamada explodida: o ponto sai da ponta da chamada oposta a placa e a rotacao e a da placa; a chamada esticada a mao no CAD e lida e mantida.
 - Corrigido: contorno da chamada no monitor nao seguia a escala da placa.
 

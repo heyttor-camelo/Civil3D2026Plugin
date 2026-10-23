@@ -722,6 +722,8 @@ internal static class ViarioPlacaSync
         {
             if (ids is not null && !ids.Contains(c.Placa.Id))
                 continue;
+            if (c.ChamadaDesenho is V2 ch)
+                c.Placa.Chamada = ch;
             Place(tr, c, escala);
             n++;
         }
@@ -742,6 +744,18 @@ internal static class ViarioPlacaSync
         public List<Peca> Pecas = new();
         /// <summary>Saida da chamada explodida (ponta oposta a placa), no desenho.</summary>
         public V2? Saida;
+
+        /// <summary>Ponta da chamada como esta no desenho (origem da placa - saida, local, sem escala).</summary>
+        public V2? ChamadaDesenho
+        {
+            get
+            {
+                if (Saida is not V2 sd || EscAntes < 1e-9)
+                    return null;
+                V2 loc = ViarioPlacas.Rotate(new V2(Ref.Position.X, Ref.Position.Y) - sd, -RotAntes * 180.0 / Math.PI) / EscAntes;
+                return V2.Dist(loc, PlacaItem.ChamadaPadrao) < 0.01 ? PlacaItem.ChamadaPadrao : loc;
+            }
+        }
         /// <summary>Rotacao (rad) e escala do bloco da placa antes da mudanca (quadro das pecas).</summary>
         public double RotAntes;
         public double EscAntes = 1.0;
@@ -811,8 +825,8 @@ internal static class ViarioPlacaSync
 
     /// <summary>
     /// Acha a linha de chamada explodida de cada placa: polilinha ou linhas (layer sinC_LinhaDeChamada
-    /// ou 0, onde o EXPLODE do bloco sinC_LDC deixa a polilinha) com uma ponta na origem da placa,
-    /// seguindo as pecas encadeadas ate a saida (no maximo 3).
+    /// ou 0) que nascem na saida do suporte (ou no ponto dele); sem isso, a que encosta na origem da
+    /// placa. Segue as pecas encadeadas (no maximo 3).
     /// </summary>
     private static void FindExplodedLeaders(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, List<Conjunto> list)
     {
@@ -844,8 +858,47 @@ internal static class ViarioPlacaSync
         if (curvas.Count == 0)
             return;
 
+        // 1a passada: ponta da chamada na saida do suporte (onde ela nasce). E o caso comum: a placa pode
+        // ter sido movida/escalada e a outra ponta nao encostar mais nela.
+        List<(double D, Conjunto C, Curva K, bool NaA)> cand = new();
         foreach (Conjunto c in list)
         {
+            double esc = c.EscAntes;
+            V2 ldcOff = (c.Placa.SuporteTipo.Length > 0 ? LdcOffset(c.Placa.SuporteTipo) : OffsetLdc) * esc;
+            V2 saidaEsperada = c.Suporte is not null
+                ? new V2(c.Suporte.Position.X, c.Suporte.Position.Y) + ViarioPlacas.Rotate(ldcOff, c.Suporte.Rotation * 180.0 / Math.PI)
+                : c.Placa.Ponto + ViarioPlacas.Rotate(ldcOff, c.Placa.Rotacao);
+            double tol = (0.5 + ldcOff.Length / Math.Max(esc, 1e-9)) * esc;
+            // a chamada pode ter ficado no ponto de outro tipo de suporte (suporte trocado): vale tambem o proprio ponto
+            V2 pontoSup = c.Suporte is not null ? new V2(c.Suporte.Position.X, c.Suporte.Position.Y) : c.Placa.Ponto;
+            double Dist(V2 q) => Math.Min(V2.Dist(q, saidaEsperada), V2.Dist(q, pontoSup));
+            foreach (Curva k in curvas)
+            {
+                double da = Dist(k.A), dbb = Dist(k.B);
+                if (Math.Min(da, dbb) < tol)
+                    cand.Add((Math.Min(da, dbb), c, k, da <= dbb));
+            }
+        }
+
+        foreach (var (_, c, k, naA) in cand.OrderBy(x => x.D))
+        {
+            if (k.Usada || c.Saida is not null)
+                continue;
+            List<(Curva K, bool Frente)> cadeia = Walk(curvas, k, naA, c.EscAntes, out _);
+            c.Saida = naA ? k.A : k.B;
+            for (int i = 0; i < cadeia.Count; i++)
+            {
+                (Curva kk, bool frente) = cadeia[i];
+                bool ultima = i == cadeia.Count - 1;
+                c.Pecas.Add(new Peca { Id = kk.Id, Fim = ultima ? (frente ? kk.NumVert - 1 : 0) : -1 });
+            }
+        }
+
+        // 2a passada: sem chamada achada pela saida, a que encosta na origem da placa.
+        foreach (Conjunto c in list)
+        {
+            if (c.Saida is not null)
+                continue;
             double esc = c.EscAntes;
             V2 origem = new(c.Ref.Position.X, c.Ref.Position.Y);
             Curva? first = null;
@@ -869,22 +922,37 @@ internal static class ViarioPlacaSync
             if (first is null)
                 continue;
 
-            first.Usada = true;
-            c.Pecas.Add(new Peca { Id = first.Id, Fim = firstAtA ? 0 : first.NumVert - 1 });
-            V2 ponta = firstAtA ? first.B : first.A;
-            double junta = Math.Max(0.02 * esc, 1e-4);
-            for (int guard = 0; guard < 2; guard++)
-            {
-                Curva? next = curvas.FirstOrDefault(k => !k.Usada && (V2.Dist(k.A, ponta) < junta || V2.Dist(k.B, ponta) < junta));
-                if (next is null)
-                    break;
-                next.Usada = true;
-                c.Pecas.Add(new Peca { Id = next.Id });
-                ponta = V2.Dist(next.A, ponta) < junta ? next.B : next.A;
-            }
-
-            c.Saida = ponta;
+            List<(Curva K, bool Frente)> cadeia = Walk(curvas, first, firstAtA, esc, out V2 saida);
+            for (int i = 0; i < cadeia.Count; i++)
+                c.Pecas.Add(new Peca { Id = cadeia[i].K.Id, Fim = i == 0 ? (firstAtA ? 0 : first.NumVert - 1) : -1 });
+            c.Saida = saida;
         }
+    }
+
+    /// <summary>
+    /// Segue as pecas encadeadas a partir de <paramref name="first"/> (entrando pela ponta A quando
+    /// <paramref name="fromA"/>), no maximo 3; <paramref name="ponta"/> = ponta livre no fim da cadeia.
+    /// Frente = a peca e percorrida de A para B.
+    /// </summary>
+    private static List<(Curva K, bool Frente)> Walk(List<Curva> curvas, Curva first, bool fromA, double esc, out V2 ponta)
+    {
+        List<(Curva, bool)> cadeia = new() { (first, fromA) };
+        first.Usada = true;
+        ponta = fromA ? first.B : first.A;
+        double junta = Math.Max(0.02 * esc, 1e-4);
+        for (int guard = 0; guard < 2; guard++)
+        {
+            V2 p = ponta;
+            Curva? next = curvas.FirstOrDefault(k => !k.Usada && (V2.Dist(k.A, p) < junta || V2.Dist(k.B, p) < junta));
+            if (next is null)
+                break;
+            next.Usada = true;
+            bool frente = V2.Dist(next.A, p) < junta;
+            cadeia.Add((next, frente));
+            ponta = frente ? next.B : next.A;
+        }
+
+        return cadeia;
     }
 
     /// <summary>
@@ -1034,11 +1102,8 @@ internal static class ViarioPlacaSync
             V2? ponto = null;
 
             // Chamada explodida: o comprimento/direcao dela (esticada a mao) vira a ponta da chamada da placa.
-            if (c.Saida is V2 saidaPl && esc > 1e-9)
-            {
-                V2 loc = ViarioPlacas.Rotate(origem - saidaPl, -rot) / esc;
-                p.Chamada = V2.Dist(loc, PlacaItem.ChamadaPadrao) < 0.01 ? PlacaItem.ChamadaPadrao : loc;
-            }
+            if (c.ChamadaDesenho is V2 chDes)
+                p.Chamada = chDes;
 
             // 1) suporte do conjunto
             if (c.Suporte is not null && !c.Suporte.IsErased)
@@ -1265,6 +1330,8 @@ internal static class ViarioPlacaSync
         Conjunto? c = Conjuntos(tr, db, pecas: true).FirstOrDefault(x => x.Placa.Id == id);
         if (c is null)
             return false;
+        if (c.ChamadaDesenho is V2 ch)
+            c.Placa.Chamada = ch; // placa movida/esticada a mao no CAD: vale o que esta no desenho
         change(c.Placa, axes, names);
         Place(tr, c, c.Placa.Escala);
         tr.Commit();
