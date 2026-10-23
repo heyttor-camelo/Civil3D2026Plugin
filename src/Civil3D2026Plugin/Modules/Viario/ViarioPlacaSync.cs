@@ -1040,7 +1040,9 @@ internal static class ViarioPlacaSync
                 System.IO.Compression.ZipArchiveEntry? entry = zip.GetEntry("IMG.png") ?? zip.GetEntry("THUMB.png");
                 if (entry is not null)
                 {
-                    entry.ExtractToFile(outp, true);
+                    using (Stream src = entry.Open())
+                    using (FileStream dst = new(outp, FileMode.Create, FileAccess.Write, FileShare.None))
+                        src.CopyTo(dst);
                     found = outp;
                     break;
                 }
