@@ -3723,6 +3723,55 @@ internal sealed class ViarioPanel : SW.Window
         };
     }
 
+    /// <summary>
+    /// Hachuras do bloco T-xxx_SV desenhadas na planta na posicao, escala e rotacao da placa
+    /// (so quando a placa tem ao menos 8 px na tela; abaixo disso fica o retangulo).
+    /// </summary>
+    private void DrawSignInPlan(PlacaItem p)
+    {
+        if (_vScale <= 0)
+            return;
+        double wPx = p.LarguraSinC * ViarioPlacaSync.FatorSinC * p.Escala * _vScale;
+        if (wPx < 8)
+            return;
+        (_, List<Seg> rect, _) = ViarioPlacaSync.Footprint(p);
+        SW.Point o = ToScreen(rect[0].A);
+        if (o.X < -wPx * 2 || o.Y < -wPx * 2 || o.X > _vW + (wPx * 2) || o.Y > _vH + (wPx * 2))
+            return;
+
+        ViarioPlacaSync.SignShape? shape = null;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                shape = ViarioPlacaSync.Shape(d.Database, p.Codigo);
+        }
+        catch
+        {
+            // sem bloco
+        }
+
+        if (shape is null)
+            return;
+
+        // Bloco: unidades do SV.dwg (escala 5), origem no canto superior esquerdo, Y para baixo negativo.
+        V2 origem = rect[0].A;
+        foreach ((List<List<V2>> loops, byte r, byte g, byte b) in shape.Hatches)
+        {
+            WM.PathGeometry geo = new() { FillRule = WM.FillRule.EvenOdd };
+            foreach (List<V2> loop in loops)
+            {
+                SW.Point Pt(V2 v) => ToScreen(origem + ViarioPlacas.Rotate(v * p.Escala, p.Rotacao));
+                WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = Pt(loop[0]) };
+                for (int i = 1; i < loop.Count; i++)
+                    fig.Segments.Add(new WM.LineSegment(Pt(loop[i]), true));
+                geo.Figures.Add(fig);
+            }
+
+            geo.Freeze();
+            _graphic.Children.Add(new WS.Path { Data = geo, Fill = new WM.SolidColorBrush(WM.Color.FromRgb(r, g, b)) });
+        }
+    }
+
     private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);
     private static readonly WM.Brush PlacaBrush = Brush(220, 150, 90);
     private static readonly WM.Brush PlacaFill = new WM.SolidColorBrush(WM.Color.FromArgb(150, 110, 70, 40));
@@ -3813,7 +3862,11 @@ internal sealed class ViarioPanel : SW.Window
         if (_vScale <= 0)
             return;
         if (category == "PLACAS")
+        {
+            foreach (PlacaItem p in _placas)
+                DrawSignInPlan(p);
             DrawPointLabels(_placas.Select(p => (p.Ponto, p.Codigo, GraphicText)), 250);
+        }
         else
             DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 250);
     }
@@ -3882,6 +3935,14 @@ internal sealed class ViarioPanel : SW.Window
         });
         if (_vScale <= 0)
             return;
+
+        // Desenho real da placa (hachuras do bloco) na planta, como inserida.
+        DrawSignInPlan(p);
+        foreach (PlacaItem q in _placas)
+        {
+            if (!ReferenceEquals(q, p))
+                DrawSignInPlan(q);
+        }
 
         // Nomes dos eixos em volta do ponto, codigo desta e das placas vizinhas, atrativos.
         DrawAxisLabelsNear(w, 400);
