@@ -706,6 +706,113 @@ internal static class ViarioPlacaSync
         return applied;
     }
 
+    /// <summary>Ids escolhidos no painel para o proximo comando (Escalar); null = perguntar/todas.</summary>
+    public static HashSet<string>? PendingIds { get; set; }
+
+    /// <summary>
+    /// Escala placa, linha de chamada e suporte a partir do ponto de implantacao (escala absoluta,
+    /// 1 = padrao do SinC). Com <paramref name="ids"/> nulo, todas. Retorna quantas placas mudaram.
+    /// </summary>
+    public static int SetScale(Document doc, double escala, HashSet<string>? ids)
+    {
+        AcadDb.Database db = doc.Database;
+        int n = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+
+        Dictionary<string, AcadDb.BlockReference> ldcs = new(StringComparer.Ordinal), sups = new(StringComparer.Ordinal);
+        List<(PlacaItem, AcadDb.BlockReference)> placas = new();
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (id.IsErased || id.ObjectClass.DxfName != "INSERT")
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.BlockReference br)
+                continue;
+            List<string>? values = ViarioStore.ReadValues(br);
+            if (values is null || values.Count < 2)
+                continue;
+            switch (values[0])
+            {
+                case TagLdc: ldcs[values[1]] = br; break;
+                case TagSuporte: sups[values[1]] = br; break;
+                case TagPlaca:
+                    PlacaItem? p = PlacaItem.Deserialize(string.Concat(values.Skip(1)));
+                    if (p is not null)
+                        placas.Add((p, br));
+                    break;
+            }
+        }
+
+        foreach ((PlacaItem p, AcadDb.BlockReference br) in placas)
+        {
+            if (ids is not null && !ids.Contains(p.Id))
+                continue;
+            double rad = p.Rotacao * Math.PI / 180.0;
+            bool comSuporte = sups.ContainsKey(p.Id) && p.SuporteTipo.Length > 0;
+            V2 ldcOff = (comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc) * escala;
+            V2 placaOff = ldcOff + ((OffsetPlaca - OffsetLdc) * escala);
+
+            br.UpgradeOpen();
+            br.Position = Local(p, placaOff, 1.0);
+            br.ScaleFactors = new Scale3d(escala);
+            br.Rotation = rad;
+            ResyncAttributes(tr, br);
+
+            if (ldcs.TryGetValue(p.Id, out AcadDb.BlockReference? ldc))
+            {
+                ldc.UpgradeOpen();
+                ldc.Position = Local(p, ldcOff, 1.0);
+                ldc.ScaleFactors = new Scale3d(escala);
+                ldc.Rotation = rad;
+            }
+
+            if (sups.TryGetValue(p.Id, out AcadDb.BlockReference? sup))
+            {
+                sup.UpgradeOpen();
+                sup.Position = new Point3d(p.E, p.N, 0.0);
+                sup.ScaleFactors = new Scale3d(escala);
+                sup.Rotation = rad;
+                ResyncAttributes(tr, sup);
+            }
+
+            n++;
+        }
+
+        tr.Commit();
+        return n;
+    }
+
+    /// <summary>Reposiciona os atributos depois de mudar escala/rotacao do bloco (texto e mantido).</summary>
+    private static void ResyncAttributes(AcadDb.Transaction tr, AcadDb.BlockReference br)
+    {
+        AcadDb.BlockTableRecord def = (AcadDb.BlockTableRecord)tr.GetObject(br.BlockTableRecord, AcadDb.OpenMode.ForRead);
+        Dictionary<string, AcadDb.AttributeDefinition> defs = new(StringComparer.OrdinalIgnoreCase);
+        foreach (AcadDb.ObjectId id in def)
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is AcadDb.AttributeDefinition ad && !ad.Constant)
+                defs[ad.Tag] = ad;
+        }
+
+        foreach (AcadDb.ObjectId aid in br.AttributeCollection)
+        {
+            if (tr.GetObject(aid, AcadDb.OpenMode.ForRead) is not AcadDb.AttributeReference ar || !defs.TryGetValue(ar.Tag, out AcadDb.AttributeDefinition? ad))
+                continue;
+            string text = ar.TextString;
+            ar.UpgradeOpen();
+            ar.SetAttributeFromBlock(ad, br.BlockTransform);
+            ar.TextString = text;
+            try
+            {
+                ar.AdjustAlignment(br.Database);
+            }
+            catch
+            {
+                // cosmetico
+            }
+        }
+    }
+
     /// <summary>Apaga as placas e linhas de chamada inseridas por este modulo (as definicoes de bloco ficam).</summary>
     public static int Remove(Document doc)
     {
@@ -734,7 +841,8 @@ internal static class ViarioPlacaSync
     }
 
     /// <summary>Desenho da placa para o painel: laços (em unidades do bloco, Y para baixo negativo) e cor RGB de cada hachura.</summary>
-    internal sealed record SignShape(List<(List<List<V2>> Loops, byte R, byte G, byte B)> Hatches, double Width, double Height);
+    /// <param name="Hatches">Lacos de cada hachura (simplificados), cor e se e detalhe (letras, simbolos pequenos).</param>
+    internal sealed record SignShape(List<(List<List<V2>> Loops, byte R, byte G, byte B, bool Detail)> Hatches, double Width, double Height);
 
     private static readonly Dictionary<string, SignShape> ShapeCache = new(StringComparer.OrdinalIgnoreCase);
 
@@ -754,7 +862,7 @@ internal static class ViarioPlacaSync
             return null;
 
         AcadDb.BlockTableRecord btr = (AcadDb.BlockTableRecord)tr.GetObject(bt[blockName], AcadDb.OpenMode.ForRead);
-        List<(List<List<V2>>, byte, byte, byte)> hatches = new();
+        List<(List<List<V2>>, byte, byte, byte, double)> raw = new();
         double minX = double.MaxValue, maxX = double.MinValue, minY = double.MaxValue, maxY = double.MinValue;
         foreach (AcadDb.ObjectId id in btr)
         {
@@ -792,6 +900,7 @@ internal static class ViarioPlacaSync
                     // Laco que a API nao devolve: pula.
                 }
 
+                pts = Simplify(pts, 0.04);
                 if (pts.Count < 3)
                     continue;
                 loops.Add(pts);
@@ -805,15 +914,47 @@ internal static class ViarioPlacaSync
             if (loops.Count == 0)
                 continue;
             System.Drawing.Color c = h.Color.ColorValue;
-            hatches.Add((loops, c.R, c.G, c.B));
+            double hx0 = loops.Min(l => l.Min(v => v.X)), hx1 = loops.Max(l => l.Max(v => v.X));
+            double hy0 = loops.Min(l => l.Min(v => v.Y)), hy1 = loops.Max(l => l.Max(v => v.Y));
+            raw.Add((loops, c.R, c.G, c.B, (hx1 - hx0) * (hy1 - hy0)));
         }
 
-        if (hatches.Count == 0)
+        if (raw.Count == 0)
             return null;
+        double total = Math.Max(maxX - minX, 1e-6) * Math.Max(maxY - minY, 1e-6);
+        List<(List<List<V2>>, byte, byte, byte, bool)> hatches = raw
+            .Select(x => (x.Item1, x.Item2, x.Item3, x.Item4, x.Item5 < 0.03 * total || x.Item1.Count > 8))
+            .ToList();
         SignShape shape = new(hatches, Math.Max(maxX - minX, 1e-6), Math.Max(maxY - minY, 1e-6));
         lock (ShapeCache)
             ShapeCache[blockName] = shape;
         return shape;
+    }
+
+    /// <summary>Tira pontos a menos de <paramref name="tol"/> do anterior e os colineares (Douglas-Peucker simples).</summary>
+    private static List<V2> Simplify(List<V2> pts, double tol)
+    {
+        if (pts.Count < 4)
+            return pts;
+        List<V2> outp = new() { pts[0] };
+        for (int i = 1; i < pts.Count; i++)
+        {
+            V2 last = outp[^1];
+            if (V2.Dist(pts[i], last) < tol)
+                continue;
+            // colinear com o anterior e o proximo: pula
+            if (outp.Count >= 2 && i + 1 < pts.Count)
+            {
+                V2 a = outp[^2], b = pts[i], n = pts[i + 1];
+                double cross = Math.Abs(V2.Cross(b - a, n - a));
+                if (cross < tol * V2.Dist(a, n) * 0.5)
+                    continue;
+            }
+
+            outp.Add(pts[i]);
+        }
+
+        return outp;
     }
 
     private static IEnumerable<V2> BulgePoints(V2 a, V2 b, double bulge)
@@ -966,8 +1107,8 @@ internal static class ViarioPlacaSync
         Editor ed = doc.Editor;
         int existing = Count(doc.Database);
         PromptKeywordOptions options = new(
-            $"\nPlacas verticais ({existing} no desenho) [Importar/PAsta/ATualizar/NOmear/Listar/Remover/Painel] <Importar>: ",
-            "Importar PAsta ATualizar NOmear Listar Remover Painel")
+            $"\nPlacas verticais ({existing} no desenho) [Importar/PAsta/ATualizar/NOmear/EScalar/Listar/Remover/Painel] <Importar>: ",
+            "Importar PAsta ATualizar NOmear EScalar Listar Remover Painel")
         {
             AllowNone = true
         };
@@ -979,6 +1120,7 @@ internal static class ViarioPlacaSync
         switch (r.Status == PromptStatus.OK ? r.StringResult : "Importar")
         {
             case "PAsta": ImportFolderCommand(doc); break;
+            case "EScalar": ScaleCommand(doc); break;
             case "ATualizar": RelinkCommand(doc); break;
             case "NOmear": NameCommand(doc); break;
             case "Listar": ListCommand(doc); break;
@@ -1151,6 +1293,57 @@ internal static class ViarioPlacaSync
             return;
         o.Suportes = sr.Status != PromptStatus.OK || sr.StringResult == "Sim";
         RunImport(doc, cat, pasta, o);
+    }
+
+    private static void ScaleCommand(Document doc)
+    {
+        Editor ed = doc.Editor;
+        HashSet<string>? ids = PendingIds;
+        PendingIds = null;
+        if (ids is null)
+        {
+            PromptKeywordOptions ko = new("\nEscalar [Todas/Selecionar] <Todas>: ", "Todas Selecionar") { AllowNone = true };
+            PromptResult kr = ed.GetKeywords(ko);
+            if (kr.Status == PromptStatus.Cancel || kr.Status == PromptStatus.Error)
+                return;
+            if (kr.Status == PromptStatus.OK && kr.StringResult == "Selecionar")
+            {
+                PromptSelectionResult sr = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = "\nSelecione placas, suportes ou linhas de chamada: " });
+                if (sr.Status != PromptStatus.OK)
+                    return;
+                ids = new HashSet<string>(StringComparer.Ordinal);
+                using AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction();
+                foreach (AcadDb.ObjectId id in sr.Value.GetObjectIds())
+                {
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not AcadDb.BlockReference br)
+                        continue;
+                    List<string>? values = ViarioStore.ReadValues(br);
+                    if (values is null || values.Count < 2)
+                        continue;
+                    if (values[0] == TagPlaca && PlacaItem.Deserialize(string.Concat(values.Skip(1))) is PlacaItem p)
+                        ids.Add(p.Id);
+                    else if (values[0] is TagLdc or TagSuporte)
+                        ids.Add(values[1]);
+                }
+
+                if (ids.Count == 0)
+                {
+                    ed.WriteMessage("\n  Nenhuma placa deste modulo na selecao.");
+                    return;
+                }
+            }
+        }
+
+        PromptDoubleOptions po = new($"\nEscala (1 = padrao do SinC){(ids is null ? ", todas as placas" : $", {ids.Count} placa(s)")}: ")
+        {
+            AllowNegative = false, AllowZero = false, DefaultValue = 1.0, UseDefaultValue = true
+        };
+        PromptDoubleResult pr = ed.GetDouble(po);
+        if (pr.Status != PromptStatus.OK)
+            return;
+        int n = SetScale(doc, pr.Value, ids);
+        ed.WriteMessage($"\n  {n} placa(s) com escala {pr.Value} (placa, linha de chamada e suporte, a partir do ponto de implantacao).");
+        ViarioPanel.NotifyChanged(doc);
     }
 
     private static void RelinkCommand(Document doc)

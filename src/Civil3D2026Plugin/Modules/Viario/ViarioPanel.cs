@@ -109,6 +109,8 @@ internal sealed class ViarioPanel : SW.Window
     private bool _civilActive;
     private bool _signExists;
     private List<PlacaItem> _placas = new();
+    private (string Cat, int Col, bool Desc)? _sort;
+    private readonly Dictionary<string, string> _colFilter = new(StringComparer.Ordinal);
     private List<AtrativoItem> _atrativos = new();
     private bool _refreshQueued;
 
@@ -1008,6 +1010,9 @@ internal sealed class ViarioPanel : SW.Window
         WC.MenuItem name = new() { Header = "Nomear eixos pela rota/trecho das placas", IsEnabled = exists };
         name.Click += (_, _) => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando.");
         menu.Items.Add(name);
+        WC.MenuItem scale = new() { Header = "Escalar todas (placa, chamada e suporte)...", IsEnabled = exists };
+        scale.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); };
+        menu.Items.Add(scale);
         WC.MenuItem list = new() { Header = "Listar na linha de comando", IsEnabled = exists };
         list.Click += (_, _) => Send("C3DVIARIOPLACAS L ", "Lista das placas na linha de comando.");
         menu.Items.Add(list);
@@ -1709,6 +1714,24 @@ internal sealed class ViarioPanel : SW.Window
         if (find.Length > 0)
             rows = rows.Where(r => r.Cells.Any(c => c.Contains(find, StringComparison.OrdinalIgnoreCase))).ToList();
 
+        // Filtro por coluna (menu do cabecalho) e ordenacao (clique no cabecalho).
+        for (int ci = 0; ci < columns.Length; ci++)
+        {
+            if (_colFilter.TryGetValue(_category + "|" + ci, out string? f) && f.Length > 0)
+            {
+                int c = ci;
+                rows = rows.Where(r => c < r.Cells.Length && r.Cells[c].Contains(f, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+        }
+
+        if (_sort is (string sc, int col, bool desc) && sc == _category && col < columns.Length)
+        {
+            Comparison<Row> cmp = (a, b) => CompareCells(a.Cells.ElementAtOrDefault(col) ?? "", b.Cells.ElementAtOrDefault(col) ?? "");
+            rows.Sort(cmp);
+            if (desc)
+                rows.Reverse();
+        }
+
         foreach (Row r in rows)
         {
             List<Hint> hs = HintsFor(r).ToList();
@@ -1734,9 +1757,20 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         _rows = rows;
+        string[] heads = new string[columns.Length];
+        for (int ci = 0; ci < columns.Length; ci++)
+        {
+            string h = columns[ci];
+            if (_sort is (string sc2, int col2, bool desc2) && sc2 == _category && col2 == ci)
+                h += desc2 ? " ▼" : " ▲";
+            if (_colFilter.TryGetValue(_category + "|" + ci, out string? f2) && f2.Length > 0)
+                h += " ⌕";
+            heads[ci] = h;
+        }
+
         _list.View = checkable
-            ? ListViewFor(columns, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked))
-            : ListViewFor(columns, widths, rows);
+            ? ListViewFor(heads, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked), HeaderClick, HeaderMenu)
+            : ListViewFor(heads, widths, rows, null, null, false, HeaderClick, HeaderMenu);
         _list.ItemsSource = rows;
 
         Row? keep = rows.FirstOrDefault(r => r.Id == _selectedRow) ?? rows.FirstOrDefault();
@@ -1776,10 +1810,136 @@ internal sealed class ViarioPanel : SW.Window
         return any;
     }
 
+    /// <summary>Compara celulas: numeros (com virgula ou ponto, estaca "12+5.30") como numeros; o resto como texto.</summary>
+    private static int CompareCells(string a, string b)
+    {
+        bool na = CellNumber(a, out double va), nb = CellNumber(b, out double vb);
+        if (na && nb)
+            return va.CompareTo(vb);
+        if (na != nb)
+            return na ? -1 : 1; // numeros antes de textos; vazios no fim
+        if (a.Length == 0 || b.Length == 0)
+            return a.Length == 0 ? (b.Length == 0 ? 0 : 1) : -1;
+        return string.Compare(a, b, StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private static bool CellNumber(string s, out double v)
+    {
+        v = 0;
+        s = s.Trim();
+        if (s.Length == 0)
+            return false;
+        int plus = s.IndexOf('+');
+        if (plus > 0 && double.TryParse(s[..plus], NumberStyles.Float, CultureInfo.InvariantCulture, out double est) &&
+            double.TryParse(s[(plus + 1)..].Split(' ')[0].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double rest))
+        {
+            v = (est * 20.0) + rest; // estaca
+            return true;
+        }
+
+        string t = s.Split(' ')[0].Replace(',', '.');
+        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+    }
+
+    private void HeaderClick(int col)
+    {
+        if (_sort is (string sc, int c, bool desc) && sc == _category && c == col)
+            _sort = desc ? null : (sc, c, true);
+        else
+            _sort = (_category, col, false);
+        FillList();
+    }
+
+    private void HeaderMenu(int col, WC.GridViewColumnHeader header)
+    {
+        string key = _category + "|" + col;
+        WC.ContextMenu menu = new() { PlacementTarget = header, Placement = WC.Primitives.PlacementMode.Bottom };
+        WC.MenuItem filter = new() { Header = "Filtrar esta coluna...", FontWeight = SW.FontWeights.Bold };
+        filter.Click += (_, _) =>
+        {
+            string? value = AskText("Filtrar coluna", $"Mostrar so as linhas em que \"{header.Content?.ToString()?.TrimEnd(' ', '▲', '▼', '⌕')}\" contem:",
+                _colFilter.TryGetValue(key, out string? cur) ? cur : "");
+            if (value is null)
+                return;
+            if (value.Length == 0)
+                _colFilter.Remove(key);
+            else
+                _colFilter[key] = value;
+            FillList();
+        };
+        menu.Items.Add(filter);
+        WC.MenuItem clear = new() { Header = "Limpar filtro desta coluna", IsEnabled = _colFilter.ContainsKey(key) };
+        clear.Click += (_, _) => { _colFilter.Remove(key); FillList(); };
+        menu.Items.Add(clear);
+        WC.MenuItem clearAll = new() { Header = "Limpar todos os filtros e a ordenacao", IsEnabled = _colFilter.Keys.Any(k => k.StartsWith(_category + "|", StringComparison.Ordinal)) || _sort is not null };
+        clearAll.Click += (_, _) =>
+        {
+            foreach (string k in _colFilter.Keys.Where(k => k.StartsWith(_category + "|", StringComparison.Ordinal)).ToList())
+                _colFilter.Remove(k);
+            _sort = null;
+            FillList();
+        };
+        menu.Items.Add(clearAll);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem asc = new() { Header = "Ordenar crescente" };
+        asc.Click += (_, _) => { _sort = (_category, col, false); FillList(); };
+        menu.Items.Add(asc);
+        WC.MenuItem des = new() { Header = "Ordenar decrescente" };
+        des.Click += (_, _) => { _sort = (_category, col, true); FillList(); };
+        menu.Items.Add(des);
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Janela pequena com uma caixa de texto (OK/Limpar/Cancelar; Esc nao fecha). Null = cancelou; "" = limpar.</summary>
+    private string? AskText(string title, string label, string initial)
+    {
+        SW.Window win = new()
+        {
+            Title = title, Owner = this, Width = 420, SizeToContent = SW.SizeToContent.Height,
+            WindowStartupLocation = SW.WindowStartupLocation.CenterOwner, Background = T.Back, Foreground = T.Text, ResizeMode = SW.ResizeMode.NoResize
+        };
+        WC.StackPanel root = new() { Margin = new SW.Thickness(10) };
+        root.Children.Add(new WC.TextBlock { Text = label, Foreground = T.Text, Margin = new SW.Thickness(0, 0, 0, 6), TextWrapping = SW.TextWrapping.Wrap });
+        WC.TextBox box = new() { Text = initial, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, Padding = new SW.Thickness(4, 2, 4, 2) };
+        root.Children.Add(box);
+        WC.StackPanel buttons = new() { Orientation = WC.Orientation.Horizontal, HorizontalAlignment = SW.HorizontalAlignment.Right, Margin = new SW.Thickness(0, 10, 0, 0) };
+        string? result = null;
+        WC.Button ok = new() { Content = "OK", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0), IsDefault = true };
+        ok.Click += (_, _) => { result = box.Text.Trim(); win.Close(); };
+        WC.Button clear = new() { Content = "Limpar", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0) };
+        clear.Click += (_, _) => { result = ""; win.Close(); };
+        WC.Button cancel = new() { Content = "Cancelar", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0) };
+        cancel.Click += (_, _) => win.Close();
+        buttons.Children.Add(ok);
+        buttons.Children.Add(clear);
+        buttons.Children.Add(cancel);
+        root.Children.Add(buttons);
+        win.Content = root;
+        box.Focus();
+        box.SelectAll();
+        win.ShowDialog();
+        return result;
+    }
+
     /// <summary>GridView com coluna de aviso, icone + primeira coluna e as demais por indice; numeros a direita.</summary>
     private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null,
-        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false)
+        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false,
+        Action<int>? onSort = null, Action<int, WC.GridViewColumnHeader>? onMenu = null)
     {
+        WC.GridViewColumnHeader Head(int i)
+        {
+            WC.GridViewColumnHeader h = new() { Content = columns[i] };
+            if (onSort is not null)
+            {
+                int c = i;
+                h.Click += (_, _) => onSort(c);
+                h.ToolTip = "Clique: ordenar | botao direito: filtrar";
+                h.MouseRightButtonUp += (_, e) => { onMenu?.Invoke(c, h); e.Handled = true; };
+            }
+
+            return h;
+        }
+
         WC.GridView view = new();
 
         if (checkChanged is not null)
@@ -1818,7 +1978,7 @@ internal sealed class ViarioPanel : SW.Window
                 txt.SetBinding(WC.TextBlock.TextProperty, new WD.Binding("Cells[0]"));
                 txt.SetValue(WC.TextBlock.VerticalAlignmentProperty, SW.VerticalAlignment.Center);
                 panel.AppendChild(txt);
-                view.Columns.Add(new WC.GridViewColumn { Header = columns[0], Width = widths[0], CellTemplate = new SW.DataTemplate { VisualTree = panel } });
+                view.Columns.Add(new WC.GridViewColumn { Header = Head(0), Width = widths[0], CellTemplate = new SW.DataTemplate { VisualTree = panel } });
                 continue;
             }
 
@@ -1832,7 +1992,7 @@ internal sealed class ViarioPanel : SW.Window
                 cell.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
             }
 
-            WC.GridViewColumnHeader header = new() { Content = columns[i] };
+            WC.GridViewColumnHeader header = Head(i);
             if (numeric)
                 header.HorizontalContentAlignment = SW.HorizontalAlignment.Right;
             view.Columns.Add(new WC.GridViewColumn { Header = header, Width = i < widths.Length ? widths[i] : 80, CellTemplate = new SW.DataTemplate { VisualTree = cell } });
@@ -2321,6 +2481,7 @@ internal sealed class ViarioPanel : SW.Window
                         Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."), true);
                         Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos: siga a linha de comando."));
                         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
+                        Act("Escalar todas...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); });
                     }
 
                     if (_category == "ATRATIVOS")
@@ -3667,6 +3828,14 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         Act("Zoom", ZoomCurrent, true);
+        Act(_list.SelectedItems.Count > 1 ? $"Escalar {_list.SelectedItems.Count} selecionadas..." : "Escalar esta...", () =>
+        {
+            HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);
+            if (ids.Count == 0)
+                ids.Add(p.Id);
+            ViarioPlacaSync.PendingIds = ids;
+            Send("C3DVIARIOPLACAS ES ", $"Escalar {ids.Count} placa(s): informe a escala na linha de comando.");
+        });
         Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando."));
         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
         Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."));
@@ -3753,23 +3922,63 @@ internal sealed class ViarioPanel : SW.Window
         if (shape is null)
             return;
 
-        // Bloco: unidades do SV.dwg (escala 5), origem no canto superior esquerdo, Y para baixo negativo.
+        // Geometria congelada por codigo (coordenadas do bloco); por placa so muda a matriz
+        // (escala, rotacao, posicao e a transformacao da vista). Detalhes (letras) so de perto.
+        List<(WM.Geometry Geo, WM.Brush Brush, bool Detail)> parts = SignGeometry(p.Codigo, shape);
         V2 origem = rect[0].A;
-        foreach ((List<List<V2>> loops, byte r, byte g, byte b) in shape.Hatches)
+        WM.Matrix m = WM.Matrix.Identity;
+        m.Scale(p.Escala, p.Escala);
+        m.Rotate(p.Rotacao);
+        m.Translate(origem.X, origem.Y);
+        m.Scale(_vScale, -_vScale);
+        m.Translate(_vOx - (_vCx * _vScale), _vOy + (_vCy * _vScale));
+        WM.MatrixTransform xf = new(m);
+        xf.Freeze();
+        bool details = wPx >= 90;
+        foreach ((WM.Geometry geo, WM.Brush brush, bool detail) in parts)
+        {
+            if (detail && !details)
+                continue;
+            _graphic.Children.Add(new WS.Path { Data = geo, Fill = brush, RenderTransform = xf });
+        }
+    }
+
+    private static readonly Dictionary<string, List<(WM.Geometry, WM.Brush, bool)>> SignGeoCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Hachuras do bloco agrupadas por cor (fundo/detalhe), como geometrias congeladas em coordenadas do bloco.</summary>
+    private static List<(WM.Geometry, WM.Brush, bool)> SignGeometry(string codigo, ViarioPlacaSync.SignShape shape)
+    {
+        if (SignGeoCache.TryGetValue(codigo, out List<(WM.Geometry, WM.Brush, bool)>? cached))
+            return cached;
+
+        List<(WM.Geometry, WM.Brush, bool)> parts = new();
+        foreach (IGrouping<(byte, byte, byte, bool), (List<List<V2>> Loops, byte R, byte G, byte B, bool Detail)> g in
+                 shape.Hatches.GroupBy(h => (h.R, h.G, h.B, h.Detail)))
         {
             WM.PathGeometry geo = new() { FillRule = WM.FillRule.EvenOdd };
-            foreach (List<V2> loop in loops)
+            foreach ((List<List<V2>> loops, _, _, _, _) in g)
             {
-                SW.Point Pt(V2 v) => ToScreen(origem + ViarioPlacas.Rotate(v * p.Escala, p.Rotacao));
-                WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = Pt(loop[0]) };
-                for (int i = 1; i < loop.Count; i++)
-                    fig.Segments.Add(new WM.LineSegment(Pt(loop[i]), true));
-                geo.Figures.Add(fig);
+                foreach (List<V2> loop in loops)
+                {
+                    WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(loop[0].X, loop[0].Y) };
+                    WM.PolyLineSegment seg = new();
+                    for (int i = 1; i < loop.Count; i++)
+                        seg.Points.Add(new SW.Point(loop[i].X, loop[i].Y));
+                    fig.Segments.Add(seg);
+                    geo.Figures.Add(fig);
+                }
             }
 
             geo.Freeze();
-            _graphic.Children.Add(new WS.Path { Data = geo, Fill = new WM.SolidColorBrush(WM.Color.FromRgb(r, g, b)) });
+            WM.SolidColorBrush brush = new(WM.Color.FromRgb(g.Key.Item1, g.Key.Item2, g.Key.Item3));
+            brush.Freeze();
+            parts.Add((geo, brush, g.Key.Item4));
         }
+
+        // Fundo primeiro, detalhes por cima.
+        parts = parts.OrderBy(x => x.Item3).ToList();
+        SignGeoCache[codigo] = parts;
+        return parts;
     }
 
     private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);
@@ -3938,17 +4147,14 @@ internal sealed class ViarioPanel : SW.Window
 
         // Desenho real da placa (hachuras do bloco) na planta, como inserida.
         DrawSignInPlan(p);
-        foreach (PlacaItem q in _placas)
-        {
-            if (!ReferenceEquals(q, p))
-                DrawSignInPlan(q);
-        }
+        foreach (PlacaItem q in _placas.Where(q => !ReferenceEquals(q, p) && V2.Dist(q.Ponto, w) < 400).Take(40))
+            DrawSignInPlan(q);
 
         // Nomes dos eixos em volta do ponto, codigo desta e das placas vizinhas, atrativos.
         DrawAxisLabelsNear(w, 400);
         DrawPointLabels(_placas.Where(q => !ReferenceEquals(q, p)).Select(q => (q.Ponto, q.Codigo, GraphicText)), 60);
         DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 40);
-        DrawPointLabels(new[] { (w, p.Id + "  " + p.Codigo, HighlightBrush) }, 1, true);
+        DrawPointLabels(new[] { (w, p.Codigo, HighlightBrush) }, 1, true);
 
         // Cartao da placa.
         double cw = Math.Max(160, Math.Min(_vW * 0.42, 420));
@@ -3979,20 +4185,13 @@ internal sealed class ViarioPanel : SW.Window
         if (shape is not null)
         {
             double k = drawW / shape.Width;
-            foreach ((List<List<V2>> loops, byte r, byte g, byte b) in shape.Hatches)
-            {
-                WM.PathGeometry geo = new() { FillRule = WM.FillRule.EvenOdd };
-                foreach (List<V2> loop in loops)
-                {
-                    WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(pad + (loop[0].X * k), pad - (loop[0].Y * k)) };
-                    for (int i = 1; i < loop.Count; i++)
-                        fig.Segments.Add(new WM.LineSegment(new SW.Point(pad + (loop[i].X * k), pad - (loop[i].Y * k)), true));
-                    geo.Figures.Add(fig);
-                }
-
-                geo.Freeze();
-                card.Children.Add(new WS.Path { Data = geo, Fill = new WM.SolidColorBrush(WM.Color.FromRgb(r, g, b)) });
-            }
+            WM.Matrix cm = WM.Matrix.Identity;
+            cm.Scale(k, -k);
+            cm.Translate(pad, pad);
+            WM.MatrixTransform cxf = new(cm);
+            cxf.Freeze();
+            foreach ((WM.Geometry geo, WM.Brush brush, _) in SignGeometry(p.Codigo, shape))
+                card.Children.Add(new WS.Path { Data = geo, Fill = brush, RenderTransform = cxf });
         }
         else
         {

@@ -17,6 +17,10 @@
 - Navegacao por dialogos (pasta e arquivo), lembrando os ultimos caminhos por usuario em `%AppData%\Civil3D2026Plugin\viario-placas.txt`; a pasta do SinC so e pedida se a do catalogo nao existir na maquina.
 - Explorador: colunas Area SinC / Area projeto / Suporte; no monitor, os nomes dos eixos em volta do ponto (sempre), o id/codigo da placa selecionada e os codigos das placas vizinhas, os nomes dos atrativos; vista geral da categoria com todas as placas (ou atrativos) rotuladas.
 
+- `EScalar` (comando e painel: esta/selecionadas na lista, ou todas): escala absoluta para placa, linha de chamada e suporte, a partir do ponto de implantacao; atributos reposicionados.
+- Lista do explorador: clique no cabecalho ordena (numeros e estacas como numeros), botao direito filtra a coluna (e limpa filtros/ordenacao). Vale para todas as categorias.
+- Monitor mais leve: as hachuras de cada placa viram geometrias congeladas por codigo (uma por cor), com matriz por placa; lacos simplificados; letras/simbolos so quando a placa tem 90 px ou mais; vizinhas limitadas a 40 num raio de 400 m. Rotulo da placa na planta so com o codigo (T-xxx).
+
 **Atrativos turisticos**
 - `C3DVIARIOATRATIVOS` (`C3DVIARIO > ATRativos`, categoria **Atrativos** no explorador): importa os pontos de um KML/KMZ (pasta do KML = categoria; coordenadas DMS coladas no nome sao tiradas) e insere cada um como bloco `VIARIO-ATRATIVO` - circulo unitario com hachura solida 70% transparente e ponto central, escala do bloco = raio (padrao 25 m, `Raio` muda todos), atributos NOME (visivel, acompanha a escala), CATEGORIA, LAT, LON, FONTE (invisiveis), layer `VIARIO-ATRATIVOS`. Lat/lon -> E/N pela geolocalizacao do desenho, pelo sistema do Civil ou pelo fuso UTM informado (mesmo criterio dos PEDs). No painel: eixo mais proximo (distancia e estaca) e as placas cujas mensagens citam o atrativo.
 
