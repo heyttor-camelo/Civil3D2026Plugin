@@ -3945,38 +3945,51 @@ internal sealed class ViarioPanel : SW.Window
 
     private static readonly Dictionary<string, List<(WM.Geometry, WM.Brush, bool)>> SignGeoCache = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>Hachuras do bloco agrupadas por cor (fundo/detalhe), como geometrias congeladas em coordenadas do bloco.</summary>
+    /// <summary>
+    /// Hachuras do bloco como geometrias congeladas em coordenadas do bloco, na ordem original de
+    /// desenho (fundo, orla, fundo interno, textos...): hachuras seguidas de mesma cor viram uma so.
+    /// </summary>
     private static List<(WM.Geometry, WM.Brush, bool)> SignGeometry(string codigo, ViarioPlacaSync.SignShape shape)
     {
         if (SignGeoCache.TryGetValue(codigo, out List<(WM.Geometry, WM.Brush, bool)>? cached))
             return cached;
 
         List<(WM.Geometry, WM.Brush, bool)> parts = new();
-        foreach (IGrouping<(byte, byte, byte, bool), (List<List<V2>> Loops, byte R, byte G, byte B, bool Detail)> g in
-                 shape.Hatches.GroupBy(h => (h.R, h.G, h.B, h.Detail)))
+        WM.PathGeometry? geo = null;
+        (byte, byte, byte, bool) key = default;
+        void Flush()
         {
-            WM.PathGeometry geo = new() { FillRule = WM.FillRule.EvenOdd };
-            foreach ((List<List<V2>> loops, _, _, _, _) in g)
-            {
-                foreach (List<V2> loop in loops)
-                {
-                    WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(loop[0].X, loop[0].Y) };
-                    WM.PolyLineSegment seg = new();
-                    for (int i = 1; i < loop.Count; i++)
-                        seg.Points.Add(new SW.Point(loop[i].X, loop[i].Y));
-                    fig.Segments.Add(seg);
-                    geo.Figures.Add(fig);
-                }
-            }
-
+            if (geo is null)
+                return;
             geo.Freeze();
-            WM.SolidColorBrush brush = new(WM.Color.FromRgb(g.Key.Item1, g.Key.Item2, g.Key.Item3));
+            WM.SolidColorBrush brush = new(WM.Color.FromRgb(key.Item1, key.Item2, key.Item3));
             brush.Freeze();
-            parts.Add((geo, brush, g.Key.Item4));
+            parts.Add((geo, brush, key.Item4));
+            geo = null;
         }
 
-        // Fundo primeiro, detalhes por cima.
-        parts = parts.OrderBy(x => x.Item3).ToList();
+        foreach ((List<List<V2>> loops, byte r, byte g, byte b, bool detail) in shape.Hatches)
+        {
+            (byte, byte, byte, bool) k = (r, g, b, detail);
+            if (geo is null || !k.Equals(key))
+            {
+                Flush();
+                key = k;
+                geo = new WM.PathGeometry { FillRule = WM.FillRule.EvenOdd };
+            }
+
+            foreach (List<V2> loop in loops)
+            {
+                WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(loop[0].X, loop[0].Y) };
+                WM.PolyLineSegment seg = new();
+                for (int i = 1; i < loop.Count; i++)
+                    seg.Points.Add(new SW.Point(loop[i].X, loop[i].Y));
+                fig.Segments.Add(seg);
+                geo.Figures.Add(fig);
+            }
+        }
+
+        Flush();
         SignGeoCache[codigo] = parts;
         return parts;
     }
