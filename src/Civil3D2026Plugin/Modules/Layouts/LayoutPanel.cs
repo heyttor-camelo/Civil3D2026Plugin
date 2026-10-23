@@ -196,6 +196,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("ESCALAGRAF", "escalagrafica", "Escala grafica", "Viewports",
             "Escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.LSP): nas viewports marcadas ou clicando o ponto (comando ESCALAGRAF).",
             new[] { "Marque as viewports.", "Aba Norte e escala grafica: ate quantos metros e altura do texto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
+        new("MNE", "malha", "Malha, norte e escala (padrao)", "Viewports",
+            "Insere de uma vez a malha de coordenadas, o norte e a escala grafica nas viewports marcadas, pelo padrao salvo (troca os que ja existiam nelas). Para criar o padrao: lance os tres numa viewport, ajuste a mao e use \"Salvar padrao\" com so ela marcada (ou C3DMNE > Padrao).",
+            new[] { "Marque as viewports.", "Clique: insere pelo padrao.", "Botao direito na viewport: salvar padrao / remover." }, p => p.Executar(() => LayoutConjunto.Inserir(p.Doc!, p.VpsMarcadas(), PadraoConjunto.Ler()))),
         new("NUMERAR", "numero", "Numerar pranchas", "Numeracao",
             "Escreve numero e total nos textos marcados (busca na aba Numeracao), na ordem das abas, com prefixo, sufixo, digitos e total configuraveis.",
             new[] { "Busque e marque os textos do numero e do total (uma vez).", "Clique para renumerar depois de criar, apagar ou reordenar layouts." }, p => p.Numerar()),
@@ -1673,6 +1676,10 @@ internal sealed partial class LayoutPanel : SW.Window
         menu.Items.Add(new WC.Separator());
         foreach (WC.MenuItem mi in ItensCamadas(new[] { vp }, $"{folha.Nome} #{vp.Indice}"))
             menu.Items.Add(mi);
+        menu.Items.Add(new WC.Separator());
+        Item("Malha, norte e escala pelo padrao", () => Executar(() => LayoutConjunto.Inserir(Doc!, so, PadraoConjunto.Ler())), "malha");
+        Item("Salvar o padrao de malha, norte e escala desta viewport", () => Executar(() => LayoutConjunto.LerPadrao(Doc!, vp.Id, out _)));
+        Item("Remover malha, norte e escala desta viewport", () => Executar(() => LayoutConjunto.Remover(Doc!, so)));
         menu.Items.Add(new WC.Separator());
         if (vp.Planta)
         {

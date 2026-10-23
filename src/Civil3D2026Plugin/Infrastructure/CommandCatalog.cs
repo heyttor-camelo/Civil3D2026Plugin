@@ -371,7 +371,9 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Layouts.Norte, "Seta do norte",
                         "[Tamanho/Girar]: insere a seta do norte (Arrow10 do Civil) no ponto clicado do layout, girada pela viewport embaixo dela; Girar acerta todos os nortes pelas viewports (as sheets do Plan & Profile fazem sozinhas)."),
                     new CommandDefinition(C3DCommands.Layouts.EscalaGrafica, "Escala grafica",
-                        "Escala grafica pela escala da viewport escolhida (ex-ESCALAGRAF_V2.LSP): ate quantos metros, altura do texto e o canto inferior esquerdo da barra.")
+                        "Escala grafica pela escala da viewport escolhida (ex-ESCALAGRAF_V2.LSP): ate quantos metros, altura do texto e o canto inferior esquerdo da barra."),
+                    new CommandDefinition(C3DCommands.Layouts.Conjunto, "Malha, norte e escala",
+                        "Malha de coordenadas, norte e escala grafica de uma vez, direto no layout, pelo padrao lido de uma viewport ajustada a mao.")
                 }),
 
             new(

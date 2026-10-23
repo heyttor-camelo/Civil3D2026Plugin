@@ -199,6 +199,8 @@ public static class CommandNames
         public const string Norte = "C3DNORTE";
         /// <summary>Mesmo nome da LISP ESCALAGRAF_V2 (convertida para C#).</summary>
         public const string EscalaGrafica = "ESCALAGRAF";
+        /// <summary>Malha de coordenadas, norte e escala grafica de uma vez, pelo padrao do usuario.</summary>
+        public const string Conjunto = "C3DMNE";
     }
 
     public static class Peds

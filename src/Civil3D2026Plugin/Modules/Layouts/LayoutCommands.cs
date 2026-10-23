@@ -281,6 +281,152 @@ public sealed class LayoutCommands
     }
 
     /// <summary>
+    /// Malha de coordenadas, norte e escala grafica de uma vez, direto no layout, pelo padrao salvo.
+    /// [Inserir] nas viewports clicadas (ou Todas / Layout atual), [Padrao] le o padrao de uma
+    /// viewport onde os tres foram lancados e ajustados a mao, [Configurar] muda malha e tamanhos,
+    /// [Remover] apaga o conjunto das viewports.
+    /// </summary>
+    [CommandMethod(C3DCommands.Layouts.Conjunto, CommandFlags.Modal)]
+    public void Conjunto()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        PadraoConjunto p = PadraoConjunto.Ler();
+        ed.WriteMessage("
+Padrao atual: " + p.Resumo() + ".");
+
+        var pk = new PromptKeywordOptions("
+Malha, norte e escala [Inserir/Padrao/Configurar/Remover] <Inserir>: ", "Inserir Padrao Configurar Remover") { AllowNone = true };
+        PromptResult rk = ed.GetKeywords(pk);
+        if (rk.Status != PromptStatus.OK && rk.Status != PromptStatus.None)
+            return;
+        string acao = rk.Status == PromptStatus.None ? "Inserir" : rk.StringResult;
+
+        if (acao == "Configurar")
+        {
+            ConfigurarConjunto(ed, p);
+            return;
+        }
+
+        bool emLayout = Convert.ToInt32(AcApp.GetSystemVariable("TILEMODE")) == 0;
+        if (acao == "Padrao")
+        {
+            if (!emLayout)
+            {
+                ed.WriteMessage("
+Abra o layout com a viewport ajustada.");
+                return;
+            }
+            if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
+                ed.SwitchToPaperSpace();
+            var peo = new PromptEntityOptions("
+Clique a viewport onde malha, norte e escala foram ajustados: ");
+            peo.SetRejectMessage("
+O objeto selecionado nao e uma viewport.");
+            peo.AddAllowedClass(typeof(Viewport), true);
+            PromptEntityResult per = ed.GetEntity(peo);
+            if (per.Status != PromptStatus.OK)
+                return;
+            OpResult r = LayoutConjunto.LerPadrao(doc, per.ObjectId, out PadraoConjunto novo);
+            ed.WriteMessage("
+" + r.Mensagem);
+            if (r.Falhas == 0)
+                ed.WriteMessage("
+Novo padrao: " + novo.Resumo() + ".");
+            PluginLog.Info("Layouts", "Malha/norte/escala: " + r.Mensagem);
+            return;
+        }
+
+        // Viewports: clicadas no layout, todas do layout atual ou todas dos layouts.
+        System.Collections.Generic.List<ObjectId> vps;
+        var pko = new PromptKeywordOptions("
+Viewports [Selecionar/Layout/Todas] <Selecionar>: ", "Selecionar Layout Todas") { AllowNone = true };
+        PromptResult rv = ed.GetKeywords(pko);
+        if (rv.Status != PromptStatus.OK && rv.Status != PromptStatus.None)
+            return;
+        string quais = rv.Status == PromptStatus.None ? "Selecionar" : rv.StringResult;
+        if (quais == "Todas")
+        {
+            vps = LayoutConjunto.ViewportsDosLayouts(doc.Database, null);
+        }
+        else if (!emLayout)
+        {
+            ed.WriteMessage("
+Abra um layout (ou use Todas).");
+            return;
+        }
+        else if (quais == "Layout")
+        {
+            vps = LayoutConjunto.ViewportsDosLayouts(doc.Database, LayoutManager.Current.CurrentLayout);
+        }
+        else
+        {
+            if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
+                ed.SwitchToPaperSpace();
+            var pso = new PromptSelectionOptions { MessageForAdding = "
+Selecione as viewports: " };
+            PromptSelectionResult psr = ed.GetSelection(pso, new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, "VIEWPORT") }));
+            if (psr.Status != PromptStatus.OK)
+                return;
+            vps = psr.Value.GetObjectIds().ToList();
+        }
+
+        OpResult res = acao == "Remover" ? LayoutConjunto.Remover(doc, vps) : LayoutConjunto.Inserir(doc, vps, p);
+        ed.WriteMessage("
+" + res.Mensagem);
+        PluginLog.Info("Layouts", "Malha/norte/escala: " + res.Mensagem);
+    }
+
+    private static void ConfigurarConjunto(Editor ed, PadraoConjunto p)
+    {
+        bool SimNao(string pergunta, bool atual)
+        {
+            var o = new PromptKeywordOptions($"
+{pergunta} [Sim/Nao] <{(atual ? "Sim" : "Nao")}>: ", "Sim Nao") { AllowNone = true };
+            PromptResult r = ed.GetKeywords(o);
+            return r.Status == PromptStatus.OK ? r.StringResult == "Sim" : atual;
+        }
+        double Numero(string pergunta, double atual)
+        {
+            var o = new PromptDoubleOptions("
+" + pergunta) { DefaultValue = atual, UseDefaultValue = true, AllowNegative = false, AllowZero = false };
+            PromptDoubleResult r = ed.GetDouble(o);
+            return r.Status == PromptStatus.OK ? r.Value : atual;
+        }
+
+        p.Malha = SimNao("Inserir a malha de coordenadas?", p.Malha);
+        if (p.Malha)
+        {
+            p.MalhaMm = Numero("Distancia aproximada entre as linhas da malha no papel (mm; o intervalo sai redondo: 50, 100, 200, 500 m...)", p.MalhaMm);
+            p.MalhaTexto = Numero("Altura do texto das coordenadas (mm)", p.MalhaTexto);
+            var o = new PromptKeywordOptions($"
+Malha em [Linhas/Cruzes] <{(p.MalhaCruzes ? "Cruzes" : "Linhas")}>: ", "Linhas Cruzes") { AllowNone = true };
+            PromptResult r = ed.GetKeywords(o);
+            if (r.Status == PromptStatus.OK)
+                p.MalhaCruzes = r.StringResult == "Cruzes";
+            var ps = new PromptStringOptions($"
+Layer da malha <{p.MalhaLayer}>: ") { AllowSpaces = true };
+            PromptResult rs = ed.GetString(ps);
+            if (rs.Status == PromptStatus.OK && rs.StringResult.Trim().Length > 0)
+                p.MalhaLayer = rs.StringResult.Trim();
+        }
+        p.Norte = SimNao("Inserir o norte?", p.Norte);
+        if (p.Norte)
+            p.NorteTamanho = Numero("Altura do norte no papel (mm)", p.NorteTamanho);
+        p.Escala = SimNao("Inserir a escala grafica?", p.Escala);
+        if (p.Escala)
+        {
+            p.EscalaMm = Numero("Comprimento aproximado da escala grafica no papel (mm; o total sai redondo)", p.EscalaMm);
+            p.EscalaTexto = Numero("Altura do texto da escala grafica (mm)", p.EscalaTexto);
+        }
+        p.Salvar();
+        ed.WriteMessage("
+Padrao salvo: " + p.Resumo() + ". A posicao de norte e escala vem do [Padrao] (ajuste numa viewport e leia).");
+    }
+
+    /// <summary>
     /// Escala grafica (ex-ESCALAGRAF_V2.LSP, mesmo nome e mesmo fluxo): viewport, ate quantos
     /// metros, altura do texto e o canto inferior esquerdo da barra.
     /// </summary>

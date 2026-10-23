@@ -185,6 +185,7 @@ internal static class IconArt
         ["C3DPRANCHA"] = ("prancha", "mais"),
         ["NP"] = ("numero", null),
         ["C3DNORTE"] = ("norte", null),
+        ["C3DMNE"] = ("malha", null),
         ["ESCALAGRAF"] = ("escalagrafica", null),
         ["PEDFICHA"] = ("ped", "previa"),
         ["PEDIMPORTAR"] = ("ped", "excel"),
