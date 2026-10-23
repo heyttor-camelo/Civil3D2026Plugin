@@ -39,6 +39,8 @@ internal sealed class PadraoConjunto
     public double MalhaMm { get; set; } = 50;
     public double MalhaTexto { get; set; } = 2.0;
     public bool MalhaCruzes { get; set; }
+    /// <summary>Transparencia das linhas da malha (0 a 90%); os textos ficam opacos.</summary>
+    public double MalhaTransp { get; set; } = 50;
     public string MalhaLayer { get; set; } = LayerMalha;
     /// <summary>Intervalo da malha em metros; 0 = automatico pela distancia no papel.</summary>
     public double MalhaM { get; set; }
@@ -66,6 +68,7 @@ internal sealed class PadraoConjunto
         p.MalhaMm = LayoutSettings.GetDouble("mne_malha_mm", p.MalhaMm);
         p.MalhaTexto = LayoutSettings.GetDouble("mne_malha_texto", p.MalhaTexto);
         p.MalhaCruzes = LayoutSettings.GetBool("mne_malha_cruzes", p.MalhaCruzes);
+        p.MalhaTransp = LayoutSettings.GetDouble("mne_malha_transp", p.MalhaTransp);
         p.MalhaLayer = LerLayer("mne_malha_layer", LayerMalha);
         p.MalhaM = LayoutSettings.GetDouble("mne_malha_m", p.MalhaM);
         return p;
@@ -87,6 +90,7 @@ internal sealed class PadraoConjunto
         LayoutSettings.Set("mne_malha_mm", MalhaMm);
         LayoutSettings.Set("mne_malha_texto", MalhaTexto);
         LayoutSettings.Set("mne_malha_cruzes", MalhaCruzes);
+        LayoutSettings.Set("mne_malha_transp", MalhaTransp);
         LayoutSettings.Set("mne_malha_layer", MalhaLayer);
         LayoutSettings.Set("mne_malha_m", MalhaM);
     }
@@ -363,6 +367,8 @@ internal static class LayoutConjunto
             e.Layer = "0";
             e.ColorIndex = 0;
             e.LineWeight = LineWeight.ByBlock;
+            if (e is Curve)
+                e.Transparency = new Autodesk.AutoCAD.Colors.Transparency((byte)Math.Round(255 * (100 - Math.Clamp(p.MalhaTransp, 0, 90)) / 100));
             def.AppendEntity(e);
             tr.AddNewlyCreatedDBObject(e, true);
         }

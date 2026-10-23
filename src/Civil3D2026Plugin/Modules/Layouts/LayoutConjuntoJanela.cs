@@ -115,11 +115,13 @@ internal static class LayoutConjuntoJanela
         WC.TextBox mMm = Num(p.MalhaMm, "0.#");
         WC.TextBox mTxt = Num(p.MalhaTexto);
         var mCruz = new WC.CheckBox { Content = "Cruzes (com tracos na borda) em vez de linhas", IsChecked = p.MalhaCruzes, Foreground = t.Text };
+        WC.TextBox mTr = Num(p.MalhaTransp, "0");
         WC.ComboBox mLay = Layer(p.MalhaLayer);
         Linha(gm, "Intervalo fixo (m)", mM, "Ex.: 100 = linhas a cada 100 m em todas as viewports. Vazio = automatico.");
         Linha(gm, "Automatico: distancia no papel (mm)", mMm, "Usado quando o intervalo fixo esta vazio: o intervalo sai redondo (1, 2, 5 x 10^n m) perto dessa distancia no papel.");
         Linha(gm, "Altura do texto E= / N= (mm)", mTxt);
         Linha(gm, "", mCruz);
+        Linha(gm, "Transparencia das linhas (0 a 90)", mTr, "Os textos E= / N= ficam sem transparencia.");
         Linha(gm, "Layer", mLay);
 
         WC.Grid gn = Grupo("Norte", out WC.CheckBox nAtivo, p.Norte);
@@ -166,6 +168,7 @@ internal static class LayoutConjuntoJanela
             mMm.Text = d.MalhaMm.ToString("0.#", Br);
             mTxt.Text = d.MalhaTexto.ToString("0.##", Br);
             mCruz.IsChecked = d.MalhaCruzes;
+            mTr.Text = d.MalhaTransp.ToString("0", Br);
             mLay.Text = d.MalhaLayer;
             nTam.Text = d.NorteTamanho.ToString("0.#", Br);
             nCanto.SelectedIndex = Array.IndexOf(Enum.GetValues(typeof(CantoVp)), d.NortePos.Canto);
@@ -203,6 +206,7 @@ internal static class LayoutConjuntoJanela
                 MalhaMm = Ler(mMm, "distancia da malha no papel"),
                 MalhaTexto = Ler(mTxt, "texto da malha"),
                 MalhaCruzes = mCruz.IsChecked == true,
+                MalhaTransp = Math.Min(90, Ler(mTr, "transparencia da malha", positivo: false)),
                 MalhaLayer = NomeLayer(mLay.Text, PadraoConjunto.LayerMalha),
                 Norte = nAtivo.IsChecked == true,
                 NorteTamanho = Ler(nTam, "altura do norte"),
@@ -246,6 +250,7 @@ internal static class LayoutConjuntoJanela
         para.MalhaMm = de.MalhaMm;
         para.MalhaTexto = de.MalhaTexto;
         para.MalhaCruzes = de.MalhaCruzes;
+        para.MalhaTransp = de.MalhaTransp;
         para.MalhaLayer = de.MalhaLayer;
         para.Norte = de.Norte;
         para.NorteTamanho = de.NorteTamanho;

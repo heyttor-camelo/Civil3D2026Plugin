@@ -2,6 +2,7 @@
 
 - **Janela de configuracao** (`C3DMNE > Configurar`, botao "Configurar malha, norte e escala" na barra do explorador, grupo Viewports, e no botao direito da viewport): liga/desliga malha, norte e escala grafica; **intervalo fixo da malha em metros** e **total fixo da escala grafica em metros** (vazio = automatico pela escala de cada viewport, como antes); altura do norte e dos textos; canto e deslocamento; layers com lista das layers do desenho; botao "Valores iniciais".
 - **Layers padrao**: malha em `C3D_MALHA`, norte em `C3D_NORTE`, escala grafica em `C3D_ESCALAGRAF` (criadas se faltarem). Vale tambem para os comandos avulsos de norte e escala grafica. Padroes antigos salvos com layer vazia passam a usar essas.
+- Linhas (e cruzes) da malha com **50% de transparencia** por padrao, ajustavel na janela (0 a 90); os textos E= / N= ficam opacos.
 - Salvar o padrao lendo uma viewport nao troca a layer quando o item esta na layer `0`; com total fixo da escala, o total lido vira o novo total.
 
 ## 2.71.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
