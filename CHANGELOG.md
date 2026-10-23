@@ -1,3 +1,12 @@
+## 2.71.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
+
+- **Escala grafica** (`ESCALAGRAF` e aba Norte e escala grafica): as divisoes eram sempre de 10 m, entao em 1:5000 com centenas de metros saiam dezenas de blocos e rotulos amontoados. Agora o passo e 10 m quando cabe (igual a LISP) e sobe para 20, 25, 50, 100, 200, 250, 500... ate os rotulos caberem com folga e haver no maximo 12 divisoes; o padrao preto (1/4, 1/4, 1/2 do primeiro bloco) segue o passo. Rotulo que encostaria no final some (fica o traco). Os blocos novos levam `_v2` no nome para nao reaproveitar os antigos.
+- **`C3DMNE` - malha, norte e escala** (comando, Ribbon, barra do explorador no grupo Viewports e botao direito da viewport):
+  - insere de uma vez, direto no layout, a **malha de coordenadas** (linhas ou cruzes com tracos na borda, cortadas no retangulo da viewport, `E=` / `N=` com separador de milhar ao longo das linhas nas duas pontas, girando junto com a viewport), o **norte** (girado pela viewport) e a **escala grafica**;
+  - **padrao aprendido**: lance os tres numa viewport, ajuste a mao (mover, escalar, layer) e use `C3DMNE > Padrao` (ou "Salvar o padrao..." no botao direito). Fica guardado o canto mais proximo e o deslocamento de cada item, o tamanho do norte, o comprimento e o texto da escala grafica no papel e as layers. Sem itens do conjunto, le o norte e a escala grafica do plugin mais perto da viewport (ate 50 mm);
+  - tamanhos em mm de papel, entao o padrao serve para qualquer escala: o intervalo da malha e o total da escala grafica saem redondos (malha 1, 2, 5 x 10^n m mais perto da distancia escolhida; escala o maior 1, 2, 2,5, 5 x 10^n m que cabe);
+  - `C3DMNE > Configurar`: liga/desliga cada item, distancia e texto da malha, linhas ou cruzes, layer, tamanho do norte, comprimento e texto da escala;
+  - viewports: clicadas, todas do layout atual ou todas dos layouts; inserir de novo troca os itens daquela viewport (XData `C3D_MNE` com o handle da viewport); `Remover` apaga. A malha e um bloco `C3D_MALHA_<handle>` por viewport.
 ## 2.70.0 - Viario v0.11.0: placas de sinalizacao vertical no padrao do SinC (C3DVIARIOPLACAS)
 
 **Placas verticais**

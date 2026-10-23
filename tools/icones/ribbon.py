@@ -24,7 +24,7 @@ COMANDOS = {
     "C3DLAYOUT": ("layouts", None), "C3DLAYOUTVP": ("layouts", "viewport"), "C3DLAYOUTLS": ("camadas", None),
     "C3DLAYOUTCARIMBO": ("prancha", "editar"), "C3DLAYOUTPS": ("imprimir", None), "C3DMAPACHAVE": ("mapa", None),
     "C3DPRANCHAS": ("pranchas", None), "C3DPRANCHA": ("prancha", "mais"), "NP": ("numero", None),
-    "C3DNORTE": ("norte", None), "ESCALAGRAF": ("escalagrafica", None),
+    "C3DNORTE": ("norte", None), "C3DMNE": ("malha", None), "ESCALAGRAF": ("escalagrafica", None),
     "PEDFICHA": ("ped", "previa"), "PEDIMPORTAR": ("ped", "excel"), "PEDATUALIZAR": ("ped", "atualizar"),
     "PEDLOCAR": ("ped", "mover"), "PEDVISTA": ("ped", "camadas"), "PEDCAMPOS": ("ped", "lista"),
     "ALLTORGB": ("cor", None), "TLEN": ("medida", None), "JOBECOUNT": ("numerartexto", None), "SMARTHATCH": ("hachura", None),

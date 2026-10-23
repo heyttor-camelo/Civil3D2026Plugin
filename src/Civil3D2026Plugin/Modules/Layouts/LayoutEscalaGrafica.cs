@@ -85,8 +85,13 @@ internal static class LayoutEscalaGrafica
                                        (n == 1 ? " " + msgs[0] : ""));
     }
 
-    private static OpResult Inserir(Transaction tr, Database db, Viewport vp, double maximo, double alturaTexto, Point3d ponto)
+    private static OpResult Inserir(Transaction tr, Database db, Viewport vp, double maximo, double alturaTexto, Point3d ponto) =>
+        Inserir(tr, db, vp, maximo, alturaTexto, ponto, out _);
+
+    /// <summary>Insere e devolve a referencia criada (ObjectId.Null se falhou).</summary>
+    internal static OpResult Inserir(Transaction tr, Database db, Viewport vp, double maximo, double alturaTexto, Point3d ponto, out ObjectId criado)
     {
+        criado = ObjectId.Null;
         if (vp.CustomScale <= 0)
             return new OpResult(0, 1, "Nao foi possivel ler a escala da viewport.") { Mudou = false };
         if (maximo <= 0 || alturaTexto <= 0)
@@ -96,12 +101,13 @@ internal static class LayoutEscalaGrafica
         double mmPorUnidade = LayoutReader.FatorUnidade(db); // mm reais por unidade do Model (metros: 1000)
         double ppm = vp.CustomScale * 1000.0 / mmPorUnidade;
         double den = mmPorUnidade / vp.CustomScale;
-        string nome = $"C3D_ESCALAGRAF_1-{Math.Round(den).ToString(Inv)}_{Fmt(maximo)}m_{Fmt(alturaTexto)}";
+        // "_v2": divisoes pelo passo (Passo); blocos antigos com o mesmo nome nao sao reaproveitados.
+        string nome = $"C3D_ESCALAGRAF_1-{Math.Round(den).ToString(Inv)}_{Fmt(maximo)}m_{Fmt(alturaTexto)}_v2";
 
         ObjectId def = GarantirBloco(tr, db, nome, ppm, den, maximo, alturaTexto);
         var espaco = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForWrite, false, true);
         var br = new BlockReference(ponto, def);
-        espaco.AppendEntity(br);
+        criado = espaco.AppendEntity(br);
         tr.AddNewlyCreatedDBObject(br, true);
         GarantirApp(tr, db);
         br.XData = new ResultBuffer(
@@ -166,6 +172,11 @@ internal static class LayoutEscalaGrafica
         Linha(x0, ytop, x0, y0);
         Linha(x0, ymid, x0 + totalw, ymid);
 
+        // Passo das divisoes: 10 m como na LISP; em escala grande (ou barra longa) passa para
+        // 20, 25, 50, 100... ate os rotulos caberem sem encostar e sobrarem no maximo ~12 blocos.
+        double u = Passo(maxm, ppm, th);
+        double f = u / 10.0;
+
         // Preenchimento.
         void Preto(double a, double b, bool emCima)
         {
@@ -176,23 +187,23 @@ internal static class LayoutEscalaGrafica
             else
                 Bloco(x0 + a * ppm, x0 + b * ppm, y0, ymid);
         }
-        Preto(0, Math.Min(maxm, 2.5), true);
-        if (maxm > 2.5)
-            Preto(2.5, Math.Min(maxm, 5.0), false);
-        if (maxm > 5.0)
-            Preto(5.0, Math.Min(maxm, 10.0), true);
+        Preto(0, Math.Min(maxm, 2.5 * f), true);
+        if (maxm > 2.5 * f)
+            Preto(2.5 * f, Math.Min(maxm, 5.0 * f), false);
+        if (maxm > 5.0 * f)
+            Preto(5.0 * f, Math.Min(maxm, u), true);
         bool upper = false;
-        double pos = 10.0;
+        double pos = u;
         while (pos < maxm - 1e-6)
         {
             double resto = maxm - pos;
-            if (resto >= 10.0)
+            if (resto >= u)
             {
-                Preto(pos, pos + 10.0, upper);
-                pos += 10.0;
+                Preto(pos, pos + u, upper);
+                pos += u;
                 upper = !upper;
             }
-            else if (resto <= 5.000001)
+            else if (resto <= 5.000001 * f)
             {
                 double meio = pos + resto / 2.0;
                 Preto(pos, meio, upper);
@@ -202,14 +213,14 @@ internal static class LayoutEscalaGrafica
             }
             else
             {
-                Preto(pos, pos + 5.0, upper);
+                Preto(pos, pos + 5.0 * f, upper);
                 upper = !upper;
-                Preto(pos + 5.0, maxm, upper);
+                Preto(pos + 5.0 * f, maxm, upper);
                 pos = maxm;
             }
         }
 
-        // Metragem: 0, 10, 20... e o final.
+        // Metragem: 0, u, 2u... e o final (o ultimo multiplo sai se encostar no final).
         void Marca(double v, string rotulo)
         {
             double xx = x0 + v * ppm;
@@ -217,8 +228,18 @@ internal static class LayoutEscalaGrafica
             Texto(Math.Abs(v - maxm) < 1e-9 ? rotulo + "m" : rotulo, xx, ytop + th * 1.55, th);
         }
         Marca(0, "0");
-        for (double m = 10.0; m < maxm - 1e-6; m += 10.0)
+        double folga = LarguraRotulo(Fmt(maxm) + "m", th) / ppm;
+        for (double m = u; m < maxm - 1e-6; m += u)
+        {
+            if (maxm - m < folga)
+            {
+                // Sem espaco para o rotulo: so o traco.
+                double xx = x0 + m * ppm;
+                Linha(xx, y0, xx, ytop + th * 0.90);
+                continue;
+            }
             Marca(m, Fmt(m));
+        }
         Marca(maxm, Fmt(maxm));
 
         Texto("ESCALA GRAFICA", x0 + totalw / 2, ytop + th * 3.25, th);
@@ -226,8 +247,37 @@ internal static class LayoutEscalaGrafica
         return id;
     }
 
+    /// <summary>Largura aproximada de um rotulo em ROMANS (mm de papel).</summary>
+    private static double LarguraRotulo(string texto, double th) => texto.Length * th * 0.8;
+
+    /// <summary>
+    /// Passo das divisoes em metros: 10 (o da LISP) se os rotulos cabem; senao o proximo da serie
+    /// 20, 25, 50, 100, 200, 250, 500... em que a distancia entre rotulos no papel passa da
+    /// largura do maior rotulo com folga e ha no maximo 12 divisoes.
+    /// </summary>
+    internal static double Passo(double maxm, double ppm, double th)
+    {
+        double rotulo = LarguraRotulo(Fmt(maxm), th) * 1.4;
+        double[] base10 = { 1, 2, 2.5, 5 };
+        for (int k = 1; k < 8; k++)
+        {
+            foreach (double b in base10)
+            {
+                double u = b * Math.Pow(10, k);
+                if (u < 10)
+                    continue;
+                if (u * ppm >= rotulo && maxm / u <= 12)
+                    return u;
+            }
+        }
+        return Math.Max(10, maxm);
+    }
+
+    /// <summary>mm de papel por metro do Model nesta viewport.</summary>
+    internal static double MmPorMetro(Database db, Viewport vp) => vp.CustomScale * 1000.0 / LayoutReader.FatorUnidade(db);
+
     /// <summary>Inteiro sem casas; senao 2 casas (como EG-Fmt).</summary>
-    private static string Fmt(double v)
+    internal static string Fmt(double v)
     {
         double i = Math.Floor(v + 1e-7);
         return Math.Abs(v - i) < 1e-6 ? i.ToString("0", Inv) : v.ToString("0.00", Inv);
