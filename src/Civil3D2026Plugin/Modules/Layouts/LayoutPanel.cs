@@ -2077,14 +2077,25 @@ internal sealed partial class LayoutPanel : SW.Window
             RenameRule r = Regra();
             previa.Text = marcados.Count == 0
                 ? "Marque os layouts na lista."
-                : "Previa: " + string.Join(", ", marcados.Take(4).Select((n, i) => $"{n} -> {r.Nome(i, n)}")) + (marcados.Count > 4 ? ", ..." : "");
+                : "Previa (na ordem das abas): " + string.Join(", ", OrdemAbas(marcados).Take(4).Select((n, i) => $"{n} -> {r.Nome(i, n)}")) + (marcados.Count > 4 ? ", ..." : "");
         }
         foreach (WC.TextBox tb in new[] { prefixo, baseNome, sufixo, inicio, digitos })
             tb.TextChanged += (_, _) => Previa();
         numerar.Click += (_, _) => Previa();
         Previa();
 
-        p.Children.Add(ActionButton("Renomear", () => Executar(() => LayoutOps.Renomear(Doc!, Marcados(), Regra()))));
+        p.Children.Add(ActionButton("Renomear", () => Executar(() =>
+        {
+            OpResult r = LayoutOps.Renomear(Doc!, Marcados(), Regra());
+            // Os layouts renomeados continuam marcados (o Refresh tiraria os nomes que sumiram).
+            foreach (KeyValuePair<string, string> kv in LayoutOps.UltimasRenomeacoes)
+            {
+                if (_layoutsMarcados.Remove(kv.Key))
+                    _layoutsMarcados.Add(kv.Value);
+            }
+
+            return r;
+        })));
         return p;
     }
 
@@ -2850,6 +2861,17 @@ internal sealed partial class LayoutPanel : SW.Window
     // ------------------------------------------------------------------
     // Acoes
     // ------------------------------------------------------------------
+
+    /// <summary>Os nomes na ordem das abas do desenho (a lista do painel pode estar ordenada por outra coluna).</summary>
+    private List<string> OrdemAbas(IReadOnlyCollection<string> nomes)
+    {
+        if (Doc is null)
+            return nomes.ToList();
+        var set = new HashSet<string>(nomes, StringComparer.OrdinalIgnoreCase);
+        List<string> r = LayoutOps.OrdemAtual(Doc.Database).Where(set.Contains).ToList();
+        r.AddRange(nomes.Where(n => !r.Contains(n, StringComparer.OrdinalIgnoreCase)));
+        return r;
+    }
 
     private List<string> Marcados() => _folhas.Where(f => _layoutsMarcados.Contains(f.Nome)).Select(f => f.Nome).ToList();
 

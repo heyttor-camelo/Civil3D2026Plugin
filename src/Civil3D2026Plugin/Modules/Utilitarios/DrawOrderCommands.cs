@@ -100,7 +100,8 @@ public sealed class DrawOrderCommands
                 srcDb.CloseInput(true);
             }
 
-            Dictionary<string, List<ItemOrigem>> ordemOrigem = LerOrdens(srcDb, model, layouts);
+            // Le todos os espacos da origem: um layout sem par usa a ordem dos outros layouts dela.
+            Dictionary<string, List<ItemOrigem>> ordemOrigem = LerOrdens(srcDb, true, true);
             using (doc.LockDocument())
                 Aplicar(ordemOrigem, destDb, ed, porLayer, model, layouts, Path.GetFileName(origem));
             ed.Regen();
@@ -189,6 +190,59 @@ public sealed class DrawOrderCommands
                 StringComparer.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Posicao relativa (0 = embaixo, 1 = em cima) de cada layer num espaco da origem: as layers
+    /// ordenadas pela mediana e numeradas, para poder misturar espacos de tamanhos diferentes.
+    /// </summary>
+    private static Dictionary<string, double> PosicaoNormalizada(List<ItemOrigem> itens)
+    {
+        List<string> ordem = PosicaoLayers(itens).OrderBy(kv => kv.Value).Select(kv => kv.Key).ToList();
+        var r = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        for (int i = 0; i < ordem.Count; i++)
+            r[ordem[i]] = ordem.Count == 1 ? 0.5 : (double)i / (ordem.Count - 1);
+        return r;
+    }
+
+    /// <summary>
+    /// Posicao de cada layer para um espaco do destino. Vale primeiro o espaco de mesmo nome na
+    /// origem; as layers que nao estao nele (ex.: carimbo e malha num layout com outro nome, ou que
+    /// so aparecem em outras pranchas) vem da media dos layouts da origem e, por ultimo, do Model.
+    /// Antes, um layout sem nome igual na origem usava so o Model, onde carimbo e malha nao
+    /// existem, e esses objetos ficavam onde estavam.
+    /// </summary>
+    private static Dictionary<string, double> PosicaoCombinada(Dictionary<string, List<ItemOrigem>> ordemOrigem, List<ItemOrigem>? mesmoNome, bool papel)
+    {
+        var r = mesmoNome is null ? new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase) : PosicaoNormalizada(mesmoNome);
+
+        IEnumerable<List<ItemOrigem>> grupo = ordemOrigem
+            .Where(kv => papel != kv.Key.Equals("Model", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Value);
+        IEnumerable<List<ItemOrigem>> resto = ordemOrigem
+            .Where(kv => papel == kv.Key.Equals("Model", StringComparison.OrdinalIgnoreCase))
+            .Select(kv => kv.Value);
+
+        foreach (IEnumerable<List<ItemOrigem>> fonte in new[] { grupo, resto })
+        {
+            var soma = new Dictionary<string, (double S, int N)>(StringComparer.OrdinalIgnoreCase);
+            foreach (List<ItemOrigem> lista in fonte)
+            {
+                foreach (KeyValuePair<string, double> kv in PosicaoNormalizada(lista))
+                {
+                    soma.TryGetValue(kv.Key, out (double S, int N) a);
+                    soma[kv.Key] = (a.S + kv.Value, a.N + 1);
+                }
+            }
+
+            foreach (KeyValuePair<string, (double S, int N)> kv in soma)
+            {
+                if (!r.ContainsKey(kv.Key))
+                    r[kv.Key] = kv.Value.S / kv.Value.N;
+            }
+        }
+
+        return r;
+    }
+
     private static void Aplicar(
         Dictionary<string, List<ItemOrigem>> ordemOrigem,
         Database destDb, Editor ed, bool porLayer, bool model, bool layouts, string nomeOrigem)
@@ -201,14 +255,12 @@ public sealed class DrawOrderCommands
         {
             foreach (KeyValuePair<string, ObjectId> esp in Espacos(tr, destDb, model, layouts))
             {
-                // Por layer, um layout que nao existe na origem usa a ordem do Model dela.
-                if (!ordemOrigem.TryGetValue(esp.Key, out List<ItemOrigem>? itens))
+                ordemOrigem.TryGetValue(esp.Key, out List<ItemOrigem>? itens);
+                bool papel = !esp.Key.Equals("Model", StringComparison.OrdinalIgnoreCase);
+                if (itens is null && (!porLayer || ordemOrigem.Count == 0))
                 {
-                    if (!porLayer || !ordemOrigem.TryGetValue("Model", out itens))
-                    {
-                        semOrigem.Add(esp.Key);
-                        continue;
-                    }
+                    semOrigem.Add(esp.Key);
+                    continue;
                 }
 
                 var btr = (BlockTableRecord)tr.GetObject(esp.Value, OpenMode.ForWrite);
@@ -220,7 +272,7 @@ public sealed class DrawOrderCommands
                 var chave = new double?[atual.Count];
                 if (porLayer)
                 {
-                    Dictionary<string, double> posLayer = PosicaoLayers(itens);
+                    Dictionary<string, double> posLayer = PosicaoCombinada(ordemOrigem, itens, papel);
                     for (int i = 0; i < atual.Count; i++)
                         if (tr.GetObject(atual[i], OpenMode.ForRead) is Entity ent && posLayer.TryGetValue(ent.Layer, out double p))
                             chave[i] = p;
@@ -228,7 +280,7 @@ public sealed class DrawOrderCommands
                 else
                 {
                     var posHandle = new Dictionary<long, (int Pos, string Classe)>();
-                    for (int i = 0; i < itens.Count; i++)
+                    for (int i = 0; i < itens!.Count; i++)
                         posHandle[itens[i].Handle] = (i, itens[i].Classe);
                     for (int i = 0; i < atual.Count; i++)
                         if (posHandle.TryGetValue(atual[i].Handle.Value, out var h)

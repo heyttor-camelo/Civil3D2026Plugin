@@ -7,6 +7,9 @@
 - Corrigido: atributo `Área` com 2 casas fixas, como o SinC (5,6 m2 -> `560`; antes `56`, e 0,975 m2 saia `0975`), o que fazia o quantitativo do SinC somar areas absurdas (424.622 m2). Escalar/Arrumar regravam o atributo nas placas ja inseridas.
 - Corrigido: contorno da chamada no monitor nao seguia a escala da placa.
 
+- Ordem de desenho (`C3DORDEMDESENHO`, por layer) nos layouts: um layout sem nome igual na origem usava so a ordem do Model da origem, onde carimbo e malha nao existem, e esses objetos ficavam onde estavam. Agora vale o layout de mesmo nome, depois a media dos layouts da origem e por ultimo o Model; a origem e lida inteira.
+- Renomear layouts em lote: duas passadas (nome temporario e depois o final), entao deslocar a numeracao (PR-02 -> PR-01 com o PR-01 tambem no lote), trocar nomes e mudar so maiusculas funciona; conflito dentro do lote e com layout de fora sao avisados antes de mexer; numera sempre na ordem das abas (nao na ordenacao da lista); os layouts renomeados continuam marcados no painel.
+
 ## 2.72.0 - Layouts v1.14.0: janela do padrao de malha, norte e escala; layers padrao
 
 - **Janela de configuracao** (`C3DMNE > Configurar`, botao "Configurar malha, norte e escala" na barra do explorador, grupo Viewports, e no botao direito da viewport): liga/desliga malha, norte e escala grafica; **intervalo fixo da malha em metros** e **total fixo da escala grafica em metros** (vazio = automatico pela escala de cada viewport, como antes); altura do norte e dos textos; canto e deslocamento; layers com lista das layers do desenho; botao "Valores iniciais".
