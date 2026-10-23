@@ -108,9 +108,11 @@ internal sealed partial class LayoutPanel : SW.Window
     private readonly WM.Brush _vpHover = ToolTheme.Brush(80, 160, 255, 45);
     private readonly WM.Brush _vpSel = ToolTheme.Brush(80, 160, 255, 110);
     private readonly WM.Brush _vpSelTraco = ToolTheme.Brush(80, 160, 255);
-    private readonly WM.Brush _vpTravada = Hachura(WM.Color.FromRgb(110, 200, 120), 9, 20);
+    // Uma marca por estado (legenda embaixo da vista): travada = verde cheio, desligada = hachura
+    // cinza com contorno tracejado, vista 3D/inclinada = laranja cheio, marcada = azul.
+    private readonly WM.Brush _vpTravada = ToolTheme.Brush(110, 200, 120, 60);
     private readonly WM.Brush _vpDesligada = Hachura(WM.Color.FromRgb(170, 170, 170), 7, 28);
-    private readonly WM.Brush _vp3d = Hachura(WM.Color.FromRgb(230, 165, 20), 8, 26);
+    private readonly WM.Brush _vp3d = ToolTheme.Brush(230, 165, 20, 55);
     private readonly WM.Brush _vp3dTraco = ToolTheme.Brush(230, 165, 20);
 
     /// <summary>Hachura leve (linhas a 45 graus, em pixels) com um fundo quase transparente.</summary>
@@ -137,7 +139,44 @@ internal sealed partial class LayoutPanel : SW.Window
         return brush;
     }
 
-    /// <summary>Hachura (preenchimento) pelo estado: desligada > 3D > travada > livre.</summary>
+    /// <summary>Legenda das cores das viewports, embaixo da vista.</summary>
+    private WC.Panel Legenda()
+    {
+        var sp = new WC.WrapPanel { Margin = new SW.Thickness(4, 0, 4, 0), Background = ToolTheme.GraphicBack };
+        void Item(string texto, WM.Brush fundo, WM.Brush traco, bool tracejado, string dica)
+        {
+            var amostra = new WS.Rectangle
+            {
+                Width = 22,
+                Height = 12,
+                Fill = fundo,
+                Stroke = traco,
+                StrokeThickness = 1.2,
+                StrokeDashArray = tracejado ? new WM.DoubleCollection { 3, 2 } : null,
+                VerticalAlignment = SW.VerticalAlignment.Center
+            };
+            var item = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(6, 3, 8, 3), ToolTip = dica };
+            item.Children.Add(amostra);
+            item.Children.Add(new WC.TextBlock { Text = texto, Foreground = ToolTheme.GraphicText, FontSize = 11, Margin = new SW.Thickness(5, 0, 0, 0), VerticalAlignment = SW.VerticalAlignment.Center });
+            sp.Children.Add(item);
+        }
+        Item("Livre", WM.Brushes.Transparent, _vpTraco, false, "Ligada e destravada: zoom/pan dentro dela muda a vista.");
+        Item("Travada", _vpTravada, _vpTraco, false, "Exibicao travada (Display Locked): zoom/pan nao mudam a vista.");
+        Item("Desligada", _vpDesligada, _vpTraco, true, "Viewport desligada (nao mostra o Model e nao plota).");
+        Item("Vista 3D / inclinada", _vp3d, _vp3dTraco, false, "Olha o Model de um angulo que nao e a planta (vista de cima).");
+        Item("Marcada", _vpSel, _vpSelTraco, false, "Marcada para os comandos da barra (clique, Ctrl ou Shift+clique).");
+        sp.Children.Add(new WC.TextBlock
+        {
+            Text = "Clique: marca   Shift+clique: intervalo   Botao direito: acoes",
+            Foreground = ToolTheme.GraphicLine,
+            FontSize = 11,
+            Margin = new SW.Thickness(10, 3, 4, 3),
+            VerticalAlignment = SW.VerticalAlignment.Center
+        });
+        return sp;
+    }
+
+    /// <summary>Preenchimento pelo estado: desligada > 3D > travada > livre.</summary>
     private WM.Brush FillEstado(SheetViewport v) =>
         !v.Ligada ? _vpDesligada : !v.Planta ? _vp3d : v.Travada ? _vpTravada : WM.Brushes.Transparent;
 
@@ -505,6 +544,9 @@ internal sealed partial class LayoutPanel : SW.Window
         WC.DockPanel graphicRow = new();
         WC.DockPanel.SetDock(graphicBar, WC.Dock.Bottom);
         graphicRow.Children.Add(graphicBar);
+        WC.Panel legenda = Legenda();
+        WC.DockPanel.SetDock(legenda, WC.Dock.Bottom);
+        graphicRow.Children.Add(legenda);
         graphicRow.Children.Add(graphic);
         WC.Grid.SetRow(graphicRow, 2);
         root.Children.Add(graphicRow);

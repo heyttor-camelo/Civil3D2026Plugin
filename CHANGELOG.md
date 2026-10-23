@@ -1,3 +1,8 @@
+## 2.75.0 - Layouts v1.16.0: viewports ligadas que apareciam desligadas; legenda das cores
+
+- Corrigido: viewports **ligadas apareciam como desligadas** (hachura cinza tracejada) em alguns layouts. O `Viewport.On` da API devolve false para viewports de layouts que ainda nao foram abertos na sessao (ou alem do MAXACTVP); agora vale a flag gravada no desenho (DXF 90, bit 0x20000 = desligada), lida pelo `acdbEntGet` (`ViewportStatus.cs`). Vale para o painel, o modo leve e os pontos de restauracao (que antes podiam desligar essas viewports ao restaurar). Quando a API e a flag discordam, o log (Ctrl+Shift+L) registra.
+- Cores das viewports revistas: travada = verde cheio, desligada = hachura cinza com contorno tracejado, vista 3D/inclinada = laranja cheio, marcada = azul. **Legenda** embaixo da vista, com dica de cada estado e dos cliques.
+
 ## 2.74.0 - Layouts v1.15.0: confirmacao antes das acoes em lote, Desfazer (pontos de restauracao), Shift/Ctrl
 
 **Nada mais muda as pranchas sem avisar**

@@ -130,7 +130,8 @@ internal static class LayoutRestauracao
                 {
                     if (!db.TryGetObjectId(new Handle(v.Handle), out ObjectId id) || id.IsErased || tr.GetObject(id, OpenMode.ForRead) is not Viewport vp)
                         continue;
-                    if (Igual(Estado(vp), v))
+                    VpEstado agora = Estado(vp);
+                    if (Igual(agora, v))
                         continue;
                     try
                     {
@@ -145,7 +146,7 @@ internal static class LayoutRestauracao
                         vp.CenterPoint = v.Centro;
                         vp.Width = v.Largura;
                         vp.Height = v.Altura;
-                        if (vp.On != v.Ligada)
+                        if (agora.Ligada != v.Ligada)
                             vp.On = v.Ligada;
                         vp.Locked = v.Travada;
                         vistas++;
@@ -243,7 +244,7 @@ internal static class LayoutRestauracao
     private static VpEstado Estado(Viewport vp) => new(
         vp.Handle.Value, vp.CenterPoint, vp.Width, vp.Height,
         vp.ViewCenter, vp.ViewTarget, vp.ViewDirection, vp.TwistAngle, vp.CustomScale,
-        vp.Locked, vp.On);
+        vp.Locked, ViewportStatus.Ligada(vp));
 
     private static bool Igual(VpEstado a, VpEstado b)
     {
