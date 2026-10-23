@@ -171,19 +171,21 @@ internal sealed partial class LayoutPanel : SW.Window
         new("DIR", "direita", "Mover para a direita", "Layouts",
             "Move os layouts marcados uma aba para a direita.", new[] { "Marque os layouts." }, p => p.Executar(() => LayoutOps.Mover(p.Doc!, p.Marcados(), +1))),
         new("ORDENAR", "ordenar", "Ordenar pelo nome", "Layouts",
-            "Ordena todas as abas pelo nome (PR-2 antes de PR-10) e confere a ordem gravada (o que aconteceu fica no log).", new[] { "Sem perguntas." }, p => p.Executar(() => LayoutOps.OrdenarPorNome(p.Doc!))),
+            "Reordena TODAS as abas do desenho pelo nome (PR-2 antes de PR-10). A ordem atual (montada a mao, por exemplo) e substituida; pede confirmacao e guarda um ponto de restauracao.", new[] { "Confirme na janela.", "Para voltar: Desfazer (seta para tras na barra)." },
+            p => p.Executar(() => LayoutOps.OrdenarPorNome(p.Doc!), $"Reordenar TODAS as {p._folhas.Count} abas de layout pelo nome (ex.: PR-2 antes de PR-10).\n\nA ordem atual das abas sera substituida pela ordem alfabetica/numerica dos nomes. Nenhum layout e alterado por dentro.")),
         new("COPIAR", "copiar", "Copiar layouts", "Layouts",
-            "Copia os layouts marcados; a copia fica logo depois do original.", new[] { "Marque os layouts." }, p => p.ExecutarLongo("Copiando layouts", () => LayoutOps.Copiar(p.Doc!, p.Marcados()))),
+            "Copia os layouts marcados; a copia fica logo depois do original (as abas seguintes andam uma posicao).", new[] { "Marque os layouts." },
+            p => p.ExecutarLongo("Copiando layouts", () => LayoutOps.Copiar(p.Doc!, p.Marcados()), confirmar: p.ConfLayouts("Criar uma copia de cada layout marcado. Cada copia fica logo depois do original, com a mesma vista nas viewports (e uma copia: a vista dela e igual a do original ate voce mudar)."))),
         new("EXCLUIR", "excluir", "Excluir layouts", "Layouts",
             "Exclui os layouts marcados (pede confirmacao).", new[] { "Marque os layouts." }, p => p.Excluir()),
         new("TRAVAR", "travar", "Travar viewports", "Viewports",
-            "Trava a exibicao das viewports marcadas.", new[] { "Marque as viewports na miniatura ou na lista." }, p => p.Executar(() => LayoutOps.Travar(p.Doc!, p.VpsMarcadas(), true))),
+            "Trava a exibicao das viewports marcadas.", new[] { "Marque as viewports na miniatura ou na lista." }, p => p.Executar(() => LayoutOps.Travar(p.Doc!, p.VpsMarcadas(), true), p.ConfVps("Travar a exibicao das viewports marcadas (zoom e pan dentro delas ficam bloqueados). A vista nao muda.", 2))),
         new("DESTRAVAR", "destravar", "Destravar viewports", "Viewports",
-            "Destrava a exibicao das viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Travar(p.Doc!, p.VpsMarcadas(), false))),
+            "Destrava a exibicao das viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Travar(p.Doc!, p.VpsMarcadas(), false), p.ConfVps("Destravar a exibicao das viewports marcadas: um zoom ou pan dentro delas passa a mudar a vista da prancha.", 2))),
         new("LIGAR", "ligar", "Ligar viewports", "Viewports",
-            "Liga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), true))),
+            "Liga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), true), p.ConfVps("Ligar as viewports marcadas (voltam a mostrar o Model).", 2))),
         new("DESLIGAR", "desligar", "Desligar viewports", "Viewports",
-            "Desliga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), false))),
+            "Desliga as viewports marcadas.", new[] { "Marque as viewports." }, p => p.Executar(() => LayoutOps.Ligar(p.Doc!, p.VpsMarcadas(), false), p.ConfVps("Desligar as viewports marcadas (ficam em branco e nao plotam ate religar). A vista nao muda.", 2))),
         new("VPLEVE", "desligar", "Modo leve (desligar/religar viewports)", "Viewports",
             "Desliga as viewports de todos os layouts (marcando-as) para trocar de layout sem regenerar, e religa so essas depois.",
             new[] { "Aba Modo leve: desligar todas, montar as pranchas, religar." }, p => p.SelectCategory("VIEWPORTS", "Leve")),
@@ -198,7 +200,7 @@ internal sealed partial class LayoutPanel : SW.Window
             new[] { "Marque as viewports.", "Aba Norte e escala grafica: ate quantos metros e altura do texto." }, p => p.SelectCategory("VIEWPORTS", "Norte")),
         new("MNE", "malha", "Malha, norte e escala (padrao)", "Viewports",
             "Insere de uma vez a malha de coordenadas, o norte e a escala grafica nas viewports marcadas, pelo padrao salvo (troca os que ja existiam nelas). Para criar o padrao: lance os tres numa viewport, ajuste a mao e use \"Salvar padrao\" com so ela marcada (ou C3DMNE > Padrao).",
-            new[] { "Marque as viewports.", "Clique: insere pelo padrao.", "Botao direito na viewport: salvar padrao / remover." }, p => p.Executar(() => LayoutConjunto.Inserir(p.Doc!, p.VpsMarcadas(), PadraoConjunto.Ler()))),
+            new[] { "Marque as viewports.", "Clique: insere pelo padrao.", "Botao direito na viewport: salvar padrao / remover." }, p => p.Executar(() => LayoutConjunto.Inserir(p.Doc!, p.VpsMarcadas(), PadraoConjunto.Ler()), p.ConfVps("Inserir malha de coordenadas, norte e escala grafica nas viewports marcadas, pelo padrao salvo. Malha/norte/escala inseridos antes pelo plugin nessas viewports sao apagados e refeitos. A vista das viewports nao muda.", 1))),
         new("MNECFG", "config", "Configurar malha, norte e escala", "Viewports",
             "Janela do padrao: intervalo da malha e total da escala grafica (fixos em metros ou automaticos pela escala), altura do norte e dos textos, canto e deslocamento, layers (C3D_MALHA, C3D_NORTE, C3D_ESCALAGRAF).",
             new[] { "Ajuste os valores e OK.", "Depois use Malha, norte e escala nas viewports marcadas." }, p => p.ConfigurarConjunto()),
@@ -236,18 +238,22 @@ internal sealed partial class LayoutPanel : SW.Window
             "Escolhe no layout a caixa onde o mapa-chave fica (a mesma em todos os layouts).",
             new[] { "Clique os dois cantos no papel." }, p => p.Enviar(C3DCommands.Layouts.MapaChave + " Area")),
         new("MCGERAR", "atualizar", "Gerar mapa-chave", "Mapa-chave",
-            "Refaz o mapa-chave em todos os layouts: base, contorno e numero de cada folha e hachura da folha atual.",
-            new[] { "Sem perguntas." }, p => p.ExecutarLongo("Mapa-chave", () => LayoutKeyMap.Gerar(p.Doc!, true))),
+            "Refaz o mapa-chave em todos os layouts: base, contorno e numero de cada folha e hachura da folha atual (pede confirmacao).",
+            new[] { "Confirme na janela." }, p => p.ExecutarLongo("Mapa-chave", () => LayoutKeyMap.Gerar(p.Doc!, true),
+                confirmar: "Refazer o mapa-chave em TODOS os layouts que tem a area do mapa-chave: o desenho do mapa-chave em cada um e apagado e gerado de novo. As viewports das pranchas nao mudam.")),
         new("PPGERAR", "prancha", "Pranchas do eixo", "Pranchas do eixo",
             "Gera frames ao longo de um eixo no tamanho da viewport de planta do layout modelo, uma prancha por frame e um perfil por folha no tamanho da viewport de perfil.",
             new[] { "1. Escolha o layout modelo e as viewports de planta e perfil.", "2. Escolha o eixo.", "3. Estilo do perfil.", "4. Nome das pranchas e Gerar." }, p => p.SelectCategory("PRANCHAS", "Gerar")),
-        new("PPATUALIZAR", "atualizar", "Atualizar pranchas do eixo", "Pranchas do eixo",
-            "Realinha todas as series: estacas pelos frames, viewport de planta, intervalo e cotas do perfil, viewport de perfil e linhas de corte.",
-            new[] { "Mova, gire ou estique os frames no Model e clique aqui (ou deixe o automatico ligado)." }, p => p.AtualizarTodasSeries()),
+        new("PPATUALIZAR", "viewframe", "Realinhar as pranchas do eixo pelos frames", "Pranchas do eixo",
+            "ATENCAO: MUDA A VISTA das viewports. Em todas as series de pranchas do eixo, recentraliza e gira a viewport de planta de cada sheet no seu frame do Model, e refaz estacas, perfil e linhas de corte. Ajustes de vista feitos a mao nessas viewports se perdem. Pede confirmacao e guarda um ponto de restauracao.",
+            new[] { "Mova, gire ou estique os frames no Model e clique aqui.", "Para voltar: Desfazer (seta para tras na barra)." }, p => p.AtualizarTodasSeries()),
         new("PPZOOM", "viewframe", "Zoom no frame da folha", "Pranchas do eixo",
             "Mostra no Model o frame da folha selecionada.", new[] { "Selecione a folha na categoria Pranchas do eixo." }, p => p.ZoomFrame(null)),
-        new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
-            "Le os layouts do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh())
+        new("DESFAZER", "desfazer", "Desfazer / pontos de restauracao", "Geral",
+            "Volta a vista das viewports, a ordem e o nome das abas para como estavam antes de uma acao do painel (cada acao guarda um ponto antes de mexer). Mostra o que muda antes de restaurar; layouts criados depois podem ser excluidos. Nao mexe no resto do desenho.",
+            new[] { "Escolha o ponto (o mais recente e o de antes da ultima acao).", "Confira o resumo e Restaurar." }, p => p.Restaurar()),
+        new("ATUALIZAR", "atualizar", "Reler o painel", "Geral",
+            "So le os layouts do desenho de novo para o painel. NAO muda nada no desenho.", new[] { "Sem perguntas." }, p => p.Refresh())
     };
 
     // ------------------------------------------------------------------
@@ -526,8 +532,14 @@ internal sealed partial class LayoutPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 260 });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1.15, SW.GridUnitType.Star), MinWidth = 300 });
-        _list.SelectionChanged += (_, _) => OnRowSelected();
+        _list.SelectionChanged += (_, e) =>
+        {
+            SelecaoDaLista(e);
+            OnRowSelected();
+        };
         _list.SelectionMode = WC.SelectionMode.Extended;
+        _list.ToolTip = "Clique: mostra a linha (nao marca).\nCtrl+clique e Shift+clique: selecionam e MARCAM varias linhas (Ctrl+clique de novo desmarca).\nCaixinha ou barra de espaco: marca/desmarca as selecionadas.\nBotao direito: acoes nas linhas selecionadas.";
+        WC.ToolTipService.SetInitialShowDelay(_list, 1200);
         _list.PreviewKeyDown += (_, e) =>
         {
             // Barra de espaco: marca/desmarca as linhas selecionadas (pela primeira).
@@ -691,6 +703,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 button.Click += (_, _) =>
                 {
                     PluginLog.Info("Layouts", $"Botao: {c.Title} (categoria {_category})");
+                    _acaoAtual = c.Title;
                     c.Run(this);
                 };
                 _commandBar.Children.Add(button);
@@ -1373,6 +1386,7 @@ internal sealed partial class LayoutPanel : SW.Window
     {
         _grade.Children.Clear();
         _cards.Clear();
+        _marcasCartao.Clear();
         string filtro = _find.Text.Trim();
 
         foreach (SheetData folha in _folhas.Where(f => filtro.Length == 0 || f.Nome.Contains(filtro, StringComparison.OrdinalIgnoreCase)))
@@ -1383,7 +1397,7 @@ internal sealed partial class LayoutPanel : SW.Window
             {
                 IsChecked = _layoutsMarcados.Contains(folha.Nome),
                 VerticalAlignment = SW.VerticalAlignment.Center,
-                ToolTip = "Marcar o layout para os comandos da barra"
+                ToolTip = "Marcar o layout para os comandos da barra (Ctrl+clique no cartao tambem marca; Shift+clique marca do ultimo clicado ate este)"
             };
             SheetData f0 = folha;
             marca.Click += (_, _) =>
@@ -1395,6 +1409,7 @@ internal sealed partial class LayoutPanel : SW.Window
             };
             WC.DockPanel.SetDock(marca, WC.Dock.Left);
             cab.Children.Add(marca);
+            _marcasCartao[folha] = marca;
             var cont = new WC.TextBlock { Foreground = ToolTheme.GraphicText, FontSize = 10.5, VerticalAlignment = SW.VerticalAlignment.Center, Tag = "contagem" };
             WC.DockPanel.SetDock(cont, WC.Dock.Right);
             cab.Children.Add(cont);
@@ -1405,7 +1420,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 Foreground = ToolTheme.GraphicText,
                 Margin = new SW.Thickness(4, 0, 0, 0),
                 TextTrimming = SW.TextTrimming.CharacterEllipsis,
-                ToolTip = $"{folha.Nome}\n{Papel(folha)}\n{folha.Dispositivo}\nDuplo clique abre na vista grande"
+                ToolTip = $"{folha.Nome}\n{Papel(folha)}\n{folha.Dispositivo}\nClique: mostra o layout   Ctrl+clique: marca/desmarca   Shift+clique: marca do ultimo clicado ate este\nDuplo clique abre na vista grande"
             });
             sp.Children.Add(cab);
 
@@ -1425,6 +1440,11 @@ internal sealed partial class LayoutPanel : SW.Window
             };
             card.MouseLeftButtonDown += (_, e) =>
             {
+                if (e.ClickCount == 1 && ClicarCartao(f0))
+                {
+                    e.Handled = true;
+                    return;
+                }
                 if (e.ClickCount == 2)
                 {
                     _folhaAtual = f0;
@@ -1482,12 +1502,7 @@ internal sealed partial class LayoutPanel : SW.Window
             {
                 if (e.ClickCount > 1)
                     return;
-                if (!_vpsMarcadas.Remove(v.Id))
-                    _vpsMarcadas.Add(v.Id);
-                AtualizarViewports();
-                if (_category == "VIEWPORTS")
-                    FillList();
-                Status();
+                ClicarViewport(v);
                 e.Handled = true;
             };
             canvas.Children.Add(forma);
@@ -1629,7 +1644,7 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private string DicaViewport(SheetData folha, SheetViewport vp) =>
         $"{folha.Nome}  viewport #{vp.Indice}\nEscala: {(vp.Escala.Length > 0 ? vp.Escala + "  |  " : "")}{EscalaTexto(vp.EscalaCustom)}\n{vp.Largura:0.##} x {vp.Altura:0.##} no papel\n{EstadoTexto(vp)}" +
-        (vp.Aplicado is null ? "" : $"\nLayer state: {vp.Aplicado}") + "\nClique: marcar/desmarcar   Botao direito: acoes";
+        (vp.Aplicado is null ? "" : $"\nLayer state: {vp.Aplicado}") + "\nClique (ou Ctrl+clique): marcar/desmarcar   Shift+clique: marca todas entre a ultima clicada e esta   Botao direito: acoes";
 
     /// <summary>Botao direito na viewport: informacoes e edicoes rapidas.</summary>
     private WC.ContextMenu MenuViewport(SheetData folha, SheetViewport vp)
@@ -1643,7 +1658,11 @@ internal sealed partial class LayoutPanel : SW.Window
             var mi = new WC.MenuItem { Header = texto };
             if (icone is not null)
                 mi.Icon = new WC.Image { Source = IconOf(icone), Width = 16, Height = 16 };
-            mi.Click += (_, _) => acao();
+            mi.Click += (_, _) =>
+            {
+                _acaoAtual = texto;
+                acao();
+            };
             menu.Items.Add(mi);
         }
         var so = new[] { vp.Id };
@@ -1717,7 +1736,11 @@ internal sealed partial class LayoutPanel : SW.Window
             var mi = new WC.MenuItem { Header = texto };
             if (icone is not null)
                 mi.Icon = new WC.Image { Source = IconOf(icone), Width = 16, Height = 16 };
-            mi.Click += (_, _) => acao();
+            mi.Click += (_, _) =>
+            {
+                _acaoAtual = texto;
+                acao();
+            };
             itens.Add(mi);
             return mi;
         }
@@ -1758,7 +1781,8 @@ internal sealed partial class LayoutPanel : SW.Window
     private void Colar(ObjectId origem, string nomeOrigem, List<ObjectId> destino)
     {
         // O Executar rele o desenho: a coluna Aplicado vem do que ficou gravado em cada viewport.
-        Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino, nomeOrigem));
+        Executar(() => LayoutSheetSeries.ColarCamadas(Doc!, origem, destino, nomeOrigem),
+            destino.Count > 1 ? ConfVps($"Colar o layer state de {nomeOrigem} em {destino.Count} viewport(s): o VP freeze e os overrides de layer delas sao substituidos pelos da origem. A vista nao muda.", 2, destino) : null);
         if (_category == "VIEWPORTS")
             FillList();
     }
@@ -1766,28 +1790,34 @@ internal sealed partial class LayoutPanel : SW.Window
     /// <summary>Botao direito nas linhas da lista de viewports: copiar/colar layer state.</summary>
     private void MenuLista(WC.ContextMenuEventArgs e)
     {
-        if (_category != "VIEWPORTS")
-        {
-            e.Handled = true;
-            return;
-        }
-        List<SheetViewport> sel = _list.SelectedItems.OfType<WC.ListViewItem>()
-            .Select(i => (i.Tag as Row)?.Data).OfType<SheetViewport>().ToList();
-        if (sel.Count == 0)
-        {
-            e.Handled = true;
-            return;
-        }
-        string nome = sel.Count == 1 ? NomeViewport(sel[0]) : $"{sel.Count} viewports";
-        List<WC.MenuItem> itens = ItensCamadas(sel, nome);
-        if (itens.Count == 0)
-        {
-            e.Handled = true;
-            return;
-        }
+        int n = _list.SelectedItems.Count;
         var menu = new WC.ContextMenu();
-        foreach (WC.MenuItem mi in itens)
-            menu.Items.Add(mi);
+        if (_listaComCheck && n > 0)
+        {
+            var marcar = new WC.MenuItem { Header = $"Marcar as {n} linha(s) selecionada(s)" };
+            marcar.Click += (_, _) => MarcarSelecionados(true);
+            var desmarcar = new WC.MenuItem { Header = $"Desmarcar as {n} linha(s) selecionada(s)" };
+            desmarcar.Click += (_, _) => MarcarSelecionados(false);
+            menu.Items.Add(marcar);
+            menu.Items.Add(desmarcar);
+        }
+
+        List<SheetViewport> sel = _category != "VIEWPORTS" ? new List<SheetViewport>() : _list.SelectedItems.OfType<WC.ListViewItem>()
+            .Select(i => (i.Tag as Row)?.Data).OfType<SheetViewport>().ToList();
+        if (sel.Count > 0)
+        {
+            string nome = sel.Count == 1 ? NomeViewport(sel[0]) : $"{sel.Count} viewports";
+            List<WC.MenuItem> itens = ItensCamadas(sel, nome);
+            if (itens.Count > 0 && menu.Items.Count > 0)
+                menu.Items.Add(new WC.Separator());
+            foreach (WC.MenuItem mi in itens)
+                menu.Items.Add(mi);
+        }
+        if (menu.Items.Count == 0)
+        {
+            e.Handled = true;
+            return;
+        }
         _list.ContextMenu = menu;
     }
 
@@ -1948,7 +1978,11 @@ internal sealed partial class LayoutPanel : SW.Window
     private WC.Button ActionButton(string text, Action action)
     {
         var b = new WC.Button { Content = text, MinWidth = 110, Padding = new SW.Thickness(12, 4, 12, 4), Margin = new SW.Thickness(0, 10, 6, 0), HorizontalAlignment = SW.HorizontalAlignment.Left };
-        b.Click += (_, _) => action();
+        b.Click += (_, _) =>
+        {
+            _acaoAtual = text + (_tab.Length > 0 ? $" (aba {_tab})" : "");
+            action();
+        };
         return b;
     }
 
@@ -2084,18 +2118,25 @@ internal sealed partial class LayoutPanel : SW.Window
         numerar.Click += (_, _) => Previa();
         Previa();
 
-        p.Children.Add(ActionButton("Renomear", () => Executar(() =>
+        p.Children.Add(ActionButton("Renomear", () =>
         {
-            OpResult r = LayoutOps.Renomear(Doc!, Marcados(), Regra());
-            // Os layouts renomeados continuam marcados (o Refresh tiraria os nomes que sumiram).
-            foreach (KeyValuePair<string, string> kv in LayoutOps.UltimasRenomeacoes)
+            RenameRule regra = Regra();
+            List<string> nomes = Marcados();
+            Executar(() =>
             {
-                if (_layoutsMarcados.Remove(kv.Key))
-                    _layoutsMarcados.Add(kv.Value);
-            }
+                OpResult r = LayoutOps.Renomear(Doc!, nomes, regra);
+                // Os layouts renomeados continuam marcados (o Refresh tiraria os nomes que sumiram).
+                foreach (KeyValuePair<string, string> kv in LayoutOps.UltimasRenomeacoes)
+                {
+                    if (_layoutsMarcados.Remove(kv.Key))
+                        _layoutsMarcados.Add(kv.Value);
+                }
 
-            return r;
-        })));
+                return r;
+            }, nomes.Count == 0 ? null :
+                $"Renomear {nomes.Count} layout(s):\n\n" + string.Join("\n", nomes.Take(12).Select((n, i) => $"   {n}  ->  {regra.Nome(i, n)}")) +
+                (nomes.Count > 12 ? $"\n   ... e mais {nomes.Count - 12}" : ""));
+        }));
         return p;
     }
 
@@ -2143,7 +2184,8 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             if (_vpsMarcadas.Count == 0) { Say("Marque as viewports."); return; }
             if (!LerEscala(combo.Text, FatorAtual(), out double custom)) { Say("Escala invalida. Use 2, 0.5, 1:500 ou 4:1."); return; }
-            Executar(() => LayoutOps.Escalar(Doc!, VpsMarcadas(), custom, FatorAtual()));
+            Executar(() => LayoutOps.Escalar(Doc!, VpsMarcadas(), custom, FatorAtual()),
+                ConfVps($"Mudar a escala das viewports marcadas para {EscalaTexto(custom)}. O que aparece em cada uma muda (o zoom e refeito pelo centro da vista).", 1));
         }));
         Dispatcher.BeginInvoke(new Action(Previa), SW.Threading.DispatcherPriority.Background);
         return p;
@@ -2213,10 +2255,12 @@ internal sealed partial class LayoutPanel : SW.Window
         b1.Children.Add(ActionButton($"Inserir nas viewports marcadas ({n})", () =>
         {
             LerNorte();
-            Executar(() => LayoutNorte.InserirNasViewports(Doc!, VpsMarcadas(), D(tam, 20), canto.SelectedItem as string ?? "superior direito", D(afast, 8)));
+            Executar(() => LayoutNorte.InserirNasViewports(Doc!, VpsMarcadas(), D(tam, 20), canto.SelectedItem as string ?? "superior direito", D(afast, 8)),
+                ConfVps("Inserir uma seta do norte em cada viewport marcada. A vista nao muda.", 2));
         }));
         b1.Children.Add(ActionButton("Clicar o ponto...", () => { LerNorte(); Enviar(C3DCommands.Layouts.Norte); }));
-        b1.Children.Add(ActionButton("Girar todos pelas viewports", () => Executar(() => LayoutNorte.Girar(Doc!))));
+        b1.Children.Add(ActionButton("Girar todos pelas viewports", () => Executar(() => LayoutNorte.Girar(Doc!),
+            "Girar TODAS as setas do norte do plugin, em todos os layouts, pelo giro da viewport embaixo de cada uma. As viewports nao mudam.")));
         p.Children.Add(b1);
         p.Children.Add(Label("Nas sheets do Plan & Profile: ponha a seta no layout base, dentro da viewport de planta. Cada sheet copia a seta e o Atualizar gira pela viewport dela."));
 
@@ -2241,7 +2285,8 @@ internal sealed partial class LayoutPanel : SW.Window
         b2.Children.Add(ActionButton($"Inserir nas viewports marcadas ({n})", () =>
         {
             LerEscala();
-            Executar(() => LayoutEscalaGrafica.InserirNasViewports(Doc!, VpsMarcadas(), D(max, 25), D(txt, 4), D(afastE, 8)));
+            Executar(() => LayoutEscalaGrafica.InserirNasViewports(Doc!, VpsMarcadas(), D(max, 25), D(txt, 4), D(afastE, 8)),
+                ConfVps("Inserir uma escala grafica em cada viewport marcada. A vista nao muda.", 2));
         }));
         b2.Children.Add(ActionButton("Clicar o ponto... (ESCALAGRAF)", () => { LerEscala(); Enviar(C3DCommands.Layouts.EscalaGrafica); }));
         p.Children.Add(b2);
@@ -2607,7 +2652,8 @@ internal sealed partial class LayoutPanel : SW.Window
                     Say("Marque os layouts que recebem a prancha (caixa na lista ou no cartao).");
                     return;
                 }
-                Executar(() => LayoutSheetBlock.InserirEmLayouts(Doc!, o, ponto, Marcados()));
+                Executar(() => LayoutSheetBlock.InserirEmLayouts(Doc!, o, ponto, Marcados()),
+                    ConfLayouts("Inserir o bloco de prancha em cada layout marcado."));
             }
             else
             {
@@ -2660,7 +2706,7 @@ internal sealed partial class LayoutPanel : SW.Window
             Say("Marque os layouts que devem ser numerados.");
             return;
         }
-        ExecutarLongo("Numerando as pranchas", () =>
+        ExecutarLongo("Numerando as pranchas", confirmar: $"Reescrever o numero e o total nos textos marcados ({(_regra.SoLayoutsMarcados ? $"so nos {_regra.Marcados?.Count ?? 0} layout(s) marcado(s)" : "em todos os layouts")}), na ordem das abas. O texto atual desses campos e substituido.", op: () =>
         {
             OpResult r = LayoutNumbering.Numerar(Doc!, _regra);
             // A lista mostra o texto novo e o papel gravado.
@@ -2877,13 +2923,24 @@ internal sealed partial class LayoutPanel : SW.Window
 
     private List<ObjectId> VpsMarcadas() => _vpsMarcadas.ToList();
 
-    private void Executar(Func<OpResult> op)
+    /// <summary>
+    /// Roda uma acao que mexe no desenho: com <paramref name="confirmar"/>, mostra antes o que vai
+    /// acontecer; sempre guarda um ponto de restauracao (botao Desfazer) antes de mexer.
+    /// </summary>
+    private void Executar(Func<OpResult> op, string? confirmar = null)
     {
         if (Doc is null)
         {
             Say("Nenhum desenho aberto.");
             return;
         }
+        if (confirmar is not null && !Confirmar(confirmar))
+        {
+            MostrarStatus("Cancelado: nada foi alterado.");
+            return;
+        }
+        LayoutRestauracao.Capturar(Doc.Database, _acaoAtual ?? "acao do painel");
+        _acaoAtual = null;
         try
         {
             OpResult r = op();
@@ -2906,8 +2963,14 @@ internal sealed partial class LayoutPanel : SW.Window
     /// Operacao demorada: janela de progresso e cursor de espera enquanto roda. Cancelar so aparece
     /// nas operacoes que param entre etapas (gerar, atualizar, opcoes dos profiles).
     /// </summary>
-    private void ExecutarLongo(string titulo, Func<OpResult> op, bool cancelavel = false)
+    private void ExecutarLongo(string titulo, Func<OpResult> op, bool cancelavel = false, string? confirmar = null)
     {
+        if (Doc is not null && confirmar is not null && !Confirmar(confirmar))
+        {
+            MostrarStatus("Cancelado: nada foi alterado.");
+            return;
+        }
+        _acaoAtual ??= titulo;
         WI.Mouse.OverrideCursor = WI.Cursors.Wait;
         try
         {
@@ -2976,6 +3039,12 @@ internal sealed partial class LayoutPanel : SW.Window
         }
         if (Doc is not Document doc)
             return;
+        if (_vpsMarcadas.Count > 1 && ConfVps($"Aplicar o layer state \"{_layerState}\" nas viewports marcadas: VP freeze e overrides de layer delas sao substituidos. A vista nao muda.", 2) is string texto && !Confirmar(texto))
+        {
+            MostrarStatus("Cancelado: nada foi alterado.");
+            return;
+        }
+        LayoutRestauracao.Capturar(doc.Database, $"aplicar o layer state {_layerState}");
 
         try
         {
@@ -3016,7 +3085,8 @@ internal sealed partial class LayoutPanel : SW.Window
             Say("Preencha pelo menos uma tag.");
             return;
         }
-        Executar(() => LayoutStamp.Aplicar(Doc!, _bloco, nomes, valores));
+        Executar(() => LayoutStamp.Aplicar(Doc!, _bloco, nomes, valores),
+            ConfLayouts($"Escrever no carimbo {_bloco} os valores preenchidos ({string.Join(", ", valores.Keys.Take(6))}{(valores.Count > 6 ? ", ..." : "")}) em cada layout marcado. O valor atual dessas tags e substituido."));
     }
 
     /// <summary>Roda um comando na linha de comando (prompts precisam de contexto de comando).</summary>
@@ -3181,7 +3251,8 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             if (_pageSetup is null) { Say("Escolha um page setup."); return; }
             if (Marcados().Count == 0) { Say("Marque os layouts na lista (ou na vista Todos)."); return; }
-            Executar(() => LayoutPageSetup.AplicarNomeado(Doc!, _pageSetup, Marcados()));
+            Executar(() => LayoutPageSetup.AplicarNomeado(Doc!, _pageSetup, Marcados()),
+                ConfLayouts($"Aplicar o page setup \"{_pageSetup}\" (impressora, papel, area e escala de plotagem) em cada layout marcado."));
         }));
 
         p.Children.Add(Label("Trazer de outro arquivo", true));
@@ -3251,7 +3322,8 @@ internal sealed partial class LayoutPanel : SW.Window
             string? canon = (papel.SelectedItem as WC.ComboBoxItem)?.Tag as string;
             string? st = estilo.SelectedItem as string;
             Executar(() => LayoutPageSetup.AplicarDireto(Doc!, Marcados(),
-                d == manter ? null : d, canon, st == manter ? null : st, layout11.IsChecked == true));
+                d == manter ? null : d, canon, st == manter ? null : st, layout11.IsChecked == true),
+                ConfLayouts("Trocar impressora/papel/estilo de plotagem (os campos escolhidos) em cada layout marcado."));
         }));
         return p;
     }
@@ -3325,7 +3397,8 @@ internal sealed partial class LayoutPanel : SW.Window
 
         string arquivo = dlg.FileName;
         List<ObjectId> alvo = destinos.ToList();
-        Executar(() => LayoutCamadasExternas.Importar(doc, arquivo, origem, alvo));
+        Executar(() => LayoutCamadasExternas.Importar(doc, arquivo, origem, alvo),
+            alvo.Count > 1 ? ConfVps($"Aplicar o layer state da viewport {origem.Rotulo.Split("   ")[0]} de {System.IO.Path.GetFileName(arquivo)} em {alvo.Count} viewport(s): VP freeze e overrides delas sao substituidos. A vista nao muda.", 2, alvo) : null);
         if (_category == "VIEWPORTS")
             FillList();
     }
@@ -3456,10 +3529,10 @@ internal sealed partial class LayoutPanel : SW.Window
                 Say("Erro ao gravar: " + ex.Message);
                 return;
             }
-            Executar(() => LayoutKeyMap.Gerar(doc, true));
+            Executar(() => LayoutKeyMap.Gerar(doc, true), "Refazer o mapa-chave em TODOS os layouts que tem a area do mapa-chave (o desenho antigo do mapa-chave e apagado). As viewports nao mudam.");
         }));
         botoes.Children.Add(ActionButton("Atualizar", () => Executar(() => LayoutKeyMap.Gerar(Doc!, false))));
-        botoes.Children.Add(ActionButton("Remover", () => Executar(() => LayoutKeyMap.Remover(Doc!))));
+        botoes.Children.Add(ActionButton("Remover", () => Executar(() => LayoutKeyMap.Remover(Doc!), "Apagar o mapa-chave de TODOS os layouts.")));
         botoes.Children.Add(ActionButton("Inserir no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Inserir")));
         p.Children.Add(botoes);
         p.Children.Add(Label("Tudo o que o mapa-chave cria fica nas layers MAPA_CHAVE_* e e refeito a cada atualizacao; nao edite esses objetos a mao. A base fica no bloco C3D_MAPACHAVE: \"Salvar e gerar\" refaz o bloco a partir dos objetos do Model."));

@@ -1,3 +1,16 @@
+## 2.74.0 - Layouts v1.15.0: confirmacao antes das acoes em lote, Desfazer (pontos de restauracao), Shift/Ctrl
+
+**Nada mais muda as pranchas sem avisar**
+- **Confirmacao "O que vai acontecer"** antes de toda acao que mexe em varias pranchas/viewports ou em todas as abas: ordenar pelo nome, copiar, renomear (com a lista nome antigo -> novo), escala, travar/destravar/ligar/desligar varias, malha/norte/escala, norte e escala grafica em lote, girar nortes, layer state em varias viewports (aplicar, colar, importar), numerar, carimbo, page setup, prancha nos marcados, mapa-chave, e as pranchas do eixo (gerar, realinhar, reaplicar layout base, passo 3). A janela diz quantas viewports/layouts e quais, e se a VISTA muda ou nao. "Nao perguntar de novo" vale ate fechar o Civil.
+- **Desfazer / pontos de restauracao** (botao com a seta para tras, grupo Geral): antes de cada acao do painel, e antes da atualizacao automatica das pranchas do eixo, o plugin guarda a vista de todas as viewports (centro, escala, giro, posicao e tamanho no papel, travada, ligada) e o nome e a ordem das abas. A janela lista os pontos, mostra o que volta (quantas vistas, ordem, nomes, layouts criados depois) e restaura; os layouts criados depois podem ser excluidos junto. Ultimos 30 pontos por arquivo, em `%AppData%\Civil3D2026Plugin\restauracao` (sobrevivem a fechar o Civil). Restaurar tambem guarda um ponto antes.
+- "Atualizar pranchas do eixo" (mesmo icone do "Atualizar" do painel) virou **"Realinhar as pranchas do eixo pelos frames"**, com outro icone e aviso de que MUDA A VISTA das viewports; "Atualizar" virou **"Reler o painel"** (nao muda o desenho). Na aba das pranchas do eixo, "Atualizar" virou "Realinhar pelos frames" e "Atualizar sheet" virou "Realinhar esta sheet".
+- **Auto-update das pranchas do eixo desligado por padrao** nas series novas (as existentes mantem o que estava gravado); a dica explica que ligado ele realinha as vistas sozinho.
+
+**Marcar varios**
+- Lista: **Ctrl+clique e Shift+clique selecionam e marcam** as linhas (Ctrl+clique de novo desmarca); clique simples so mostra. Botao direito: marcar/desmarcar as selecionadas (todas as categorias).
+- Viewports na miniatura: **Shift+clique marca todas entre a ultima clicada e esta** (na ordem das abas); clique e Ctrl+clique marcam/desmarcam.
+- Cartoes da vista Todos: **Ctrl+clique marca/desmarca o layout, Shift+clique marca do ultimo clicado ate este**.
+- Descricoes dos botoes reescritas dizendo o que cada um muda.
 ## 2.73.0 - Viario v0.12.0: esticar placa + linha de chamada; chamada explodida acompanha
 
 - `C3DVIARIOPLACAS > ARrumar > Esticar` (e "Esticar chamada" no painel): clique a nova ponta da chamada; a placa vai junto, o suporte e a saida da chamada ficam. A ponta fica gravada na placa (XData) e vale para Rotacionar, Mover, Alinhar, Girar180, Lado e Escalar. `Padrao` volta a chamada do SinC.
