@@ -107,3 +107,14 @@ definicao dinamica). A referencia recebe o estado de visibilidade "Implantar". P
 relacao ao suporte (sistema local): coluna (0; -0,275), braco projetado (-3,362; -0,165), semi-portico simples
 (-3,742; -0,387), portico (2,42; -0,385); a placa fica em LDC + (5,657; -6,157). `Área` = m2 sem a virgula.
 Regra do suporte pela area do projeto (tabela do PDF) quando existe; senao pela area do SinC.
+
+## Esticar e chamada explodida (v0.12.0)
+
+`PlacaItem.Chamada` = ponta da linha de chamada (origem da placa) em relacao a saida, no sistema local e sem escala
+(padrao 5,656871; -6,156838). Gravada no XData (campo 23, `x;y`, vazio = padrao). `Place` poe a placa em
+saida + Chamada x escala.
+
+Chamada explodida: `FindExplodedLeaders` junta LWPOLYLINE/LINE (layer `sinC_LinhaDeChamada`, tolerancia 3 x escala,
+ou `0`, tolerancia 0,3 x escala; ate 4 vertices; sem marca do Viario que nao seja `PLACALDC`) com uma ponta na origem
+da placa e segue as pecas encadeadas (ate 3). `MoveExplodedLeader` aplica deslocamento + giro + escala do quadro
+antigo (saida, rotacao e escala da placa antes) para o novo e encosta o vertice da ponta na placa nova.

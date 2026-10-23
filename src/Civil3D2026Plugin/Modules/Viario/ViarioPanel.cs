@@ -1061,7 +1061,7 @@ internal sealed class ViarioPanel : SW.Window
         WC.MenuItem name = new() { Header = "Nomear eixos pela rota/trecho das placas", IsEnabled = exists };
         name.Click += (_, _) => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando.");
         menu.Items.Add(name);
-        WC.MenuItem arrange = new() { Header = "Arrumar por clique (rotacionar, mover, alinhar, 180, lado)", IsEnabled = exists };
+        WC.MenuItem arrange = new() { Header = "Arrumar por clique (rotacionar, mover, esticar, alinhar, 180, lado)", IsEnabled = exists };
         arrange.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS AR ", "Arrumar: clique perto de uma placa."); };
         menu.Items.Add(arrange);
         WC.MenuItem recompute = new() { Header = "Recalcular coordenadas pelo suporte/chamada", IsEnabled = exists };
@@ -3901,7 +3901,8 @@ internal sealed class ViarioPanel : SW.Window
             ViarioPlacaSync.PendingIds = ids;
             Send("C3DVIARIOPLACAS ES ", $"Escalar {ids.Count} placa(s): informe a escala na linha de comando.");
         });
-        Act("Arrumar esta...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR ", "Arrumar: Rotacionar/Mover/Alinhar/Girar180/Lado na linha de comando."); });
+        Act("Arrumar esta...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR ", "Arrumar: Rotacionar/Mover/Esticar/Padrao/Alinhar/Girar180/Lado na linha de comando."); });
+        Act("Esticar chamada", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR E ", "Esticar: clique a nova ponta da chamada (a placa vai junto; o suporte fica)."); });
         Act("Recalcular coordenadas", () =>
         {
             HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);

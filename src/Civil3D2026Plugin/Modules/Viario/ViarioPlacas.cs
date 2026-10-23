@@ -54,6 +54,14 @@ internal sealed class PlacaItem
     /// <summary>Tipo de suporte escolhido pela area (Coluna Simples, Coluna Dupla, Semi-Portico, Portico) ou "".</summary>
     public string SuporteTipo { get; set; } = "";
 
+    /// <summary>Ponta da linha de chamada (= origem da placa) em relacao a saida, no sistema local da placa e sem escala.</summary>
+    public static readonly V2 ChamadaPadrao = new(5.656871, -6.156838);
+
+    /// <summary>Ponta da chamada desta placa (padrao do SinC ou esticada com Arrumar/Esticar).</summary>
+    public V2 Chamada { get; set; } = ChamadaPadrao;
+
+    public bool ChamadaEsticada => V2.Dist(Chamada, ChamadaPadrao) > 1e-3;
+
     /// <summary>Area da placa no SinC (m2).</summary>
     public double AreaSinC => LarguraSinC * AlturaSinC;
 
@@ -101,7 +109,8 @@ internal sealed class PlacaItem
         LarguraSinC.ToString("0.###", CultureInfo.InvariantCulture), AlturaSinC.ToString("0.###", CultureInfo.InvariantCulture),
         AxisKey, S.ToString("0.###", CultureInfo.InvariantCulture), Offset.ToString("0.###", CultureInfo.InvariantCulture),
         Lado.ToString(CultureInfo.InvariantCulture), Rotacao.ToString("0.###", CultureInfo.InvariantCulture),
-        Suporte, DimensaoProjeto, AreaProjeto, TrechoDescricao, MensagemResumo, SuporteTipo, AlturaSuporte
+        Suporte, DimensaoProjeto, AreaProjeto, TrechoDescricao, MensagemResumo, SuporteTipo, AlturaSuporte,
+        ChamadaEsticada ? Chamada.X.ToString("0.####", CultureInfo.InvariantCulture) + ";" + Chamada.Y.ToString("0.####", CultureInfo.InvariantCulture) : ""
     });
 
     public static PlacaItem? Deserialize(string text)
@@ -123,6 +132,8 @@ internal sealed class PlacaItem
             p.Mensagens = f[19].Split(" | ").ToList();
         if (f.Length > 20) p.SuporteTipo = f[20];
         if (f.Length > 21) p.AlturaSuporte = f[21];
+        if (f.Length > 22 && f[22].Split(';') is { Length: 2 } ch)
+            p.Chamada = new V2(Dbl(ch[0]), Dbl(ch[1]));
         return p;
     }
 

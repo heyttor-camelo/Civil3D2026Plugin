@@ -1,3 +1,10 @@
+## 2.73.0 - Viario v0.12.0: esticar placa + linha de chamada; chamada explodida acompanha
+
+- `C3DVIARIOPLACAS > ARrumar > Esticar` (e "Esticar chamada" no painel): clique a nova ponta da chamada; a placa vai junto, o suporte e a saida da chamada ficam. A ponta fica gravada na placa (XData) e vale para Rotacionar, Mover, Alinhar, Girar180, Lado e Escalar. `Padrao` volta a chamada do SinC.
+- Linha de chamada **explodida** (polilinha ou linhas na layer `sinC_LinhaDeChamada` ou `0`, encadeadas a partir da origem da placa) agora gira, move e escala junto com a placa e o suporte, sem deformar, e a ponta encosta na placa. Bloco `sinC_LDC` esticado vira polilinha (o bloco nao estica).
+- `COordenadas` com chamada explodida: o ponto sai da ponta da chamada oposta a placa e a rotacao e a da placa; a chamada esticada a mao no CAD e lida e mantida.
+- Corrigido: contorno da chamada no monitor nao seguia a escala da placa.
+
 ## 2.72.0 - Layouts v1.14.0: janela do padrao de malha, norte e escala; layers padrao
 
 - **Janela de configuracao** (`C3DMNE > Configurar`, botao "Configurar malha, norte e escala" na barra do explorador, grupo Viewports, e no botao direito da viewport): liga/desliga malha, norte e escala grafica; **intervalo fixo da malha em metros** e **total fixo da escala grafica em metros** (vazio = automatico pela escala de cada viewport, como antes); altura do norte e dos textos; canto e deslocamento; layers com lista das layers do desenho; botao "Valores iniciais".

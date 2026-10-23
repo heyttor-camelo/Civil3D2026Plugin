@@ -718,7 +718,7 @@ internal static class ViarioPlacaSync
         AcadDb.Database db = doc.Database;
         int n = 0;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-        foreach (Conjunto c in Conjuntos(tr, db))
+        foreach (Conjunto c in Conjuntos(tr, db, pecas: true))
         {
             if (ids is not null && !ids.Contains(c.Placa.Id))
                 continue;
@@ -737,9 +737,33 @@ internal static class ViarioPlacaSync
         public AcadDb.BlockReference Ref = null!;
         public AcadDb.BlockReference? Ldc;
         public AcadDb.BlockReference? Suporte;
+
+        /// <summary>Linha de chamada explodida (polilinha/linhas encadeadas da ponta na placa ate a saida).</summary>
+        public List<Peca> Pecas = new();
+        /// <summary>Saida da chamada explodida (ponta oposta a placa), no desenho.</summary>
+        public V2? Saida;
+        /// <summary>Rotacao (rad) e escala do bloco da placa antes da mudanca (quadro das pecas).</summary>
+        public double RotAntes;
+        public double EscAntes = 1.0;
     }
 
-    private static List<Conjunto> Conjuntos(AcadDb.Transaction tr, AcadDb.Database db)
+    /// <summary>Pedaco da chamada explodida; <see cref="Fim"/> = vertice que encosta na placa (-1 = nenhum).</summary>
+    private sealed class Peca
+    {
+        public AcadDb.ObjectId Id;
+        public int Fim = -1;
+    }
+
+    private sealed class Curva
+    {
+        public AcadDb.ObjectId Id;
+        public V2 A, B;
+        public bool Ldc;
+        public bool Usada;
+        public int NumVert;
+    }
+
+    private static List<Conjunto> Conjuntos(AcadDb.Transaction tr, AcadDb.Database db, bool pecas = false)
     {
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
@@ -776,9 +800,126 @@ internal static class ViarioPlacaSync
                 c.Ldc = l;
             if (sups.TryGetValue(c.Placa.Id, out AcadDb.BlockReference? sp))
                 c.Suporte = sp;
+            c.RotAntes = c.Ref.Rotation;
+            c.EscAntes = c.Placa.Escala;
         }
 
+        if (pecas)
+            FindExplodedLeaders(tr, ms, list);
         return list;
+    }
+
+    /// <summary>
+    /// Acha a linha de chamada explodida de cada placa: polilinha ou linhas (layer sinC_LinhaDeChamada
+    /// ou 0, onde o EXPLODE do bloco sinC_LDC deixa a polilinha) com uma ponta na origem da placa,
+    /// seguindo as pecas encadeadas ate a saida (no maximo 3).
+    /// </summary>
+    private static void FindExplodedLeaders(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, List<Conjunto> list)
+    {
+        List<Curva> curvas = new();
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (id.IsErased)
+                continue;
+            string dxf = id.ObjectClass.DxfName;
+            if (dxf != "LWPOLYLINE" && dxf != "LINE")
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Curve cv)
+                continue;
+            bool naLdc = string.Equals(cv.Layer, LayerLdc, StringComparison.OrdinalIgnoreCase);
+            if (!naLdc && cv.Layer != "0")
+                continue;
+            string? marca = ViarioStore.ReadTag(cv, out _);
+            if (marca is not null && marca != TagLdc)
+                continue; // eixos e linhas geradas do Viario nunca entram
+            int nv = cv is AcadDb.Polyline pl ? pl.NumberOfVertices : 2;
+            if (nv < 2 || nv > 4 || (cv is AcadDb.Polyline { Closed: true }))
+                continue;
+            curvas.Add(new Curva
+            {
+                Id = id, A = new V2(cv.StartPoint.X, cv.StartPoint.Y), B = new V2(cv.EndPoint.X, cv.EndPoint.Y), Ldc = naLdc, NumVert = nv
+            });
+        }
+
+        if (curvas.Count == 0)
+            return;
+
+        foreach (Conjunto c in list)
+        {
+            double esc = c.EscAntes;
+            V2 origem = new(c.Ref.Position.X, c.Ref.Position.Y);
+            Curva? first = null;
+            bool firstAtA = false;
+            double bestD = double.MaxValue;
+            foreach (Curva k in curvas)
+            {
+                if (k.Usada)
+                    continue;
+                double tol = (k.Ldc ? 3.0 : 0.3) * esc;
+                double da = V2.Dist(k.A, origem), dbb = V2.Dist(k.B, origem);
+                double d = Math.Min(da, dbb);
+                if (d < tol && d < bestD)
+                {
+                    bestD = d;
+                    first = k;
+                    firstAtA = da <= dbb;
+                }
+            }
+
+            if (first is null)
+                continue;
+
+            first.Usada = true;
+            c.Pecas.Add(new Peca { Id = first.Id, Fim = firstAtA ? 0 : first.NumVert - 1 });
+            V2 ponta = firstAtA ? first.B : first.A;
+            double junta = Math.Max(0.02 * esc, 1e-4);
+            for (int guard = 0; guard < 2; guard++)
+            {
+                Curva? next = curvas.FirstOrDefault(k => !k.Usada && (V2.Dist(k.A, ponta) < junta || V2.Dist(k.B, ponta) < junta));
+                if (next is null)
+                    break;
+                next.Usada = true;
+                c.Pecas.Add(new Peca { Id = next.Id });
+                ponta = V2.Dist(next.A, ponta) < junta ? next.B : next.A;
+            }
+
+            c.Saida = ponta;
+        }
+    }
+
+    /// <summary>
+    /// Leva as pecas da chamada explodida do quadro antigo (saida, rotacao e escala de antes) para o
+    /// novo (giro + translacao + escala, sem deformar) e encosta a ponta na origem nova da placa.
+    /// </summary>
+    private static void MoveExplodedLeader(AcadDb.Transaction tr, Conjunto c, Point3d saidaNova, double rotNova, double escNova, Point3d fimNovo)
+    {
+        if (c.Pecas.Count == 0 || c.Saida is not V2 s0)
+            return;
+        Point3d o = new(s0.X, s0.Y, 0.0);
+        Matrix3d m = Matrix3d.Displacement(saidaNova - o)
+            * Matrix3d.Rotation(rotNova - c.RotAntes, Vector3d.ZAxis, o)
+            * Matrix3d.Scaling(c.EscAntes > 1e-9 ? escNova / c.EscAntes : 1.0, o);
+        foreach (Peca pc in c.Pecas)
+        {
+            if (tr.GetObject(pc.Id, AcadDb.OpenMode.ForWrite, false) is not AcadDb.Curve cv)
+                continue;
+            if (!m.IsEqualTo(Matrix3d.Identity))
+                cv.TransformBy(m);
+            if (pc.Fim < 0)
+                continue;
+            switch (cv)
+            {
+                case AcadDb.Polyline pl:
+                    pl.SetPointAt(pc.Fim, new Point2d(fimNovo.X, fimNovo.Y));
+                    break;
+                case AcadDb.Line ln when pc.Fim == 0:
+                    ln.StartPoint = new Point3d(fimNovo.X, fimNovo.Y, ln.StartPoint.Z);
+                    break;
+                case AcadDb.Line ln:
+                    ln.EndPoint = new Point3d(fimNovo.X, fimNovo.Y, ln.EndPoint.Z);
+                    break;
+            }
+        }
     }
 
     /// <summary>
@@ -792,7 +933,7 @@ internal static class ViarioPlacaSync
         double rad = p.Rotacao * Math.PI / 180.0;
         bool comSuporte = c.Suporte is not null && p.SuporteTipo.Length > 0;
         V2 ldcOff = (comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc) * escala;
-        V2 placaOff = ldcOff + ((OffsetPlaca - OffsetLdc) * escala);
+        V2 placaOff = ldcOff + (p.Chamada * escala);
 
         c.Ref.UpgradeOpen();
         c.Ref.Position = Local(p, placaOff, 1.0);
@@ -806,7 +947,31 @@ internal static class ViarioPlacaSync
         SetAttribute(tr, c.Ref, "Lado", p.LadoTexto);
         Tag(c.Ref, TagPlaca, p.Serialize());
 
-        if (c.Ldc is not null)
+        MoveExplodedLeader(tr, c, Local(p, ldcOff, 1.0), rad, escala, Local(p, placaOff, 1.0));
+
+        if (c.Ldc is not null && p.ChamadaEsticada)
+        {
+            // O bloco sinC_LDC nao estica: vira polilinha (como o EXPLODE deixaria), marcada com o id.
+            AcadDb.BlockTableRecord owner = (AcadDb.BlockTableRecord)tr.GetObject(c.Ldc.OwnerId, AcadDb.OpenMode.ForWrite);
+            AcadDb.Polyline pl = new();
+            pl.SetDatabaseDefaults(c.Ldc.Database);
+            V2[] loc = { ldcOff, ldcOff + (new V2(0.0, -0.5) * escala), placaOff };
+            for (int i = 0; i < loc.Length; i++)
+            {
+                Point3d w = Local(p, loc[i], 1.0);
+                pl.AddVertexAt(i, new Point2d(w.X, w.Y), 0.0, 0.0, 0.0);
+            }
+
+            pl.Layer = c.Ldc.Layer;
+            pl.Color = c.Ldc.Color;
+            owner.AppendEntity(pl);
+            tr.AddNewlyCreatedDBObject(pl, true);
+            Tag(pl, TagLdc, p.Id);
+            c.Ldc.UpgradeOpen();
+            c.Ldc.Erase();
+            c.Ldc = null;
+        }
+        else if (c.Ldc is not null)
         {
             c.Ldc.UpgradeOpen();
             c.Ldc.Position = Local(p, ldcOff, 1.0);
@@ -843,9 +1008,8 @@ internal static class ViarioPlacaSync
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
 
-        // Candidatos soltos: suportes do SinC sem vinculo e chamadas explodidas.
+        // Candidatos soltos: suportes do SinC sem vinculo (as chamadas explodidas vem em Conjuntos).
         List<(V2 P, double Rot)> suportes = new();
-        List<(V2 A, V2 B)> chamadas = new();
         foreach (AcadDb.ObjectId id in ms)
         {
             if (id.IsErased)
@@ -856,16 +1020,10 @@ internal static class ViarioPlacaSync
                 case AcadDb.BlockReference br when br.Name.EndsWith("_SVS", StringComparison.OrdinalIgnoreCase) || (br.IsDynamicBlock && DynName(tr, br).EndsWith("_SVS", StringComparison.OrdinalIgnoreCase)):
                     suportes.Add((new V2(br.Position.X, br.Position.Y), br.Rotation * 180.0 / Math.PI));
                     break;
-                case AcadDb.Polyline pl when string.Equals(pl.Layer, LayerLdc, StringComparison.OrdinalIgnoreCase) && pl.NumberOfVertices >= 2:
-                    chamadas.Add((new V2(pl.StartPoint.X, pl.StartPoint.Y), new V2(pl.EndPoint.X, pl.EndPoint.Y)));
-                    break;
-                case AcadDb.Line ln when string.Equals(ln.Layer, LayerLdc, StringComparison.OrdinalIgnoreCase):
-                    chamadas.Add((new V2(ln.StartPoint.X, ln.StartPoint.Y), new V2(ln.EndPoint.X, ln.EndPoint.Y)));
-                    break;
             }
         }
 
-        foreach (Conjunto c in Conjuntos(tr, db))
+        foreach (Conjunto c in Conjuntos(tr, db, pecas: true))
         {
             PlacaItem p = c.Placa;
             if (ids is not null && !ids.Contains(p.Id))
@@ -874,6 +1032,13 @@ internal static class ViarioPlacaSync
             double rot = c.Ref.Rotation * 180.0 / Math.PI;
             V2 origem = new(c.Ref.Position.X, c.Ref.Position.Y);
             V2? ponto = null;
+
+            // Chamada explodida: o comprimento/direcao dela (esticada a mao) vira a ponta da chamada da placa.
+            if (c.Saida is V2 saidaPl && esc > 1e-9)
+            {
+                V2 loc = ViarioPlacas.Rotate(origem - saidaPl, -rot) / esc;
+                p.Chamada = V2.Dist(loc, PlacaItem.ChamadaPadrao) < 0.01 ? PlacaItem.ChamadaPadrao : loc;
+            }
 
             // 1) suporte do conjunto
             if (c.Suporte is not null && !c.Suporte.IsErased)
@@ -890,30 +1055,11 @@ internal static class ViarioPlacaSync
                 ponto = new V2(c.Ldc.Position.X, c.Ldc.Position.Y) - ViarioPlacas.Rotate(ldcOff, rot);
             }
 
-            // 3) chamada explodida: a ponta que cai na origem da placa; a outra ponta e a saida do suporte
-            if (ponto is null)
+            // 3) chamada explodida: a saida dela (ponta oposta a placa) da o ponto; a rotacao e a da placa
+            if (ponto is null && c.Saida is V2 saida)
             {
-                (V2 A, V2 B)? best = null;
-                double bestD = 3.0 * esc;
-                foreach ((V2 a, V2 b) in chamadas)
-                {
-                    double da = V2.Dist(a, origem), dbb = V2.Dist(b, origem);
-                    if (Math.Min(da, dbb) < bestD)
-                    {
-                        bestD = Math.Min(da, dbb);
-                        best = da < dbb ? (b, a) : (a, b); // Item1 = ponta no suporte
-                    }
-                }
-
-                if (best is (V2 saida, V2 fim))
-                {
-                    // Direcao local da chamada (5,657; -6,157) rodada = fim - saida -> rotacao.
-                    V2 d = fim - saida;
-                    double ang = Math.Atan2(d.Y, d.X) - Math.Atan2(-6.156838, 5.656871);
-                    rot = ((ang * 180.0 / Math.PI) % 360.0 + 360.0) % 360.0;
-                    V2 ldcOff = (p.SuporteTipo.Length > 0 ? LdcOffset(p.SuporteTipo) : OffsetLdc) * esc;
-                    ponto = saida - ViarioPlacas.Rotate(ldcOff, rot);
-                }
+                V2 ldcOff = (p.SuporteTipo.Length > 0 ? LdcOffset(p.SuporteTipo) : OffsetLdc) * esc;
+                ponto = saida - ViarioPlacas.Rotate(ldcOff, rot);
             }
 
             // 4) suporte solto mais proximo da origem da placa
@@ -1116,7 +1262,7 @@ internal static class ViarioPlacaSync
         List<AxisInput> axes = ViarioSync.CurrentAxesOnly(db);
         Dictionary<string, string> names = AxisLabels(db, axes);
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-        Conjunto? c = Conjuntos(tr, db).FirstOrDefault(x => x.Placa.Id == id);
+        Conjunto? c = Conjuntos(tr, db, pecas: true).FirstOrDefault(x => x.Placa.Id == id);
         if (c is null)
             return false;
         change(c.Placa, axes, names);
@@ -1165,9 +1311,9 @@ internal static class ViarioPlacaSync
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
         foreach (AcadDb.ObjectId id in ms)
         {
-            if (id.IsErased || id.ObjectClass.DxfName != "INSERT")
+            if (id.IsErased || (id.ObjectClass.DxfName != "INSERT" && id.ObjectClass.DxfName != "LWPOLYLINE"))
                 continue;
-            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.BlockReference br)
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Entity br)
                 continue;
             string? tag = ViarioStore.ReadTag(br, out _);
             if (tag != TagPlaca && tag != TagLdc && tag != TagSuporte)
@@ -1329,12 +1475,12 @@ internal static class ViarioPlacaSync
     public static (List<Seg> Ldc, List<Seg> Placa, V2 Suporte) Footprint(PlacaItem p)
     {
         bool comSuporte = p.SuporteTipo.Length > 0;
-        V2 ldcOff = comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc;
-        V2 origem = ldcOff + ((OffsetPlaca - OffsetLdc) * p.Escala);
+        V2 ldcOff = (comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc) * p.Escala;
+        V2 origem = ldcOff + (p.Chamada * p.Escala);
         double w = p.LarguraSinC * FatorSinC * p.Escala, h = p.AlturaSinC * FatorSinC * p.Escala;
         V2 W(V2 local) => p.Ponto + ViarioPlacas.Rotate(local, p.Rotacao);
 
-        V2 l0 = W(ldcOff), l1 = W(ldcOff + new V2(0.0, -0.5)), l2 = W(ldcOff + new V2(5.656871, -6.156838));
+        V2 l0 = W(ldcOff), l1 = W(ldcOff + new V2(0.0, -0.5 * p.Escala)), l2 = W(origem);
         V2 c0 = W(origem), c1 = W(origem + new V2(w, 0.0)), c2 = W(origem + new V2(w, -h)), c3 = W(origem + new V2(0.0, -h));
         return (new List<Seg> { Seg.Line(l0, l1), Seg.Line(l1, l2) },
                 new List<Seg> { Seg.Line(c0, c1), Seg.Line(c1, c2), Seg.Line(c2, c3), Seg.Line(c3, c0) },
@@ -1772,7 +1918,7 @@ internal static class ViarioPlacaSync
             if (atual is null)
                 return;
             ed.WriteMessage($"\n  Placa {atual.Id} ({atual.Codigo}) - rot. {atual.Rotacao:0.0} graus, {(atual.Vinculada ? atual.AxisName + " est. " + atual.EstacaTexto + " " + atual.LadoTexto : "sem eixo")}");
-            PromptKeywordOptions ko = new("\nArrumar [Rotacionar/Mover/Alinhar/Girar180/Lado/Outra/Sair] <Sair>: ", "Rotacionar Mover Alinhar Girar180 Lado Outra Sair") { AllowNone = true };
+            PromptKeywordOptions ko = new("\nArrumar [Rotacionar/Mover/Esticar/Padrao/Alinhar/Girar180/Lado/Outra/Sair] <Sair>: ", "Rotacionar Mover Esticar Padrao Alinhar Girar180 Lado Outra Sair") { AllowNone = true };
             PromptResult kr = ed.GetKeywords(ko);
             if (kr.Status != PromptStatus.OK || kr.StringResult == "Sair")
                 break;
@@ -1811,6 +1957,32 @@ internal static class ViarioPlacaSync
                     });
                     break;
                 }
+
+                case "Esticar":
+                {
+                    // Placa e ponta da chamada andam juntas; suporte e saida da chamada ficam.
+                    (List<Seg> ldcSeg, _, _) = Footprint(atual);
+                    V2 ponta = ldcSeg[^1].B;
+                    PromptPointOptions so = new("\nNova posicao da ponta da chamada (canto superior esquerdo da placa): ")
+                    {
+                        UseBasePoint = true, BasePoint = new Point3d(ponta.X, ponta.Y, 0.0), UseDashedLine = true
+                    };
+                    PromptPointResult sr = ed.GetPoint(so);
+                    if (sr.Status != PromptStatus.OK)
+                        break;
+                    Point3d w = sr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                    V2 saida = ldcSeg[0].A;
+                    Adjust(doc, idAtual, (p, _, _) =>
+                    {
+                        double esc = p.Escala > 1e-9 ? p.Escala : 1.0;
+                        p.Chamada = ViarioPlacas.Rotate(new V2(w.X, w.Y) - saida, -p.Rotacao) / esc;
+                    });
+                    break;
+                }
+
+                case "Padrao":
+                    Adjust(doc, idAtual, (p, _, _) => p.Chamada = PlacaItem.ChamadaPadrao);
+                    break;
 
                 case "Alinhar":
                     Adjust(doc, idAtual, (p, axes, names) =>
