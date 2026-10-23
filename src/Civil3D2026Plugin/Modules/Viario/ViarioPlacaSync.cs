@@ -1022,7 +1022,6 @@ internal static class ViarioPlacaSync
                 y -= 1.8;
             }
 
-            btr.RecordGraphicsModified(true);
             novos[codigo] = (w / FatorSinC, h / FatorSinC);
             trocados++;
         }
@@ -1039,6 +1038,7 @@ internal static class ViarioPlacaSync
             }
 
             c.Ref.UpgradeOpen();
+            c.Ref.RecordGraphicsModified(true);
             ResyncAttributes(tr, c.Ref);
             SetAttribute(tr, c.Ref, "Dimensão", c.Placa.DimensaoSinC);
             SetAttribute(tr, c.Ref, "Área", c.Placa.AreaSinC.ToString("0.###", CultureInfo.InvariantCulture).Replace(".", ""));
