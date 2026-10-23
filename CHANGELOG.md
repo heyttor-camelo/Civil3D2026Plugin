@@ -21,6 +21,11 @@
 - Lista do explorador: clique no cabecalho ordena (numeros e estacas como numeros), botao direito filtra a coluna (e limpa filtros/ordenacao). Vale para todas as categorias.
 - Monitor mais leve: as hachuras de cada placa viram geometrias congeladas por codigo (uma por cor), com matriz por placa; lacos simplificados; letras/simbolos so quando a placa tem 90 px ou mais; vizinhas limitadas a 40 num raio de 400 m. Rotulo da placa na planta so com o codigo (T-xxx).
 
+- `SUbstituir`: troca a geometria dos blocos `T-xxx_SV` pela dos `.dwg` corrigidos da pasta (atributos ficam e seguem a largura nova; Dimensao/Area regravadas; imagem e cache atualizados).
+- `COordenadas`: recalcula E/N e rotacao de cada placa pelo que esta no desenho - suporte do conjunto, bloco da chamada, chamada explodida (polilinha/linha na layer `sinC_LinhaDeChamada` cuja ponta cai na origem da placa) ou o bloco `*_SVS` mais proximo - e reamarra ao eixo.
+- `ARrumar`: clique perto do conjunto (placa, chamada ou suporte) e escolha Rotacionar (arrastando), Mover (novo ponto do suporte), Alinhar com a via, Girar180, Lado (espelha para o outro lado do eixo) ou Outra; os tres blocos e os atributos acompanham. Tambem pelo painel (placa selecionada).
+- Painel: botao Google Maps na placa (UTM -> lat/lon pelo fuso do Civil 3D, ou 21S) e no atrativo; monitor em tela cheia (⛶) e redesenho correto ao redimensionar.
+
 **Atrativos turisticos**
 - `C3DVIARIOATRATIVOS` (`C3DVIARIO > ATRativos`, categoria **Atrativos** no explorador): importa os pontos de um KML/KMZ (pasta do KML = categoria; coordenadas DMS coladas no nome sao tiradas) e insere cada um como bloco `VIARIO-ATRATIVO` - circulo unitario com hachura solida 70% transparente e ponto central, escala do bloco = raio (padrao 25 m, `Raio` muda todos), atributos NOME (visivel, acompanha a escala), CATEGORIA, LAT, LON, FONTE (invisiveis), layer `VIARIO-ATRATIVOS`. Lat/lon -> E/N pela geolocalizacao do desenho, pelo sistema do Civil ou pelo fuso UTM informado (mesmo criterio dos PEDs). No painel: eixo mais proximo (distancia e estaca) e as placas cujas mensagens citam o atrativo.
 

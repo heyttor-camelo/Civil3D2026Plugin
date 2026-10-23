@@ -1061,6 +1061,15 @@ internal sealed class ViarioPanel : SW.Window
         WC.MenuItem name = new() { Header = "Nomear eixos pela rota/trecho das placas", IsEnabled = exists };
         name.Click += (_, _) => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando.");
         menu.Items.Add(name);
+        WC.MenuItem arrange = new() { Header = "Arrumar por clique (rotacionar, mover, alinhar, 180, lado)", IsEnabled = exists };
+        arrange.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS AR ", "Arrumar: clique perto de uma placa."); };
+        menu.Items.Add(arrange);
+        WC.MenuItem recompute = new() { Header = "Recalcular coordenadas pelo suporte/chamada", IsEnabled = exists };
+        recompute.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS CO ", "Recalcular coordenadas: siga a linha de comando."); };
+        menu.Items.Add(recompute);
+        WC.MenuItem replace = new() { Header = "Substituir blocos T-xxx_SV corrigidos...", IsEnabled = exists };
+        replace.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS SU ", "Substituir blocos: escolha a pasta."); };
+        menu.Items.Add(replace);
         WC.MenuItem scale = new() { Header = "Escalar todas (placa, chamada e suporte)...", IsEnabled = exists };
         scale.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); };
         menu.Items.Add(scale);
@@ -2533,6 +2542,9 @@ internal sealed class ViarioPanel : SW.Window
                         Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos: siga a linha de comando."));
                         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
                         Act("Escalar todas...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); });
+                        Act("Arrumar (clique)...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS AR ", "Arrumar: clique perto de uma placa."); });
+                        Act("Recalcular coordenadas de todas", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS CO ", "Recalcular coordenadas pelo suporte/linha de chamada: siga a linha de comando."); });
+                        Act("Substituir blocos corrigidos...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS SU ", "Substituir blocos T-xxx_SV: escolha a pasta."); });
                     }
 
                     if (_category == "ATRATIVOS")
@@ -3879,6 +3891,7 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         Act("Zoom", ZoomCurrent, true);
+        Act("Google Maps", () => OpenMaps(p.E, p.N));
         Act(_list.SelectedItems.Count > 1 ? $"Escalar {_list.SelectedItems.Count} selecionadas..." : "Escalar esta...", () =>
         {
             HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);
@@ -3887,6 +3900,16 @@ internal sealed class ViarioPanel : SW.Window
             ViarioPlacaSync.PendingIds = ids;
             Send("C3DVIARIOPLACAS ES ", $"Escalar {ids.Count} placa(s): informe a escala na linha de comando.");
         });
+        Act("Arrumar esta...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR ", "Arrumar: Rotacionar/Mover/Alinhar/Girar180/Lado na linha de comando."); });
+        Act("Recalcular coordenadas", () =>
+        {
+            HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);
+            if (ids.Count == 0)
+                ids.Add(p.Id);
+            ViarioPlacaSync.PendingIds = ids;
+            Send("C3DVIARIOPLACAS CO ", $"Recalcular coordenadas de {ids.Count} placa(s) pelo suporte/linha de chamada: siga a linha de comando.");
+        });
+        Act("Substituir bloco...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS SU ", "Substituir o bloco desta placa: escolha a pasta."); });
         Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando."));
         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
         Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."));
@@ -3922,6 +3945,7 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         Act("Zoom", ZoomCurrent, true);
+        Act("Google Maps", () => OpenUrl($"https://www.google.com/maps/search/?api=1&query={a.Lat.ToString("0.#######", CultureInfo.InvariantCulture)},{a.Lon.ToString("0.#######", CultureInfo.InvariantCulture)}"));
         Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
         Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."));
         V2 w = a.Ponto;
@@ -4017,6 +4041,16 @@ internal sealed class ViarioPanel : SW.Window
     private static readonly Dictionary<string, List<(WM.Geometry, WM.Brush, bool)>> SignGeoCache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Dictionary<string, WMI.BitmapSource?> SignBitmapCache = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Esquece imagem e geometria em cache desses codigos (blocos substituidos).</summary>
+    public static void InvalidateSignCaches(IEnumerable<string> codigos)
+    {
+        foreach (string c in codigos)
+        {
+            SignBitmapCache.Remove(c);
+            SignGeoCache.Remove(c);
+        }
+    }
+
     /// <summary>Imagem da placa (T-xxx.jpg/png ou IMG.png do .pla), decodificada a 480 px e congelada; null sem arquivo.</summary>
     private static WMI.BitmapSource? SignBitmap(string codigo)
     {
@@ -4094,6 +4128,42 @@ internal sealed class ViarioPanel : SW.Window
         Flush();
         SignGeoCache[codigo] = parts;
         return parts;
+    }
+
+    /// <summary>Abre o Google Maps na coordenada do desenho (UTM -> lat/lon pelo fuso do Civil 3D; sem fuso, 21S).</summary>
+    private void OpenMaps(double e, double n)
+    {
+        int zone = 21;
+        bool south = true;
+        try
+        {
+            string code = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument.Settings.DrawingSettings.UnitZoneSettings.CoordinateSystemCode ?? "";
+            if (Civil3D2026Plugin.Modules.Quadros.GeoConversion.TryParseZone(code, out int z, out bool s))
+            {
+                zone = z;
+                south = s;
+            }
+        }
+        catch
+        {
+            // sem sistema de coordenadas no desenho: fuso padrao
+        }
+
+        (double lat, double lon) = Civil3D2026Plugin.Modules.Quadros.GeoConversion.UtmToGeographic(e, n, zone, south);
+        OpenUrl($"https://www.google.com/maps/search/?api=1&query={lat.ToString("0.#######", CultureInfo.InvariantCulture)},{lon.ToString("0.#######", CultureInfo.InvariantCulture)}");
+        Say($"Google Maps: {lat:0.######}, {lon:0.######} (fuso {zone}{(south ? "S" : "N")}).");
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // sem navegador padrao
+        }
     }
 
     private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);

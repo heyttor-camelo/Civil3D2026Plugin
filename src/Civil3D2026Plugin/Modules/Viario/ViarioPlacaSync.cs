@@ -718,11 +718,33 @@ internal static class ViarioPlacaSync
         AcadDb.Database db = doc.Database;
         int n = 0;
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (Conjunto c in Conjuntos(tr, db))
+        {
+            if (ids is not null && !ids.Contains(c.Placa.Id))
+                continue;
+            Place(tr, c, escala);
+            n++;
+        }
+
+        tr.Commit();
+        return n;
+    }
+
+    /// <summary>Placa com a linha de chamada e o suporte dela (blocos marcados com o mesmo id).</summary>
+    private sealed class Conjunto
+    {
+        public PlacaItem Placa = null!;
+        public AcadDb.BlockReference Ref = null!;
+        public AcadDb.BlockReference? Ldc;
+        public AcadDb.BlockReference? Suporte;
+    }
+
+    private static List<Conjunto> Conjuntos(AcadDb.Transaction tr, AcadDb.Database db)
+    {
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
-
         Dictionary<string, AcadDb.BlockReference> ldcs = new(StringComparer.Ordinal), sups = new(StringComparer.Ordinal);
-        List<(PlacaItem, AcadDb.BlockReference)> placas = new();
+        List<Conjunto> list = new();
         foreach (AcadDb.ObjectId id in ms)
         {
             if (id.IsErased || id.ObjectClass.DxfName != "INSERT")
@@ -739,48 +761,368 @@ internal static class ViarioPlacaSync
                 case TagPlaca:
                     PlacaItem? p = PlacaItem.Deserialize(string.Concat(values.Skip(1)));
                     if (p is not null)
-                        placas.Add((p, br));
+                    {
+                        p.Escala = Math.Abs(br.ScaleFactors.X) > 1e-9 ? Math.Abs(br.ScaleFactors.X) : 1.0;
+                        list.Add(new Conjunto { Placa = p, Ref = br });
+                    }
+
                     break;
             }
         }
 
-        foreach ((PlacaItem p, AcadDb.BlockReference br) in placas)
+        foreach (Conjunto c in list)
         {
+            if (ldcs.TryGetValue(c.Placa.Id, out AcadDb.BlockReference? l))
+                c.Ldc = l;
+            if (sups.TryGetValue(c.Placa.Id, out AcadDb.BlockReference? sp))
+                c.Suporte = sp;
+        }
+
+        return list;
+    }
+
+    /// <summary>
+    /// Recoloca os tres blocos a partir de E/N, rotacao e escala da placa (como a importacao faz)
+    /// e regrava atributos e XData. O suporte fica no ponto; a chamada e a placa, nas posicoes do SinC.
+    /// </summary>
+    private static void Place(AcadDb.Transaction tr, Conjunto c, double escala)
+    {
+        PlacaItem p = c.Placa;
+        p.Escala = escala;
+        double rad = p.Rotacao * Math.PI / 180.0;
+        bool comSuporte = c.Suporte is not null && p.SuporteTipo.Length > 0;
+        V2 ldcOff = (comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc) * escala;
+        V2 placaOff = ldcOff + ((OffsetPlaca - OffsetLdc) * escala);
+
+        c.Ref.UpgradeOpen();
+        c.Ref.Position = Local(p, placaOff, 1.0);
+        c.Ref.ScaleFactors = new Scale3d(escala);
+        c.Ref.Rotation = rad;
+        ResyncAttributes(tr, c.Ref);
+        SetAttribute(tr, c.Ref, "Nort", "N: " + Coord(p.N));
+        SetAttribute(tr, c.Ref, "Est", "E: " + Coord(p.E));
+        SetAttribute(tr, c.Ref, "Eixo", p.AxisName);
+        SetAttribute(tr, c.Ref, "Estaca/KM", p.EstacaKm);
+        SetAttribute(tr, c.Ref, "Lado", p.LadoTexto);
+        Tag(c.Ref, TagPlaca, p.Serialize());
+
+        if (c.Ldc is not null)
+        {
+            c.Ldc.UpgradeOpen();
+            c.Ldc.Position = Local(p, ldcOff, 1.0);
+            c.Ldc.ScaleFactors = new Scale3d(escala);
+            c.Ldc.Rotation = rad;
+        }
+
+        if (c.Suporte is not null)
+        {
+            c.Suporte.UpgradeOpen();
+            c.Suporte.Position = new Point3d(p.E, p.N, 0.0);
+            c.Suporte.ScaleFactors = new Scale3d(escala);
+            c.Suporte.Rotation = rad;
+            ResyncAttributes(tr, c.Suporte);
+            SetAttribute(tr, c.Suporte, "Eixo", p.AxisName);
+            SetAttribute(tr, c.Suporte, "Estaca/KM", p.EstacaKm);
+            SetAttribute(tr, c.Suporte, "Lado", p.LadoTexto);
+        }
+    }
+
+    /// <summary>
+    /// Recalcula E/N e rotacao de cada placa pelo que esta no desenho: o suporte do conjunto (ou o
+    /// bloco *_SVS mais proximo), senao a linha de chamada (bloco ou polilinha explodida na layer
+    /// sinC_LinhaDeChamada cuja ponta cai na origem da placa). Depois reamarra ao eixo e regrava
+    /// atributos. Retorna (recalculadas, sem referencia).
+    /// </summary>
+    public static (int Ok, int Sem) RecomputeFromDrawing(Document doc, double maxDist, HashSet<string>? ids)
+    {
+        AcadDb.Database db = doc.Database;
+        List<AxisInput> axes = ViarioSync.CurrentAxesOnly(db);
+        Dictionary<string, string> names = AxisLabels(db, axes);
+        int ok = 0, sem = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+
+        // Candidatos soltos: suportes do SinC sem vinculo e chamadas explodidas.
+        List<(V2 P, double Rot)> suportes = new();
+        List<(V2 A, V2 B)> chamadas = new();
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (id.IsErased)
+                continue;
+            AcadDb.Entity? e = tr.GetObject(id, AcadDb.OpenMode.ForRead, false) as AcadDb.Entity;
+            switch (e)
+            {
+                case AcadDb.BlockReference br when br.Name.EndsWith("_SVS", StringComparison.OrdinalIgnoreCase) || (br.IsDynamicBlock && DynName(tr, br).EndsWith("_SVS", StringComparison.OrdinalIgnoreCase)):
+                    suportes.Add((new V2(br.Position.X, br.Position.Y), br.Rotation * 180.0 / Math.PI));
+                    break;
+                case AcadDb.Polyline pl when string.Equals(pl.Layer, LayerLdc, StringComparison.OrdinalIgnoreCase) && pl.NumberOfVertices >= 2:
+                    chamadas.Add((new V2(pl.StartPoint.X, pl.StartPoint.Y), new V2(pl.EndPoint.X, pl.EndPoint.Y)));
+                    break;
+                case AcadDb.Line ln when string.Equals(ln.Layer, LayerLdc, StringComparison.OrdinalIgnoreCase):
+                    chamadas.Add((new V2(ln.StartPoint.X, ln.StartPoint.Y), new V2(ln.EndPoint.X, ln.EndPoint.Y)));
+                    break;
+            }
+        }
+
+        foreach (Conjunto c in Conjuntos(tr, db))
+        {
+            PlacaItem p = c.Placa;
             if (ids is not null && !ids.Contains(p.Id))
                 continue;
-            double rad = p.Rotacao * Math.PI / 180.0;
-            bool comSuporte = sups.ContainsKey(p.Id) && p.SuporteTipo.Length > 0;
-            V2 ldcOff = (comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc) * escala;
-            V2 placaOff = ldcOff + ((OffsetPlaca - OffsetLdc) * escala);
+            double esc = p.Escala;
+            double rot = c.Ref.Rotation * 180.0 / Math.PI;
+            V2 origem = new(c.Ref.Position.X, c.Ref.Position.Y);
+            V2? ponto = null;
 
-            br.UpgradeOpen();
-            br.Position = Local(p, placaOff, 1.0);
-            br.ScaleFactors = new Scale3d(escala);
-            br.Rotation = rad;
-            ResyncAttributes(tr, br);
-
-            if (ldcs.TryGetValue(p.Id, out AcadDb.BlockReference? ldc))
+            // 1) suporte do conjunto
+            if (c.Suporte is not null && !c.Suporte.IsErased)
             {
-                ldc.UpgradeOpen();
-                ldc.Position = Local(p, ldcOff, 1.0);
-                ldc.ScaleFactors = new Scale3d(escala);
-                ldc.Rotation = rad;
+                ponto = new V2(c.Suporte.Position.X, c.Suporte.Position.Y);
+                rot = c.Suporte.Rotation * 180.0 / Math.PI;
             }
 
-            if (sups.TryGetValue(p.Id, out AcadDb.BlockReference? sup))
+            // 2) chamada do conjunto (bloco)
+            if (ponto is null && c.Ldc is not null && !c.Ldc.IsErased)
             {
-                sup.UpgradeOpen();
-                sup.Position = new Point3d(p.E, p.N, 0.0);
-                sup.ScaleFactors = new Scale3d(escala);
-                sup.Rotation = rad;
-                ResyncAttributes(tr, sup);
+                V2 ldcOff = (p.SuporteTipo.Length > 0 ? LdcOffset(p.SuporteTipo) : OffsetLdc) * esc;
+                rot = c.Ldc.Rotation * 180.0 / Math.PI;
+                ponto = new V2(c.Ldc.Position.X, c.Ldc.Position.Y) - ViarioPlacas.Rotate(ldcOff, rot);
             }
 
-            n++;
+            // 3) chamada explodida: a ponta que cai na origem da placa; a outra ponta e a saida do suporte
+            if (ponto is null)
+            {
+                (V2 A, V2 B)? best = null;
+                double bestD = 3.0 * esc;
+                foreach ((V2 a, V2 b) in chamadas)
+                {
+                    double da = V2.Dist(a, origem), dbb = V2.Dist(b, origem);
+                    if (Math.Min(da, dbb) < bestD)
+                    {
+                        bestD = Math.Min(da, dbb);
+                        best = da < dbb ? (b, a) : (a, b); // Item1 = ponta no suporte
+                    }
+                }
+
+                if (best is (V2 saida, V2 fim))
+                {
+                    // Direcao local da chamada (5,657; -6,157) rodada = fim - saida -> rotacao.
+                    V2 d = fim - saida;
+                    double ang = Math.Atan2(d.Y, d.X) - Math.Atan2(-6.156838, 5.656871);
+                    rot = ((ang * 180.0 / Math.PI) % 360.0 + 360.0) % 360.0;
+                    V2 ldcOff = (p.SuporteTipo.Length > 0 ? LdcOffset(p.SuporteTipo) : OffsetLdc) * esc;
+                    ponto = saida - ViarioPlacas.Rotate(ldcOff, rot);
+                }
+            }
+
+            // 4) suporte solto mais proximo da origem da placa
+            if (ponto is null && suportes.Count > 0)
+            {
+                (V2 P, double Rot) near = suportes.OrderBy(sp => V2.Dist(sp.P, origem)).First();
+                if (V2.Dist(near.P, origem) < 30.0 * esc)
+                {
+                    ponto = near.P;
+                    rot = near.Rot;
+                }
+            }
+
+            if (ponto is null)
+            {
+                sem++;
+                continue;
+            }
+
+            p.E = ponto.Value.X;
+            p.N = ponto.Value.Y;
+            p.Rotacao = rot;
+            ViarioPlacas.Link(p, axes, names, maxDist);
+            p.Rotacao = rot; // Link recalcula a rotacao pela via; aqui vale a do desenho
+            Place(tr, c, esc);
+            ok++;
         }
 
         tr.Commit();
-        return n;
+        return (ok, sem);
+    }
+
+    private static string DynName(AcadDb.Transaction tr, AcadDb.BlockReference br)
+    {
+        try
+        {
+            return ((AcadDb.BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, AcadDb.OpenMode.ForRead)).Name;
+        }
+        catch
+        {
+            return br.Name;
+        }
+    }
+
+    /// <summary>
+    /// Troca a geometria do bloco T-xxx_SV pela do T-xxx_SV.dwg atual da pasta (placas corrigidas
+    /// no SinC). Atributos ficam; os visiveis seguem a largura nova; dimensoes/area das placas
+    /// sao regravadas. Retorna (blocos trocados, sem arquivo).
+    /// </summary>
+    public static (int Trocados, List<string> SemArquivo) ReplaceBlocks(Document doc, string pasta, HashSet<string>? codigos)
+    {
+        AcadDb.Database db = doc.Database;
+        int trocados = 0;
+        List<string> semArquivo = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        List<Conjunto> conjuntos = Conjuntos(tr, db);
+        Dictionary<string, (double W, double H)> novos = new(StringComparer.OrdinalIgnoreCase);
+
+        foreach (string codigo in conjuntos.Select(c => c.Placa.Codigo).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (codigos is not null && !codigos.Contains(codigo))
+                continue;
+            string blockName = codigo + "_SV";
+            string file = Path.Combine(pasta, blockName + ".dwg");
+            if (!bt.Has(blockName) || !File.Exists(file))
+            {
+                semArquivo.Add(codigo);
+                continue;
+            }
+
+            // Importa o DWG novo como bloco temporario e copia as entidades para a definicao existente.
+            string tempName = blockName + "$NOVO";
+            AcadDb.ObjectId tempId;
+            using (AcadDb.Database side = new(false, true))
+            {
+                side.ReadDwgFile(file, AcadDb.FileOpenMode.OpenForReadAndAllShare, true, null);
+                side.CloseInput(true);
+                tempId = db.Insert(tempName, side, false);
+            }
+
+            AcadDb.BlockTableRecord btr = (AcadDb.BlockTableRecord)tr.GetObject(bt[blockName], AcadDb.OpenMode.ForWrite);
+            foreach (AcadDb.ObjectId id in btr.Cast<AcadDb.ObjectId>().ToList())
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is AcadDb.AttributeDefinition)
+                    continue;
+                tr.GetObject(id, AcadDb.OpenMode.ForWrite).Erase();
+            }
+
+            AcadDb.BlockTableRecord temp = (AcadDb.BlockTableRecord)tr.GetObject(tempId, AcadDb.OpenMode.ForWrite);
+            AcadDb.ObjectIdCollection ids = new();
+            foreach (AcadDb.ObjectId id in temp)
+                ids.Add(id);
+            AcadDb.IdMapping map = new();
+            db.DeepCloneObjects(ids, btr.ObjectId, map, false);
+            temp.Erase();
+
+            double w = BlockWidth(tr, btr), h = BlockHeight(tr, btr);
+            double y = -0.9;
+            foreach (AcadDb.ObjectId id in btr)
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not AcadDb.AttributeDefinition ad || ad.Invisible)
+                    continue;
+                ad.UpgradeOpen();
+                ad.Position = new Point3d(w + 1.0, y, 0.0);
+                y -= 1.8;
+            }
+
+            btr.RecordGraphicsModified(true);
+            novos[codigo] = (w / FatorSinC, h / FatorSinC);
+            trocados++;
+        }
+
+        // Placas desse codigo: dimensoes/area novas e atributos reposicionados.
+        foreach (Conjunto c in conjuntos)
+        {
+            if (!novos.TryGetValue(c.Placa.Codigo, out (double W, double H) dim))
+                continue;
+            if (dim.W > 0.1 && dim.H > 0.1)
+            {
+                c.Placa.LarguraSinC = Math.Round(dim.W, 3);
+                c.Placa.AlturaSinC = Math.Round(dim.H, 3);
+            }
+
+            c.Ref.UpgradeOpen();
+            ResyncAttributes(tr, c.Ref);
+            SetAttribute(tr, c.Ref, "Dimensão", c.Placa.DimensaoSinC);
+            SetAttribute(tr, c.Ref, "Área", c.Placa.AreaSinC.ToString("0.###", CultureInfo.InvariantCulture).Replace(".", ""));
+            Tag(c.Ref, TagPlaca, c.Placa.Serialize());
+        }
+
+        tr.Commit();
+        lock (ShapeCache)
+        {
+            foreach (string codigo in novos.Keys)
+                ShapeCache.Remove(codigo + "_SV");
+        }
+
+        lock (ImageCache)
+        {
+            foreach (string codigo in novos.Keys)
+                ImageCache.Remove(codigo);
+        }
+
+        ViarioPanel.InvalidateSignCaches(novos.Keys);
+        return (trocados, semArquivo);
+    }
+
+    private static double BlockHeight(AcadDb.Transaction tr, AcadDb.BlockTableRecord btr)
+    {
+        double min = 0.0;
+        foreach (AcadDb.ObjectId id in btr)
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not AcadDb.Entity e || e is AcadDb.AttributeDefinition)
+                continue;
+            try
+            {
+                min = Math.Min(min, e.GeometricExtents.MinPoint.Y);
+            }
+            catch
+            {
+                // sem extensao
+            }
+        }
+
+        return -min;
+    }
+
+    /// <summary>
+    /// Conjunto mais proximo de um ponto (placa, chamada ou suporte a ate <paramref name="maxDist"/> m), pelo id.
+    /// </summary>
+    public static string? NearestId(AcadDb.Database db, V2 pt, double maxDist)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        string? best = null;
+        double bestD = maxDist;
+        foreach (Conjunto c in Conjuntos(tr, db))
+        {
+            List<V2> pts = new() { c.Placa.Ponto, new V2(c.Ref.Position.X, c.Ref.Position.Y) };
+            // centro da placa
+            (_, List<Seg> rect, _) = Footprint(c.Placa);
+            pts.Add((rect[0].A + rect[2].A) / 2.0);
+            if (c.Ldc is not null)
+                pts.Add(new V2(c.Ldc.Position.X, c.Ldc.Position.Y));
+            double d = pts.Min(q => V2.Dist(q, pt));
+            if (d < bestD)
+            {
+                bestD = d;
+                best = c.Placa.Id;
+            }
+        }
+
+        return best;
+    }
+
+    /// <summary>Aplica uma mudanca (rotacao, ponto, alinhamento) a um conjunto e recoloca os blocos.</summary>
+    public static bool Adjust(Document doc, string id, Action<PlacaItem, List<AxisInput>, Dictionary<string, string>> change)
+    {
+        AcadDb.Database db = doc.Database;
+        List<AxisInput> axes = ViarioSync.CurrentAxesOnly(db);
+        Dictionary<string, string> names = AxisLabels(db, axes);
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        Conjunto? c = Conjuntos(tr, db).FirstOrDefault(x => x.Placa.Id == id);
+        if (c is null)
+            return false;
+        change(c.Placa, axes, names);
+        Place(tr, c, c.Placa.Escala);
+        tr.Commit();
+        return true;
     }
 
     /// <summary>Reposiciona os atributos depois de mudar escala/rotacao do bloco (texto e mantido).</summary>
@@ -1166,8 +1508,8 @@ internal static class ViarioPlacaSync
         Editor ed = doc.Editor;
         int existing = Count(doc.Database);
         PromptKeywordOptions options = new(
-            $"\nPlacas verticais ({existing} no desenho) [Importar/PAsta/ATualizar/NOmear/EScalar/Listar/Remover/Painel] <Importar>: ",
-            "Importar PAsta ATualizar NOmear EScalar Listar Remover Painel")
+            $"\nPlacas verticais ({existing} no desenho) [Importar/PAsta/SUbstituir/ATualizar/COordenadas/ARrumar/NOmear/EScalar/Listar/Remover/Painel] <Importar>: ",
+            "Importar PAsta SUbstituir ATualizar COordenadas ARrumar NOmear EScalar Listar Remover Painel")
         {
             AllowNone = true
         };
@@ -1180,6 +1522,9 @@ internal static class ViarioPlacaSync
         {
             case "PAsta": ImportFolderCommand(doc); break;
             case "EScalar": ScaleCommand(doc); break;
+            case "SUbstituir": ReplaceCommand(doc); break;
+            case "COordenadas": RecomputeCommand(doc); break;
+            case "ARrumar": ArrangeCommand(doc); break;
             case "ATualizar": RelinkCommand(doc); break;
             case "NOmear": NameCommand(doc); break;
             case "Listar": ListCommand(doc); break;
@@ -1352,6 +1697,160 @@ internal static class ViarioPlacaSync
             return;
         o.Suportes = sr.Status != PromptStatus.OK || sr.StringResult == "Sim";
         RunImport(doc, cat, pasta, o);
+    }
+
+    private static void ReplaceCommand(Document doc)
+    {
+        Editor ed = doc.Editor;
+        HashSet<string>? codigos = PendingIds is null ? null : CodigosDe(doc.Database, PendingIds);
+        PendingIds = null;
+        string? pasta = AskFolder("Pasta com os T-xxx_SV.dwg corrigidos", "pastaSinC");
+        if (pasta is null)
+            return;
+        (int trocados, List<string> sem) = ReplaceBlocks(doc, pasta, codigos);
+        ed.WriteMessage($"\n  {trocados} bloco(s) de placa substituido(s) pela versao da pasta; as placas no desenho ja mostram o desenho novo.");
+        if (sem.Count > 0)
+            ed.WriteMessage($"\n  Sem arquivo na pasta ({sem.Count}): {string.Join(", ", sem.Take(20))}{(sem.Count > 20 ? "..." : "")}");
+        ed.Regen();
+        ViarioPanel.NotifyChanged(doc);
+    }
+
+    private static HashSet<string> CodigosDe(AcadDb.Database db, HashSet<string> ids)
+    {
+        HashSet<string> set = new(StringComparer.OrdinalIgnoreCase);
+        foreach (PlacaItem p in Read(db))
+        {
+            if (ids.Contains(p.Id))
+                set.Add(p.Codigo);
+        }
+
+        return set;
+    }
+
+    private static void RecomputeCommand(Document doc)
+    {
+        Editor ed = doc.Editor;
+        HashSet<string>? ids = PendingIds;
+        PendingIds = null;
+        Opcoes o = new();
+        PromptDoubleOptions dmax = new($"\nDistancia maxima do ponto ao eixo (m) <{o.DistanciaMaxima:0}>: ")
+        {
+            AllowNone = true, AllowNegative = false, AllowZero = false, DefaultValue = o.DistanciaMaxima, UseDefaultValue = true
+        };
+        PromptDoubleResult dr = ed.GetDouble(dmax);
+        if (dr.Status == PromptStatus.Cancel)
+            return;
+        (int ok, int sem) = RecomputeFromDrawing(doc, dr.Status == PromptStatus.OK ? dr.Value : o.DistanciaMaxima, ids);
+        ed.WriteMessage($"\n  {ok} placa(s) com coordenadas recalculadas pelo suporte/linha de chamada do desenho; {sem} sem referencia (ficaram como estavam).");
+        ViarioPanel.NotifyChanged(doc);
+    }
+
+    /// <summary>Clique perto do conjunto e escolha: Rotacionar, Mover, Alinhar com a via, Girar 180, Lado.</summary>
+    private static void ArrangeCommand(Document doc)
+    {
+        Editor ed = doc.Editor;
+        string? id = PendingIds?.FirstOrDefault();
+        PendingIds = null;
+        while (true)
+        {
+            if (id is null)
+            {
+                PromptPointOptions po = new("\nClique perto da placa, da linha de chamada ou do suporte (Enter sai): ") { AllowNone = true };
+                PromptPointResult pr = ed.GetPoint(po);
+                if (pr.Status != PromptStatus.OK)
+                    return;
+                Point3d w = pr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                id = NearestId(doc.Database, new V2(w.X, w.Y), 40.0);
+                if (id is null)
+                {
+                    ed.WriteMessage("\n  Nenhuma placa deste modulo a menos de 40 m.");
+                    continue;
+                }
+            }
+
+            PlacaItem? atual = Read(doc.Database).FirstOrDefault(p => p.Id == id);
+            if (atual is null)
+                return;
+            ed.WriteMessage($"\n  Placa {atual.Id} ({atual.Codigo}) - rot. {atual.Rotacao:0.0} graus, {(atual.Vinculada ? atual.AxisName + " est. " + atual.EstacaTexto + " " + atual.LadoTexto : "sem eixo")}");
+            PromptKeywordOptions ko = new("\nArrumar [Rotacionar/Mover/Alinhar/Girar180/Lado/Outra/Sair] <Sair>: ", "Rotacionar Mover Alinhar Girar180 Lado Outra Sair") { AllowNone = true };
+            PromptResult kr = ed.GetKeywords(ko);
+            if (kr.Status != PromptStatus.OK || kr.StringResult == "Sair")
+                break;
+
+            string idAtual = id;
+            switch (kr.StringResult)
+            {
+                case "Rotacionar":
+                {
+                    PromptAngleOptions ao = new("\nNova direcao do bloco (eixo X da placa; arraste a partir do ponto de implantacao): ")
+                    {
+                        UseBasePoint = true, BasePoint = new Point3d(atual.E, atual.N, 0.0), UseDashedLine = true
+                    };
+                    PromptDoubleResult ar = ed.GetAngle(ao);
+                    if (ar.Status != PromptStatus.OK)
+                        break;
+                    double deg = ar.Value * 180.0 / Math.PI;
+                    Adjust(doc, idAtual, (p, _, _) => p.Rotacao = ((deg % 360.0) + 360.0) % 360.0);
+                    break;
+                }
+
+                case "Mover":
+                {
+                    PromptPointOptions mo = new("\nNovo ponto de implantacao (suporte): ") { UseBasePoint = true, BasePoint = new Point3d(atual.E, atual.N, 0.0), UseDashedLine = true };
+                    PromptPointResult mr = ed.GetPoint(mo);
+                    if (mr.Status != PromptStatus.OK)
+                        break;
+                    Point3d w = mr.Value.TransformBy(ed.CurrentUserCoordinateSystem);
+                    Adjust(doc, idAtual, (p, axes, names) =>
+                    {
+                        double rot = p.Rotacao;
+                        p.E = w.X;
+                        p.N = w.Y;
+                        ViarioPlacas.Link(p, axes, names, 60.0);
+                        p.Rotacao = rot;
+                    });
+                    break;
+                }
+
+                case "Alinhar":
+                    Adjust(doc, idAtual, (p, axes, names) =>
+                    {
+                        if (!ViarioPlacas.Link(p, axes, names, 200.0))
+                            ed.WriteMessage("\n  Sem eixo a menos de 200 m; rotacao mantida.");
+                    });
+                    break;
+
+                case "Girar180":
+                    Adjust(doc, idAtual, (p, _, _) => p.Rotacao = (p.Rotacao + 180.0) % 360.0);
+                    break;
+
+                case "Lado":
+                    // Espelha o conjunto para o outro lado do eixo (ponto refletido no eixo, rotacao pela via).
+                    Adjust(doc, idAtual, (p, axes, names) =>
+                    {
+                        AxisInput? a = axes.FirstOrDefault(x => x.Key == p.AxisKey);
+                        if (a is null)
+                        {
+                            ed.WriteMessage("\n  Placa sem eixo vinculado.");
+                            return;
+                        }
+
+                        (_, V2 pe, _) = a.Path.Project(p.Ponto);
+                        V2 esp = pe - (p.Ponto - pe);
+                        p.E = esp.X;
+                        p.N = esp.Y;
+                        ViarioPlacas.Link(p, axes, names, 200.0);
+                    });
+                    break;
+
+                case "Outra":
+                    id = null;
+                    continue;
+            }
+
+            ed.UpdateScreen();
+            ViarioPanel.NotifyChanged(doc);
+        }
     }
 
     private static void ScaleCommand(Document doc)
