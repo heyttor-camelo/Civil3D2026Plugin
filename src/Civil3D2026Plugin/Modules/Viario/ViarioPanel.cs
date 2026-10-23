@@ -108,6 +108,7 @@ internal sealed class ViarioPanel : SW.Window
     private const double HintCell = 30.0;
     private bool _civilActive;
     private bool _signExists;
+    private List<PlacaItem> _placas = new();
     private bool _refreshQueued;
 
     /// <summary>Quantas vezes o painel foi atualizado (o aviso na fila pula se ja houve uma depois dele).</summary>
@@ -212,6 +213,9 @@ internal sealed class ViarioPanel : SW.Window
             "Alinhamentos do Civil: eixos, bordos LD/LE e curb returns conectados.", new[] { "Gera ou atualiza; depois acompanham a rede." }),
         new("SINAL", "C3DVIARIOSINAL G ", "Sinalizacao horizontal", "Saidas",
             "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "O botao abre o menu: gerar/atualizar, ocultar, mostrar, remover.", "Opcoes na categoria Sinalizacao." }),
+        new("PLACAS", "C3DVIARIOPLACAS ", "Placas verticais (SinC)", "Saidas",
+            "Importa as placas de um projeto e insere cada uma no padrao do SinC (bloco T-xxx_SV com atributos e linha de chamada), amarrada ao eixo mais proximo.",
+            new[] { "Importar: catalogo JSON/CSV e pasta dos T-xxx_SV.dwg.", "ATualizar: recalcula eixo, estaca e lado depois de editar eixos.", "NOmear: da aos eixos o nome da rota/trecho das placas." }),
         new("HACHURA", "C3DVIARIOHACHURA G ", "Hachura do pavimento", "Saidas",
             "Uma hachura so da regiao de pavimento: contorno pelas faces de meio-fio, quadras, canteiros e ilhas como furos; acompanha a rede.",
             new[] { "O botao abre o menu: gerar/atualizar, padrao, escala, solido com transparencia, ocultar, remover." }),
@@ -231,6 +235,7 @@ internal sealed class ViarioPanel : SW.Window
         ("ESQUINAS", "RAIO", "Esquinas"),
         ("ILHAS", "GOTA", "Ilhas canalizadoras"),
         ("SINAL", "SINAL", "Sinalizacao horizontal"),
+        ("PLACAS", "PLACAS", "Placas verticais"),
         ("CIVIL", "CIVIL", "Objetos do Civil"),
         ("AVISOS", "AVISOS", "Recomendacoes DNIT"),
         ("CONSULTA", "CONSULTA", "Consulta (tabelas dos manuais)"),
@@ -712,6 +717,19 @@ internal sealed class ViarioPanel : SW.Window
                     };
                     button.Click += (_, _) => OpenHatchMenu(button);
                 }
+                else if (c.Key == "PLACAS")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenPlacasMenu(button);
+                }
                 else if (c.Key == "RECONCORDAR")
                 {
                     button.Content = new WC.StackPanel
@@ -971,6 +989,33 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     /// <summary>Menu do botao Hachura: gerar/atualizar, padrao, escala, solido, ocultar/mostrar, remover.</summary>
+    private void OpenPlacasMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+        bool exists = _placas.Count > 0;
+        WC.MenuItem import = new() { Header = "Importar placas (JSON/CSV + pasta do SinC)...", FontWeight = SW.FontWeights.Bold };
+        import.Click += (_, _) => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando.");
+        menu.Items.Add(import);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem relink = new() { Header = "Atualizar eixo, estaca e lado", IsEnabled = exists };
+        relink.Click += (_, _) => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando.");
+        menu.Items.Add(relink);
+        WC.MenuItem name = new() { Header = "Nomear eixos pela rota/trecho das placas", IsEnabled = exists };
+        name.Click += (_, _) => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando.");
+        menu.Items.Add(name);
+        WC.MenuItem list = new() { Header = "Listar na linha de comando", IsEnabled = exists };
+        list.Click += (_, _) => Send("C3DVIARIOPLACAS L ", "Lista das placas na linha de comando.");
+        menu.Items.Add(list);
+        WC.MenuItem show = new() { Header = "Ver no painel" };
+        show.Click += (_, _) => SelectCategory("PLACAS");
+        menu.Items.Add(show);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem remove = new() { Header = "Remover todas as placas", IsEnabled = exists };
+        remove.Click += (_, _) => Send("C3DVIARIOPLACAS R ", "Remover placas: confirme na linha de comando.");
+        menu.Items.Add(remove);
+        menu.IsOpen = true;
+    }
+
     private void OpenHatchMenu(WC.Button anchor)
     {
         WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
@@ -1305,6 +1350,7 @@ internal sealed class ViarioPanel : SW.Window
             _civilActive = ViarioCivil.IsActive(db);
             _names = _civilActive ? ViarioCivil.AxisNames(db) : new Dictionary<string, string>();
             _signExists = ViarioSignageSync.Exists(db);
+            _placas = ViarioPlacaSync.Read(db);
 
             // Recomendacoes so sao refeitas quando a rede, os eixos ou os registros mudam.
             ulong stamp = HintsStamp(_axes);
@@ -1340,6 +1386,7 @@ internal sealed class ViarioPanel : SW.Window
         "ESQUINAS" => _result.Corners.Count,
         "ILHAS" => Islands().Count,
         "SINAL" => _signExists ? 1 : 0,
+        "PLACAS" => _placas.Count,
         "CIVIL" => _names.Count,
         "AVISOS" => _hints.Count,
         "CONSULTA" => ViarioReference.All.Length,
@@ -1579,6 +1626,23 @@ internal sealed class ViarioPanel : SW.Window
                 }
 
                 return (new[] { "Marca", "Descricao", "Qtde" }, new double[] { 60, 280, 60 }, rows);
+
+            case "PLACAS":
+                foreach (PlacaItem p in _placas)
+                {
+                    rows.Add(new Row
+                    {
+                        Id = "PL:" + p.Id, Icon = "PLACAS", Data = p,
+                        Cells = new[]
+                        {
+                            p.Id, p.Codigo, p.Vinculada ? AxisLabel(p.AxisKey) : "(sem eixo)", p.EstacaTexto, p.LadoTexto,
+                            p.Vinculada ? N(p.Offset, 1) : "", p.Trecho, p.MensagemResumo
+                        }
+                    });
+                }
+
+                return (new[] { "Id", "SinC", "Eixo", "Estaca", "Lado", "Afast. [m]", "Trecho", "Mensagens" },
+                    new double[] { 90, 60, 170, 80, 45, 70, 55, 320 }, rows);
 
             case "CIVIL":
                 for (int i = 0; i < _axes.Count; i++)
@@ -2210,6 +2274,7 @@ internal sealed class ViarioPanel : SW.Window
             case CornerInfo c: ShowCorner(c); break;
             case OutputLine isl: ShowIsland(isl); break;
             case string kind when _category == "SINAL": ShowSignage(kind); break;
+            case PlacaItem placa: ShowPlaca(placa); break;
             case Hint h: ShowHint(h); break;
             case RefTable t:
                 Prop("Fonte", t.Source);
@@ -2226,6 +2291,14 @@ internal sealed class ViarioPanel : SW.Window
                     Prop("Rede", $"{_axes.Count} eixo(s), {_result.Nodes.Count} no(s)");
                     if (_category == "SECOES")
                         Act("Nova secao", () => NewSection(null), true);
+                    if (_category == "PLACAS")
+                    {
+                        Prop("Placas", $"{_placas.Count} no desenho, {_placas.Count(p => !p.Vinculada)} sem eixo");
+                        Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."), true);
+                        Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos: siga a linha de comando."));
+                        Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
+                    }
+
                     _render = () => RenderMap(null, null);
                 }
 
@@ -3529,6 +3602,48 @@ internal sealed class ViarioPanel : SW.Window
 
     // ---------------- Civil, avisos, config ----------------
 
+    private void ShowPlaca(PlacaItem p)
+    {
+        Category("Placa " + p.Id);
+        Prop("Arquivo SinC", p.Codigo + "_SV.dwg");
+        Prop("Trecho", $"{p.Trecho} {p.Rota}".Trim());
+        if (p.TrechoDescricao.Length > 0)
+            Prop("Descricao do trecho", p.TrechoDescricao);
+        Prop("Sentido / item", $"{p.Sentido}-{p.Item:00}");
+        Prop("Mensagens", p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-");
+        Prop("Dimensoes", $"SinC {p.DimensaoSinC} ({p.AreaDm2} dm2)" + (p.DimensaoProjeto.Length > 0 ? $" | projeto {p.DimensaoProjeto}" : ""));
+        if (p.Suporte.Length > 0)
+            Prop("Suporte", p.Suporte);
+        Prop("E / N", $"{N(p.E)} ; {N(p.N)}");
+        Category("Vinculo com a rede");
+        if (p.Vinculada)
+        {
+            Prop("Eixo", AxisLabel(p.AxisKey) + (p.AxisName.Length == 0 ? " (sem nome)" : ""));
+            Prop("Estaca", $"{p.EstacaTexto} (km {N(p.S / 1000.0, 3)})");
+            Prop("Lado", p.Lado > 0 ? "esquerda (LE)" : "direita (LD)");
+            Prop("Afastamento do eixo", N(p.Offset, 2) + " m");
+            Prop("Rotacao do bloco", N(p.Rotacao, 1) + " graus");
+        }
+        else
+        {
+            Prop("Eixo", "nenhum a menos da distancia maxima (rode ATualizar com outra distancia)");
+        }
+
+        Act("Zoom", ZoomCurrent, true);
+        Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando."));
+        Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
+        Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."));
+        Act("Remover todas", () => Send("C3DVIARIOPLACAS R ", "Remover placas: confirme na linha de comando."));
+        V2 w = p.Ponto;
+        AxisInput? axis = p.Vinculada && _axisIndex.TryGetValue(p.AxisKey, out int ai) ? _axes[ai] : null;
+        _render = () => RenderMap(new Box2(w.X - 60, w.Y - 60, w.X + 60, w.Y + 60), sh =>
+        {
+            sh.Marker(w);
+            if (axis is not null)
+                sh.Highlight(axis.Path.Segs);
+        });
+    }
+
     private void ShowCivil(AxisInput a)
     {
         Category("Objetos do Civil");
@@ -3709,6 +3824,9 @@ internal sealed class ViarioPanel : SW.Window
                 break;
             case Hint h:
                 ZoomHint(h);
+                break;
+            case PlacaItem placa:
+                ZoomTo(ViarioPlacaSync.ZoomBox(placa));
                 break;
             case RefTable t:
                 OpenReference(t.Keys.FirstOrDefault() ?? t.Source);

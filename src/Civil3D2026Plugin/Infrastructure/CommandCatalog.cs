@@ -290,6 +290,8 @@ public static class CommandCatalog
                         "Clique dentro de uma ilha (anel de meio-fio, canteiro ou gota) para elimina-la; Restaurar/Todas desfaz."),
                     new CommandDefinition(C3DCommands.Viario.Sinal, "Sinalizacao horizontal",
                         "Sinalizacao horizontal previa num bloco unico (divisoria, faixas, faixas de pedestres, retencao) que acompanha a rede."),
+                    new CommandDefinition(C3DCommands.Viario.Placas, "Placas verticais (SinC)",
+                        "Importa as placas de um projeto (JSON/CSV) e insere cada uma no padrao do SinC (bloco T-xxx_SV com os atributos e linha de chamada), amarrada ao eixo mais proximo: eixo, estaca e lado; nomeia os eixos pela rota/trecho das placas."),
                     new CommandDefinition(C3DCommands.Viario.Hachura, "Hachura do pavimento",
                         "Hachura unica so da regiao de pavimento (contorno pelas faces de meio-fio; quadras, canteiros e ilhas como furos), que acompanha a rede."),
                     new CommandDefinition(C3DCommands.Viario.Cotar, "Cotar faixas",

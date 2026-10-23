@@ -1,3 +1,13 @@
+## 2.70.0 - Viario v0.11.0: placas de sinalizacao vertical no padrao do SinC (C3DVIARIOPLACAS)
+
+**Placas verticais**
+- `C3DVIARIOPLACAS` (tambem em `C3DVIARIO > PLacas` e no explorador, categoria **Placas** e botao com menu): importa um catalogo JSON/CSV de placas (id, coordenadas UTM, mensagens, arquivo do SinC, dimensoes) e insere cada placa como o SinC insere: bloco `T-xxx_SV` (geometria do `T-xxx_SV.dwg` da pasta `Placas 2D`, em escala 5) com os 15 atributos do SinC nas mesmas posicoes (Codigo, Situacao, Nort, Est visiveis a direita; Area em dm2, Dimensao, Eixo, Estaca/KM, Lado, Pelicula_Fundo, Pelicula_Orla, SI, Substrato, Suporte, Handle_Suporte invisiveis), bloco `sinC_LDC` da linha de chamada no ponto de implantacao e a placa na ponta dela (offset local 5,657; -6,432), rotacao perpendicular a via. Layers `sinC_VERTICALP`, `sinC_ATT_Placa`, `sinC_LinhaDeChamada`.
+- Cada placa e amarrada ao eixo mais proximo da rede (distancia maxima configuravel): eixo, estaca de 20 m, km e lado (LD/LE no sentido do eixo) vao para os atributos e ficam no XData (`C3DVIARIO` / `PLACA`). `ATualizar` recalcula depois de editar ou nomear eixos, sem mexer na geometria.
+- `NOmear`: da aos eixos (so os sem nome, ou todos) a rota e o trecho do projeto das placas amarradas, e regrava o atributo Eixo.
+- O suporte (`*_SVS`) nao e inserido: Suporte vem do codigo do projeto (CS/CD2 -> Coluna Simples/Dupla) e Handle_Suporte fica vazio para o SinC completar.
+- Explorador: categoria Placas (id, arquivo, eixo, estaca, lado, afastamento, trecho, mensagens), propriedades com zoom, vinculo e acoes; marcador e eixo realcado na vista.
+- `docs/VIARIO-PLACAS.md`: formato do catalogo e o que foi observado no desenho do SinC.
+
 ## 2.69.0 - HYDRO v0.9.0: monitor refeito (perfil no estilo do Project Explorer, nomes legiveis)
 
 **Perfil do caminho**
