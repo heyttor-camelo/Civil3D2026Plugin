@@ -48,6 +48,9 @@ internal sealed class PlacaItem
     /// <summary>Rotacao do bloco (graus), como o SinC: perpendicular a via.</summary>
     public double Rotacao { get; set; }
 
+    /// <summary>Escala do bloco da placa no desenho (lida do bloco; 1 = padrao do SinC).</summary>
+    public double Escala { get; set; } = 1.0;
+
     /// <summary>Tipo de suporte escolhido pela area (Coluna Simples, Coluna Dupla, Semi-Portico, Portico) ou "".</summary>
     public string SuporteTipo { get; set; } = "";
 

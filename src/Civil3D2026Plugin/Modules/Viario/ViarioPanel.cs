@@ -3724,6 +3724,8 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);
+    private static readonly WM.Brush PlacaBrush = Brush(220, 150, 90);
+    private static readonly WM.Brush PlacaFill = new WM.SolidColorBrush(WM.Color.FromArgb(150, 110, 70, 40));
 
     /// <summary>Nomes dos eixos que passam a menos de <paramref name="maxDist"/> m do ponto, no pe da perpendicular.</summary>
     private void DrawAxisLabelsNear(V2 w, double maxDist)
@@ -3795,6 +3797,16 @@ internal sealed class ViarioPanel : SW.Window
 
         RenderMap(focus, sh =>
         {
+            if (category == "PLACAS")
+            {
+                foreach (PlacaItem p in _placas)
+                {
+                    (List<Seg> ldc, List<Seg> placa, _) = ViarioPlacaSync.Footprint(p);
+                    sh.Add(ldc, GraphicText, 1.0);
+                    sh.Add(placa, PlacaBrush, 1.2, true, PlacaFill);
+                }
+            }
+
             foreach (V2 p in pts)
                 sh.Marker(p);
         });
@@ -3858,11 +3870,15 @@ internal sealed class ViarioPanel : SW.Window
     {
         V2 w = p.Ponto;
         // Foco deslocado: o ponto fica no terco direito, fora do cartao da placa.
+        (List<Seg> ldc, List<Seg> placa, _) = ViarioPlacaSync.Footprint(p);
         RenderMap(new Box2(w.X - 110, w.Y - 45, w.X + 50, w.Y + 45), sh =>
         {
-            sh.Marker(w);
             if (axis is not null)
                 sh.Highlight(axis.Path.Segs);
+            // Placa como inserida: linha de chamada, retangulo do bloco (marrom) e o ponto do suporte.
+            sh.Add(ldc, GraphicText, 1.2);
+            sh.Add(placa, PlacaBrush, 1.5, true, PlacaFill);
+            sh.Marker(w);
         });
         if (_vScale <= 0)
             return;

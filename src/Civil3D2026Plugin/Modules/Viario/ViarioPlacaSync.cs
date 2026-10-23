@@ -115,7 +115,10 @@ internal static class ViarioPlacaSync
                 continue;
             PlacaItem? p = PlacaItem.Deserialize(string.Concat(values.Skip(1)));
             if (p is not null)
+            {
+                p.Escala = Math.Abs(br.ScaleFactors.X) > 1e-9 ? Math.Abs(br.ScaleFactors.X) : 1.0;
                 list.Add((p, br));
+            }
         }
 
         return list;
@@ -315,8 +318,8 @@ internal static class ViarioPlacaSync
     {
         ["Altura"] = p.AlturaSuporte.Length > 0 ? p.AlturaSuporte.Replace('.', ',').TrimEnd('m').Trim() + "m" : DefaultHeight(p.SuporteTipo),
         ["Tipo"] = p.SuporteTipo,
-        ["Nort"] = "N: " + Coord(p.N),
-        ["Est"] = "E: " + Coord(p.E),
+        ["Nort"] = "",
+        ["Est"] = "",
         ["Eixo"] = p.AxisName,
         ["Estaca/KM"] = p.EstacaKm,
         ["Lado"] = p.LadoTexto,
@@ -834,6 +837,25 @@ internal static class ViarioPlacaSync
             double ang = a0 + (theta * k / n2);
             yield return center + (V2.FromAngle(ang) * r);
         }
+    }
+
+    /// <summary>
+    /// Geometria da placa em planta, como inserida (WCS): linha de chamada (3 pontos) e o
+    /// retangulo do bloco (escala 5 x escala da placa), girados pela rotacao a partir do ponto.
+    /// </summary>
+    public static (List<Seg> Ldc, List<Seg> Placa, V2 Suporte) Footprint(PlacaItem p)
+    {
+        bool comSuporte = p.SuporteTipo.Length > 0;
+        V2 ldcOff = comSuporte ? LdcOffset(p.SuporteTipo) : OffsetLdc;
+        V2 origem = ldcOff + ((OffsetPlaca - OffsetLdc) * p.Escala);
+        double w = p.LarguraSinC * FatorSinC * p.Escala, h = p.AlturaSinC * FatorSinC * p.Escala;
+        V2 W(V2 local) => p.Ponto + ViarioPlacas.Rotate(local, p.Rotacao);
+
+        V2 l0 = W(ldcOff), l1 = W(ldcOff + new V2(0.0, -0.5)), l2 = W(ldcOff + new V2(5.656871, -6.156838));
+        V2 c0 = W(origem), c1 = W(origem + new V2(w, 0.0)), c2 = W(origem + new V2(w, -h)), c3 = W(origem + new V2(0.0, -h));
+        return (new List<Seg> { Seg.Line(l0, l1), Seg.Line(l1, l2) },
+                new List<Seg> { Seg.Line(c0, c1), Seg.Line(c1, c2), Seg.Line(c2, c3), Seg.Line(c3, c0) },
+                p.Ponto);
     }
 
     /// <summary>Zoom numa placa (caixa de 60 m em volta do ponto).</summary>
