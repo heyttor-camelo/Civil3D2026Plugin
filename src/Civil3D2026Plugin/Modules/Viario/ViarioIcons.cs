@@ -194,6 +194,12 @@ internal static class ViarioIcons
             new Part("M8,12 H18 M15,9 L19,12 L15,15", White, 1.6),
             new Part("M21,9 H25 M21,12 H25 M21,15 H24", Edge, 1.2)
         },
+        ["ATRATIVOS"] = new[]
+        {
+            new Part("M16,5 a11,11 0 1,0 0.1,0", Magenta, 1.6),
+            new Part("M16,10 a6,6 0 1,0 0.1,0", Magenta, 1.2, Magenta),
+            new Part("M16,3 V8 M16,24 V29 M3,16 H8 M24,16 H29", White, 1.2)
+        },
         ["HACHURA"] = new[]
         {
             new Part("M4,6 H28 V26 H4 Z", Edge, 1.4),

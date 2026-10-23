@@ -2,8 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Civil3D2026Plugin.Modules.Viario;
 
@@ -46,6 +48,12 @@ internal sealed class PlacaItem
     /// <summary>Rotacao do bloco (graus), como o SinC: perpendicular a via.</summary>
     public double Rotacao { get; set; }
 
+    /// <summary>Tipo de suporte escolhido pela area (Coluna Simples, Coluna Dupla, Semi-Portico, Portico) ou "".</summary>
+    public string SuporteTipo { get; set; } = "";
+
+    /// <summary>Area da placa no SinC (m2).</summary>
+    public double AreaSinC => LarguraSinC * AlturaSinC;
+
     public bool Vinculada => Lado != 0 && AxisKey.Length > 0;
     public V2 Ponto => new(E, N);
 
@@ -73,7 +81,7 @@ internal sealed class PlacaItem
         LarguraSinC.ToString("0.###", CultureInfo.InvariantCulture), AlturaSinC.ToString("0.###", CultureInfo.InvariantCulture),
         AxisKey, S.ToString("0.###", CultureInfo.InvariantCulture), Offset.ToString("0.###", CultureInfo.InvariantCulture),
         Lado.ToString(CultureInfo.InvariantCulture), Rotacao.ToString("0.###", CultureInfo.InvariantCulture),
-        Suporte, DimensaoProjeto, AreaProjeto, TrechoDescricao, MensagemResumo
+        Suporte, DimensaoProjeto, AreaProjeto, TrechoDescricao, MensagemResumo, SuporteTipo, AlturaSuporte
     });
 
     public static PlacaItem? Deserialize(string text)
@@ -93,6 +101,8 @@ internal sealed class PlacaItem
         if (f.Length > 18) p.TrechoDescricao = f[18];
         if (f.Length > 19 && f[19].Length > 0)
             p.Mensagens = f[19].Split(" | ").ToList();
+        if (f.Length > 20) p.SuporteTipo = f[20];
+        if (f.Length > 21) p.AlturaSuporte = f[21];
         return p;
     }
 
@@ -366,5 +376,172 @@ internal static class ViarioPlacas
         }
 
         return names;
+    }
+
+    // ------------------------------------------------------------------
+    // Pasta do SinC (arquivos .pla: zip com INFO.json, COD.placa, CAD_2D.dwg...)
+    // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Le todos os .pla de uma pasta (os pacotes exportados pelo SinC): codigo (nome do arquivo),
+    /// dimensoes, textos das mensagens e, quando a descricao traz "Local: E (E), N (N)", as
+    /// coordenadas. Placas sem coordenada ficam com E = N = 0 (completar com <see cref="Merge"/>).
+    /// </summary>
+    public static PlacaCatalog LoadSinCFolder(string folder, List<string> avisos)
+    {
+        PlacaCatalog cat = new() { Fonte = folder, PastaSinC = folder };
+        foreach (string file in Directory.EnumerateFiles(folder, "*.pla", SearchOption.TopDirectoryOnly).OrderBy(f => f, StringComparer.OrdinalIgnoreCase))
+        {
+            string code = Path.GetFileNameWithoutExtension(file);
+            try
+            {
+                using ZipArchive zip = ZipFile.OpenRead(file);
+                string info = ReadEntry(zip, "INFO.json");
+                string cod = ReadEntry(zip, "COD.placa");
+                PlacaItem p = new() { Id = code, Codigo = code };
+
+                if (info.Length > 0)
+                {
+                    using JsonDocument doc = JsonDocument.Parse(info);
+                    JsonElement root = doc.RootElement;
+                    string dim = Str(root, "Dimension").ToLowerInvariant();
+                    int x = dim.IndexOf('x');
+                    if (x > 0)
+                    {
+                        p.LarguraSinC = PtBr(dim[..x]);
+                        p.AlturaSinC = PtBr(dim[(x + 1)..]);
+                    }
+
+                    string desc = Str(root, "Description");
+                    Match m = Regex.Match(desc, @"(\d{5,7}[.,]\d+)\s*\(E\)\s*,?\s*(\d{6,8}[.,]\d+)\s*\(N\)");
+                    if (m.Success)
+                    {
+                        p.E = PtBr(m.Groups[1].Value);
+                        p.N = PtBr(m.Groups[2].Value);
+                    }
+
+                    Match t = Regex.Match(desc, @"Trecho:\s*(.+?)\s*(/|$)");
+                    if (t.Success)
+                        p.TrechoDescricao = t.Groups[1].Value.Trim();
+                }
+
+                if (cod.Length > 0)
+                {
+                    foreach (Match m in Regex.Matches(cod, "<Texto [^>]*?Texto=\"([^\"]*)\""))
+                    {
+                        string text = System.Net.WebUtility.HtmlDecode(m.Groups[1].Value);
+                        string first = text.Split('\n')[0].Trim();
+                        if (first.Length > 0)
+                            p.Mensagens.Add(first);
+                    }
+
+                    Match nome = Regex.Match(cod, "<Placa [^>]*?Nome=\"([^\"]*)\"");
+                    if (nome.Success && nome.Groups[1].Value.Trim().Length > 0)
+                        p.Codigo = nome.Groups[1].Value.Trim();
+                }
+
+                cat.Placas.Add(p);
+            }
+            catch (System.Exception ex)
+            {
+                avisos.Add($"{code}: {ex.Message}");
+            }
+        }
+
+        return cat;
+    }
+
+    private static string ReadEntry(ZipArchive zip, string name)
+    {
+        ZipArchiveEntry? entry = zip.GetEntry(name) ?? zip.Entries.FirstOrDefault(e => string.Equals(e.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (entry is null)
+            return "";
+        using StreamReader reader = new(entry.Open(), System.Text.Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
+
+    /// <summary>
+    /// Completa as placas lidas da pasta do SinC com os dados do catalogo do projeto (mesmo
+    /// codigo SinC): coordenadas (quando faltam ou sao zero), id, trecho, rota, sentido, item,
+    /// pagina, suporte, dimensao/area do projeto. Retorna quantas foram completadas.
+    /// </summary>
+    public static int Merge(PlacaCatalog sinc, PlacaCatalog projeto)
+    {
+        ILookup<string, PlacaItem> byCode = projeto.Placas.ToLookup(p => p.Codigo, StringComparer.OrdinalIgnoreCase);
+        int n = 0;
+        List<PlacaItem> extra = new();
+        foreach (PlacaItem p in sinc.Placas.ToList())
+        {
+            List<PlacaItem> matches = byCode[p.Codigo].ToList();
+            if (matches.Count == 0)
+                continue;
+
+            // Um arquivo do SinC pode servir a mais de uma placa do projeto (mesmo texto):
+            // a primeira fica neste item, as demais viram copias.
+            for (int i = 0; i < matches.Count; i++)
+            {
+                PlacaItem src = matches[i];
+                PlacaItem dst = i == 0 ? p : Clone(p);
+                if ((Math.Abs(dst.E) < 1.0 && Math.Abs(dst.N) < 1.0) || i > 0)
+                {
+                    dst.E = src.E;
+                    dst.N = src.N;
+                }
+
+                dst.Id = src.Id;
+                dst.Trecho = src.Trecho;
+                dst.Rota = src.Rota;
+                dst.Sentido = src.Sentido;
+                dst.Item = src.Item;
+                dst.PaginaPdf = src.PaginaPdf;
+                if (dst.TrechoDescricao.Length == 0)
+                    dst.TrechoDescricao = src.TrechoDescricao;
+                dst.Suporte = src.Suporte;
+                dst.AlturaSuporte = src.AlturaSuporte;
+                dst.DimensaoProjeto = src.DimensaoProjeto;
+                dst.AreaProjeto = src.AreaProjeto;
+                if (dst.Mensagens.Count == 0)
+                    dst.Mensagens = new List<string>(src.Mensagens);
+                if (i > 0)
+                    extra.Add(dst);
+                n++;
+            }
+        }
+
+        sinc.Placas.AddRange(extra);
+        if (projeto.PastaSinC.Length > 0 && sinc.PastaSinC.Length == 0)
+            sinc.PastaSinC = projeto.PastaSinC;
+        return n;
+    }
+
+    private static PlacaItem Clone(PlacaItem p) => new()
+    {
+        Id = p.Id, Codigo = p.Codigo, Trecho = p.Trecho, Rota = p.Rota, TrechoDescricao = p.TrechoDescricao, Sentido = p.Sentido,
+        Item = p.Item, PaginaPdf = p.PaginaPdf, E = p.E, N = p.N, Mensagens = new List<string>(p.Mensagens),
+        DimensaoProjeto = p.DimensaoProjeto, AreaProjeto = p.AreaProjeto, Suporte = p.Suporte, AlturaSuporte = p.AlturaSuporte,
+        LarguraSinC = p.LarguraSinC, AlturaSinC = p.AlturaSinC
+    };
+
+    // ------------------------------------------------------------------
+    // Suporte pela geometria da placa
+    // ------------------------------------------------------------------
+
+    public const string SuporteSimples = "Coluna Simples";
+    public const string SuporteDuplo = "Coluna Dupla";
+    public const string SuporteSemiPortico = "Semi-Pórtico";
+    public const string SuportePortico = "Pórtico";
+
+    /// <summary>
+    /// Tipo de suporte pela area da placa: ate 2,00 m2 coluna simples; de 2,01 a 6,00 m2 coluna
+    /// dupla; acima de 6,00 m2 semi-portico, ou portico quando a placa e mais larga que
+    /// <paramref name="larguraPortico"/> (m). Limites em m2.
+    /// </summary>
+    public static string SupportType(double area, double largura, double limiteSimples = 2.0, double limiteDuplo = 6.0, double larguraPortico = 6.0)
+    {
+        if (area <= limiteSimples + 1e-9)
+            return SuporteSimples;
+        if (area <= limiteDuplo + 1e-9)
+            return SuporteDuplo;
+        return largura > larguraPortico ? SuportePortico : SuporteSemiPortico;
     }
 }

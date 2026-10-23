@@ -71,3 +71,30 @@ CSV `;` com cabecalho (`placas_projeto_x_sinc.csv`): `id_projeto`, `trecho`, `ro
 
 A pasta dos `T-xxx_SV.dwg` e pedida no comando (padrao: `pastaSinC` do JSON). Cada arquivo e importado uma vez
 como definicao de bloco (`Database.Insert`), e os atributos sao acrescentados se o bloco ainda nao os tiver.
+
+## Suportes
+
+Tipo pela area da placa no SinC (`Opcoes.AreaSimples` = 2,00 m2, `AreaDuplo` = 6,00 m2, `LarguraPortico` = 6 m):
+coluna simples, coluna dupla, semi-portico ou portico. Blocos gerados em codigo (`EnsureSupportBlock`) no molde do
+`Coluna Dupla_SVS` observado: geometria em `sinC_Suporte` (postes = circulo + hachura solida, barra = polilinha fechada),
+atributos Altura (1; 0), Tipo (1; -1,8), Nort (1; -3,6), Est (1; -5,4) visiveis e Eixo, Estaca/KM, Lado, Material,
+Secao, Situacao invisiveis em (-15; -5), layer `sinC_ATT_Suporte`. O bloco e inserido no ponto de implantacao com a
+rotacao da placa e XData `PLACASUP` + id; a placa recebe `Handle_Suporte` (handle do suporte) e `Suporte` (tipo).
+Portico: vao = 2 x afastamento da placa ao eixo (arredondado), um bloco por vao (`Portico_SVS_<vao>`).
+
+Nort/Est (placa e suporte): `N: 8334137,17` / `E: 622959,92`.
+
+## Importar da pasta do SinC (`PAsta`)
+
+`ViarioPlacas.LoadSinCFolder`: cada `.pla` e um zip com `INFO.json` (Dimension "4x1.65", Description "Trecho: ... /
+Local: E (E), N (N)") e `COD.placa` (XML; `<Texto Texto="...">` sao as mensagens, `<Placa Nome="T-001">`). Sem
+coordenada na descricao, a placa e completada pelo catalogo do projeto (`Merge`, pelo codigo SinC); um arquivo que
+serve a varias placas do projeto vira uma copia por placa. Placas ainda sem coordenada ficam de fora.
+
+## Atrativos turisticos (`C3DVIARIOATRATIVOS`, `ViarioAtrativos.cs`)
+
+KML/KMZ -> `AtrativoItem` (nome sem o DMS colado, categoria = pasta do KML, lat/lon). Conversao para E/N com
+`PedGeo` (geolocalizacao do desenho, sistema do Civil ou fuso informado). Bloco `VIARIO-ATRATIVO`: circulo r = 1,
+hachura SOLID 70% transparente, ponto central, atributos NOME (visivel, altura 0,35), CATEGORIA, LAT, LON, FONTE
+(invisiveis); inserido com escala = raio (m) na layer `VIARIO-ATRATIVOS` (cor 6), XData `ATRATIVO`. O painel le a
+posicao e o raio do proprio bloco (mover/escalar no desenho vale).

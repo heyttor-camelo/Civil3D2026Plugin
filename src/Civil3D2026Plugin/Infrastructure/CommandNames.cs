@@ -137,6 +137,7 @@ public static class CommandNames
         public const string Cotar = "C3DVIARIOCOTAR";
         public const string Hachura = "C3DVIARIOHACHURA";
         public const string Placas = "C3DVIARIOPLACAS";
+        public const string Atrativos = "C3DVIARIOATRATIVOS";
     }
 
     public static class FeatureLines

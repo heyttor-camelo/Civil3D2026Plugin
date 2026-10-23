@@ -81,3 +81,7 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 2. Testar `C3DVIARIOPLACAS > Importar` com `placas_chapada.json` no DWG das vias de Chapada; conferir no SinC se
    ele reconhece as placas inseridas (atributos/handles) e o formato que ele espera em Nort/Est.
 3. Conferir rotacao/lado das placas em campo (a direcao vem dos eixos; sem eixo perto, a placa fica sem vinculo).
+
+- (mesma sessao, depois) suportes pela area, prefixo N:/E:, importacao direta da pasta do SinC (`PAsta`), monitor da
+  placa no explorador (desenho da placa + planta com nomes dos eixos) e **atrativos turisticos** (`C3DVIARIOATRATIVOS`,
+  KMZ da prefeitura: 105 pontos em 5 pastas). Tambem sem compilar.

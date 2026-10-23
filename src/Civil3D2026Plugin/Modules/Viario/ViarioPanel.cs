@@ -109,6 +109,7 @@ internal sealed class ViarioPanel : SW.Window
     private bool _civilActive;
     private bool _signExists;
     private List<PlacaItem> _placas = new();
+    private List<AtrativoItem> _atrativos = new();
     private bool _refreshQueued;
 
     /// <summary>Quantas vezes o painel foi atualizado (o aviso na fila pula se ja houve uma depois dele).</summary>
@@ -216,6 +217,9 @@ internal sealed class ViarioPanel : SW.Window
         new("PLACAS", "C3DVIARIOPLACAS ", "Placas verticais (SinC)", "Saidas",
             "Importa as placas de um projeto e insere cada uma no padrao do SinC (bloco T-xxx_SV com atributos e linha de chamada), amarrada ao eixo mais proximo.",
             new[] { "Importar: catalogo JSON/CSV e pasta dos T-xxx_SV.dwg.", "ATualizar: recalcula eixo, estaca e lado depois de editar eixos.", "NOmear: da aos eixos o nome da rota/trecho das placas." }),
+        new("ATRATIVOS", "C3DVIARIOATRATIVOS ", "Atrativos turisticos (KMZ)", "Saidas",
+            "Importa os pontos de um KML/KMZ como circulos com hachura transparente (bloco com nome e categoria em atributos; a escala do bloco e o raio).",
+            new[] { "Importar: escolha o KMZ e o raio.", "Raio: muda o raio de todos.", "Os atrativos aparecem na categoria Atrativos e perto de cada placa." }),
         new("HACHURA", "C3DVIARIOHACHURA G ", "Hachura do pavimento", "Saidas",
             "Uma hachura so da regiao de pavimento: contorno pelas faces de meio-fio, quadras, canteiros e ilhas como furos; acompanha a rede.",
             new[] { "O botao abre o menu: gerar/atualizar, padrao, escala, solido com transparencia, ocultar, remover." }),
@@ -236,6 +240,7 @@ internal sealed class ViarioPanel : SW.Window
         ("ILHAS", "GOTA", "Ilhas canalizadoras"),
         ("SINAL", "SINAL", "Sinalizacao horizontal"),
         ("PLACAS", "PLACAS", "Placas verticais"),
+        ("ATRATIVOS", "ATRATIVOS", "Atrativos turisticos"),
         ("CIVIL", "CIVIL", "Objetos do Civil"),
         ("AVISOS", "AVISOS", "Recomendacoes DNIT"),
         ("CONSULTA", "CONSULTA", "Consulta (tabelas dos manuais)"),
@@ -1351,6 +1356,7 @@ internal sealed class ViarioPanel : SW.Window
             _names = _civilActive ? ViarioCivil.AxisNames(db) : new Dictionary<string, string>();
             _signExists = ViarioSignageSync.Exists(db);
             _placas = ViarioPlacaSync.Read(db);
+            _atrativos = ViarioAtrativos.Read(db);
 
             // Recomendacoes so sao refeitas quando a rede, os eixos ou os registros mudam.
             ulong stamp = HintsStamp(_axes);
@@ -1387,6 +1393,7 @@ internal sealed class ViarioPanel : SW.Window
         "ILHAS" => Islands().Count,
         "SINAL" => _signExists ? 1 : 0,
         "PLACAS" => _placas.Count,
+        "ATRATIVOS" => _atrativos.Count,
         "CIVIL" => _names.Count,
         "AVISOS" => _hints.Count,
         "CONSULTA" => ViarioReference.All.Length,
@@ -1643,6 +1650,19 @@ internal sealed class ViarioPanel : SW.Window
 
                 return (new[] { "Id", "SinC", "Eixo", "Estaca", "Lado", "Afast. [m]", "Trecho", "Mensagens" },
                     new double[] { 90, 60, 170, 80, 45, 70, 55, 320 }, rows);
+
+            case "ATRATIVOS":
+                foreach (AtrativoItem a in _atrativos)
+                {
+                    rows.Add(new Row
+                    {
+                        Id = "ATR:" + a.Nome + "@" + N(a.E, 1) + "," + N(a.N, 1), Icon = "ATRATIVOS", Data = a,
+                        Cells = new[] { a.Nome, a.Categoria, N(a.E, 2), N(a.N, 2), N(a.Raio, 1), NearestAxis(a.Ponto) }
+                    });
+                }
+
+                return (new[] { "Atrativo", "Categoria", "E", "N", "Raio [m]", "Eixo mais proximo" },
+                    new double[] { 240, 200, 95, 100, 60, 180 }, rows);
 
             case "CIVIL":
                 for (int i = 0; i < _axes.Count; i++)
@@ -2275,6 +2295,7 @@ internal sealed class ViarioPanel : SW.Window
             case OutputLine isl: ShowIsland(isl); break;
             case string kind when _category == "SINAL": ShowSignage(kind); break;
             case PlacaItem placa: ShowPlaca(placa); break;
+            case AtrativoItem atrativo: ShowAtrativo(atrativo); break;
             case Hint h: ShowHint(h); break;
             case RefTable t:
                 Prop("Fonte", t.Source);
@@ -3634,14 +3655,202 @@ internal sealed class ViarioPanel : SW.Window
         Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
         Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."));
         Act("Remover todas", () => Send("C3DVIARIOPLACAS R ", "Remover placas: confirme na linha de comando."));
-        V2 w = p.Ponto;
+        List<(AtrativoItem Item, double Dist)> perto = ViarioAtrativos.Near(_atrativos, p.Ponto, 2000.0).Take(6).ToList();
+        if (perto.Count > 0)
+        {
+            Category("Atrativos proximos");
+            foreach ((AtrativoItem a, double d) in perto)
+                Prop(a.Nome, $"{N(d / 1000.0, 2)} km" + (a.Categoria.Length > 0 ? " · " + a.Categoria : ""));
+        }
+
         AxisInput? axis = p.Vinculada && _axisIndex.TryGetValue(p.AxisKey, out int ai) ? _axes[ai] : null;
-        _render = () => RenderMap(new Box2(w.X - 60, w.Y - 60, w.X + 60, w.Y + 60), sh =>
+        _render = () => RenderPlaca(p, axis);
+    }
+
+    private void ShowAtrativo(AtrativoItem a)
+    {
+        Category(a.Nome);
+        Prop("Categoria", a.Categoria.Length > 0 ? a.Categoria : "-");
+        Prop("Lat / Lon", $"{N(a.Lat, 6)} ; {N(a.Lon, 6)}");
+        Prop("E / N", $"{N(a.E, 2)} ; {N(a.N, 2)}");
+        Prop("Raio (escala do bloco)", N(a.Raio, 1) + " m");
+        Prop("Eixo mais proximo", NearestAxis(a.Ponto));
+        if (a.Fonte.Length > 0)
+            Prop("Fonte", a.Fonte);
+        List<PlacaItem> placas = _placas.Where(p => p.Mensagens.Any(m => Mention(m, a.Nome))).ToList();
+        if (placas.Count > 0)
+        {
+            Category("Placas que indicam este atrativo");
+            foreach (PlacaItem p in placas.Take(12))
+                Prop(p.Id, $"{p.Codigo} · {(p.Vinculada ? AxisLabel(p.AxisKey) + " " + p.EstacaTexto : "sem eixo")}");
+        }
+
+        Act("Zoom", ZoomCurrent, true);
+        Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
+        Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."));
+        V2 w = a.Ponto;
+        double r = Math.Max(a.Raio * 4, 80);
+        _render = () => RenderMap(new Box2(w.X - r, w.Y - r, w.X + r, w.Y + r), sh =>
+        {
+            sh.Marker(w);
+            foreach (PlacaItem p in placas)
+                sh.Marker(p.Ponto);
+        });
+    }
+
+    /// <summary>Se a mensagem da placa cita o atrativo (compara sem acentos, ignorando "Cach.", "Baln." etc.).</summary>
+    private static bool Mention(string mensagem, string nome)
+    {
+        string a = Simple(mensagem), b = Simple(nome);
+        if (a.Length < 4 || b.Length < 4)
+            return false;
+        return a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal);
+    }
+
+    private static string Simple(string s)
+    {
+        string t = s.Normalize(System.Text.NormalizationForm.FormD);
+        System.Text.StringBuilder sb = new();
+        foreach (char c in t)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(char.ToLowerInvariant(c));
+        }
+
+        return sb.ToString().Replace("cach. ", "cachoeira ").Replace("baln. ", "balneario ").Replace("pq. nac. ", "parque nacional ")
+            .Replace("comunidade ", "").Replace(" da ", " ").Replace(" do ", " ").Replace(" de ", " ").Replace(" dos ", " ").Replace(" das ", " ").Trim();
+    }
+
+    private string NearestAxis(V2 p)
+    {
+        AxisInput? best = null;
+        double bestDist = double.MaxValue, bestS = 0;
+        foreach (AxisInput a in _axes)
+        {
+            Box2 box = a.Path.Bounds().Inflate(500.0);
+            if (p.X < box.MinX || p.X > box.MaxX || p.Y < box.MinY || p.Y > box.MaxY)
+                continue;
+            (double s, _, double d) = a.Path.Project(p);
+            if (d < bestDist)
+            {
+                best = a;
+                bestDist = d;
+                bestS = s;
+            }
+        }
+
+        return best is null ? "-" : $"{AxisLabel(best.Key)} ({N(bestDist, 0)} m, est. {Estaca(bestS)})";
+    }
+
+    /// <summary>
+    /// Monitor da placa: planta a direita (eixos com nome, marcador no ponto) e, a esquerda,
+    /// o desenho da placa (hachuras do bloco T-xxx_SV) com os dados principais.
+    /// </summary>
+    private void RenderPlaca(PlacaItem p, AxisInput? axis)
+    {
+        V2 w = p.Ponto;
+        // Foco deslocado: o ponto fica no terco direito, fora do cartao da placa.
+        RenderMap(new Box2(w.X - 110, w.Y - 45, w.X + 50, w.Y + 45), sh =>
         {
             sh.Marker(w);
             if (axis is not null)
                 sh.Highlight(axis.Path.Segs);
         });
+        if (_vScale <= 0)
+            return;
+
+        // Nomes dos eixos em volta do ponto (mesmo com o texto "eixos" desligado).
+        if (!Show("eixos"))
+        {
+            double x0 = _vCx - ((_vOx - RulerLeft) / _vScale), x1 = _vCx + ((_vW - _vOx) / _vScale);
+            double y0 = _vCy - ((_vH - RulerBottom - _vOy) / _vScale), y1 = _vCy + (_vOy / _vScale);
+            Box2 visible = new(x0, y0, x1, y1);
+            for (int i = 0; i < _axes.Count; i++)
+            {
+                AxisInput a = _axes[i];
+                if (!a.Path.Bounds().Intersects(visible))
+                    continue;
+                (double s, V2 q, double d) = a.Path.Project(w);
+                if (d > 400)
+                    continue;
+                SW.Point sp = ToScreen(q);
+                if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
+                    continue;
+                V2 n = a.Path.TangentAt(s).Left;
+                Label(AxisName(a, i), sp.X - (n.X * 12) + 3, sp.Y + (n.Y * 12) - 14, 10);
+            }
+        }
+
+        // Cartao da placa.
+        double cw = Math.Max(160, Math.Min(_vW * 0.42, 420));
+        ViarioPlacaSync.SignShape? shape = null;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                shape = ViarioPlacaSync.Shape(d.Database, p.Codigo);
+        }
+        catch
+        {
+            // Sem desenho ou bloco: cartao so com texto.
+        }
+
+        double pad = 8;
+        double drawW = cw - (2 * pad);
+        double drawH = shape is null ? 0 : drawW * shape.Height / shape.Width;
+        double textH = 58;
+        double ch = drawH + textH + (2 * pad);
+        WC.Canvas card = new() { Width = cw, Height = ch, Background = Brush(32, 34, 38), ClipToBounds = true };
+        WC.Border frame = new()
+        {
+            Width = cw, Height = ch, BorderBrush = HighlightBrush, BorderThickness = new SW.Thickness(1), Child = card, Background = Brush(32, 34, 38)
+        };
+        WC.Canvas.SetLeft(frame, RulerLeft + 10);
+        WC.Canvas.SetTop(frame, 10);
+
+        if (shape is not null)
+        {
+            double k = drawW / shape.Width;
+            foreach ((List<List<V2>> loops, byte r, byte g, byte b) in shape.Hatches)
+            {
+                WM.PathGeometry geo = new() { FillRule = WM.FillRule.EvenOdd };
+                foreach (List<V2> loop in loops)
+                {
+                    WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(pad + (loop[0].X * k), pad - (loop[0].Y * k)) };
+                    for (int i = 1; i < loop.Count; i++)
+                        fig.Segments.Add(new WM.LineSegment(new SW.Point(pad + (loop[i].X * k), pad - (loop[i].Y * k)), true));
+                    geo.Figures.Add(fig);
+                }
+
+                geo.Freeze();
+                card.Children.Add(new WS.Path { Data = geo, Fill = new WM.SolidColorBrush(WM.Color.FromRgb(r, g, b)) });
+            }
+        }
+        else
+        {
+            WC.TextBlock none = new() { Text = "(bloco " + p.Codigo + "_SV nao esta no desenho)", Foreground = T.Muted, FontSize = 10, FontFamily = UiFont };
+            WC.Canvas.SetLeft(none, pad);
+            WC.Canvas.SetTop(none, pad);
+            card.Children.Add(none);
+            drawH = 14;
+            ch = drawH + textH + (2 * pad);
+            card.Height = ch;
+            frame.Height = ch;
+        }
+
+        double ty = pad + drawH + 4;
+        void Line(string text, double size, WM.Brush brush)
+        {
+            WC.TextBlock t = new() { Text = text, Foreground = brush, FontSize = size, FontFamily = UiFont, Width = drawW, TextTrimming = SW.TextTrimming.CharacterEllipsis };
+            WC.Canvas.SetLeft(t, pad);
+            WC.Canvas.SetTop(t, ty);
+            card.Children.Add(t);
+            ty += size + 4;
+        }
+
+        Line($"{p.Id}  ·  {p.Codigo}  ·  {p.DimensaoSinC}  ·  {p.AreaDm2} dm²", 11, HighlightBrush);
+        Line(p.Vinculada ? $"{AxisLabel(p.AxisKey)}  ·  est. {p.EstacaTexto}  ·  {p.LadoTexto}  ·  {N(p.Offset, 1)} m do eixo" : "sem eixo vinculado", 10, GraphicText);
+        Line(p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-", 10, GraphicText);
+        _graphic.Children.Add(frame);
     }
 
     private void ShowCivil(AxisInput a)
@@ -3827,6 +4036,9 @@ internal sealed class ViarioPanel : SW.Window
                 break;
             case PlacaItem placa:
                 ZoomTo(ViarioPlacaSync.ZoomBox(placa));
+                break;
+            case AtrativoItem atrativo:
+                ZoomTo(new Box2(atrativo.E - (3 * atrativo.Raio), atrativo.N - (3 * atrativo.Raio), atrativo.E + (3 * atrativo.Raio), atrativo.N + (3 * atrativo.Raio)));
                 break;
             case RefTable t:
                 OpenReference(t.Keys.FirstOrDefault() ?? t.Source);

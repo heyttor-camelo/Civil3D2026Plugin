@@ -7,6 +7,13 @@
 - O suporte (`*_SVS`) nao e inserido: Suporte vem do codigo do projeto (CS/CD2 -> Coluna Simples/Dupla) e Handle_Suporte fica vazio para o SinC completar.
 - Explorador: categoria Placas (id, arquivo, eixo, estaca, lado, afastamento, trecho, mensagens), propriedades com zoom, vinculo e acoes; marcador e eixo realcado na vista.
 - `docs/VIARIO-PLACAS.md`: formato do catalogo e o que foi observado no desenho do SinC.
+- **Suportes** pela area da placa (ate 2,00 m2 coluna simples; 2,01-6,00 m2 coluna dupla; acima semi-portico, ou portico quando a placa e mais larga que 6 m): bloco `Coluna Simples_SVS` / `Coluna Dupla_SVS` / `Semi-Portico_SVS` / `Portico_SVS_<vao>` gerado em codigo no molde do SinC (geometria em `sinC_Suporte`; atributos Altura, Tipo, Nort, Est visiveis e Eixo, Estaca/KM, Lado, Material, Secao, Situacao invisiveis em `sinC_ATT_Suporte`), inserido no ponto de implantacao com a rotacao da placa; `Handle_Suporte` e `Suporte` da placa apontam para ele. Opcional na importacao.
+- Nort/Est das placas e dos suportes com prefixo: `N: 8334137,17` / `E: 622959,92`.
+- `PAsta`: importa direto da pasta do SinC (le os `.pla`: codigo, dimensoes, textos e, quando ha, coordenadas na descricao) e completa com o catalogo JSON/CSV do projeto pelo codigo (coordenadas, trecho, suporte); arquivos que servem a mais de uma placa viram copias.
+- **Monitor da placa** no explorador: planta a direita (eixos com nome em volta do ponto, eixo vinculado realcado, marcador) e, a esquerda, o desenho da placa lido das hachuras do bloco `T-xxx_SV`, com id, dimensoes, eixo/estaca/lado e mensagens. Atrativos a ate 2 km listados nas propriedades.
+
+**Atrativos turisticos**
+- `C3DVIARIOATRATIVOS` (`C3DVIARIO > ATRativos`, categoria **Atrativos** no explorador): importa os pontos de um KML/KMZ (pasta do KML = categoria; coordenadas DMS coladas no nome sao tiradas) e insere cada um como bloco `VIARIO-ATRATIVO` - circulo unitario com hachura solida 70% transparente e ponto central, escala do bloco = raio (padrao 25 m, `Raio` muda todos), atributos NOME (visivel, acompanha a escala), CATEGORIA, LAT, LON, FONTE (invisiveis), layer `VIARIO-ATRATIVOS`. Lat/lon -> E/N pela geolocalizacao do desenho, pelo sistema do Civil ou pelo fuso UTM informado (mesmo criterio dos PEDs). No painel: eixo mais proximo (distancia e estaca) e as placas cujas mensagens citam o atrativo.
 
 ## 2.69.0 - HYDRO v0.9.0: monitor refeito (perfil no estilo do Project Explorer, nomes legiveis)
 
