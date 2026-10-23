@@ -111,6 +111,46 @@ internal sealed class ViarioPanel : SW.Window
     private bool _signExists;
     private List<PlacaItem> _placas = new();
     private (string Cat, int Col, bool Desc)? _sort;
+    private SW.UIElement[] _fullParts = Array.Empty<SW.UIElement>();
+    private bool _fullMonitor;
+    private SW.WindowState _stateBefore;
+    private double _monitorRowBefore;
+
+    /// <summary>Monitor em tela cheia: esconde categorias, comandos, lista e propriedades e maximiza a janela.</summary>
+    private void ToggleFullMonitor()
+    {
+        _fullMonitor = !_fullMonitor;
+        foreach (SW.UIElement e in _fullParts)
+            e.Visibility = _fullMonitor ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        if (Content is WC.Grid root && root.RowDefinitions.Count > 5)
+        {
+            if (_fullMonitor)
+            {
+                _monitorRowBefore = root.RowDefinitions[2].Height.Value;
+                root.RowDefinitions[2].Height = new SW.GridLength(1, SW.GridUnitType.Star);
+                root.RowDefinitions[5].Height = new SW.GridLength(0);
+                root.RowDefinitions[5].MinHeight = 0;
+            }
+            else
+            {
+                root.RowDefinitions[2].Height = new SW.GridLength(_monitorRowBefore > 0 ? _monitorRowBefore : 0.85, SW.GridUnitType.Star);
+                root.RowDefinitions[5].Height = new SW.GridLength(1, SW.GridUnitType.Star);
+                root.RowDefinitions[5].MinHeight = 160;
+            }
+        }
+
+        if (_fullMonitor)
+        {
+            _stateBefore = WindowState;
+            WindowState = SW.WindowState.Maximized;
+        }
+        else
+        {
+            WindowState = _stateBefore;
+        }
+
+        Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
     private readonly Dictionary<string, string> _colFilter = new(StringComparer.Ordinal);
     private List<AtrativoItem> _atrativos = new();
     private bool _refreshQueued;
@@ -387,7 +427,8 @@ internal sealed class ViarioPanel : SW.Window
         root.Children.Add(commandRow);
 
         WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = _graphic, Margin = new SW.Thickness(4, 0, 4, 0) };
-        _graphic.SizeChanged += (_, _) => _render?.Invoke();
+        _graphic.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Render);
+        graphic.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Loaded);
         _graphic.MouseMove += OnGraphicMouseMove;
         _graphic.MouseWheel += OnGraphicWheel;
         _graphic.MouseDown += (_, e) =>
@@ -420,6 +461,14 @@ internal sealed class ViarioPanel : SW.Window
         graphicBar.Children.Add(toggles);
         WC.DockPanel.SetDock(_coords, WC.Dock.Right);
         graphicBar.Children.Add(_coords);
+        WC.Button full = new()
+        {
+            Content = "⛶", ToolTip = "Monitor em tela cheia (clique de novo para voltar)", Width = 24, Height = 20, Padding = new SW.Thickness(0),
+            Background = WM.Brushes.Transparent, BorderBrush = WM.Brushes.Transparent, Foreground = T.Text, Margin = new SW.Thickness(4, 0, 4, 0)
+        };
+        full.Click += (_, _) => ToggleFullMonitor();
+        WC.DockPanel.SetDock(full, WC.Dock.Right);
+        graphicBar.Children.Add(full);
         graphicBar.Children.Add(_graphicInfo);
         WC.Grid.SetRow(graphicBar, 3);
         root.Children.Add(graphicBar);
@@ -483,6 +532,7 @@ internal sealed class ViarioPanel : SW.Window
         footer.Children.Add(_status);
         WC.Grid.SetRow(footer, 6);
         root.Children.Add(footer);
+        _fullParts = new SW.UIElement[] { _categoryBar, commandRow, splitH, bottom, footer };
 
         return root;
     }
