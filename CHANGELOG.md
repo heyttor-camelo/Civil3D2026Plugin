@@ -11,6 +11,7 @@
 - Viewports na miniatura: **Shift+clique marca todas entre a ultima clicada e esta** (na ordem das abas); clique e Ctrl+clique marcam/desmarcam.
 - Cartoes da vista Todos: **Ctrl+clique marca/desmarca o layout, Shift+clique marca do ultimo clicado ate este**.
 - Descricoes dos botoes reescritas dizendo o que cada um muda.
+
 ## 2.73.0 - Viario v0.12.0: esticar placa + linha de chamada; chamada explodida acompanha
 
 - `C3DVIARIOPLACAS > ARrumar > Esticar` (e "Esticar chamada" no painel): clique a nova ponta da chamada; a placa vai junto, o suporte e a saida da chamada ficam. A ponta fica gravada na placa (XData) e vale para Rotacionar, Mover, Alinhar, Girar180, Lado e Escalar. `Padrao` volta a chamada do SinC.
