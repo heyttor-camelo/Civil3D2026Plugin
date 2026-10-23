@@ -4,6 +4,7 @@
 - Linha de chamada **explodida** (polilinha ou linhas na layer `sinC_LinhaDeChamada` ou `0`, encadeadas a partir da origem da placa) agora gira, move e escala junto com a placa e o suporte, sem deformar, e a ponta encosta na placa. Bloco `sinC_LDC` esticado vira polilinha (o bloco nao estica).
 - Chamada explodida achada pela **saida do suporte** (onde ela nasce), nao so pela ponta na placa: no desenho de teste (VIAS_CHAPADA) as 121 chamadas explodidas estavam com metade da escala da placa (escala 5 x 10) e a ponta ate 60 m longe da placa; todas sao reconhecidas. Ao arrumar/escalar, a ponta volta a encostar na placa e a posicao atual da placa (movida a mao) e mantida.
 - `COordenadas` com chamada explodida: o ponto sai da ponta da chamada oposta a placa e a rotacao e a da placa; a chamada esticada a mao no CAD e lida e mantida.
+- Corrigido: atributo `Área` com 2 casas fixas, como o SinC (5,6 m2 -> `560`; antes `56`, e 0,975 m2 saia `0975`), o que fazia o quantitativo do SinC somar areas absurdas (424.622 m2). Escalar/Arrumar regravam o atributo nas placas ja inseridas.
 - Corrigido: contorno da chamada no monitor nao seguia a escala da placa.
 
 ## 2.72.0 - Layouts v1.14.0: janela do padrao de malha, norte e escala; layers padrao

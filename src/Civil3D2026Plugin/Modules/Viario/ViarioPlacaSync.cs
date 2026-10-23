@@ -214,6 +214,16 @@ internal static class ViarioPlacaSync
         return names;
     }
 
+    /// <summary>
+    /// Atributo Área como o SinC grava: m2 com 2 casas e sem a virgula (9,18 -> "918"; 5,6 -> "560";
+    /// 0,975 -> "98"). Antes saia com casas variaveis ("56", "0975") e o quantitativo do SinC somava errado.
+    /// </summary>
+    private static string AreaAtributo(PlacaItem p)
+    {
+        string t = Math.Round(p.AreaSinC, 2, MidpointRounding.AwayFromZero).ToString("0.00", CultureInfo.InvariantCulture).Replace(".", "").TrimStart('0');
+        return t.Length == 0 ? "0" : t;
+    }
+
     private static Point3d Local(PlacaItem p, V2 offset, double scale)
     {
         V2 d = ViarioPlacas.Rotate(offset * scale, p.Rotacao);
@@ -334,7 +344,7 @@ internal static class ViarioPlacaSync
         ["Situação"] = o.Situacao,
         ["Nort"] = "N: " + Coord(p.N),
         ["Est"] = "E: " + Coord(p.E),
-        ["Área"] = p.AreaSinC.ToString("0.###", CultureInfo.InvariantCulture).Replace(".", ""),
+        ["Área"] = AreaAtributo(p),
         ["Dimensão"] = p.DimensaoSinC,
         ["Eixo"] = p.AxisName,
         ["Estaca/KM"] = p.EstacaKm,
@@ -1013,6 +1023,8 @@ internal static class ViarioPlacaSync
         SetAttribute(tr, c.Ref, "Eixo", p.AxisName);
         SetAttribute(tr, c.Ref, "Estaca/KM", p.EstacaKm);
         SetAttribute(tr, c.Ref, "Lado", p.LadoTexto);
+        if (p.AreaSinC > 0)
+            SetAttribute(tr, c.Ref, "Área", AreaAtributo(p));
         Tag(c.Ref, TagPlaca, p.Serialize());
 
         MoveExplodedLeader(tr, c, Local(p, ldcOff, 1.0), rad, escala, Local(p, placaOff, 1.0));
@@ -1252,7 +1264,7 @@ internal static class ViarioPlacaSync
             c.Ref.RecordGraphicsModified(true);
             ResyncAttributes(tr, c.Ref);
             SetAttribute(tr, c.Ref, "Dimensão", c.Placa.DimensaoSinC);
-            SetAttribute(tr, c.Ref, "Área", c.Placa.AreaSinC.ToString("0.###", CultureInfo.InvariantCulture).Replace(".", ""));
+            SetAttribute(tr, c.Ref, "Área", AreaAtributo(c.Placa));
             Tag(c.Ref, TagPlaca, c.Placa.Serialize());
         }
 
