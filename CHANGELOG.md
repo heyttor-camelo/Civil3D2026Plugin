@@ -1,3 +1,9 @@
+## 2.72.0 - Layouts v1.14.0: janela do padrao de malha, norte e escala; layers padrao
+
+- **Janela de configuracao** (`C3DMNE > Configurar`, botao "Configurar malha, norte e escala" na barra do explorador, grupo Viewports, e no botao direito da viewport): liga/desliga malha, norte e escala grafica; **intervalo fixo da malha em metros** e **total fixo da escala grafica em metros** (vazio = automatico pela escala de cada viewport, como antes); altura do norte e dos textos; canto e deslocamento; layers com lista das layers do desenho; botao "Valores iniciais".
+- **Layers padrao**: malha em `C3D_MALHA`, norte em `C3D_NORTE`, escala grafica em `C3D_ESCALAGRAF` (criadas se faltarem). Vale tambem para os comandos avulsos de norte e escala grafica. Padroes antigos salvos com layer vazia passam a usar essas.
+- Salvar o padrao lendo uma viewport nao troca a layer quando o item esta na layer `0`; com total fixo da escala, o total lido vira o novo total.
+
 ## 2.71.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
 
 - **Escala grafica** (`ESCALAGRAF` e aba Norte e escala grafica): as divisoes eram sempre de 10 m, entao em 1:5000 com centenas de metros saiam dezenas de blocos e rotulos amontoados. Agora o passo e 10 m quando cabe (igual a LISP) e sobe para 20, 25, 50, 100, 200, 250, 500... ate os rotulos caberem com folga e haver no maximo 12 divisoes; o padrao preto (1/4, 1/4, 1/2 do primeiro bloco) segue o passo. Rotulo que encostaria no final some (fica o traco). Os blocos novos levam `_v2` no nome para nao reaproveitar os antigos.

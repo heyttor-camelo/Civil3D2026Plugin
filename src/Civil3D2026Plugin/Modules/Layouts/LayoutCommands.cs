@@ -304,7 +304,8 @@ public sealed class LayoutCommands
 
         if (acao == "Configurar")
         {
-            ConfigurarConjunto(ed, p);
+            if (LayoutConjuntoJanela.Editar(p, doc.Database, null))
+                ed.WriteMessage("\nPadrao salvo: " + p.Resumo() + ".");
             return;
         }
 
@@ -366,48 +367,6 @@ public sealed class LayoutCommands
         OpResult res = acao == "Remover" ? LayoutConjunto.Remover(doc, vps) : LayoutConjunto.Inserir(doc, vps, p);
         ed.WriteMessage("\n" + res.Mensagem);
         PluginLog.Info("Layouts", "Malha/norte/escala: " + res.Mensagem);
-    }
-
-    private static void ConfigurarConjunto(Editor ed, PadraoConjunto p)
-    {
-        bool SimNao(string pergunta, bool atual)
-        {
-            var o = new PromptKeywordOptions($"\n{pergunta} [Sim/Nao] <{(atual ? "Sim" : "Nao")}>: ", "Sim Nao") { AllowNone = true };
-            PromptResult r = ed.GetKeywords(o);
-            return r.Status == PromptStatus.OK ? r.StringResult == "Sim" : atual;
-        }
-        double Numero(string pergunta, double atual)
-        {
-            var o = new PromptDoubleOptions("\n" + pergunta) { DefaultValue = atual, UseDefaultValue = true, AllowNegative = false, AllowZero = false };
-            PromptDoubleResult r = ed.GetDouble(o);
-            return r.Status == PromptStatus.OK ? r.Value : atual;
-        }
-
-        p.Malha = SimNao("Inserir a malha de coordenadas?", p.Malha);
-        if (p.Malha)
-        {
-            p.MalhaMm = Numero("Distancia aproximada entre as linhas da malha no papel (mm; o intervalo sai redondo: 50, 100, 200, 500 m...)", p.MalhaMm);
-            p.MalhaTexto = Numero("Altura do texto das coordenadas (mm)", p.MalhaTexto);
-            var o = new PromptKeywordOptions($"\nMalha em [Linhas/Cruzes] <{(p.MalhaCruzes ? "Cruzes" : "Linhas")}>: ", "Linhas Cruzes") { AllowNone = true };
-            PromptResult r = ed.GetKeywords(o);
-            if (r.Status == PromptStatus.OK)
-                p.MalhaCruzes = r.StringResult == "Cruzes";
-            var ps = new PromptStringOptions($"\nLayer da malha <{p.MalhaLayer}>: ") { AllowSpaces = true };
-            PromptResult rs = ed.GetString(ps);
-            if (rs.Status == PromptStatus.OK && rs.StringResult.Trim().Length > 0)
-                p.MalhaLayer = rs.StringResult.Trim();
-        }
-        p.Norte = SimNao("Inserir o norte?", p.Norte);
-        if (p.Norte)
-            p.NorteTamanho = Numero("Altura do norte no papel (mm)", p.NorteTamanho);
-        p.Escala = SimNao("Inserir a escala grafica?", p.Escala);
-        if (p.Escala)
-        {
-            p.EscalaMm = Numero("Comprimento aproximado da escala grafica no papel (mm; o total sai redondo)", p.EscalaMm);
-            p.EscalaTexto = Numero("Altura do texto da escala grafica (mm)", p.EscalaTexto);
-        }
-        p.Salvar();
-        ed.WriteMessage("\nPadrao salvo: " + p.Resumo() + ". A posicao de norte e escala vem do [Padrao] (ajuste numa viewport e leia).");
     }
 
     /// <summary>

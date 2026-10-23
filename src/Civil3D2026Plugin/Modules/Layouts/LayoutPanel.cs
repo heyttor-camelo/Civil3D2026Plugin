@@ -199,6 +199,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("MNE", "malha", "Malha, norte e escala (padrao)", "Viewports",
             "Insere de uma vez a malha de coordenadas, o norte e a escala grafica nas viewports marcadas, pelo padrao salvo (troca os que ja existiam nelas). Para criar o padrao: lance os tres numa viewport, ajuste a mao e use \"Salvar padrao\" com so ela marcada (ou C3DMNE > Padrao).",
             new[] { "Marque as viewports.", "Clique: insere pelo padrao.", "Botao direito na viewport: salvar padrao / remover." }, p => p.Executar(() => LayoutConjunto.Inserir(p.Doc!, p.VpsMarcadas(), PadraoConjunto.Ler()))),
+        new("MNECFG", "config", "Configurar malha, norte e escala", "Viewports",
+            "Janela do padrao: intervalo da malha e total da escala grafica (fixos em metros ou automaticos pela escala), altura do norte e dos textos, canto e deslocamento, layers (C3D_MALHA, C3D_NORTE, C3D_ESCALAGRAF).",
+            new[] { "Ajuste os valores e OK.", "Depois use Malha, norte e escala nas viewports marcadas." }, p => p.ConfigurarConjunto()),
         new("NUMERAR", "numero", "Numerar pranchas", "Numeracao",
             "Escreve numero e total nos textos marcados (busca na aba Numeracao), na ordem das abas, com prefixo, sufixo, digitos e total configuraveis.",
             new[] { "Busque e marque os textos do numero e do total (uma vez).", "Clique para renumerar depois de criar, apagar ou reordenar layouts." }, p => p.Numerar()),
@@ -1679,6 +1682,7 @@ internal sealed partial class LayoutPanel : SW.Window
         menu.Items.Add(new WC.Separator());
         Item("Malha, norte e escala pelo padrao", () => Executar(() => LayoutConjunto.Inserir(Doc!, so, PadraoConjunto.Ler())), "malha");
         Item("Salvar o padrao de malha, norte e escala desta viewport", () => Executar(() => LayoutConjunto.LerPadrao(Doc!, vp.Id, out _)));
+        Item("Configurar malha, norte e escala...", ConfigurarConjunto);
         Item("Remover malha, norte e escala desta viewport", () => Executar(() => LayoutConjunto.Remover(Doc!, so)));
         menu.Items.Add(new WC.Separator());
         if (vp.Planta)
@@ -3243,6 +3247,14 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             return "";
         }
+    }
+
+    /// <summary>Janela do padrao de malha, norte e escala.</summary>
+    private void ConfigurarConjunto()
+    {
+        PadraoConjunto p = PadraoConjunto.Ler();
+        if (LayoutConjuntoJanela.Editar(p, Doc?.Database, this))
+            Doc?.Editor.WriteMessage("\nPadrao de malha, norte e escala salvo: " + p.Resumo() + ".\n");
     }
 
     /// <summary>Importar layer state de uma viewport de outro DWG para as viewports dadas.</summary>
