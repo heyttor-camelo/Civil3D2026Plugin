@@ -1,3 +1,9 @@
+## 2.77.0 - Comandos gerais: a lista das LISPs vira "Comandos gerais" (LispTools v1.2.0)
+
+- O grupo "LISPs" da Ribbon e do `C3DMODULOS` passa a se chamar **Comandos gerais**; a janela do `C3DLISP` tambem ("Comandos gerais", N comandos) e o modulo "Utilitarios (ex-LISP)" vira "Utilitarios". Quem tinha o grupo desativado no `C3DMODULOS` precisa desmarcar de novo (a chave gravada mudou de nome).
+- `C3DCOMANDOS` e um alias do `C3DLISP`; os nomes antigos continuam valendo.
+- `C3DUNIRHACHURAS` ja estava na lista; a descricao ganha "hatch" para o Localizar achar por esse termo tambem.
+
 ## 2.76.1 - Utilitarios v1.7.1: C3DUNIRHACHURAS nao cai com hachura SOLID
 
 - `C3DUNIRHACHURAS` dava eInvalidInput em `Hatch.PatternAngle` ao criar a hachura nova: o angulo e a escala eram aplicados antes do padrao e, em SOLID, o AutoCAD recusa o angulo. Agora o padrao e definido primeiro e angulo, escala e origem so sao copiados nos padroes que nao sao SOLID; propriedade recusada e ignorada (vai para o log) em vez de derrubar o comando.

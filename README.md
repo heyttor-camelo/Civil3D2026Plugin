@@ -342,18 +342,21 @@ ESCALAGRAF         -> escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.L
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```
 
-## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.7.0)
+## Comandos gerais (C3DLISP / C3DCOMANDOS, LispTools v1.2.0, Utilitarios v1.7.1)
+
+Grupo "Comandos gerais" na Ribbon e no `C3DMODULOS`: os utilitarios em C# e as LISPs embutidas, numa lista so.
 
 `Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP), mais o `C3DOBJLAYERS` (copia so a aba Object Layers das Drawing Settings de outro DWG/DWT) o `C3DORDEMDESENHO` (copia a ordem de desenho de outro DWG/DWT, por layer ou por objeto) e o `C3DCOPIARLAYERS` (copia o estado das layers de outro DWG/DWT, com os xrefs casados pelo arquivo) e o `C3DUNIRHACHURAS` (remonta o contorno original de hachuras picadas, como as filled regions exportadas do Revit, e as troca por uma hachura associativa; geometria em `Utilitarios/Contorno`, testes em `tests/Contorno.Tests`). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
 
-`C3DLISP` mostra tudo numa lista: icone, nome, comando e descricao; duplo clique executa.
+`C3DLISP` (ou `C3DCOMANDOS`) abre a janela "Comandos gerais": icone, nome, comando e descricao; duplo clique executa; o campo Localizar procura no nome, no comando e na descricao.
 
 ### LISPs embutidas
 
 Modulo em `Modules/LispTools`. As LISPs de `Modules/LispTools/Lisp` vao dentro da DLL (EmbeddedResource). Ao carregar o plugin elas sao gravadas em `%LOCALAPPDATA%\Civil3D2026Plugin\Lisp` e, em cada desenho, os comandos sao registrados com o `autoload` do AutoCAD: cada rotina so e carregada no primeiro uso do comando (rotinas que executam codigo ao carregar, como o NP, nao mexem em desenhos onde nao foram usadas). Arquivos compilados (VLX/FAS) sao carregados inteiros. A pasta e incluida em TRUSTEDPATHS para o SECURELOAD nao pedir confirmacao a cada arquivo.
 
 ```text
-C3DLISP          -> lista de ferramentas (nativas e LISPs) com icone; duplo clique executa
+C3DLISP          -> janela Comandos gerais (utilitarios em C# e LISPs) com icone; duplo clique executa
+C3DCOMANDOS      -> o mesmo que C3DLISP
 C3DLISPLIST      -> a mesma lista na linha de comando
 C3DLISPCARREGAR  -> regrava as LISPs e registra os comandos de novo no desenho atual
 ```

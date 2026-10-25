@@ -32,7 +32,7 @@ COMANDOS = {
     "SEPARA_CURVAS_RAIO": ("curva", None), "KB": ("via", None), "PP": ("juntar", None), "C3DOBJLAYERS": ("camadas", None),
     "C3DORDEMDESENHO": ("ordenar", None), "C3DCOPIARLAYERS": ("camadas", None),
     "C3DUNIRHACHURAS": ("hachura", "juntar"),
-    "C3DLISP": ("lisp", None), "C3DLISPLIST": ("lisp", "lista"), "C3DLISPCARREGAR": ("lisp", "atualizar"),
+    "C3DLISP": ("lisp", None), "C3DCOMANDOS": ("lisp", None), "C3DLISPLIST": ("lisp", "lista"), "C3DLISPCARREGAR": ("lisp", "atualizar"),
     "TESTEDLL": ("teste", None),
 }
 
@@ -75,6 +75,6 @@ CATEGORIAS = {
     "Geometria":    ("#5A3A92", "#3B2564", "#D2B6FF"),
     "Layouts":      ("#1E5D78", "#133E51", "#93DDF8"),
     "PEDs":         ("#8E2433", "#5F1621", "#FF9AA6"),
-    "LISPs":        ("#566A23", "#384617", "#D6F07F"),
+    "Comandos gerais": ("#566A23", "#384617", "#D6F07F"),
 }
 AMBAR = "#FFC24A"

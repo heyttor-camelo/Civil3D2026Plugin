@@ -86,7 +86,7 @@ public static class UtilCatalog
             "nativo"),
 
         new UtilTool("Unir hachuras picadas (contorno original)", "hachura",
-            "Remonta o contorno de hachuras quebradas em varios pedacos encostados, como as filled regions que o Revit exporta para DWG. Le os lacos de cada hachura, cancela as divisas entre pecas (o trim e join feito pelas arestas, com tolerancia) e gera uma polilinha fechada por contorno, com os furos. Em Hachura, troca as pecas por uma hachura associativa com o mesmo padrao, layer e cor (ou ByLayer), mandada para o fundo. Agrupa por layer, cor e padrao, so por layer ou tudo junto. Avisa quando a area do contorno difere da soma das pecas.",
+            "Remonta o contorno de hachuras (hatch) quebradas em varios pedacos encostados, como as filled regions que o Revit exporta para DWG. Le os lacos de cada hachura, cancela as divisas entre pecas (o trim e join feito pelas arestas, com tolerancia) e gera uma polilinha fechada por contorno, com os furos. Em Hachura, troca as pecas por uma hachura associativa com o mesmo padrao, layer e cor (ou ByLayer), mandada para o fundo. Agrupa por layer, cor e padrao, so por layer ou tudo junto. Avisa quando a area do contorno difere da soma das pecas.",
             new[] { C3DCommands.Utilitarios.UnirHachuras },
             new[] { "Opcoes [Tolerancia/Resultado/Agrupar/Cor/Ordem] ou Enter.", "Selecione as hachuras (pode ser por janela: so hachuras entram).", "Um UNDO desfaz tudo." },
             "nativo")

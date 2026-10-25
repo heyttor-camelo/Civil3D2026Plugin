@@ -209,6 +209,7 @@ internal static class IconArt
         ["C3DCOPIARLAYERS"] = ("camadas", null),
         ["C3DUNIRHACHURAS"] = ("hachura", "juntar"),
         ["C3DLISP"] = ("lisp", null),
+        ["C3DCOMANDOS"] = ("lisp", null),
         ["C3DLISPLIST"] = ("lisp", "lista"),
         ["C3DLISPCARREGAR"] = ("lisp", "atualizar"),
         ["TESTEDLL"] = ("teste", null),
@@ -228,7 +229,7 @@ internal static class IconArt
         ["Geometria"] = (WM.Color.FromRgb(90, 58, 146), WM.Color.FromRgb(59, 37, 100), WM.Color.FromRgb(210, 182, 255)),
         ["Layouts"] = (WM.Color.FromRgb(30, 93, 120), WM.Color.FromRgb(19, 62, 81), WM.Color.FromRgb(147, 221, 248)),
         ["PEDs"] = (WM.Color.FromRgb(142, 36, 51), WM.Color.FromRgb(95, 22, 33), WM.Color.FromRgb(255, 154, 166)),
-        ["LISPs"] = (WM.Color.FromRgb(86, 106, 35), WM.Color.FromRgb(56, 70, 23), WM.Color.FromRgb(214, 240, 127)),
+        ["Comandos gerais"] = (WM.Color.FromRgb(86, 106, 35), WM.Color.FromRgb(56, 70, 23), WM.Color.FromRgb(214, 240, 127)),
     };
 
     public static bool Has(string? key) => key is not null && Icones.ContainsKey(key);

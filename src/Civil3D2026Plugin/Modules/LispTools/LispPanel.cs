@@ -38,7 +38,7 @@ internal sealed class LispPanel : SW.Window
         Civil3D2026Plugin.UI.Common.LogView.Atalho(this, "LispTools");
         _entries = Entradas();
 
-        Title = "Ferramentas e LISPs";
+        Title = "Comandos gerais";
         Width = 470;
         Height = 620;
         MinWidth = 340;
@@ -120,7 +120,7 @@ internal sealed class LispPanel : SW.Window
         var top = new WC.DockPanel { Margin = new SW.Thickness(8, 8, 8, 6) };
         var count = new WC.TextBlock
         {
-            Text = $"{_entries.Count} ferramentas",
+            Text = $"{_entries.Count} comandos",
             Foreground = T.Muted,
             FontSize = 11,
             VerticalAlignment = SW.VerticalAlignment.Center,

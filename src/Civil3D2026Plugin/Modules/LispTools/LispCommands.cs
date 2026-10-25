@@ -17,6 +17,13 @@ public sealed class LispCommands
         LispPanel.ShowPanel();
     }
 
+    /// <summary>Alias: C3DCOMANDOS abre a mesma lista.</summary>
+    [CommandMethod(C3DCommands.LispTools.Comandos, CommandFlags.Modal)]
+    public void Comandos()
+    {
+        LispPanel.ShowPanel();
+    }
+
     /// <summary>Mesma lista, na linha de comando.</summary>
     [CommandMethod(C3DCommands.LispTools.Lista, CommandFlags.Modal)]
     public void Lista()

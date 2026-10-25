@@ -71,7 +71,7 @@ public sealed class PluginApplication : IExtensionApplication
             Civil3D2026Plugin.Modules.Layouts.SheetSeriesSync.Initialize();
 
         // LISPs embutidas (C3DLISP): extrai e registra os comandos por autoload em cada desenho.
-        if (ModuleSettings.IsCategoryEnabled("LISPs"))
+        if (ModuleSettings.IsCategoryEnabled("Comandos gerais"))
             LispModule.Initialize();
 
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
