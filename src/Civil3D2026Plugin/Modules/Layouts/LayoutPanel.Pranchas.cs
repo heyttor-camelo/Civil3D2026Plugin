@@ -116,7 +116,7 @@ internal sealed partial class LayoutPanel
         s.Folga = LayoutSettings.GetDouble("pp_folga", 10);
         s.Girar = LayoutSettings.GetBool("pp_girar", true);
         s.AjustarCotas = LayoutSettings.GetBool("pp_cotas", true);
-        s.Automatico = LayoutSettings.GetBool("pp_auto", true);
+        s.Automatico = LayoutSettings.GetBool("pp_auto", false);
         s.Numerar = LayoutSettings.GetBool("pp_numerar", true);
         s.MargemOrigem = LayoutSettings.GetDouble("pp_margem", LayoutSheetSeries.MargemOrigemPadrao);
         string modelo = LayoutSettings.Get("pp_modelo", "");
@@ -442,7 +442,8 @@ internal sealed partial class LayoutPanel
         chNum.ToolTip = "Escreve numero e total da serie nos textos marcados como NUMERO/TOTAL (categoria Numeracao) do layout base.";
         chNum.Click += (_, _) => s.Numerar = chNum.IsChecked == true;
         var chAuto = new WC.CheckBox { Content = "Auto-update", IsChecked = s.Automatico, Margin = new SW.Thickness(0, 4, 0, 0) };
-        chAuto.ToolTip = "Atualiza sozinho ao mover, girar ou esticar um frame, ou ao editar o alignment. Desligado: so pelo botao Atualizar.";
+        chAuto.ToolTip = "Ligado: ao mover, girar ou esticar um frame, ou ao editar o alignment, as sheets da serie sao realinhadas SOZINHAS (MUDA A VISTA das viewports de planta e perfil, sem perguntar; fica um ponto de restauracao). " +
+                         "Desligado (padrao): so pelo botao \"Realinhar pelos frames\", que pede confirmacao.";
         chAuto.Click += (_, _) =>
         {
             s.Automatico = chAuto.IsChecked == true;
@@ -522,10 +523,10 @@ internal sealed partial class LayoutPanel
             if (pendentes > 0)
                 Acao(Principal($"Completar ({pendentes})", () => GerarSerie(pranchas: true)),
                     "Cria as sheets e os profile views que faltam (frames sem layout ou sem profile view).");
-            Acao(pendentes > 0 ? ActionButton("Atualizar", AtualizarSerie) : Principal("Atualizar", AtualizarSerie),
-                "Realinha tudo pelos frames: viewports de planta, estacas e elevations dos profile views, viewports de perfil e match lines.");
+            Acao(pendentes > 0 ? ActionButton("Realinhar pelos frames", AtualizarSerie) : Principal("Realinhar pelos frames", AtualizarSerie),
+                "MUDA A VISTA: recentraliza e gira a viewport de planta de cada sheet no seu frame, refaz estacas e elevations dos profile views, viewports de perfil e match lines. Pede confirmacao.");
             Acao(ActionButton("Reaplicar layout base", ReaplicarLayoutBase),
-                "Copia de novo o page setup e as camadas (layer states / overrides) do layout base para todas as sheets.");
+                "Copia de novo o page setup e as camadas (layer states / overrides) do layout base para todas as sheets (ajustes de camadas feitos a mao nelas se perdem). Pede confirmacao.");
             Acao(ActionButton("Remover serie...", RemoverSerie),
                 "Remove frames e match lines; pergunta se remove tambem sheets e profile views.");
         }
@@ -734,11 +735,12 @@ internal sealed partial class LayoutPanel
         if (_serie is null || Doc is not Document doc)
             return;
         SheetSeries s = _serie;
+        int n = _framesPP.Count(f => f.Eixo == s.Eixo);
         ExecutarLongo($"Reaplicando o layout base em {s.EixoNome}", () =>
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.ReaplicarLayoutBase(doc, s.Eixo);
-        });
+        }, confirmar: $"Reaplicar o layout base ({s.Modelo}) nas {n} sheet(s) da serie de {s.EixoNome}: o page setup e as camadas (VP freeze/overrides) das viewports dessas sheets voltam a ser os do layout base. Ajustes de camadas feitos a mao nelas se perdem. A vista das viewports nao muda.");
     }
 
     private void UsarMarcada(bool planta)
@@ -764,7 +766,10 @@ internal sealed partial class LayoutPanel
         SalvarPreferenciasPP(s);
         MostrarStatus(pranchas ? "Gerando frames, sheets e profile views..." : "Gerando frames...");
         ExecutarLongo(pranchas ? $"Gerando as sheets de {s.EixoNome}" : $"Gerando os frames de {s.EixoNome}",
-            () => LayoutSheetSeries.Gerar(doc, s, pranchas, BasePerfis()), cancelavel: pranchas);
+            () => LayoutSheetSeries.Gerar(doc, s, pranchas, BasePerfis()), cancelavel: pranchas,
+            confirmar: pranchas
+                ? $"Gerar as pranchas de {s.EixoNome}: frames no Model ao longo do eixo e, para cada frame que ainda nao tem prancha, um layout NOVO copiado de \"{s.Modelo}\" (com profile view, se houver viewport de perfil).\n\nAs abas novas entram depois das pranchas da serie (ou depois do layout base): as abas que vem depois andam de posicao. Layouts que ja existem nao sao alterados por dentro."
+                : $"Gerar os frames de {s.EixoNome} no Model (sem criar layouts).");
     }
 
     private void AtualizarSerie()
@@ -772,18 +777,28 @@ internal sealed partial class LayoutPanel
         if (_serie is null || Doc is not Document doc)
             return;
         SheetSeries s = _serie;
+        int n = _framesPP.Count(f => f.Eixo == s.Eixo);
         ExecutarLongo($"Atualizando as sheets de {s.EixoNome}", () =>
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.Atualizar(doc, s.Eixo, null);
-        }, cancelavel: true);
+        }, cancelavel: true, confirmar: AvisoRealinhar($"as {n} sheet(s) da serie de {s.EixoNome}"));
     }
+
+    /// <summary>Texto da confirmacao das acoes que recentralizam as viewports de planta nos frames.</summary>
+    private static string AvisoRealinhar(string quais) =>
+        $"Realinhar {quais} pelos frames do Model.\n\n" +
+        "MUDA A VISTA: a viewport de PLANTA de cada sheet e recentralizada e girada no frame dela, e a viewport de PERFIL no profile view. " +
+        "Estacas, profile views e linhas de corte sao refeitos. Ajustes de vista feitos a mao nessas viewports se perdem.\n\n" +
+        "Use depois de mover, girar ou esticar frames no Model, ou de editar o alignment. Para so reler o painel, use \"Reler o painel\" (nao muda o desenho).";
 
     private void AtualizarTodasSeries()
     {
         if (Doc is not Document doc)
             return;
-        ExecutarLongo("Atualizando todas as series", () => LayoutSheetSeries.AtualizarTodas(doc), cancelavel: true);
+        int n = _framesPP.Count;
+        ExecutarLongo("Atualizando todas as series", () => LayoutSheetSeries.AtualizarTodas(doc), cancelavel: true,
+            confirmar: AvisoRealinhar($"TODAS as {n} sheet(s) de todas as series de pranchas do eixo"));
     }
 
     private void AplicarOpcoesPerfis()
@@ -796,7 +811,7 @@ internal sealed partial class LayoutPanel
         {
             LayoutSheetSeries.Salvar(doc, s);
             return LayoutSheetSeries.AplicarOpcoesPerfis(doc, s.Eixo);
-        }, cancelavel: true);
+        }, cancelavel: true, confirmar: $"Aplicar as opcoes do passo 3 (estilo, band set, inicio do grafico) em todos os profile views da serie de {s.EixoNome} e realinhar as viewports de perfil.");
     }
 
     /// <summary>Muda a escala de uma viewport do layout base (passo 1).</summary>
@@ -1046,7 +1061,8 @@ internal sealed partial class LayoutPanel
             abrir.ToolTip = "Abre o layout desta sheet.";
             b.Children.Add(abrir);
         }
-        WC.Button atualizar = ActionButton("Atualizar sheet", () => Executar(() => LayoutSheetSeries.Atualizar(Doc!, f.Eixo, new[] { f.Id })));
+        WC.Button atualizar = ActionButton("Realinhar esta sheet", () => Executar(() => LayoutSheetSeries.Atualizar(Doc!, f.Eixo, new[] { f.Id }),
+            $"Realinhar a sheet {f.LayoutNome} pelo frame dela: MUDA A VISTA da viewport de planta (recentralizada e girada no frame) e da viewport de perfil."));
         atualizar.ToolTip = "Realinha so esta sheet pelo frame.";
         b.Children.Add(atualizar);
         p.Children.Add(b);

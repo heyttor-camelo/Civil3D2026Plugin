@@ -290,6 +290,10 @@ public static class CommandCatalog
                         "Clique dentro de uma ilha (anel de meio-fio, canteiro ou gota) para elimina-la; Restaurar/Todas desfaz."),
                     new CommandDefinition(C3DCommands.Viario.Sinal, "Sinalizacao horizontal",
                         "Sinalizacao horizontal previa num bloco unico (divisoria, faixas, faixas de pedestres, retencao) que acompanha a rede."),
+                    new CommandDefinition(C3DCommands.Viario.Placas, "Placas verticais (SinC)",
+                        "Importa as placas de um projeto (JSON/CSV) e insere cada uma no padrao do SinC (bloco T-xxx_SV com os atributos e linha de chamada), amarrada ao eixo mais proximo: eixo, estaca e lado; nomeia os eixos pela rota/trecho das placas."),
+                    new CommandDefinition(C3DCommands.Viario.Atrativos, "Atrativos turisticos (KMZ)",
+                        "Importa os pontos de um KML/KMZ (atrativos turisticos) como blocos VIARIO-ATRATIVO: circulo com hachura transparente, raio = escala do bloco, nome e categoria em atributos; lista no painel viario."),
                     new CommandDefinition(C3DCommands.Viario.Hachura, "Hachura do pavimento",
                         "Hachura unica so da regiao de pavimento (contorno pelas faces de meio-fio; quadras, canteiros e ilhas como furos), que acompanha a rede."),
                     new CommandDefinition(C3DCommands.Viario.Cotar, "Cotar faixas",
@@ -414,7 +418,8 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.OrdemDesenho, "Copiar ordem de desenho", "Copia a ordem de desenho (draw order) de outro DWG/DWT, por layer ou por objeto."),
-                    new CommandDefinition(C3DCommands.Utilitarios.CopiarLayers, "Copiar estado das layers", "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; xrefs casam pelo arquivo, mesmo com nome diferente.")
+                    new CommandDefinition(C3DCommands.Utilitarios.CopiarLayers, "Copiar estado das layers", "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; xrefs casam pelo arquivo, mesmo com nome diferente."),
+                    new CommandDefinition(C3DCommands.Utilitarios.UnirHachuras, "Unir hachuras picadas", "Remonta o contorno de hachuras quebradas em pedacos encostados (ex.: filled regions do Revit) e troca por uma hachura associativa.", ShowInRibbon: false)
                 }),
 
             new(

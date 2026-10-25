@@ -136,6 +136,8 @@ public static class CommandNames
         public const string Sinal = "C3DVIARIOSINAL";
         public const string Cotar = "C3DVIARIOCOTAR";
         public const string Hachura = "C3DVIARIOHACHURA";
+        public const string Placas = "C3DVIARIOPLACAS";
+        public const string Atrativos = "C3DVIARIOATRATIVOS";
     }
 
     public static class FeatureLines
@@ -176,6 +178,7 @@ public static class CommandNames
         public const string ObjLayers = "C3DOBJLAYERS";
         public const string OrdemDesenho = "C3DORDEMDESENHO";
         public const string CopiarLayers = "C3DCOPIARLAYERS";
+        public const string UnirHachuras = "C3DUNIRHACHURAS";
     }
 
     public static class Secao

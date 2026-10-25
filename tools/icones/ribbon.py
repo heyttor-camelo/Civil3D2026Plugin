@@ -31,6 +31,7 @@ COMANDOS = {
     "LSLAYOUTS": ("camadas", None), "MOFF": ("offset", None), "MOFFSET": ("offset", None),
     "SEPARA_CURVAS_RAIO": ("curva", None), "KB": ("via", None), "PP": ("juntar", None), "C3DOBJLAYERS": ("camadas", None),
     "C3DORDEMDESENHO": ("ordenar", None), "C3DCOPIARLAYERS": ("camadas", None),
+    "C3DUNIRHACHURAS": ("hachura", "juntar"),
     "C3DLISP": ("lisp", None), "C3DLISPLIST": ("lisp", "lista"), "C3DLISPCARREGAR": ("lisp", "atualizar"),
     "TESTEDLL": ("teste", None),
 }

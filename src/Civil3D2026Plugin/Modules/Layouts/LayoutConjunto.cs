@@ -25,19 +25,29 @@ internal sealed class PadraoConjunto
     public bool Norte { get; set; } = true;
     public double NorteTamanho { get; set; } = 20;
     public Ancora NortePos { get; set; } = new(CantoVp.SD, -20, -20);
-    public string NorteLayer { get; set; } = "";
+    public string NorteLayer { get; set; } = LayerNorte;
 
     public bool Escala { get; set; } = true;
     public double EscalaMm { get; set; } = 60;
     public double EscalaTexto { get; set; } = 2.5;
     public Ancora EscalaPos { get; set; } = new(CantoVp.IE, 10, 15);
-    public string EscalaLayer { get; set; } = "";
+    public string EscalaLayer { get; set; } = LayerEscala;
+    /// <summary>Total da escala grafica em metros; 0 = automatico pelo comprimento no papel.</summary>
+    public double EscalaM { get; set; }
 
     public bool Malha { get; set; } = true;
     public double MalhaMm { get; set; } = 50;
     public double MalhaTexto { get; set; } = 2.0;
     public bool MalhaCruzes { get; set; }
-    public string MalhaLayer { get; set; } = "C3D_MALHA";
+    /// <summary>Transparencia das linhas da malha (0 a 90%); os textos ficam opacos.</summary>
+    public double MalhaTransp { get; set; } = 50;
+    public string MalhaLayer { get; set; } = LayerMalha;
+    /// <summary>Intervalo da malha em metros; 0 = automatico pela distancia no papel.</summary>
+    public double MalhaM { get; set; }
+
+    public const string LayerNorte = "C3D_NORTE";
+    public const string LayerEscala = "C3D_ESCALAGRAF";
+    public const string LayerMalha = "C3D_MALHA";
 
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
@@ -47,17 +57,20 @@ internal sealed class PadraoConjunto
         p.Norte = LayoutSettings.GetBool("mne_norte", p.Norte);
         p.NorteTamanho = LayoutSettings.GetDouble("mne_norte_tam", p.NorteTamanho);
         p.NortePos = LerAncora("mne_norte", p.NortePos);
-        p.NorteLayer = LayoutSettings.Get("mne_norte_layer", p.NorteLayer);
+        p.NorteLayer = LerLayer("mne_norte_layer", LayerNorte);
         p.Escala = LayoutSettings.GetBool("mne_esc", p.Escala);
         p.EscalaMm = LayoutSettings.GetDouble("mne_esc_mm", p.EscalaMm);
         p.EscalaTexto = LayoutSettings.GetDouble("mne_esc_texto", p.EscalaTexto);
         p.EscalaPos = LerAncora("mne_esc", p.EscalaPos);
-        p.EscalaLayer = LayoutSettings.Get("mne_esc_layer", p.EscalaLayer);
+        p.EscalaLayer = LerLayer("mne_esc_layer", LayerEscala);
+        p.EscalaM = LayoutSettings.GetDouble("mne_esc_m", p.EscalaM);
         p.Malha = LayoutSettings.GetBool("mne_malha", p.Malha);
         p.MalhaMm = LayoutSettings.GetDouble("mne_malha_mm", p.MalhaMm);
         p.MalhaTexto = LayoutSettings.GetDouble("mne_malha_texto", p.MalhaTexto);
         p.MalhaCruzes = LayoutSettings.GetBool("mne_malha_cruzes", p.MalhaCruzes);
-        p.MalhaLayer = LayoutSettings.Get("mne_malha_layer", p.MalhaLayer);
+        p.MalhaTransp = LayoutSettings.GetDouble("mne_malha_transp", p.MalhaTransp);
+        p.MalhaLayer = LerLayer("mne_malha_layer", LayerMalha);
+        p.MalhaM = LayoutSettings.GetDouble("mne_malha_m", p.MalhaM);
         return p;
     }
 
@@ -72,11 +85,21 @@ internal sealed class PadraoConjunto
         LayoutSettings.Set("mne_esc_texto", EscalaTexto);
         SalvarAncora("mne_esc", EscalaPos);
         LayoutSettings.Set("mne_esc_layer", EscalaLayer);
+        LayoutSettings.Set("mne_esc_m", EscalaM);
         LayoutSettings.Set("mne_malha", Malha);
         LayoutSettings.Set("mne_malha_mm", MalhaMm);
         LayoutSettings.Set("mne_malha_texto", MalhaTexto);
         LayoutSettings.Set("mne_malha_cruzes", MalhaCruzes);
+        LayoutSettings.Set("mne_malha_transp", MalhaTransp);
         LayoutSettings.Set("mne_malha_layer", MalhaLayer);
+        LayoutSettings.Set("mne_malha_m", MalhaM);
+    }
+
+    /// <summary>Layer salva; vazia (padrao antigo = layer atual) volta para a layer padrao do item.</summary>
+    private static string LerLayer(string chave, string padrao)
+    {
+        string v = LayoutSettings.Get(chave, padrao).Trim();
+        return v.Length == 0 ? padrao : v;
     }
 
     private static Ancora LerAncora(string chave, Ancora padrao)
@@ -98,9 +121,9 @@ internal sealed class PadraoConjunto
     public string Resumo()
     {
         var partes = new List<string>();
-        partes.Add(Malha ? $"malha {(MalhaCruzes ? "em cruzes" : "em linhas")} a cada ~{MalhaMm.ToString("0.#", Inv)} mm, texto {MalhaTexto.ToString("0.##", Inv)} mm, layer {MalhaLayer}" : "sem malha");
-        partes.Add(Norte ? $"norte {NorteTamanho.ToString("0.#", Inv)} mm no canto {NomeCanto(NortePos.Canto)}" : "sem norte");
-        partes.Add(Escala ? $"escala grafica ~{EscalaMm.ToString("0.#", Inv)} mm, texto {EscalaTexto.ToString("0.##", Inv)} mm, canto {NomeCanto(EscalaPos.Canto)}" : "sem escala grafica");
+        partes.Add(Malha ? $"malha {(MalhaCruzes ? "em cruzes" : "em linhas")} a cada {(MalhaM > 0 ? MalhaM.ToString("0.##", Inv) + " m" : "~" + MalhaMm.ToString("0.#", Inv) + " mm")}, texto {MalhaTexto.ToString("0.##", Inv)} mm, layer {MalhaLayer}" : "sem malha");
+        partes.Add(Norte ? $"norte {NorteTamanho.ToString("0.#", Inv)} mm no canto {NomeCanto(NortePos.Canto)}, layer {NorteLayer}" : "sem norte");
+        partes.Add(Escala ? $"escala grafica {(EscalaM > 0 ? EscalaM.ToString("0.##", Inv) + " m" : "~" + EscalaMm.ToString("0.#", Inv) + " mm")}, texto {EscalaTexto.ToString("0.##", Inv)} mm, canto {NomeCanto(EscalaPos.Canto)}, layer {EscalaLayer}" : "sem escala grafica");
         return string.Join("; ", partes);
     }
 
@@ -198,7 +221,7 @@ internal static class LayoutConjunto
 
         if (p.Escala)
         {
-            double maximo = ComprimentoRedondo(p.EscalaMm / mmPorM);
+            double maximo = p.EscalaM > 0 ? p.EscalaM : ComprimentoRedondo(p.EscalaMm / mmPorM);
             OpResult r = LayoutEscalaGrafica.Inserir(tr, db, vp, maximo, p.EscalaTexto, Ponto(vp, p.EscalaPos), out ObjectId esc);
             if (esc.IsNull)
             {
@@ -307,7 +330,7 @@ internal static class LayoutConjunto
     private static ObjectId InserirMalha(Transaction tr, Database db, Viewport vp, BlockTableRecord espaco, PadraoConjunto p, double mmPorM)
     {
         double unidadesPorM = 1000.0 / LayoutReader.FatorUnidade(db);
-        double intervalo = IntervaloRedondo(p.MalhaMm / mmPorM) * unidadesPorM;
+        double intervalo = (p.MalhaM > 0 ? p.MalhaM : IntervaloRedondo(p.MalhaMm / mmPorM)) * unidadesPorM;
         Matrix3d ps2wcs = Dcs2Wcs(vp) * Dcs2Psdcs(vp).Inverse();
         Matrix3d wcs2ps = ps2wcs.Inverse();
 
@@ -344,6 +367,8 @@ internal static class LayoutConjunto
             e.Layer = "0";
             e.ColorIndex = 0;
             e.LineWeight = LineWeight.ByBlock;
+            if (e is Curve)
+                e.Transparency = new Autodesk.AutoCAD.Colors.Transparency((byte)Math.Round(255 * (100 - Math.Clamp(p.MalhaTransp, 0, 90)) / 100));
             def.AppendEntity(e);
             tr.AddNewlyCreatedDBObject(e, true);
         }
@@ -535,7 +560,8 @@ internal static class LayoutConjunto
         {
             padrao.NorteTamanho = Math.Round(Math.Abs(norte.ScaleFactors.X), 2);
             padrao.NortePos = AncoraDe(vp, norte.Position);
-            padrao.NorteLayer = norte.Layer;
+            if (norte.Layer != "0")
+                padrao.NorteLayer = norte.Layer;
             lidos.Add($"norte {padrao.NorteTamanho:0.#} mm ({PadraoConjunto.NomeCanto(padrao.NortePos.Canto)})");
         }
 
@@ -549,14 +575,18 @@ internal static class LayoutConjunto
             if (texto > 0)
                 padrao.EscalaTexto = Math.Round(texto * s, 2);
             padrao.EscalaPos = AncoraDe(vp, escala.Position);
-            padrao.EscalaLayer = escala.Layer;
+            if (escala.Layer != "0")
+                padrao.EscalaLayer = escala.Layer;
+            if (padrao.EscalaM > 0 && max > 0)
+                padrao.EscalaM = Math.Round(max * s, 2);
             lidos.Add($"escala grafica ~{padrao.EscalaMm:0.#} mm, texto {padrao.EscalaTexto:0.##} ({PadraoConjunto.NomeCanto(padrao.EscalaPos.Canto)})");
         }
 
         if (malha is not null)
         {
             padrao.Malha = true;
-            padrao.MalhaLayer = malha.Layer;
+            if (malha.Layer != "0")
+                padrao.MalhaLayer = malha.Layer;
             lidos.Add($"malha na layer {malha.Layer}");
         }
         else
@@ -669,7 +699,7 @@ internal static class LayoutConjunto
     }
 
     /// <summary>Layer do item: a do padrao (criada se faltar); vazio = layer atual.</summary>
-    private static void Layer(Transaction tr, Database db, Entity e, string nome)
+    internal static void Layer(Transaction tr, Database db, Entity e, string nome)
     {
         if (string.IsNullOrWhiteSpace(nome))
             return;
@@ -681,7 +711,8 @@ internal static class LayoutConjunto
             lt.Add(ltr);
             tr.AddNewlyCreatedDBObject(ltr, true);
         }
-        e.Layer = nome;
+        // Pelo id: o bloco pode ainda nao estar no desenho.
+        e.LayerId = lt[nome];
     }
 
     private static ObjectId Estilo(Transaction tr, Database db)

@@ -62,3 +62,26 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 2. Testar HYDRO com `docs/HYDRO-TESTE.md` e `docs/HYDRO-CATALOGO.md`; corrigir o que aparecer.
 3. Testar as peças CSBIM saneadas (boca `CSBIM-ALAS\BDCC`, `CSBIM-DRENAGEM\PV DNIT`).
 4. Instalar o catálogo FDX nas máquinas de casa (LEIA-ME no Drive).
+
+---
+
+## 2026-10-22 — sessao na nuvem (Claude), sem Civil 3D
+
+- **Viario v0.11.0 / plugin 2.70.0**: novo comando `C3DVIARIOPLACAS` (placas de sinalizacao vertical no
+  padrao do SinC) em `Modules/Viario/ViarioPlacas.cs` + `ViarioPlacaSync.cs`; categoria **Placas** e botao com
+  menu no explorador; entrada `PLacas` no `C3DVIARIO`; catalogo, Ribbon, README, CHANGELOG e `docs/VIARIO-PLACAS.md`.
+- Origem: projeto de sinalizacao turistica de Chapada dos Guimaraes (Volume I-C, 121 placas, 15 trechos),
+  extraido do PDF para `placas_chapada.json` / `placas_projeto_x_sinc.csv` (em `C:\sinC\Local\Placas\Placas 2D\_PROJETO\`),
+  casado com os 118 arquivos `T-xxx` do SinC. A estrutura dos blocos/atributos foi lida de um DXF gerado pelo SinC.
+- **Nao compilado nem testado no Civil 3D** (sem DLLs da Autodesk na nuvem). Sintaxe conferida; API usada e a mesma
+  dos modulos vizinhos (PedBlock, ViarioSignageSync, ViarioStore).
+
+### Pendente
+1. Compilar (`dotnet build -c Release`, na maquina de trabalho com `-p:AcadDir=...`), `tools/ValidateProject.ps1`, NETLOAD.
+2. Testar `C3DVIARIOPLACAS > Importar` com `placas_chapada.json` no DWG das vias de Chapada; conferir no SinC se
+   ele reconhece as placas inseridas (atributos/handles) e o formato que ele espera em Nort/Est.
+3. Conferir rotacao/lado das placas em campo (a direcao vem dos eixos; sem eixo perto, a placa fica sem vinculo).
+
+- (mesma sessao, depois) suportes pela area, prefixo N:/E:, importacao direta da pasta do SinC (`PAsta`), monitor da
+  placa no explorador (desenho da placa + planta com nomes dos eixos) e **atrativos turisticos** (`C3DVIARIOATRATIVOS`,
+  KMZ da prefeitura: 105 pontos em 5 pastas). Tambem sem compilar.

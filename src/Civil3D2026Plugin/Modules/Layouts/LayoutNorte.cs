@@ -58,6 +58,7 @@ internal static class LayoutNorte
             onde = vp is null ? "sem viewport embaixo (norte para cima)" : $"girado {rot * 180 / Math.PI:0.##} graus pela viewport";
         }
         var br = new BlockReference(ponto, def) { ScaleFactors = new Scale3d(escala), Rotation = rot };
+        LayoutConjunto.Layer(tr, db, br, PadraoConjunto.Ler().NorteLayer);
         btr.AppendEntity(br);
         tr.AddNewlyCreatedDBObject(br, true);
         Marcar(tr, db, br);
@@ -85,6 +86,7 @@ internal static class LayoutNorte
                     double y = canto.Contains("inferior") ? vp.CenterPoint.Y - vp.Height / 2 + meio : vp.CenterPoint.Y + vp.Height / 2 - meio;
                     var btr = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForWrite, false, true);
                     var br = new BlockReference(new Point3d(x, y, 0), def) { ScaleFactors = new Scale3d(tamanho), Rotation = Rotacao(vp) };
+                    LayoutConjunto.Layer(tr, db, br, PadraoConjunto.Ler().NorteLayer);
                     btr.AppendEntity(br);
                     tr.AddNewlyCreatedDBObject(br, true);
                     Marcar(tr, db, br);

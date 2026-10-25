@@ -408,7 +408,7 @@ internal static class LayoutReader
             Largura = vp.Width,
             Altura = vp.Height,
             Escala = escala,
-            Ligada = vp.On,
+            Ligada = ViewportStatus.Ligada(vp),
             Travada = vp.Locked,
             EscalaCustom = vp.CustomScale,
             Planta = vp.ViewDirection.IsParallelTo(Vector3d.ZAxis),

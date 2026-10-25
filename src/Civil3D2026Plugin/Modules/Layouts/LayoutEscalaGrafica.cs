@@ -107,6 +107,7 @@ internal static class LayoutEscalaGrafica
         ObjectId def = GarantirBloco(tr, db, nome, ppm, den, maximo, alturaTexto);
         var espaco = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForWrite, false, true);
         var br = new BlockReference(ponto, def);
+        LayoutConjunto.Layer(tr, db, br, PadraoConjunto.Ler().EscalaLayer);
         criado = espaco.AppendEntity(br);
         tr.AddNewlyCreatedDBObject(br, true);
         GarantirApp(tr, db);

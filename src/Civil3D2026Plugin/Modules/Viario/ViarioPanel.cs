@@ -12,6 +12,7 @@ using WC = System.Windows.Controls;
 using WD = System.Windows.Data;
 using WI = System.Windows.Input;
 using WM = System.Windows.Media;
+using WMI = System.Windows.Media.Imaging;
 using WS = System.Windows.Shapes;
 
 namespace Civil3D2026Plugin.Modules.Viario;
@@ -108,6 +109,50 @@ internal sealed class ViarioPanel : SW.Window
     private const double HintCell = 30.0;
     private bool _civilActive;
     private bool _signExists;
+    private List<PlacaItem> _placas = new();
+    private (string Cat, int Col, bool Desc)? _sort;
+    private SW.UIElement[] _fullParts = Array.Empty<SW.UIElement>();
+    private bool _fullMonitor;
+    private SW.WindowState _stateBefore;
+    private double _monitorRowBefore;
+
+    /// <summary>Monitor em tela cheia: esconde categorias, comandos, lista e propriedades e maximiza a janela.</summary>
+    private void ToggleFullMonitor()
+    {
+        _fullMonitor = !_fullMonitor;
+        foreach (SW.UIElement e in _fullParts)
+            e.Visibility = _fullMonitor ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        if (Content is WC.Grid root && root.RowDefinitions.Count > 5)
+        {
+            if (_fullMonitor)
+            {
+                _monitorRowBefore = root.RowDefinitions[2].Height.Value;
+                root.RowDefinitions[2].Height = new SW.GridLength(1, SW.GridUnitType.Star);
+                root.RowDefinitions[5].Height = new SW.GridLength(0);
+                root.RowDefinitions[5].MinHeight = 0;
+            }
+            else
+            {
+                root.RowDefinitions[2].Height = new SW.GridLength(_monitorRowBefore > 0 ? _monitorRowBefore : 0.85, SW.GridUnitType.Star);
+                root.RowDefinitions[5].Height = new SW.GridLength(1, SW.GridUnitType.Star);
+                root.RowDefinitions[5].MinHeight = 160;
+            }
+        }
+
+        if (_fullMonitor)
+        {
+            _stateBefore = WindowState;
+            WindowState = SW.WindowState.Maximized;
+        }
+        else
+        {
+            WindowState = _stateBefore;
+        }
+
+        Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+    private readonly Dictionary<string, string> _colFilter = new(StringComparer.Ordinal);
+    private List<AtrativoItem> _atrativos = new();
     private bool _refreshQueued;
 
     /// <summary>Quantas vezes o painel foi atualizado (o aviso na fila pula se ja houve uma depois dele).</summary>
@@ -212,6 +257,12 @@ internal sealed class ViarioPanel : SW.Window
             "Alinhamentos do Civil: eixos, bordos LD/LE e curb returns conectados.", new[] { "Gera ou atualiza; depois acompanham a rede." }),
         new("SINAL", "C3DVIARIOSINAL G ", "Sinalizacao horizontal", "Saidas",
             "Sinalizacao previa num bloco unico que acompanha a rede.", new[] { "O botao abre o menu: gerar/atualizar, ocultar, mostrar, remover.", "Opcoes na categoria Sinalizacao." }),
+        new("PLACAS", "C3DVIARIOPLACAS ", "Placas verticais (SinC)", "Saidas",
+            "Importa as placas de um projeto e insere cada uma no padrao do SinC (bloco T-xxx_SV com atributos e linha de chamada), amarrada ao eixo mais proximo.",
+            new[] { "Importar: catalogo JSON/CSV e pasta dos T-xxx_SV.dwg.", "ATualizar: recalcula eixo, estaca e lado depois de editar eixos.", "NOmear: da aos eixos o nome da rota/trecho das placas." }),
+        new("ATRATIVOS", "C3DVIARIOATRATIVOS ", "Atrativos turisticos (KMZ)", "Saidas",
+            "Importa os pontos de um KML/KMZ como circulos com hachura transparente (bloco com nome e categoria em atributos; a escala do bloco e o raio).",
+            new[] { "Importar: escolha o KMZ e o raio.", "Raio: muda o raio de todos.", "Os atrativos aparecem na categoria Atrativos e perto de cada placa." }),
         new("HACHURA", "C3DVIARIOHACHURA G ", "Hachura do pavimento", "Saidas",
             "Uma hachura so da regiao de pavimento: contorno pelas faces de meio-fio, quadras, canteiros e ilhas como furos; acompanha a rede.",
             new[] { "O botao abre o menu: gerar/atualizar, padrao, escala, solido com transparencia, ocultar, remover." }),
@@ -231,6 +282,8 @@ internal sealed class ViarioPanel : SW.Window
         ("ESQUINAS", "RAIO", "Esquinas"),
         ("ILHAS", "GOTA", "Ilhas canalizadoras"),
         ("SINAL", "SINAL", "Sinalizacao horizontal"),
+        ("PLACAS", "PLACAS", "Placas verticais"),
+        ("ATRATIVOS", "ATRATIVOS", "Atrativos turisticos"),
         ("CIVIL", "CIVIL", "Objetos do Civil"),
         ("AVISOS", "AVISOS", "Recomendacoes DNIT"),
         ("CONSULTA", "CONSULTA", "Consulta (tabelas dos manuais)"),
@@ -374,7 +427,8 @@ internal sealed class ViarioPanel : SW.Window
         root.Children.Add(commandRow);
 
         WC.Border graphic = new() { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1), Child = _graphic, Margin = new SW.Thickness(4, 0, 4, 0) };
-        _graphic.SizeChanged += (_, _) => _render?.Invoke();
+        _graphic.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Render);
+        graphic.SizeChanged += (_, _) => Dispatcher.BeginInvoke(new Action(() => _render?.Invoke()), System.Windows.Threading.DispatcherPriority.Loaded);
         _graphic.MouseMove += OnGraphicMouseMove;
         _graphic.MouseWheel += OnGraphicWheel;
         _graphic.MouseDown += (_, e) =>
@@ -407,6 +461,14 @@ internal sealed class ViarioPanel : SW.Window
         graphicBar.Children.Add(toggles);
         WC.DockPanel.SetDock(_coords, WC.Dock.Right);
         graphicBar.Children.Add(_coords);
+        WC.Button full = new()
+        {
+            Content = "⛶", ToolTip = "Monitor em tela cheia (clique de novo para voltar)", Width = 24, Height = 20, Padding = new SW.Thickness(0),
+            Background = WM.Brushes.Transparent, BorderBrush = WM.Brushes.Transparent, Foreground = T.Text, Margin = new SW.Thickness(4, 0, 4, 0)
+        };
+        full.Click += (_, _) => ToggleFullMonitor();
+        WC.DockPanel.SetDock(full, WC.Dock.Right);
+        graphicBar.Children.Add(full);
         graphicBar.Children.Add(_graphicInfo);
         WC.Grid.SetRow(graphicBar, 3);
         root.Children.Add(graphicBar);
@@ -470,6 +532,7 @@ internal sealed class ViarioPanel : SW.Window
         footer.Children.Add(_status);
         WC.Grid.SetRow(footer, 6);
         root.Children.Add(footer);
+        _fullParts = new SW.UIElement[] { _categoryBar, commandRow, splitH, bottom, footer };
 
         return root;
     }
@@ -711,6 +774,19 @@ internal sealed class ViarioPanel : SW.Window
                         }
                     };
                     button.Click += (_, _) => OpenHatchMenu(button);
+                }
+                else if (c.Key == "PLACAS")
+                {
+                    button.Content = new WC.StackPanel
+                    {
+                        Orientation = WC.Orientation.Horizontal,
+                        Children =
+                        {
+                            new WC.Image { Source = ViarioIcons.Image(c.Key), Width = 20, Height = 20 },
+                            new WC.TextBlock { Text = "▾", Foreground = T.Muted, FontSize = 9, VerticalAlignment = SW.VerticalAlignment.Bottom }
+                        }
+                    };
+                    button.Click += (_, _) => OpenPlacasMenu(button);
                 }
                 else if (c.Key == "RECONCORDAR")
                 {
@@ -971,6 +1047,45 @@ internal sealed class ViarioPanel : SW.Window
     }
 
     /// <summary>Menu do botao Hachura: gerar/atualizar, padrao, escala, solido, ocultar/mostrar, remover.</summary>
+    private void OpenPlacasMenu(WC.Button anchor)
+    {
+        WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
+        bool exists = _placas.Count > 0;
+        WC.MenuItem import = new() { Header = "Importar placas (JSON/CSV + pasta do SinC)...", FontWeight = SW.FontWeights.Bold };
+        import.Click += (_, _) => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando.");
+        menu.Items.Add(import);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem relink = new() { Header = "Atualizar eixo, estaca e lado", IsEnabled = exists };
+        relink.Click += (_, _) => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando.");
+        menu.Items.Add(relink);
+        WC.MenuItem name = new() { Header = "Nomear eixos pela rota/trecho das placas", IsEnabled = exists };
+        name.Click += (_, _) => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando.");
+        menu.Items.Add(name);
+        WC.MenuItem arrange = new() { Header = "Arrumar por clique (rotacionar, mover, esticar, alinhar, 180, lado)", IsEnabled = exists };
+        arrange.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS AR ", "Arrumar: clique perto de uma placa."); };
+        menu.Items.Add(arrange);
+        WC.MenuItem recompute = new() { Header = "Recalcular coordenadas pelo suporte/chamada", IsEnabled = exists };
+        recompute.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS CO ", "Recalcular coordenadas: siga a linha de comando."); };
+        menu.Items.Add(recompute);
+        WC.MenuItem replace = new() { Header = "Substituir blocos T-xxx_SV corrigidos...", IsEnabled = exists };
+        replace.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS SU ", "Substituir blocos: escolha a pasta."); };
+        menu.Items.Add(replace);
+        WC.MenuItem scale = new() { Header = "Escalar todas (placa, chamada e suporte)...", IsEnabled = exists };
+        scale.Click += (_, _) => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); };
+        menu.Items.Add(scale);
+        WC.MenuItem list = new() { Header = "Listar na linha de comando", IsEnabled = exists };
+        list.Click += (_, _) => Send("C3DVIARIOPLACAS L ", "Lista das placas na linha de comando.");
+        menu.Items.Add(list);
+        WC.MenuItem show = new() { Header = "Ver no painel" };
+        show.Click += (_, _) => SelectCategory("PLACAS");
+        menu.Items.Add(show);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem remove = new() { Header = "Remover todas as placas", IsEnabled = exists };
+        remove.Click += (_, _) => Send("C3DVIARIOPLACAS R ", "Remover placas: confirme na linha de comando.");
+        menu.Items.Add(remove);
+        menu.IsOpen = true;
+    }
+
     private void OpenHatchMenu(WC.Button anchor)
     {
         WC.ContextMenu menu = new() { PlacementTarget = anchor, Placement = WC.Primitives.PlacementMode.Bottom };
@@ -1305,6 +1420,8 @@ internal sealed class ViarioPanel : SW.Window
             _civilActive = ViarioCivil.IsActive(db);
             _names = _civilActive ? ViarioCivil.AxisNames(db) : new Dictionary<string, string>();
             _signExists = ViarioSignageSync.Exists(db);
+            _placas = ViarioPlacaSync.Read(db);
+            _atrativos = ViarioAtrativos.Read(db);
 
             // Recomendacoes so sao refeitas quando a rede, os eixos ou os registros mudam.
             ulong stamp = HintsStamp(_axes);
@@ -1340,6 +1457,8 @@ internal sealed class ViarioPanel : SW.Window
         "ESQUINAS" => _result.Corners.Count,
         "ILHAS" => Islands().Count,
         "SINAL" => _signExists ? 1 : 0,
+        "PLACAS" => _placas.Count,
+        "ATRATIVOS" => _atrativos.Count,
         "CIVIL" => _names.Count,
         "AVISOS" => _hints.Count,
         "CONSULTA" => ViarioReference.All.Length,
@@ -1580,6 +1699,37 @@ internal sealed class ViarioPanel : SW.Window
 
                 return (new[] { "Marca", "Descricao", "Qtde" }, new double[] { 60, 280, 60 }, rows);
 
+            case "PLACAS":
+                foreach (PlacaItem p in _placas)
+                {
+                    rows.Add(new Row
+                    {
+                        Id = "PL:" + p.Id, Icon = "PLACAS", Data = p,
+                        Cells = new[]
+                        {
+                            p.Id, p.Codigo, p.Vinculada ? AxisLabel(p.AxisKey) : "(sem eixo)", p.EstacaTexto, p.LadoTexto,
+                            p.Vinculada ? N(p.Offset, 1) : "", N(p.AreaSinC, 2), p.AreaProjetoM2 > 0 ? N(p.AreaProjetoM2, 2) : "",
+                            p.SuporteTipo, p.Trecho, p.MensagemResumo
+                        }
+                    });
+                }
+
+                return (new[] { "Id", "SinC", "Eixo", "Estaca", "Lado", "Afast. [m]", "Area SinC [m2]", "Area proj. [m2]", "Suporte", "Trecho", "Mensagens" },
+                    new double[] { 90, 60, 170, 80, 45, 70, 90, 90, 120, 55, 320 }, rows);
+
+            case "ATRATIVOS":
+                foreach (AtrativoItem a in _atrativos)
+                {
+                    rows.Add(new Row
+                    {
+                        Id = "ATR:" + a.Nome + "@" + N(a.E, 1) + "," + N(a.N, 1), Icon = "ATRATIVOS", Data = a,
+                        Cells = new[] { a.Nome, a.Categoria, N(a.E, 2), N(a.N, 2), N(a.Raio, 1), NearestAxis(a.Ponto) }
+                    });
+                }
+
+                return (new[] { "Atrativo", "Categoria", "E", "N", "Raio [m]", "Eixo mais proximo" },
+                    new double[] { 240, 200, 95, 100, 60, 180 }, rows);
+
             case "CIVIL":
                 for (int i = 0; i < _axes.Count; i++)
                 {
@@ -1624,6 +1774,24 @@ internal sealed class ViarioPanel : SW.Window
         if (find.Length > 0)
             rows = rows.Where(r => r.Cells.Any(c => c.Contains(find, StringComparison.OrdinalIgnoreCase))).ToList();
 
+        // Filtro por coluna (menu do cabecalho) e ordenacao (clique no cabecalho).
+        for (int ci = 0; ci < columns.Length; ci++)
+        {
+            if (_colFilter.TryGetValue(_category + "|" + ci, out string? f) && f.Length > 0)
+            {
+                int c = ci;
+                rows = rows.Where(r => c < r.Cells.Length && r.Cells[c].Contains(f, StringComparison.OrdinalIgnoreCase)).ToList();
+            }
+        }
+
+        if (_sort is (string sc, int col, bool desc) && sc == _category && col < columns.Length)
+        {
+            Comparison<Row> cmp = (a, b) => CompareCells(a.Cells.ElementAtOrDefault(col) ?? "", b.Cells.ElementAtOrDefault(col) ?? "");
+            rows.Sort(cmp);
+            if (desc)
+                rows.Reverse();
+        }
+
         foreach (Row r in rows)
         {
             List<Hint> hs = HintsFor(r).ToList();
@@ -1649,9 +1817,20 @@ internal sealed class ViarioPanel : SW.Window
         }
 
         _rows = rows;
+        string[] heads = new string[columns.Length];
+        for (int ci = 0; ci < columns.Length; ci++)
+        {
+            string h = columns[ci];
+            if (_sort is (string sc2, int col2, bool desc2) && sc2 == _category && col2 == ci)
+                h += desc2 ? " ▼" : " ▲";
+            if (_colFilter.TryGetValue(_category + "|" + ci, out string? f2) && f2.Length > 0)
+                h += " ⌕";
+            heads[ci] = h;
+        }
+
         _list.View = checkable
-            ? ListViewFor(columns, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked))
-            : ListViewFor(columns, widths, rows);
+            ? ListViewFor(heads, widths, rows, OnChecksChanged, all => { foreach (Row r in _rows) r.Checked = all; OnChecksChanged(); }, rows.Count > 0 && rows.All(r => r.Checked), HeaderClick, HeaderMenu)
+            : ListViewFor(heads, widths, rows, null, null, false, HeaderClick, HeaderMenu);
         _list.ItemsSource = rows;
 
         Row? keep = rows.FirstOrDefault(r => r.Id == _selectedRow) ?? rows.FirstOrDefault();
@@ -1691,10 +1870,136 @@ internal sealed class ViarioPanel : SW.Window
         return any;
     }
 
+    /// <summary>Compara celulas: numeros (com virgula ou ponto, estaca "12+5.30") como numeros; o resto como texto.</summary>
+    private static int CompareCells(string a, string b)
+    {
+        bool na = CellNumber(a, out double va), nb = CellNumber(b, out double vb);
+        if (na && nb)
+            return va.CompareTo(vb);
+        if (na != nb)
+            return na ? -1 : 1; // numeros antes de textos; vazios no fim
+        if (a.Length == 0 || b.Length == 0)
+            return a.Length == 0 ? (b.Length == 0 ? 0 : 1) : -1;
+        return string.Compare(a, b, StringComparison.CurrentCultureIgnoreCase);
+    }
+
+    private static bool CellNumber(string s, out double v)
+    {
+        v = 0;
+        s = s.Trim();
+        if (s.Length == 0)
+            return false;
+        int plus = s.IndexOf('+');
+        if (plus > 0 && double.TryParse(s[..plus], NumberStyles.Float, CultureInfo.InvariantCulture, out double est) &&
+            double.TryParse(s[(plus + 1)..].Split(' ')[0].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double rest))
+        {
+            v = (est * 20.0) + rest; // estaca
+            return true;
+        }
+
+        string t = s.Split(' ')[0].Replace(',', '.');
+        return double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out v);
+    }
+
+    private void HeaderClick(int col)
+    {
+        if (_sort is (string sc, int c, bool desc) && sc == _category && c == col)
+            _sort = desc ? null : (sc, c, true);
+        else
+            _sort = (_category, col, false);
+        FillList();
+    }
+
+    private void HeaderMenu(int col, WC.GridViewColumnHeader header)
+    {
+        string key = _category + "|" + col;
+        WC.ContextMenu menu = new() { PlacementTarget = header, Placement = WC.Primitives.PlacementMode.Bottom };
+        WC.MenuItem filter = new() { Header = "Filtrar esta coluna...", FontWeight = SW.FontWeights.Bold };
+        filter.Click += (_, _) =>
+        {
+            string? value = AskText("Filtrar coluna", $"Mostrar so as linhas em que \"{header.Content?.ToString()?.TrimEnd(' ', '▲', '▼', '⌕')}\" contem:",
+                _colFilter.TryGetValue(key, out string? cur) ? cur : "");
+            if (value is null)
+                return;
+            if (value.Length == 0)
+                _colFilter.Remove(key);
+            else
+                _colFilter[key] = value;
+            FillList();
+        };
+        menu.Items.Add(filter);
+        WC.MenuItem clear = new() { Header = "Limpar filtro desta coluna", IsEnabled = _colFilter.ContainsKey(key) };
+        clear.Click += (_, _) => { _colFilter.Remove(key); FillList(); };
+        menu.Items.Add(clear);
+        WC.MenuItem clearAll = new() { Header = "Limpar todos os filtros e a ordenacao", IsEnabled = _colFilter.Keys.Any(k => k.StartsWith(_category + "|", StringComparison.Ordinal)) || _sort is not null };
+        clearAll.Click += (_, _) =>
+        {
+            foreach (string k in _colFilter.Keys.Where(k => k.StartsWith(_category + "|", StringComparison.Ordinal)).ToList())
+                _colFilter.Remove(k);
+            _sort = null;
+            FillList();
+        };
+        menu.Items.Add(clearAll);
+        menu.Items.Add(new WC.Separator());
+        WC.MenuItem asc = new() { Header = "Ordenar crescente" };
+        asc.Click += (_, _) => { _sort = (_category, col, false); FillList(); };
+        menu.Items.Add(asc);
+        WC.MenuItem des = new() { Header = "Ordenar decrescente" };
+        des.Click += (_, _) => { _sort = (_category, col, true); FillList(); };
+        menu.Items.Add(des);
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Janela pequena com uma caixa de texto (OK/Limpar/Cancelar; Esc nao fecha). Null = cancelou; "" = limpar.</summary>
+    private string? AskText(string title, string label, string initial)
+    {
+        SW.Window win = new()
+        {
+            Title = title, Owner = this, Width = 420, SizeToContent = SW.SizeToContent.Height,
+            WindowStartupLocation = SW.WindowStartupLocation.CenterOwner, Background = T.Back, Foreground = T.Text, ResizeMode = SW.ResizeMode.NoResize
+        };
+        WC.StackPanel root = new() { Margin = new SW.Thickness(10) };
+        root.Children.Add(new WC.TextBlock { Text = label, Foreground = T.Text, Margin = new SW.Thickness(0, 0, 0, 6), TextWrapping = SW.TextWrapping.Wrap });
+        WC.TextBox box = new() { Text = initial, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, Padding = new SW.Thickness(4, 2, 4, 2) };
+        root.Children.Add(box);
+        WC.StackPanel buttons = new() { Orientation = WC.Orientation.Horizontal, HorizontalAlignment = SW.HorizontalAlignment.Right, Margin = new SW.Thickness(0, 10, 0, 0) };
+        string? result = null;
+        WC.Button ok = new() { Content = "OK", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0), IsDefault = true };
+        ok.Click += (_, _) => { result = box.Text.Trim(); win.Close(); };
+        WC.Button clear = new() { Content = "Limpar", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0) };
+        clear.Click += (_, _) => { result = ""; win.Close(); };
+        WC.Button cancel = new() { Content = "Cancelar", Width = 80, Margin = new SW.Thickness(4, 0, 0, 0) };
+        cancel.Click += (_, _) => win.Close();
+        buttons.Children.Add(ok);
+        buttons.Children.Add(clear);
+        buttons.Children.Add(cancel);
+        root.Children.Add(buttons);
+        win.Content = root;
+        box.Focus();
+        box.SelectAll();
+        win.ShowDialog();
+        return result;
+    }
+
     /// <summary>GridView com coluna de aviso, icone + primeira coluna e as demais por indice; numeros a direita.</summary>
     private static WC.GridView ListViewFor(string[] columns, double[] widths, List<Row>? rows = null,
-        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false)
+        Action? checkChanged = null, Action<bool>? checkAll = null, bool allChecked = false,
+        Action<int>? onSort = null, Action<int, WC.GridViewColumnHeader>? onMenu = null)
     {
+        WC.GridViewColumnHeader Head(int i)
+        {
+            WC.GridViewColumnHeader h = new() { Content = columns[i] };
+            if (onSort is not null)
+            {
+                int c = i;
+                h.Click += (_, _) => onSort(c);
+                h.ToolTip = "Clique: ordenar | botao direito: filtrar";
+                h.MouseRightButtonUp += (_, e) => { onMenu?.Invoke(c, h); e.Handled = true; };
+            }
+
+            return h;
+        }
+
         WC.GridView view = new();
 
         if (checkChanged is not null)
@@ -1733,7 +2038,7 @@ internal sealed class ViarioPanel : SW.Window
                 txt.SetBinding(WC.TextBlock.TextProperty, new WD.Binding("Cells[0]"));
                 txt.SetValue(WC.TextBlock.VerticalAlignmentProperty, SW.VerticalAlignment.Center);
                 panel.AppendChild(txt);
-                view.Columns.Add(new WC.GridViewColumn { Header = columns[0], Width = widths[0], CellTemplate = new SW.DataTemplate { VisualTree = panel } });
+                view.Columns.Add(new WC.GridViewColumn { Header = Head(0), Width = widths[0], CellTemplate = new SW.DataTemplate { VisualTree = panel } });
                 continue;
             }
 
@@ -1747,7 +2052,7 @@ internal sealed class ViarioPanel : SW.Window
                 cell.SetValue(SW.FrameworkElement.MarginProperty, new SW.Thickness(0, 0, 6, 0));
             }
 
-            WC.GridViewColumnHeader header = new() { Content = columns[i] };
+            WC.GridViewColumnHeader header = Head(i);
             if (numeric)
                 header.HorizontalContentAlignment = SW.HorizontalAlignment.Right;
             view.Columns.Add(new WC.GridViewColumn { Header = header, Width = i < widths.Length ? widths[i] : 80, CellTemplate = new SW.DataTemplate { VisualTree = cell } });
@@ -2210,6 +2515,8 @@ internal sealed class ViarioPanel : SW.Window
             case CornerInfo c: ShowCorner(c); break;
             case OutputLine isl: ShowIsland(isl); break;
             case string kind when _category == "SINAL": ShowSignage(kind); break;
+            case PlacaItem placa: ShowPlaca(placa); break;
+            case AtrativoItem atrativo: ShowAtrativo(atrativo); break;
             case Hint h: ShowHint(h); break;
             case RefTable t:
                 Prop("Fonte", t.Source);
@@ -2226,7 +2533,34 @@ internal sealed class ViarioPanel : SW.Window
                     Prop("Rede", $"{_axes.Count} eixo(s), {_result.Nodes.Count} no(s)");
                     if (_category == "SECOES")
                         Act("Nova secao", () => NewSection(null), true);
-                    _render = () => RenderMap(null, null);
+                    if (_category == "PLACAS")
+                    {
+                        Prop("Placas", $"{_placas.Count} no desenho, {_placas.Count(p => !p.Vinculada)} sem eixo, {N(_placas.Sum(p => p.AreaSinC), 2)} m2 (SinC)");
+                        foreach (IGrouping<string, PlacaItem> g in _placas.Where(p => p.SuporteTipo.Length > 0).GroupBy(p => p.SuporteTipo).OrderByDescending(g => g.Count()))
+                            Prop(g.Key, g.Count().ToString(CultureInfo.InvariantCulture));
+                        Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."), true);
+                        Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos: siga a linha de comando."));
+                        Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
+                        Act("Escalar todas...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS ES T ", "Escalar todas as placas: informe a escala na linha de comando."); });
+                        Act("Arrumar (clique)...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS AR ", "Arrumar: clique perto de uma placa."); });
+                        Act("Recalcular coordenadas de todas", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS CO ", "Recalcular coordenadas pelo suporte/linha de chamada: siga a linha de comando."); });
+                        Act("Substituir blocos corrigidos...", () => { ViarioPlacaSync.PendingIds = null; Send("C3DVIARIOPLACAS SU ", "Substituir blocos T-xxx_SV: escolha a pasta."); });
+                    }
+
+                    if (_category == "ATRATIVOS")
+                    {
+                        Prop("Atrativos", $"{_atrativos.Count} no desenho");
+                        foreach (IGrouping<string, AtrativoItem> g in _atrativos.GroupBy(a => a.Categoria).OrderByDescending(g => g.Count()))
+                            Prop(g.Key.Length > 0 ? g.Key : "(sem categoria)", g.Count().ToString(CultureInfo.InvariantCulture));
+                        Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."), true);
+                        Act("Novo ponto (clique)...", () => Send("C3DVIARIOATRATIVOS N ", "Novo atrativo: clique no desenho e informe o nome."));
+                        Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
+                    }
+
+                    if (_category is "PLACAS" or "ATRATIVOS")
+                        _render = () => RenderOverview(_category);
+                    else
+                        _render = () => RenderMap(null, null);
                 }
 
                 break;
@@ -3529,6 +3863,567 @@ internal sealed class ViarioPanel : SW.Window
 
     // ---------------- Civil, avisos, config ----------------
 
+    private void ShowPlaca(PlacaItem p)
+    {
+        Category("Placa " + p.Id);
+        Prop("Arquivo SinC", p.Codigo + "_SV.dwg");
+        Prop("Trecho", $"{p.Trecho} {p.Rota}".Trim());
+        if (p.TrechoDescricao.Length > 0)
+            Prop("Descricao do trecho", p.TrechoDescricao);
+        Prop("Sentido / item", $"{p.Sentido}-{p.Item:00}");
+        Prop("Mensagens", p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-");
+        Prop("Dimensoes", $"SinC {p.DimensaoSinC}" + (p.DimensaoProjeto.Length > 0 ? $" | projeto {p.DimensaoProjeto}" : ""));
+        Prop("Area", $"SinC {N(p.AreaSinC, 2)} m2" + (p.AreaProjetoM2 > 0 ? $" | projeto {N(p.AreaProjetoM2, 2)} m2" : ""));
+        Prop("Suporte", (p.SuporteTipo.Length > 0 ? p.SuporteTipo + " (pela area)" : "nao inserido") + (p.Suporte.Length > 0 ? $" | projeto: {p.Suporte}" : "")
+            + (p.AlturaSuporte.Length > 0 ? $" | altura {p.AlturaSuporte} m" : ""));
+        Prop("E / N", $"{N(p.E)} ; {N(p.N)}");
+        Category("Vinculo com a rede");
+        if (p.Vinculada)
+        {
+            Prop("Eixo", AxisLabel(p.AxisKey) + (p.AxisName.Length == 0 ? " (sem nome)" : ""));
+            Prop("Estaca", $"{p.EstacaTexto} (km {N(p.S / 1000.0, 3)})");
+            Prop("Lado", p.Lado > 0 ? "esquerda (LE)" : "direita (LD)");
+            Prop("Afastamento do eixo", N(p.Offset, 2) + " m");
+            Prop("Rotacao do bloco", N(p.Rotacao, 1) + " graus");
+        }
+        else
+        {
+            Prop("Eixo", "nenhum a menos da distancia maxima (rode ATualizar com outra distancia)");
+        }
+
+        Act("Zoom", ZoomCurrent, true);
+        Act("Google Maps", () => OpenMaps(p.E, p.N));
+        Act(_list.SelectedItems.Count > 1 ? $"Escalar {_list.SelectedItems.Count} selecionadas..." : "Escalar esta...", () =>
+        {
+            HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);
+            if (ids.Count == 0)
+                ids.Add(p.Id);
+            ViarioPlacaSync.PendingIds = ids;
+            Send("C3DVIARIOPLACAS ES ", $"Escalar {ids.Count} placa(s): informe a escala na linha de comando.");
+        });
+        Act("Arrumar esta...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR ", "Arrumar: Rotacionar/Mover/Esticar/Padrao/Alinhar/Girar180/Lado na linha de comando."); });
+        Act("Esticar chamada", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS AR E ", "Esticar: clique a nova ponta da chamada (a placa vai junto; o suporte fica)."); });
+        Act("Recalcular coordenadas", () =>
+        {
+            HashSet<string> ids = new(_list.SelectedItems.OfType<Row>().Select(r => r.Data).OfType<PlacaItem>().Select(q => q.Id), StringComparer.Ordinal);
+            if (ids.Count == 0)
+                ids.Add(p.Id);
+            ViarioPlacaSync.PendingIds = ids;
+            Send("C3DVIARIOPLACAS CO ", $"Recalcular coordenadas de {ids.Count} placa(s) pelo suporte/linha de chamada: siga a linha de comando.");
+        });
+        Act("Substituir bloco...", () => { ViarioPlacaSync.PendingIds = new HashSet<string>(StringComparer.Ordinal) { p.Id }; Send("C3DVIARIOPLACAS SU ", "Substituir o bloco desta placa: escolha a pasta."); });
+        Act("Atualizar vinculos", () => Send("C3DVIARIOPLACAS AT ", "Atualizar vinculos das placas: siga a linha de comando."));
+        Act("Nomear eixos", () => Send("C3DVIARIOPLACAS NO ", "Nomear eixos pelas placas: siga a linha de comando."));
+        Act("Importar", () => Send("C3DVIARIOPLACAS I ", "Importar placas: siga a linha de comando."));
+        Act("Remover todas", () => Send("C3DVIARIOPLACAS R ", "Remover placas: confirme na linha de comando."));
+        List<(AtrativoItem Item, double Dist)> perto = ViarioAtrativos.Near(_atrativos, p.Ponto, 2000.0).Take(6).ToList();
+        if (perto.Count > 0)
+        {
+            Category("Atrativos proximos");
+            foreach ((AtrativoItem a, double d) in perto)
+                Prop(a.Nome, $"{N(d / 1000.0, 2)} km" + (a.Categoria.Length > 0 ? " · " + a.Categoria : ""));
+        }
+
+        AxisInput? axis = p.Vinculada && _axisIndex.TryGetValue(p.AxisKey, out int ai) ? _axes[ai] : null;
+        _render = () => RenderPlaca(p, axis);
+    }
+
+    private void ShowAtrativo(AtrativoItem a)
+    {
+        Category(a.Nome);
+        Prop("Categoria", a.Categoria.Length > 0 ? a.Categoria : "-");
+        Prop("Lat / Lon", $"{N(a.Lat, 6)} ; {N(a.Lon, 6)}");
+        Prop("E / N", $"{N(a.E, 2)} ; {N(a.N, 2)}");
+        Prop("Raio (escala do bloco)", N(a.Raio, 1) + " m");
+        Prop("Eixo mais proximo", NearestAxis(a.Ponto));
+        if (a.Fonte.Length > 0)
+            Prop("Fonte", a.Fonte);
+        List<PlacaItem> placas = _placas.Where(p => p.Mensagens.Any(m => Mention(m, a.Nome))).ToList();
+        if (placas.Count > 0)
+        {
+            Category("Placas que indicam este atrativo");
+            foreach (PlacaItem p in placas.Take(12))
+                Prop(p.Id, $"{p.Codigo} · {(p.Vinculada ? AxisLabel(p.AxisKey) + " " + p.EstacaTexto : "sem eixo")}");
+        }
+
+        Act("Zoom", ZoomCurrent, true);
+        Act("Google Maps", () => OpenUrl($"https://www.google.com/maps/search/?api=1&query={a.Lat.ToString("0.#######", CultureInfo.InvariantCulture)},{a.Lon.ToString("0.#######", CultureInfo.InvariantCulture)}"));
+        Act("Novo ponto (clique)...", () => Send("C3DVIARIOATRATIVOS N ", "Novo atrativo: clique no desenho e informe o nome."));
+        Act("Raio de todos...", () => Send("C3DVIARIOATRATIVOS R ", "Raio dos atrativos: informe na linha de comando."));
+        Act("Importar KMZ", () => Send("C3DVIARIOATRATIVOS I ", "Importar atrativos: siga a linha de comando."));
+        V2 w = a.Ponto;
+        double r = Math.Max(a.Raio * 4, 80);
+        _render = () =>
+        {
+            RenderMap(new Box2(w.X - r, w.Y - r, w.X + r, w.Y + r), sh =>
+            {
+                sh.Marker(w);
+                foreach (PlacaItem p in placas)
+                    sh.Marker(p.Ponto);
+            });
+            if (_vScale <= 0)
+                return;
+            DrawAxisLabelsNear(w, Math.Max(400, r * 2));
+            DrawPointLabels(_placas.Select(q => (q.Ponto, q.Codigo, GraphicText)), 80);
+            DrawPointLabels(_atrativos.Where(x => !ReferenceEquals(x, a)).Select(x => (x.Ponto, x.Nome, AtrativoBrush)), 40);
+            DrawPointLabels(new[] { (w, a.Nome + (a.Categoria.Length > 0 ? "  (" + a.Categoria + ")" : ""), HighlightBrush) }, 1, true);
+        };
+    }
+
+    /// <summary>
+    /// Hachuras do bloco T-xxx_SV desenhadas na planta na posicao, escala e rotacao da placa
+    /// (so quando a placa tem ao menos 8 px na tela; abaixo disso fica o retangulo).
+    /// </summary>
+    private void DrawSignInPlan(PlacaItem p)
+    {
+        if (_vScale <= 0)
+            return;
+        double wPx = p.LarguraSinC * ViarioPlacaSync.FatorSinC * p.Escala * _vScale;
+        if (wPx < 8)
+            return;
+        (_, List<Seg> rect, _) = ViarioPlacaSync.Footprint(p);
+        SW.Point o = ToScreen(rect[0].A);
+        if (o.X < -wPx * 2 || o.Y < -wPx * 2 || o.X > _vW + (wPx * 2) || o.Y > _vH + (wPx * 2))
+            return;
+
+        // Imagem do SinC (leve): o retangulo do bloco recebe a imagem girada e escalada.
+        V2 origem0 = rect[0].A;
+        if (SignBitmap(p.Codigo) is WMI.BitmapSource bmp)
+        {
+            double bw = p.LarguraSinC * ViarioPlacaSync.FatorSinC, bh = p.AlturaSinC * ViarioPlacaSync.FatorSinC;
+            WM.Matrix im = WM.Matrix.Identity;
+            im.Scale(bw / bmp.PixelWidth, -bh / bmp.PixelHeight); // px -> unidades do bloco (y para baixo)
+            im.Scale(p.Escala, p.Escala);
+            im.Rotate(p.Rotacao);
+            im.Translate(origem0.X, origem0.Y);
+            im.Scale(_vScale, -_vScale);
+            im.Translate(_vOx - (_vCx * _vScale), _vOy + (_vCy * _vScale));
+            WM.MatrixTransform ixf = new(im);
+            ixf.Freeze();
+            WC.Image image = new() { Source = bmp, Width = bmp.PixelWidth, Height = bmp.PixelHeight, Stretch = WM.Stretch.Fill, RenderTransform = ixf };
+            WM.RenderOptions.SetBitmapScalingMode(image, wPx < 200 ? WM.BitmapScalingMode.LowQuality : WM.BitmapScalingMode.Linear);
+            _graphic.Children.Add(image);
+            return;
+        }
+
+        ViarioPlacaSync.SignShape? shape = null;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                shape = ViarioPlacaSync.Shape(d.Database, p.Codigo);
+        }
+        catch
+        {
+            // sem bloco
+        }
+
+        if (shape is null)
+            return;
+
+        // Geometria congelada por codigo (coordenadas do bloco); por placa so muda a matriz
+        // (escala, rotacao, posicao e a transformacao da vista). Detalhes (letras) so de perto.
+        List<(WM.Geometry Geo, WM.Brush Brush, bool Detail)> parts = SignGeometry(p.Codigo, shape);
+        V2 origem = rect[0].A;
+        WM.Matrix m = WM.Matrix.Identity;
+        m.Scale(p.Escala, p.Escala);
+        m.Rotate(p.Rotacao);
+        m.Translate(origem.X, origem.Y);
+        m.Scale(_vScale, -_vScale);
+        m.Translate(_vOx - (_vCx * _vScale), _vOy + (_vCy * _vScale));
+        WM.MatrixTransform xf = new(m);
+        xf.Freeze();
+        bool details = wPx >= 90;
+        foreach ((WM.Geometry geo, WM.Brush brush, bool detail) in parts)
+        {
+            if (detail && !details)
+                continue;
+            _graphic.Children.Add(new WS.Path { Data = geo, Fill = brush, RenderTransform = xf });
+        }
+    }
+
+    private static readonly Dictionary<string, List<(WM.Geometry, WM.Brush, bool)>> SignGeoCache = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Dictionary<string, WMI.BitmapSource?> SignBitmapCache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Esquece imagem e geometria em cache desses codigos (blocos substituidos).</summary>
+    public static void InvalidateSignCaches(IEnumerable<string> codigos)
+    {
+        foreach (string c in codigos)
+        {
+            SignBitmapCache.Remove(c);
+            SignGeoCache.Remove(c);
+        }
+    }
+
+    /// <summary>Imagem da placa (T-xxx.jpg/png ou IMG.png do .pla), decodificada a 480 px e congelada; null sem arquivo.</summary>
+    private static WMI.BitmapSource? SignBitmap(string codigo)
+    {
+        if (SignBitmapCache.TryGetValue(codigo, out WMI.BitmapSource? cached))
+            return cached;
+        WMI.BitmapSource? result = null;
+        try
+        {
+            string? file = ViarioPlacaSync.SignImagePath(codigo);
+            if (file is not null)
+            {
+                WMI.BitmapImage bi = new();
+                bi.BeginInit();
+                bi.CacheOption = WMI.BitmapCacheOption.OnLoad;
+                bi.DecodePixelWidth = 480;
+                bi.UriSource = new Uri(file, UriKind.Absolute);
+                bi.EndInit();
+                bi.Freeze();
+                result = bi;
+            }
+        }
+        catch
+        {
+            // imagem invalida: cai no desenho do bloco
+        }
+
+        SignBitmapCache[codigo] = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Hachuras do bloco como geometrias congeladas em coordenadas do bloco, na ordem original de
+    /// desenho (fundo, orla, fundo interno, textos...): hachuras seguidas de mesma cor viram uma so.
+    /// </summary>
+    private static List<(WM.Geometry, WM.Brush, bool)> SignGeometry(string codigo, ViarioPlacaSync.SignShape shape)
+    {
+        if (SignGeoCache.TryGetValue(codigo, out List<(WM.Geometry, WM.Brush, bool)>? cached))
+            return cached;
+
+        List<(WM.Geometry, WM.Brush, bool)> parts = new();
+        WM.PathGeometry? geo = null;
+        (byte, byte, byte, bool) key = default;
+        void Flush()
+        {
+            if (geo is null)
+                return;
+            geo.Freeze();
+            WM.SolidColorBrush brush = new(WM.Color.FromRgb(key.Item1, key.Item2, key.Item3));
+            brush.Freeze();
+            parts.Add((geo, brush, key.Item4));
+            geo = null;
+        }
+
+        foreach ((List<List<V2>> loops, byte r, byte g, byte b, bool detail) in shape.Hatches)
+        {
+            (byte, byte, byte, bool) k = (r, g, b, detail);
+            if (geo is null || !k.Equals(key))
+            {
+                Flush();
+                key = k;
+                geo = new WM.PathGeometry { FillRule = WM.FillRule.EvenOdd };
+            }
+
+            foreach (List<V2> loop in loops)
+            {
+                WM.PathFigure fig = new() { IsClosed = true, IsFilled = true, StartPoint = new SW.Point(loop[0].X, loop[0].Y) };
+                WM.PolyLineSegment seg = new();
+                for (int i = 1; i < loop.Count; i++)
+                    seg.Points.Add(new SW.Point(loop[i].X, loop[i].Y));
+                fig.Segments.Add(seg);
+                geo.Figures.Add(fig);
+            }
+        }
+
+        Flush();
+        SignGeoCache[codigo] = parts;
+        return parts;
+    }
+
+    /// <summary>Abre o Google Maps na coordenada do desenho (UTM -> lat/lon pelo fuso do Civil 3D; sem fuso, 21S).</summary>
+    private void OpenMaps(double e, double n)
+    {
+        int zone = 21;
+        bool south = true;
+        try
+        {
+            string code = Autodesk.Civil.ApplicationServices.CivilApplication.ActiveDocument.Settings.DrawingSettings.UnitZoneSettings.CoordinateSystemCode ?? "";
+            if (Civil3D2026Plugin.Modules.Quadros.GeoConversion.TryParseZone(code, out int z, out bool s))
+            {
+                zone = z;
+                south = s;
+            }
+        }
+        catch
+        {
+            // sem sistema de coordenadas no desenho: fuso padrao
+        }
+
+        (double lat, double lon) = Civil3D2026Plugin.Modules.Quadros.GeoConversion.UtmToGeographic(e, n, zone, south);
+        OpenUrl($"https://www.google.com/maps/search/?api=1&query={lat.ToString("0.#######", CultureInfo.InvariantCulture)},{lon.ToString("0.#######", CultureInfo.InvariantCulture)}");
+        Say($"Google Maps: {lat:0.######}, {lon:0.######} (fuso {zone}{(south ? "S" : "N")}).");
+    }
+
+    private static void OpenUrl(string url)
+    {
+        try
+        {
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true });
+        }
+        catch
+        {
+            // sem navegador padrao
+        }
+    }
+
+    private static readonly WM.Brush AtrativoBrush = Brush(230, 120, 230);
+    private static readonly WM.Brush PlacaBrush = Brush(220, 150, 90);
+    private static readonly WM.Brush PlacaFill = new WM.SolidColorBrush(WM.Color.FromArgb(150, 110, 70, 40));
+
+    /// <summary>Nomes dos eixos que passam a menos de <paramref name="maxDist"/> m do ponto, no pe da perpendicular.</summary>
+    private void DrawAxisLabelsNear(V2 w, double maxDist)
+    {
+        if (_vScale <= 0)
+            return;
+        double x0 = _vCx - ((_vOx - RulerLeft) / _vScale), x1 = _vCx + ((_vW - _vOx) / _vScale);
+        double y0 = _vCy - ((_vH - RulerBottom - _vOy) / _vScale), y1 = _vCy + (_vOy / _vScale);
+        Box2 visible = new(x0, y0, x1, y1);
+        HashSet<(int, int)> used = new();
+        for (int i = 0; i < _axes.Count; i++)
+        {
+            AxisInput a = _axes[i];
+            if (!a.Path.Bounds().Intersects(visible))
+                continue;
+            (double s, V2 q, double d) = a.Path.Project(w);
+            if (d > maxDist)
+                continue;
+            SW.Point sp = ToScreen(q);
+            if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
+                continue;
+            V2 n = a.Path.TangentAt(s).Left;
+            double lx = sp.X - (n.X * 14) + 3, ly = sp.Y + (n.Y * 14) - 14;
+            if (!used.Add(((int)(lx / 60), (int)(ly / 16))))
+                continue; // rotulo em cima de outro
+            Label(AxisName(a, i), lx, ly, 10);
+        }
+    }
+
+    /// <summary>Texto ao lado de cada ponto visivel (ate <paramref name="max"/>), com fundo para leitura.</summary>
+    private void DrawPointLabels(IEnumerable<(V2 P, string Text, WM.Brush Brush)> items, int max, bool bold = false)
+    {
+        if (_vScale <= 0)
+            return;
+        int count = 0;
+        foreach ((V2 p, string text, WM.Brush brush) in items)
+        {
+            SW.Point sp = ToScreen(p);
+            if (sp.X < RulerLeft || sp.Y < 0 || sp.X > _vW || sp.Y > _vH - RulerBottom)
+                continue;
+            WC.Border b = new()
+            {
+                Background = Brush(32, 34, 38),
+                BorderBrush = brush,
+                BorderThickness = new SW.Thickness(bold ? 1 : 0.5),
+                Padding = new SW.Thickness(3, 0, 3, 0),
+                Child = new WC.TextBlock { Text = text, Foreground = brush, FontSize = bold ? 11 : 9.5, FontFamily = UiFont, FontWeight = bold ? SW.FontWeights.Bold : SW.FontWeights.Normal }
+            };
+            WC.Canvas.SetLeft(b, sp.X + 6);
+            WC.Canvas.SetTop(b, sp.Y - 18);
+            _graphic.Children.Add(b);
+            if (++count >= max)
+                break;
+        }
+    }
+
+    /// <summary>Vista geral da categoria Placas/Atrativos: todos os pontos com rotulo.</summary>
+    private void RenderOverview(string category)
+    {
+        List<V2> pts = category == "PLACAS" ? _placas.Select(p => p.Ponto).ToList() : _atrativos.Select(a => a.Ponto).ToList();
+        Box2? focus = null;
+        if (pts.Count > 0)
+        {
+            Box2 box = Box2.Empty;
+            foreach (V2 p in pts)
+                box = box.Add(p);
+            focus = box.Inflate(Math.Max(50, (box.MaxX - box.MinX) * 0.05));
+        }
+
+        RenderMap(focus, sh =>
+        {
+            if (category == "PLACAS")
+            {
+                foreach (PlacaItem p in _placas)
+                {
+                    (List<Seg> ldc, List<Seg> placa, _) = ViarioPlacaSync.Footprint(p);
+                    sh.Add(ldc, GraphicText, 1.0);
+                    sh.Add(placa, PlacaBrush, 1.2, true, PlacaFill);
+                }
+            }
+
+            foreach (V2 p in pts)
+                sh.Marker(p);
+        });
+        if (_vScale <= 0)
+            return;
+        if (category == "PLACAS")
+        {
+            foreach (PlacaItem p in _placas)
+                DrawSignInPlan(p);
+            DrawPointLabels(_placas.Select(p => (p.Ponto, p.Codigo, GraphicText)), 250);
+        }
+        else
+            DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 250);
+    }
+
+    /// <summary>Se a mensagem da placa cita o atrativo (compara sem acentos, ignorando "Cach.", "Baln." etc.).</summary>
+    private static bool Mention(string mensagem, string nome)
+    {
+        string a = Simple(mensagem), b = Simple(nome);
+        if (a.Length < 4 || b.Length < 4)
+            return false;
+        return a.Contains(b, StringComparison.Ordinal) || b.Contains(a, StringComparison.Ordinal);
+    }
+
+    private static string Simple(string s)
+    {
+        string t = s.Normalize(System.Text.NormalizationForm.FormD);
+        System.Text.StringBuilder sb = new();
+        foreach (char c in t)
+        {
+            if (System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c) != System.Globalization.UnicodeCategory.NonSpacingMark)
+                sb.Append(char.ToLowerInvariant(c));
+        }
+
+        return sb.ToString().Replace("cach. ", "cachoeira ").Replace("baln. ", "balneario ").Replace("pq. nac. ", "parque nacional ")
+            .Replace("comunidade ", "").Replace(" da ", " ").Replace(" do ", " ").Replace(" de ", " ").Replace(" dos ", " ").Replace(" das ", " ").Trim();
+    }
+
+    private string NearestAxis(V2 p)
+    {
+        AxisInput? best = null;
+        double bestDist = double.MaxValue, bestS = 0;
+        foreach (AxisInput a in _axes)
+        {
+            Box2 box = a.Path.Bounds().Inflate(500.0);
+            if (p.X < box.MinX || p.X > box.MaxX || p.Y < box.MinY || p.Y > box.MaxY)
+                continue;
+            (double s, _, double d) = a.Path.Project(p);
+            if (d < bestDist)
+            {
+                best = a;
+                bestDist = d;
+                bestS = s;
+            }
+        }
+
+        return best is null ? "-" : $"{AxisLabel(best.Key)} ({N(bestDist, 0)} m, est. {Estaca(bestS)})";
+    }
+
+    /// <summary>
+    /// Monitor da placa: planta a direita (eixos com nome, marcador no ponto) e, a esquerda,
+    /// o desenho da placa (hachuras do bloco T-xxx_SV) com os dados principais.
+    /// </summary>
+    private void RenderPlaca(PlacaItem p, AxisInput? axis)
+    {
+        V2 w = p.Ponto;
+        // Foco deslocado: o ponto fica no terco direito, fora do cartao da placa.
+        (List<Seg> ldc, List<Seg> placa, _) = ViarioPlacaSync.Footprint(p);
+        RenderMap(new Box2(w.X - 110, w.Y - 45, w.X + 50, w.Y + 45), sh =>
+        {
+            if (axis is not null)
+                sh.Highlight(axis.Path.Segs);
+            // Placa como inserida: linha de chamada, retangulo do bloco (marrom) e o ponto do suporte.
+            sh.Add(ldc, GraphicText, 1.2);
+            sh.Add(placa, PlacaBrush, 1.5, true, PlacaFill);
+            sh.Marker(w);
+        });
+        if (_vScale <= 0)
+            return;
+
+        // Desenho real da placa (hachuras do bloco) na planta, como inserida.
+        DrawSignInPlan(p);
+        foreach (PlacaItem q in _placas.Where(q => !ReferenceEquals(q, p) && V2.Dist(q.Ponto, w) < 400).Take(40))
+            DrawSignInPlan(q);
+
+        // Nomes dos eixos em volta do ponto, codigo desta e das placas vizinhas, atrativos.
+        DrawAxisLabelsNear(w, 400);
+        DrawPointLabels(_placas.Where(q => !ReferenceEquals(q, p)).Select(q => (q.Ponto, q.Codigo, GraphicText)), 60);
+        DrawPointLabels(_atrativos.Select(a => (a.Ponto, a.Nome, AtrativoBrush)), 40);
+        DrawPointLabels(new[] { (w, p.Codigo, HighlightBrush) }, 1, true);
+
+        // Cartao da placa.
+        double cw = Math.Max(160, Math.Min(_vW * 0.42, 420));
+        ViarioPlacaSync.SignShape? shape = null;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument is Document d)
+                shape = ViarioPlacaSync.Shape(d.Database, p.Codigo);
+        }
+        catch
+        {
+            // Sem desenho ou bloco: cartao so com texto.
+        }
+
+        double pad = 8;
+        double drawW = cw - (2 * pad);
+        double drawH = shape is null ? 0 : drawW * shape.Height / shape.Width;
+        if (shape is null && SignBitmap(p.Codigo) is WMI.BitmapSource b0)
+            drawH = drawW * b0.PixelHeight / b0.PixelWidth;
+        double textH = 58;
+        double ch = drawH + textH + (2 * pad);
+        WC.Canvas card = new() { Width = cw, Height = ch, Background = Brush(32, 34, 38), ClipToBounds = true };
+        WC.Border frame = new()
+        {
+            Width = cw, Height = ch, BorderBrush = HighlightBrush, BorderThickness = new SW.Thickness(1), Child = card, Background = Brush(32, 34, 38)
+        };
+        WC.Canvas.SetLeft(frame, RulerLeft + 10);
+        WC.Canvas.SetTop(frame, 10);
+
+        WMI.BitmapSource? bmp = SignBitmap(p.Codigo);
+        if (bmp is not null)
+        {
+            drawH = drawW * bmp.PixelHeight / bmp.PixelWidth;
+            ch = drawH + textH + (2 * pad);
+            card.Height = ch;
+            frame.Height = ch;
+            WC.Image im = new() { Source = bmp, Width = drawW, Height = drawH, Stretch = WM.Stretch.Fill };
+            WM.RenderOptions.SetBitmapScalingMode(im, WM.BitmapScalingMode.HighQuality);
+            WC.Canvas.SetLeft(im, pad);
+            WC.Canvas.SetTop(im, pad);
+            card.Children.Add(im);
+        }
+        else if (shape is not null)
+        {
+            double k = drawW / shape.Width;
+            WM.Matrix cm = WM.Matrix.Identity;
+            cm.Scale(k, -k);
+            cm.Translate(pad, pad);
+            WM.MatrixTransform cxf = new(cm);
+            cxf.Freeze();
+            foreach ((WM.Geometry geo, WM.Brush brush, _) in SignGeometry(p.Codigo, shape))
+                card.Children.Add(new WS.Path { Data = geo, Fill = brush, RenderTransform = cxf });
+        }
+        else if (bmp is null)
+        {
+            WC.TextBlock none = new() { Text = "(bloco " + p.Codigo + "_SV nao esta no desenho)", Foreground = T.Muted, FontSize = 10, FontFamily = UiFont };
+            WC.Canvas.SetLeft(none, pad);
+            WC.Canvas.SetTop(none, pad);
+            card.Children.Add(none);
+            drawH = 14;
+            ch = drawH + textH + (2 * pad);
+            card.Height = ch;
+            frame.Height = ch;
+        }
+
+        double ty = pad + drawH + 4;
+        void Line(string text, double size, WM.Brush brush)
+        {
+            WC.TextBlock t = new() { Text = text, Foreground = brush, FontSize = size, FontFamily = UiFont, Width = drawW, TextTrimming = SW.TextTrimming.CharacterEllipsis };
+            WC.Canvas.SetLeft(t, pad);
+            WC.Canvas.SetTop(t, ty);
+            card.Children.Add(t);
+            ty += size + 4;
+        }
+
+        Line($"{p.Id}  ·  {p.Codigo}  ·  {p.DimensaoSinC}  ·  {N(p.AreaSinC, 2)} m²" + (p.SuporteTipo.Length > 0 ? "  ·  " + p.SuporteTipo : ""), 11, HighlightBrush);
+        Line(p.Vinculada ? $"{AxisLabel(p.AxisKey)}  ·  est. {p.EstacaTexto}  ·  {p.LadoTexto}  ·  {N(p.Offset, 1)} m do eixo" : "sem eixo vinculado", 10, GraphicText);
+        Line(p.MensagemResumo.Length > 0 ? p.MensagemResumo : "-", 10, GraphicText);
+        _graphic.Children.Add(frame);
+    }
+
     private void ShowCivil(AxisInput a)
     {
         Category("Objetos do Civil");
@@ -3709,6 +4604,12 @@ internal sealed class ViarioPanel : SW.Window
                 break;
             case Hint h:
                 ZoomHint(h);
+                break;
+            case PlacaItem placa:
+                ZoomTo(ViarioPlacaSync.ZoomBox(placa));
+                break;
+            case AtrativoItem atrativo:
+                ZoomTo(new Box2(atrativo.E - (3 * atrativo.Raio), atrativo.N - (3 * atrativo.Raio), atrativo.E + (3 * atrativo.Raio), atrativo.N + (3 * atrativo.Raio)));
                 break;
             case RefTable t:
                 OpenReference(t.Keys.FirstOrDefault() ?? t.Source);

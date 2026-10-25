@@ -303,7 +303,7 @@ internal static class LayoutViewportPower
                     continue;
                 if (desligar)
                 {
-                    if (!vp.On || vp.Number == 1)
+                    if (!ViewportStatus.Ligada(vp) || vp.Number == 1)
                         continue;
                     // Mesmo em layer travada (comum na layer das viewports).
                     var w = (Viewport)tr.GetObject(id, OpenMode.ForWrite, false, true);

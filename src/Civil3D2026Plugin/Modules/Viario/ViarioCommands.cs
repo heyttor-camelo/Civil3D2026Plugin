@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/COtar/HAchura/PAinel/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar AUtomatico CIvil SInalizacao COtar HAchura PAinel Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/PLacas/ATRativos/COtar/HAchura/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar AUtomatico CIvil SInalizacao PLacas ATRativos COtar HAchura PAinel Config")
             {
                 AllowNone = true
             };
@@ -57,6 +57,8 @@ public sealed class ViarioCommands
                 case "AUtomatico": ToggleAuto(doc); break;
                 case "CIvil": CivilMenu(doc); break;
                 case "SInalizacao": ViarioSignageSync.Command(doc); break;
+                case "PLacas": ViarioPlacaSync.Command(doc); break;
+                case "ATRativos": ViarioAtrativos.Command(doc); break;
                 case "COtar": ViarioDimensions.Command(doc); break;
                 case "HAchura": ViarioHatchSync.Command(doc); break;
                 case "PAinel": ViarioPanel.Command(doc); break;
@@ -92,6 +94,12 @@ public sealed class ViarioCommands
 
     [CommandMethod(C3DCommands.Viario.Sinal, CommandFlags.Modal)]
     public void Sinal() => Run(C3DCommands.Viario.Sinal, ViarioSignageSync.Command);
+
+    [CommandMethod(C3DCommands.Viario.Placas, CommandFlags.Modal)]
+    public void Placas() => Run(C3DCommands.Viario.Placas, ViarioPlacaSync.Command);
+
+    [CommandMethod(C3DCommands.Viario.Atrativos, CommandFlags.Modal)]
+    public void Atrativos() => Run(C3DCommands.Viario.Atrativos, ViarioAtrativos.Command);
 
     [CommandMethod(C3DCommands.Viario.Cotar, CommandFlags.Modal)]
     public void Cotar() => Run(C3DCommands.Viario.Cotar, ViarioDimensions.Command);

@@ -135,6 +135,11 @@
                       LogicalName="Lisp\%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Blocos de suporte do SinC (Coluna Simples/Dupla/Tripla, Bracos, Porticos) para o modulo Viario > Placas. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Modules\Viario\Resources\sinC_suportes.dxf.gz" LogicalName="Viario\sinC_suportes.dxf.gz" />
+  </ItemGroup>
+
   <Target Name="ShowNetloadPath" AfterTargets="Build">
     <Message Importance="high" Text="============================================================" />
     <Message Importance="high" Text="DLL pronta para NETLOAD (Civil 3D $(Acad), $(TargetFramework)): $(TargetPath)" />

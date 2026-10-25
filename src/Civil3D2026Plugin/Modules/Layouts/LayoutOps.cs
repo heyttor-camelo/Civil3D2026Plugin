@@ -186,47 +186,115 @@ internal static class LayoutOps
     // Layouts: renomear, reordenar, copiar, excluir, abrir
     // ------------------------------------------------------------------
 
-    public static OpResult Renomear(Document doc, IReadOnlyList<string> nomes, RenameRule regra)
+    /// <summary>Renomeacoes feitas na ultima chamada de <see cref="Renomear"/> (antigo -> novo).</summary>
+    public static Dictionary<string, string> UltimasRenomeacoes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public static OpResult Renomear(Document doc, IReadOnlyList<string> nomesMarcados, RenameRule regra)
     {
-        int ok = 0, falhas = 0;
+        int falhas = 0;
+        UltimasRenomeacoes.Clear();
+        // Numera na ordem das abas, qualquer que seja a ordenacao da lista do painel.
+        var marcadosSet = new HashSet<string>(nomesMarcados, StringComparer.OrdinalIgnoreCase);
+        List<string> nomes = OrdemAtual(doc.Database).Where(marcadosSet.Contains).ToList();
+        nomes.AddRange(nomesMarcados.Where(n => !nomes.Contains(n, StringComparer.OrdinalIgnoreCase)));
         var erros = new List<string>();
         using DocumentLock _ = doc.LockDocument();
         LayoutManager lm = LayoutManager.Current;
         var existentes = new HashSet<string>(TodosOsNomes(doc.Database), StringComparer.OrdinalIgnoreCase);
+        var antigos = new HashSet<string>(nomes, StringComparer.OrdinalIgnoreCase);
+        char[] invalidos = { '<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', ',', '=', '`' };
 
+        // 1) Plano completo antes de mexer: valida tudo e acha conflitos dentro do proprio lote.
+        var plano = new List<(string Antigo, string Novo)>();
+        var novosNoLote = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         for (int i = 0; i < nomes.Count; i++)
         {
-            string novo = regra.Nome(i, nomes[i]);
-            if (novo.Length == 0 || novo.Equals(nomes[i], StringComparison.Ordinal))
+            string antigo = nomes[i];
+            if (antigo.Equals("Model", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (novo.IndexOfAny(new[] { '<', '>', '/', '\\', '"', ':', ';', '?', '*', '|', ',', '=', '`' }) >= 0)
+            string novo = regra.Nome(i, antigo);
+            if (novo.Length == 0 || novo.Equals(antigo, StringComparison.Ordinal))
             {
-                erros.Add($"{novo}: caracteres invalidos");
-                falhas++;
+                novosNoLote.Add(antigo); // fica com o nome; ninguem do lote pode pega-lo
                 continue;
             }
-            if (existentes.Contains(novo) && !novo.Equals(nomes[i], StringComparison.OrdinalIgnoreCase))
+            string? erro = novo.IndexOfAny(invalidos) >= 0 ? "caracteres invalidos"
+                : novo.Length > 255 ? "nome com mais de 255 caracteres"
+                : novo.Equals("Model", StringComparison.OrdinalIgnoreCase) ? "nome reservado"
+                : !novosNoLote.Add(novo) ? "repetido no lote"
+                // ja existe fora do lote (um layout do lote vai liberar o nome dele, entao nao conta)
+                : existentes.Contains(novo) && !antigos.Contains(novo) ? "ja existe"
+                : null;
+            if (erro is not null)
             {
-                erros.Add($"{novo}: ja existe");
+                erros.Add($"{antigo} -> {novo}: {erro}");
                 falhas++;
+                novosNoLote.Add(antigo);
                 continue;
             }
 
+            plano.Add((antigo, novo));
+        }
+
+        // Um layout do lote que falhou continua com o nome antigo: quem queria esse nome nao pode.
+        var presos = new HashSet<string>(nomes.Where(n => !plano.Any(p => p.Antigo.Equals(n, StringComparison.OrdinalIgnoreCase))), StringComparer.OrdinalIgnoreCase);
+        foreach ((string a, string n) in plano.ToList())
+        {
+            if (presos.Contains(n) && !a.Equals(n, StringComparison.OrdinalIgnoreCase))
+            {
+                erros.Add($"{a} -> {n}: o layout {n} nao foi renomeado");
+                falhas++;
+                plano.Remove((a, n));
+            }
+        }
+
+        // 2) Duas passadas: todos para um nome temporario e depois para o final. Assim trocas e
+        // deslocamentos (PR-02 -> PR-01 com PR-01 -> PR-00) e mudancas so de maiusculas funcionam.
+        string marca = "~ren" + Guid.NewGuid().ToString("N").Substring(0, 6) + "_";
+        var temporarios = new List<(string Antigo, string Temp, string Novo)>();
+        for (int i = 0; i < plano.Count; i++)
+        {
+            string temp = marca + i.ToString(System.Globalization.CultureInfo.InvariantCulture);
             try
             {
-                lm.RenameLayout(nomes[i], novo);
-                existentes.Remove(nomes[i]);
-                existentes.Add(novo);
-                ok++;
+                lm.RenameLayout(plano[i].Antigo, temp);
+                temporarios.Add((plano[i].Antigo, temp, plano[i].Novo));
             }
             catch (Autodesk.AutoCAD.Runtime.Exception ex)
             {
-                erros.Add($"{nomes[i]}: {ex.Message}");
+                erros.Add($"{plano[i].Antigo}: {ex.Message}");
                 falhas++;
             }
         }
 
-        string msg = $"{ok} layout(s) renomeado(s)" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join(", ", erros.Take(3))}" : ".");
+        int ok = 0;
+        foreach ((string antigo, string temp, string novo) in temporarios)
+        {
+            try
+            {
+                lm.RenameLayout(temp, novo);
+                UltimasRenomeacoes[antigo] = novo;
+                ok++;
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            {
+                erros.Add($"{antigo} -> {novo}: {ex.Message}");
+                falhas++;
+                try
+                {
+                    lm.RenameLayout(temp, antigo); // volta ao nome de antes
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception ex2)
+                {
+                    PluginLog.Aviso("Layouts", $"Renomear: {temp} nao voltou para {antigo}: {ex2.Message}");
+                }
+            }
+        }
+
+        if (erros.Count > 0)
+            PluginLog.Aviso("Layouts", "Renomear: " + string.Join("; ", erros));
+        AtualizarAbas();
+        string msg = $"{ok} layout(s) renomeado(s)" + (falhas > 0 ? $"; {falhas} falha(s): {string.Join(", ", erros.Take(3))}" + (erros.Count > 3 ? " (lista completa no log: Ctrl+Shift+L)" : "") : ".");
         return new OpResult(ok, falhas, msg);
     }
 

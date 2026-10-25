@@ -1,4 +1,50 @@
-## 2.70.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
+## 2.76.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
+
+- `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.
+- Resultado [Hachura/Contorno]: Hachura (padrao) troca as pecas por uma hachura associativa por contorno, com padrao, escala, angulo, layer, cor e transparencia da maior peca (ou cor ByLayer em [Cor]), mandada para o fundo ou deixada onde estavam as pecas ([Ordem]). Contorno so desenha as polilinhas e deixa as hachuras.
+- Agrupar [Iguais/Layer/Tudo]: pecas se unem so com mesma layer, cor e padrao (padrao), so mesma layer, ou todas juntas. Sempre por espaco e plano.
+- Confere a area: se o contorno montado difere da soma das pecas (sobreposicao ou folga maior que a tolerancia), avisa na linha de comando e indica aumentar a [Tolerancia]. Layers travadas sao ignoradas.
+- Geometria pura em `Modules/Utilitarios/Contorno/ContornoUniao.cs`, com testes em `tests/Contorno.Tests` (`dotnet test tests/Contorno.Tests`).
+
+## 2.75.0 - Layouts v1.16.0: viewports ligadas que apareciam desligadas; legenda das cores
+
+- Corrigido: viewports **ligadas apareciam como desligadas** (hachura cinza tracejada) em alguns layouts. O `Viewport.On` da API devolve false para viewports de layouts que ainda nao foram abertos na sessao (ou alem do MAXACTVP); agora vale a flag gravada no desenho (DXF 90, bit 0x20000 = desligada), lida pelo `acdbEntGet` (`ViewportStatus.cs`). Vale para o painel, o modo leve e os pontos de restauracao (que antes podiam desligar essas viewports ao restaurar). Quando a API e a flag discordam, o log (Ctrl+Shift+L) registra.
+- Cores das viewports revistas: travada = verde cheio, desligada = hachura cinza com contorno tracejado, vista 3D/inclinada = laranja cheio, marcada = azul. **Legenda** embaixo da vista, com dica de cada estado e dos cliques.
+
+## 2.74.0 - Layouts v1.15.0: confirmacao antes das acoes em lote, Desfazer (pontos de restauracao), Shift/Ctrl
+
+**Nada mais muda as pranchas sem avisar**
+- **Confirmacao "O que vai acontecer"** antes de toda acao que mexe em varias pranchas/viewports ou em todas as abas: ordenar pelo nome, copiar, renomear (com a lista nome antigo -> novo), escala, travar/destravar/ligar/desligar varias, malha/norte/escala, norte e escala grafica em lote, girar nortes, layer state em varias viewports (aplicar, colar, importar), numerar, carimbo, page setup, prancha nos marcados, mapa-chave, e as pranchas do eixo (gerar, realinhar, reaplicar layout base, passo 3). A janela diz quantas viewports/layouts e quais, e se a VISTA muda ou nao. "Nao perguntar de novo" vale ate fechar o Civil.
+- **Desfazer / pontos de restauracao** (botao com a seta para tras, grupo Geral): antes de cada acao do painel, e antes da atualizacao automatica das pranchas do eixo, o plugin guarda a vista de todas as viewports (centro, escala, giro, posicao e tamanho no papel, travada, ligada) e o nome e a ordem das abas. A janela lista os pontos, mostra o que volta (quantas vistas, ordem, nomes, layouts criados depois) e restaura; os layouts criados depois podem ser excluidos junto. Ultimos 30 pontos por arquivo, em `%AppData%\Civil3D2026Plugin\restauracao` (sobrevivem a fechar o Civil). Restaurar tambem guarda um ponto antes.
+- "Atualizar pranchas do eixo" (mesmo icone do "Atualizar" do painel) virou **"Realinhar as pranchas do eixo pelos frames"**, com outro icone e aviso de que MUDA A VISTA das viewports; "Atualizar" virou **"Reler o painel"** (nao muda o desenho). Na aba das pranchas do eixo, "Atualizar" virou "Realinhar pelos frames" e "Atualizar sheet" virou "Realinhar esta sheet".
+- **Auto-update das pranchas do eixo desligado por padrao** nas series novas (as existentes mantem o que estava gravado); a dica explica que ligado ele realinha as vistas sozinho.
+
+**Marcar varios**
+- Lista: **Ctrl+clique e Shift+clique selecionam e marcam** as linhas (Ctrl+clique de novo desmarca); clique simples so mostra. Botao direito: marcar/desmarcar as selecionadas (todas as categorias).
+- Viewports na miniatura: **Shift+clique marca todas entre a ultima clicada e esta** (na ordem das abas); clique e Ctrl+clique marcam/desmarcam.
+- Cartoes da vista Todos: **Ctrl+clique marca/desmarca o layout, Shift+clique marca do ultimo clicado ate este**.
+- Descricoes dos botoes reescritas dizendo o que cada um muda.
+
+## 2.73.0 - Viario v0.12.0: esticar placa + linha de chamada; chamada explodida acompanha
+
+- `C3DVIARIOPLACAS > ARrumar > Esticar` (e "Esticar chamada" no painel): clique a nova ponta da chamada; a placa vai junto, o suporte e a saida da chamada ficam. A ponta fica gravada na placa (XData) e vale para Rotacionar, Mover, Alinhar, Girar180, Lado e Escalar. `Padrao` volta a chamada do SinC.
+- Linha de chamada **explodida** (polilinha ou linhas na layer `sinC_LinhaDeChamada` ou `0`, encadeadas a partir da origem da placa) agora gira, move e escala junto com a placa e o suporte, sem deformar, e a ponta encosta na placa. Bloco `sinC_LDC` esticado vira polilinha (o bloco nao estica).
+- Chamada explodida achada pela **saida do suporte** (onde ela nasce), nao so pela ponta na placa: no desenho de teste (VIAS_CHAPADA) as 121 chamadas explodidas estavam com metade da escala da placa (escala 5 x 10) e a ponta ate 60 m longe da placa; todas sao reconhecidas. Ao arrumar/escalar, a ponta volta a encostar na placa e a posicao atual da placa (movida a mao) e mantida.
+- `COordenadas` com chamada explodida: o ponto sai da ponta da chamada oposta a placa e a rotacao e a da placa; a chamada esticada a mao no CAD e lida e mantida.
+- Corrigido: atributo `Área` com 2 casas fixas, como o SinC (5,6 m2 -> `560`; antes `56`, e 0,975 m2 saia `0975`), o que fazia o quantitativo do SinC somar areas absurdas (424.622 m2). Escalar/Arrumar regravam o atributo nas placas ja inseridas.
+- Corrigido: contorno da chamada no monitor nao seguia a escala da placa.
+
+- Ordem de desenho (`C3DORDEMDESENHO`, por layer) nos layouts: um layout sem nome igual na origem usava so a ordem do Model da origem, onde carimbo e malha nao existem, e esses objetos ficavam onde estavam. Agora vale o layout de mesmo nome, depois a media dos layouts da origem e por ultimo o Model; a origem e lida inteira.
+- Renomear layouts em lote: duas passadas (nome temporario e depois o final), entao deslocar a numeracao (PR-02 -> PR-01 com o PR-01 tambem no lote), trocar nomes e mudar so maiusculas funciona; conflito dentro do lote e com layout de fora sao avisados antes de mexer; numera sempre na ordem das abas (nao na ordenacao da lista); os layouts renomeados continuam marcados no painel.
+
+## 2.72.0 - Layouts v1.14.0: janela do padrao de malha, norte e escala; layers padrao
+
+- **Janela de configuracao** (`C3DMNE > Configurar`, botao "Configurar malha, norte e escala" na barra do explorador, grupo Viewports, e no botao direito da viewport): liga/desliga malha, norte e escala grafica; **intervalo fixo da malha em metros** e **total fixo da escala grafica em metros** (vazio = automatico pela escala de cada viewport, como antes); altura do norte e dos textos; canto e deslocamento; layers com lista das layers do desenho; botao "Valores iniciais".
+- **Layers padrao**: malha em `C3D_MALHA`, norte em `C3D_NORTE`, escala grafica em `C3D_ESCALAGRAF` (criadas se faltarem). Vale tambem para os comandos avulsos de norte e escala grafica. Padroes antigos salvos com layer vazia passam a usar essas.
+- Linhas (e cruzes) da malha com **50% de transparencia** por padrao, ajustavel na janela (0 a 90); os textos E= / N= ficam opacos.
+- Salvar o padrao lendo uma viewport nao troca a layer quando o item esta na layer `0`; com total fixo da escala, o total lido vira o novo total.
+
+## 2.71.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
 
 - **Escala grafica** (`ESCALAGRAF` e aba Norte e escala grafica): as divisoes eram sempre de 10 m, entao em 1:5000 com centenas de metros saiam dezenas de blocos e rotulos amontoados. Agora o passo e 10 m quando cabe (igual a LISP) e sobe para 20, 25, 50, 100, 200, 250, 500... ate os rotulos caberem com folga e haver no maximo 12 divisoes; o padrao preto (1/4, 1/4, 1/2 do primeiro bloco) segue o passo. Rotulo que encostaria no final some (fica o traco). Os blocos novos levam `_v2` no nome para nao reaproveitar os antigos.
 - **`C3DMNE` - malha, norte e escala** (comando, Ribbon, barra do explorador no grupo Viewports e botao direito da viewport):
@@ -7,6 +53,37 @@
   - tamanhos em mm de papel, entao o padrao serve para qualquer escala: o intervalo da malha e o total da escala grafica saem redondos (malha 1, 2, 5 x 10^n m mais perto da distancia escolhida; escala o maior 1, 2, 2,5, 5 x 10^n m que cabe);
   - `C3DMNE > Configurar`: liga/desliga cada item, distancia e texto da malha, linhas ou cruzes, layer, tamanho do norte, comprimento e texto da escala;
   - viewports: clicadas, todas do layout atual ou todas dos layouts; inserir de novo troca os itens daquela viewport (XData `C3D_MNE` com o handle da viewport); `Remover` apaga. A malha e um bloco `C3D_MALHA_<handle>` por viewport.
+## 2.70.0 - Viario v0.11.0: placas de sinalizacao vertical no padrao do SinC (C3DVIARIOPLACAS)
+
+**Placas verticais**
+- `C3DVIARIOPLACAS` (tambem em `C3DVIARIO > PLacas` e no explorador, categoria **Placas** e botao com menu): importa um catalogo JSON/CSV de placas (id, coordenadas UTM, mensagens, arquivo do SinC, dimensoes) e insere cada placa como o SinC insere: bloco `T-xxx_SV` (geometria do `T-xxx_SV.dwg` da pasta `Placas 2D`, em escala 5) com os 15 atributos do SinC nas mesmas posicoes (Codigo, Situacao, Nort, Est visiveis a direita; Area em dm2, Dimensao, Eixo, Estaca/KM, Lado, Pelicula_Fundo, Pelicula_Orla, SI, Substrato, Suporte, Handle_Suporte invisiveis), bloco `sinC_LDC` da linha de chamada no ponto de implantacao e a placa na ponta dela (offset local 5,657; -6,432), rotacao perpendicular a via. Layers `sinC_VERTICALP`, `sinC_ATT_Placa`, `sinC_LinhaDeChamada`.
+- Cada placa e amarrada ao eixo mais proximo da rede (distancia maxima configuravel): eixo, estaca de 20 m, km e lado (LD/LE no sentido do eixo) vao para os atributos e ficam no XData (`C3DVIARIO` / `PLACA`). `ATualizar` recalcula depois de editar ou nomear eixos, sem mexer na geometria.
+- `NOmear`: da aos eixos (so os sem nome, ou todos) a rota e o trecho do projeto das placas amarradas, e regrava o atributo Eixo.
+- O suporte (`*_SVS`) nao e inserido: Suporte vem do codigo do projeto (CS/CD2 -> Coluna Simples/Dupla) e Handle_Suporte fica vazio para o SinC completar.
+- Explorador: categoria Placas (id, arquivo, eixo, estaca, lado, afastamento, trecho, mensagens), propriedades com zoom, vinculo e acoes; marcador e eixo realcado na vista.
+- `docs/VIARIO-PLACAS.md`: formato do catalogo e o que foi observado no desenho do SinC.
+- **Suportes** pela area da placa (ate 2,00 m2 coluna simples; 2,01-6,00 m2 coluna dupla; acima semi-portico, ou portico quando a placa e mais larga que 6 m): bloco `Coluna Simples_SVS` / `Coluna Dupla_SVS` / `Semi-Portico_SVS` / `Portico_SVS_<vao>` gerado em codigo no molde do SinC (geometria em `sinC_Suporte`; atributos Altura, Tipo, Nort, Est visiveis e Eixo, Estaca/KM, Lado, Material, Secao, Situacao invisiveis em `sinC_ATT_Suporte`), inserido no ponto de implantacao com a rotacao da placa; `Handle_Suporte` e `Suporte` da placa apontam para ele. Opcional na importacao.
+- Nort/Est das placas e dos suportes com prefixo: `N: 8334137,17` / `E: 622959,92`.
+- `PAsta`: importa direto da pasta do SinC (le os `.pla`: codigo, dimensoes, textos e, quando ha, coordenadas na descricao) e completa com o catalogo JSON/CSV do projeto pelo codigo (coordenadas, trecho, suporte); arquivos que servem a mais de uma placa viram copias.
+- **Monitor da placa** no explorador: planta a direita (eixos com nome em volta do ponto, eixo vinculado realcado, marcador) e, a esquerda, o desenho da placa lido das hachuras do bloco `T-xxx_SV`, com id, dimensoes, eixo/estaca/lado e mensagens. Atrativos a ate 2 km listados nas propriedades.
+
+- Suportes v2: os blocos sao os **do proprio SinC** (`Coluna Simples_SVS`, `Coluna Dupla_SVS`, `Coluna Tripla_SVS`, `Braço Projetado_SVS`, `Semi Pórtico Simples_SVS`, `Pórtico_SVS`... com visibilidade Implantar/Retirar/Remanejar/Manter), copiados de um DXF gerado pelo SinC embutido na DLL (`Modules/Viario/Resources/sinC_suportes.dxf.gz`, extraido em %TEMP%); a linha de chamada sai do ponto certo de cada tipo (coluna 0;-0,275; braco -3,36;-0,17; semi-portico -3,74;-0,39; portico 2,42;-0,39). A regra de area usa a **area do projeto** quando existe (senao a do SinC); Altura 2,0 m nas colunas e 5,5 m nos porticos/bracos quando o projeto nao informa. `Área` no formato do SinC (m2 sem a virgula: 9,18 -> 918).
+- Importar nao duplica: placas cujo id ja esta no desenho sao puladas (Remover antes para reinserir).
+- Navegacao por dialogos (pasta e arquivo), lembrando os ultimos caminhos por usuario em `%AppData%\Civil3D2026Plugin\viario-placas.txt`; a pasta do SinC so e pedida se a do catalogo nao existir na maquina.
+- Explorador: colunas Area SinC / Area projeto / Suporte; no monitor, os nomes dos eixos em volta do ponto (sempre), o id/codigo da placa selecionada e os codigos das placas vizinhas, os nomes dos atrativos; vista geral da categoria com todas as placas (ou atrativos) rotuladas.
+
+- `EScalar` (comando e painel: esta/selecionadas na lista, ou todas): escala absoluta para placa, linha de chamada e suporte, a partir do ponto de implantacao; atributos reposicionados.
+- Lista do explorador: clique no cabecalho ordena (numeros e estacas como numeros), botao direito filtra a coluna (e limpa filtros/ordenacao). Vale para todas as categorias.
+- Monitor mais leve: as hachuras de cada placa viram geometrias congeladas por codigo (uma por cor), com matriz por placa; lacos simplificados; letras/simbolos so quando a placa tem 90 px ou mais; vizinhas limitadas a 40 num raio de 400 m. Rotulo da placa na planta so com o codigo (T-xxx).
+
+- `SUbstituir`: troca a geometria dos blocos `T-xxx_SV` pela dos `.dwg` corrigidos da pasta (atributos ficam e seguem a largura nova; Dimensao/Area regravadas; imagem e cache atualizados).
+- `COordenadas`: recalcula E/N e rotacao de cada placa pelo que esta no desenho - suporte do conjunto, bloco da chamada, chamada explodida (polilinha/linha na layer `sinC_LinhaDeChamada` cuja ponta cai na origem da placa) ou o bloco `*_SVS` mais proximo - e reamarra ao eixo.
+- `ARrumar`: clique perto do conjunto (placa, chamada ou suporte) e escolha Rotacionar (arrastando), Mover (novo ponto do suporte), Alinhar com a via, Girar180, Lado (espelha para o outro lado do eixo) ou Outra; os tres blocos e os atributos acompanham. Tambem pelo painel (placa selecionada).
+- Painel: botao Google Maps na placa (UTM -> lat/lon pelo fuso do Civil 3D, ou 21S) e no atrativo; monitor em tela cheia (⛶) e redesenho correto ao redimensionar.
+
+**Atrativos turisticos**
+- `C3DVIARIOATRATIVOS` (`C3DVIARIO > ATRativos`, categoria **Atrativos** no explorador): importa os pontos de um KML/KMZ (pasta do KML = categoria; coordenadas DMS coladas no nome sao tiradas) e insere cada um como bloco `VIARIO-ATRATIVO` - circulo unitario com hachura solida 70% transparente e ponto central, escala do bloco = raio (padrao 25 m, `Raio` muda todos), atributos NOME (visivel, acompanha a escala), CATEGORIA, LAT, LON, FONTE (invisiveis), layer `VIARIO-ATRATIVOS`. Lat/lon -> E/N pela geolocalizacao do desenho, pelo sistema do Civil ou pelo fuso UTM informado (mesmo criterio dos PEDs). No painel: eixo mais proximo (distancia e estaca) e as placas cujas mensagens citam o atrativo.
+
 ## 2.69.0 - HYDRO v0.9.0: monitor refeito (perfil no estilo do Project Explorer, nomes legiveis)
 
 **Perfil do caminho**

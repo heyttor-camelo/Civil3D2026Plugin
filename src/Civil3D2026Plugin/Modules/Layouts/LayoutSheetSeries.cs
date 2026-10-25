@@ -4044,6 +4044,7 @@ internal static class SheetSeriesSync
                         continue;
                     }
                 }
+                LayoutRestauracao.Capturar(doc.Database, "atualizacao automatica das pranchas do eixo");
                 OpResult r = LayoutSheetSeries.Atualizar(doc, eixo, frames);
                 // Geometria guardada so depois de uma atualizacao completa (com falha, a proxima tentativa refaz).
                 if (ass is not null && r.Falhas == 0)

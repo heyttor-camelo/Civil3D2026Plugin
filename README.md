@@ -233,7 +233,7 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Rede viaria (C3DVIARIO v0.10.0)
+## Rede viaria (C3DVIARIO v0.11.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -241,6 +241,8 @@ Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do me
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Ocultar/Mostrar/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
 C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Blocos/Ocultar/Mostrar] hachura so do pavimento (furos: quadras, canteiros, ilhas), recortada em blocos de 500 m (Blocos); acompanha a rede refazendo so os blocos que mudam
+C3DVIARIOPLACAS      -> [Importar/ATualizar/NOmear/Listar/Remover/Painel] placas de sinalizacao vertical no padrao do SinC (bloco T-xxx_SV com os 15 atributos e linha de chamada), amarradas ao eixo mais proximo (eixo, estaca, lado); nomeia os eixos pela rota/trecho das placas
+C3DVIARIOATRATIVOS   -> [Importar/Raio/Listar/Remover/Painel] atrativos turisticos de um KML/KMZ como circulos hachurados transparentes (bloco; escala = raio; nome e categoria em atributos)
 C3DVIARIOCOTAR       -> cadeia de cotas da secao segue o cursor sobre o eixo; clique grava (faixas, canteiro, passeio e largura total); [Detalhe/Estilo/Escala/Remover]
 C3DVIARIOMODELOS     -> janela com intersecoes parametrizadas + insercao (ponto e rotacao, com preview)
 C3DVIARIOEIXO        -> lanca eixos como no Vehicle Tracking: [Tangent/Arc/Undo] (T reta na direcao corrente, A arco tangente pelo ponto, U desfaz; clicar no ultimo vertice desfaz); [Free/Chain] alterna lancamento livre; [COncordancia] Manter/Liberar/Selecionar/Vertice (reconcordar dois trechos); [Inverter] inverte o sentido do eixo
@@ -255,7 +257,7 @@ C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/COtar/HAchura/PAinel/Config]
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/PLacas/ATRativos/COtar/HAchura/PAinel/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas); sarjeta, meio-fio e calcada podem existir so a esquerda, so a direita ou nos dois lados (no sentido do eixo);
@@ -277,6 +279,10 @@ Secoes tem nome, tipo de via (Local, Coletora, Arterial, Transito rapido), faixa
 Recomendacoes: o modulo confere a rede contra o DNIT IPR-718 (Manual de Projeto de Intersecoes) e IPR-740 (Travessias Urbanas) e mostra avisos discretos (atencao/informacao) com a fonte, no painel e na linha de comando quando um comando cria algo fora da recomendacao. Sao valores de referencia; nao substituem o projeto.
 
 Sinalizacao previa (Manual Brasileiro de Sinalizacao de Transito, Vol. IV): divisoria amarela LFO (seccionada, continua ou dupla, continua antes da retencao), divisao de faixas LMS, linha de bordo LBO opcional, faixa de pedestres zebrada FTP-1 em cada aproximacao com esquina e linha de retencao LRE a 1,60 m. Cadencia pela velocidade da secao (< 60 km/h: 2/4 m; 60-80: 3/6 m; >= 80: 4/12 m e 0,15 m). Tudo num bloco na origem, layers VIARIO-SH-BRANCA e VIARIO-SH-AMARELA; o bloco acompanha a rede.
+
+Placas verticais (`C3DVIARIOPLACAS`, ver `docs/VIARIO-PLACAS.md`): le um catalogo JSON/CSV das placas de um projeto (coordenadas UTM, mensagens, arquivo do SinC, dimensoes), insere cada placa como o SinC faz (bloco `T-xxx_SV` do `C:\sinC\...\Placas 2D` com os atributos Codigo, Situacao, Nort, Est, Area, Dimensao, Eixo, Estaca/KM, Lado, Pelicula_Fundo, Pelicula_Orla, SI, Substrato, Suporte, Handle_Suporte, mais o bloco `sinC_LDC` da linha de chamada, nas layers `sinC_*`) e amarra cada uma ao eixo mais proximo da rede: eixo, estaca (20 m) e lado (LD/LE) vao para os atributos e para o explorador (categoria Placas). "Nomear" da aos eixos ainda sem nome a rota e o trecho do projeto das placas amarradas. Suportes pela area da placa (coluna simples ate 2 m2, dupla ate 6 m2, semi-portico/portico acima), gerados no molde do SinC e ligados pela placa (`Handle_Suporte`). `PAsta` importa direto dos `.pla` do SinC. No explorador, a placa selecionada aparece desenhada (hachuras do bloco) ao lado da planta com os nomes dos eixos.
+
+Atrativos turisticos (`C3DVIARIOATRATIVOS`): pontos de um KML/KMZ viram blocos `VIARIO-ATRATIVO` (circulo com hachura transparente, raio = escala do bloco, nome/categoria/lat/lon em atributos), listados no explorador com o eixo mais proximo e as placas que os indicam.
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
@@ -336,9 +342,9 @@ ESCALAGRAF         -> escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.L
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```
 
-## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.4.0)
+## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.7.0)
 
-`Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP), mais o `C3DOBJLAYERS` (copia so a aba Object Layers das Drawing Settings de outro DWG/DWT) o `C3DORDEMDESENHO` (copia a ordem de desenho de outro DWG/DWT, por layer ou por objeto) e o `C3DCOPIARLAYERS` (copia o estado das layers de outro DWG/DWT, com os xrefs casados pelo arquivo). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
+`Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP), mais o `C3DOBJLAYERS` (copia so a aba Object Layers das Drawing Settings de outro DWG/DWT) o `C3DORDEMDESENHO` (copia a ordem de desenho de outro DWG/DWT, por layer ou por objeto) e o `C3DCOPIARLAYERS` (copia o estado das layers de outro DWG/DWT, com os xrefs casados pelo arquivo) e o `C3DUNIRHACHURAS` (remonta o contorno original de hachuras picadas, como as filled regions exportadas do Revit, e as troca por uma hachura associativa; geometria em `Utilitarios/Contorno`, testes em `tests/Contorno.Tests`). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
 
 `C3DLISP` mostra tudo numa lista: icone, nome, comando e descricao; duplo clique executa.
 
