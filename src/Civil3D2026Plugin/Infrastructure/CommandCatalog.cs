@@ -401,8 +401,8 @@ public static class CommandCatalog
                 }),
 
             new(
-                "LISPs",
-                "Utilitarios (ex-LISP)",
+                "Comandos gerais",
+                "Utilitarios",
                 C3DVersions.Utilitarios,
                 new[]
                 {
@@ -419,17 +419,19 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.OrdemDesenho, "Copiar ordem de desenho", "Copia a ordem de desenho (draw order) de outro DWG/DWT, por layer ou por objeto."),
                     new CommandDefinition(C3DCommands.Utilitarios.CopiarLayers, "Copiar estado das layers", "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; xrefs casam pelo arquivo, mesmo com nome diferente."),
-                    new CommandDefinition(C3DCommands.Utilitarios.UnirHachuras, "Unir hachuras picadas", "Remonta o contorno de hachuras quebradas em pedacos encostados (ex.: filled regions do Revit) e troca por uma hachura associativa.", ShowInRibbon: false)
+                    new CommandDefinition(C3DCommands.Utilitarios.UnirHachuras, "Unir hachuras picadas", "Remonta o contorno de hachuras (hatch) quebradas em pedacos encostados (ex.: filled regions do Revit) e troca por uma hachura associativa.", ShowInRibbon: false)
                 }),
 
             new(
-                "LISPs",
-                "LISPs embutidas",
+                "Comandos gerais",
+                "Comandos gerais",
                 C3DVersions.LispTools,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.LispTools.Painel, "Ferramentas e LISPs",
-                        "Lista de todas as ferramentas (nativas e LISPs) com icone, nome, comando e descricao; duplo clique executa."),
+                    new CommandDefinition(C3DCommands.LispTools.Painel, "Comandos gerais",
+                        "Lista de todos os comandos gerais (utilitarios em C# e LISPs embutidas) com icone, nome, comando e descricao; duplo clique executa."),
+                    new CommandDefinition(C3DCommands.LispTools.Comandos, "Comandos gerais (alias)",
+                        "Mesmo que C3DLISP.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.LispTools.Lista, "Lista na linha de comando",
                         "Mostra as LISPs embutidas com explicacao e modo de uso na linha de comando.",
                         ShowInRibbon: false),

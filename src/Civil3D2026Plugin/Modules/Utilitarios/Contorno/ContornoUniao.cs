@@ -197,7 +197,7 @@ public static class ContornoUniao
 {
     private sealed class Trecho
     {
-        public int A, B;
+        public int A, B, Peca;
         public double Bulge;
     }
 
@@ -205,16 +205,22 @@ public static class ContornoUniao
     {
         if (tol <= 0)
             tol = 1e-6;
+        // A tolerancia so serve para casar uma peca com a vizinha. Dentro da mesma peca os
+        // vertices ficam todos: curvas exportadas como muitos trechos curtos (mais curtos que a
+        // tolerancia) nao podem ser engolidas. Para limpar repetidos e alinhados vale um epsilon fixo.
+        double eps = Math.Min(tol, 1e-6);
         var res = new ResultadoUniao();
 
         // 1. Lacos limpos e orientados por peca.
         var lacos = new List<Laco>();
-        foreach (IReadOnlyList<Laco> peca in pecas)
+        var pecaDoLaco = new List<int>();
+        for (int ip = 0; ip < pecas.Count; ip++)
         {
+            IReadOnlyList<Laco> peca = pecas[ip];
             var limpos = new List<Laco>();
             foreach (Laco l in peca)
             {
-                Laco? c = Limpar(l, tol);
+                Laco? c = Limpar(l, eps);
                 if (c is null)
                     res.LacosDescartados++;
                 else
@@ -237,6 +243,7 @@ public static class ContornoUniao
                     l = l.Invertido();
                 res.AreaEntrada += l.AreaComSinal();
                 lacos.Add(l);
+                pecaDoLaco.Add(ip);
             }
         }
 
@@ -244,43 +251,91 @@ public static class ContornoUniao
         var pontos = new List<P2>();
         var trechos = new List<Trecho>();
         var bruto = new List<P2>();
-        foreach (Laco l in lacos)
-            bruto.AddRange(l.Pontos);
-        int[] rep = Fundir(bruto, tol, pontos);
-        int k = 0;
-        foreach (Laco l in lacos)
+        var pecaDoPonto = new List<int>();
+        for (int il = 0; il < lacos.Count; il++)
         {
+            bruto.AddRange(lacos[il].Pontos);
+            pecaDoPonto.AddRange(Enumerable.Repeat(pecaDoLaco[il], lacos[il].Count));
+        }
+        int[] rep = Fundir(bruto, pecaDoPonto, tol, pontos, out List<HashSet<int>> pecasDoPonto, out List<double> afastamento);
+        int k = 0;
+        for (int il = 0; il < lacos.Count; il++)
+        {
+            Laco l = lacos[il];
             int n = l.Count;
             int baseK = k;
             for (int i = 0; i < n; i++)
             {
                 int a = rep[baseK + i], b = rep[baseK + ((i + 1) % n)];
                 if (a != b)
-                    trechos.Add(new Trecho { A = a, B = b, Bulge = l.Bulges[i] });
+                    trechos.Add(new Trecho { A = a, B = b, Bulge = l.Bulges[i], Peca = pecaDoLaco[il] });
             }
             k += n;
         }
 
         // 3. Quebra nos vertices que caem sobre o trecho.
-        trechos = Quebrar(trechos, pontos, tol);
+        trechos = Quebrar(trechos, pontos, pecasDoPonto, tol);
 
         // 4. Divisas se cancelam.
         List<Trecho> borda = Cancelar(trechos, pontos, tol);
 
         // 5. Encadeamento e limpeza.
         List<Laco> saida = Encadear(borda, pontos, res);
+        // Vertice alinhado sai com epsilon fixo; so onde uma folga entre pecas foi fechada pela
+        // tolerancia (pontos fundidos que nao coincidiam) ele sai com a tolerancia, para a divisa
+        // nao deixar um dente.
+        var juncoes = new HashSet<P2>();
+        for (int i = 0; i < pontos.Count; i++)
+        {
+            if (afastamento[i] > eps)
+                juncoes.Add(pontos[i]);
+        }
+        double epsAlinhado = Math.Min(tol, 1e-5);
+        Classificar(saida.Select(l => Simplificar(l, p => juncoes.Contains(p) ? tol : epsAlinhado)), tol, res, orientarPorProfundidade: false);
+        return res;
+    }
+
+    /// <summary>
+    /// Monta as ilhas a partir de lacos fechados ja prontos (ex.: vindos de uma uniao de regioes):
+    /// externos anti-horarios e furos horarios, cada furo no menor externo que o contem.
+    /// Com orientarPorProfundidade, o sentido de cada laco e corrigido pela profundidade
+    /// (quantos outros lacos o contem); sem isso, o sinal da area e que diz se e furo.
+    /// </summary>
+    public static void Classificar(IEnumerable<Laco> lacos, double tol, ResultadoUniao res, bool orientarPorProfundidade)
+    {
+        var validos = new List<Laco>();
+        foreach (Laco l in lacos)
+        {
+            if (l.Count < 2 || Math.Abs(l.AreaComSinal()) <= tol * tol)
+                continue;
+            validos.Add(l);
+        }
+
         var externos = new List<Laco>();
         var furos = new List<Laco>();
-        foreach (Laco l in saida)
+        List<List<P2>>? pols = orientarPorProfundidade ? validos.Select(l => l.Poligono()).ToList() : null;
+        for (int i = 0; i < validos.Count; i++)
         {
-            Laco s = Simplificar(l, tol);
-            if (s.Count < 2)
-                continue;
-            double a = s.AreaComSinal();
-            if (Math.Abs(a) <= tol * tol)
-                continue;
+            Laco l = validos[i];
+            double a = l.AreaComSinal();
+            if (pols is not null)
+            {
+                P2 amostra = l.PontoAmostra();
+                int prof = 0;
+                for (int j = 0; j < validos.Count; j++)
+                {
+                    if (j != i && Geo.Dentro(pols[j], amostra))
+                        prof++;
+                }
+                bool furo = (prof % 2) == 1;
+                if ((a > 0) == furo)
+                {
+                    l = l.Invertido();
+                    a = -a;
+                }
+            }
             res.AreaSaida += a;
-            (a > 0 ? externos : furos).Add(s);
+            (a > 0 ? externos : furos).Add(l);
         }
 
         var ilhas = externos
@@ -298,7 +353,6 @@ public static class ContornoUniao
                 res.TrechosAbertos += f.Count; // furo sem externo: nao deveria acontecer
         }
         res.Ilhas.AddRange(ilhas.OrderByDescending(i => i.Area).Select(i => i.Ilha));
-        return res;
     }
 
     /// <summary>Tira vertices repetidos e o fechamento duplicado; null se o laco nao tiver area.</summary>
@@ -328,72 +382,62 @@ public static class ContornoUniao
         return c;
     }
 
-    /// <summary>Agrupa pontos a menos de tol (grade + union-find). Devolve o indice de cada ponto em 'pontos'.</summary>
-    private static int[] Fundir(List<P2> bruto, double tol, List<P2> pontos)
+    /// <summary>
+    /// Agrupa pontos de pecas diferentes a menos de tol. Sem encadear (A perto de B e B perto de C
+    /// nao junta A com C) e nunca dois pontos da mesma peca: o ponto entra no grupo mais perto cujo
+    /// representante esta a menos de tol e que ainda nao tem ponto daquela peca. Devolve o indice de
+    /// cada ponto em 'pontos' (o representante e o primeiro ponto do grupo) e, por grupo, a maior
+    /// distancia de um ponto fundido ao representante.
+    /// </summary>
+    private static int[] Fundir(List<P2> bruto, List<int> peca, double tol, List<P2> pontos, out List<HashSet<int>> pecasDoPonto, out List<double> afastamento)
     {
         int n = bruto.Count;
-        var pai = new int[n];
-        for (int i = 0; i < n; i++)
-            pai[i] = i;
-        int Raiz(int i)
-        {
-            while (pai[i] != i)
-            {
-                pai[i] = pai[pai[i]];
-                i = pai[i];
-            }
-            return i;
-        }
-
+        var rep = new int[n];
+        pecasDoPonto = new List<HashSet<int>>();
+        afastamento = new List<double>();
         var grade = new Dictionary<(long, long), List<int>>();
         (long, long) Celula(P2 p) => ((long)Math.Floor(p.X / tol), (long)Math.Floor(p.Y / tol));
         for (int i = 0; i < n; i++)
         {
-            (long cx, long cy) = Celula(bruto[i]);
+            P2 p = bruto[i];
+            (long cx, long cy) = Celula(p);
+            int melhor = -1;
+            double dMelhor = double.MaxValue;
             for (long dx = -1; dx <= 1; dx++)
             {
                 for (long dy = -1; dy <= 1; dy++)
                 {
                     if (!grade.TryGetValue((cx + dx, cy + dy), out List<int>? lista))
                         continue;
-                    foreach (int j in lista)
+                    foreach (int g in lista)
                     {
-                        if (bruto[i].DistanceTo(bruto[j]) <= tol)
+                        double d = pontos[g].DistanceTo(p);
+                        if (d <= tol && d < dMelhor && !pecasDoPonto[g].Contains(peca[i]))
                         {
-                            int ri = Raiz(i), rj = Raiz(j);
-                            if (ri != rj)
-                                pai[ri] = rj;
+                            dMelhor = d;
+                            melhor = g;
                         }
                     }
                 }
             }
-            if (!grade.TryGetValue((cx, cy), out List<int>? propria))
-                grade[(cx, cy)] = propria = new List<int>();
-            propria.Add(i);
-        }
-
-        var novo = new Dictionary<int, int>();
-        var soma = new List<(double X, double Y, int N)>();
-        var rep = new int[n];
-        for (int i = 0; i < n; i++)
-        {
-            int r = Raiz(i);
-            if (!novo.TryGetValue(r, out int id))
+            if (melhor < 0)
             {
-                id = soma.Count;
-                novo[r] = id;
-                soma.Add((0, 0, 0));
+                melhor = pontos.Count;
+                pontos.Add(p);
+                pecasDoPonto.Add(new HashSet<int>());
+                afastamento.Add(0.0);
+                if (!grade.TryGetValue((cx, cy), out List<int>? propria))
+                    grade[(cx, cy)] = propria = new List<int>();
+                propria.Add(melhor);
             }
-            (double x, double y, int c) = soma[id];
-            soma[id] = (x + bruto[i].X, y + bruto[i].Y, c + 1);
-            rep[i] = id;
+            pecasDoPonto[melhor].Add(peca[i]);
+            afastamento[melhor] = Math.Max(afastamento[melhor], pontos[melhor].DistanceTo(p));
+            rep[i] = melhor;
         }
-        foreach ((double x, double y, int c) in soma)
-            pontos.Add(new P2(x / c, y / c));
         return rep;
     }
 
-    private static List<Trecho> Quebrar(List<Trecho> trechos, List<P2> pontos, double tol)
+    private static List<Trecho> Quebrar(List<Trecho> trechos, List<P2> pontos, List<HashSet<int>> pecasDoPonto, double tol)
     {
         if (trechos.Count == 0)
             return trechos;
@@ -444,7 +488,8 @@ public static class ContornoUniao
                         continue;
                     foreach (int pi in lista)
                     {
-                        if (pi == t.A || pi == t.B)
+                        // So quebra em vertice de outra peca (juncao em T com a vizinha).
+                        if (pi == t.A || pi == t.B || pecasDoPonto[pi].Contains(t.Peca))
                             continue;
                         P2 p = pontos[pi];
                         if (p.X < minX || p.X > maxX || p.Y < minY || p.Y > maxY)
@@ -487,11 +532,11 @@ public static class ContornoUniao
             double parIni = 0.0;
             foreach ((double par, int pi) in cortes)
             {
-                saida.Add(new Trecho { A = ini, B = pi, Bulge = SubBulge(t.Bulge, th, parIni, par) });
+                saida.Add(new Trecho { A = ini, B = pi, Bulge = SubBulge(t.Bulge, th, parIni, par), Peca = t.Peca });
                 ini = pi;
                 parIni = par;
             }
-            saida.Add(new Trecho { A = ini, B = t.B, Bulge = SubBulge(t.Bulge, th, parIni, 1.0) });
+            saida.Add(new Trecho { A = ini, B = t.B, Bulge = SubBulge(t.Bulge, th, parIni, 1.0), Peca = t.Peca });
         }
         return saida;
     }
@@ -616,7 +661,7 @@ public static class ContornoUniao
     }
 
     /// <summary>Junta retas alinhadas e arcos do mesmo circulo (vertices que eram cantos das pecas).</summary>
-    private static Laco Simplificar(Laco l, double tol)
+    private static Laco Simplificar(Laco l, Func<P2, double> tolDoVertice)
     {
         var pts = new List<P2>(l.Pontos);
         var bul = new List<double>(l.Bulges);
@@ -630,6 +675,7 @@ public static class ContornoUniao
                 int ant = (i - 1 + n) % n;
                 P2 p0 = pts[ant], p1 = pts[i], p2 = pts[(i + 1) % n];
                 double b0 = bul[ant], b1 = bul[i];
+                double tol = tolDoVertice(p1);
 
                 double? novo = null;
                 if (b0 == 0.0 && b1 == 0.0)

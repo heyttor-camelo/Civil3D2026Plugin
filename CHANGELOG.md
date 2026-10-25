@@ -1,3 +1,28 @@
+## 2.77.2 - Utilitarios v1.7.3: C3DUNIRHACHURAS nao engole curvas com tolerancia grande
+
+Com tolerancia 0,1 a curva do meio-fio (trechos de poucos cm) saia em escada: a tolerancia era usada tambem dentro de cada peca.
+- Motor Regiao: o encadeamento do contorno explodido usava a tolerancia para fechar o laco, e com trechos menores que ela o laco fechava logo no primeiro trecho. Agora usa 1e-6 (as pontas do modelador batem exatas) e so fecha com pelo menos dois trechos.
+- Motor Arestas: vertices repetidos e alinhados saem com epsilon fixo (1e-6 / 1e-5), nao mais com a tolerancia; a fusao de vertices nao encadeia (A perto de B e B perto de C nao junta A com C) e nunca junta dois vertices da mesma peca; trecho so e quebrado em vertice de outra peca. A tolerancia so fecha folgas entre pecas vizinhas.
+- Leitura dos lacos da hachura: o proximo trecho e o de ponta mais perto, nao o primeiro a menos da tolerancia.
+- Teste novo: curva de raio 15 m em trechos de 3 cm, tolerancia 0,1, todos os vertices mantidos.
+
+## 2.77.1 - Utilitarios v1.7.2: C3DUNIRHACHURAS com motor de regioes
+
+- Em hachuras do Revit ao longo de um meio-fio curvo o contorno saia em escada. O motor por arestas so funciona com pecas exatamente encostadas; com pecas sobrepostas ou divisas que nao batem na tolerancia, sobram bordas duplicadas e o encadeamento ziguezagueia entre elas.
+- Novo motor **Regiao** (padrao): cada peca vira uma Region do AutoCAD, tudo e unido pelo modelador (em coordenadas locais, para nao perder precisao em UTM) e o contorno sai da explosao da regiao final, com os vertices e arcos originais. `[Motor]` escolhe Regiao ou Arestas; se o modelador recusar alguma peca, cai no motor por arestas.
+- A conferencia de area e os avisos continuam nos dois motores.
+- Compilacao: `Region` qualificado como `Autodesk.AutoCAD.DatabaseServices.Region` (CS0104 com `System.Drawing.Region`).
+
+## 2.77.0 - Comandos gerais: a lista das LISPs vira "Comandos gerais" (LispTools v1.2.0)
+
+- O grupo "LISPs" da Ribbon e do `C3DMODULOS` passa a se chamar **Comandos gerais**; a janela do `C3DLISP` tambem ("Comandos gerais", N comandos) e o modulo "Utilitarios (ex-LISP)" vira "Utilitarios". Quem tinha o grupo desativado no `C3DMODULOS` precisa desmarcar de novo (a chave gravada mudou de nome).
+- `C3DCOMANDOS` e um alias do `C3DLISP`; os nomes antigos continuam valendo.
+- `C3DUNIRHACHURAS` ja estava na lista; a descricao ganha "hatch" para o Localizar achar por esse termo tambem.
+
+## 2.76.1 - Utilitarios v1.7.1: C3DUNIRHACHURAS nao cai com hachura SOLID
+
+- `C3DUNIRHACHURAS` dava eInvalidInput em `Hatch.PatternAngle` ao criar a hachura nova: o angulo e a escala eram aplicados antes do padrao e, em SOLID, o AutoCAD recusa o angulo. Agora o padrao e definido primeiro e angulo, escala e origem so sao copiados nos padroes que nao sao SOLID; propriedade recusada e ignorada (vai para o log) em vez de derrubar o comando.
+
 ## 2.76.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
 
 - `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.
