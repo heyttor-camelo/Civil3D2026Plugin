@@ -342,9 +342,9 @@ ESCALAGRAF         -> escala grafica pela escala da viewport (ex-ESCALAGRAF_V2.L
 NP                 -> [Configurar/Atualizar] numeracao de pranchas na linha de comando
 ```
 
-## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.4.0)
+## Utilitarios e LISPs (C3DLISP, LispTools v1.1.0, Utilitarios v1.7.0)
 
-`Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP), mais o `C3DOBJLAYERS` (copia so a aba Object Layers das Drawing Settings de outro DWG/DWT) o `C3DORDEMDESENHO` (copia a ordem de desenho de outro DWG/DWT, por layer ou por objeto) e o `C3DCOPIARLAYERS` (copia o estado das layers de outro DWG/DWT, com os xrefs casados pelo arquivo). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
+`Modules/Utilitarios`: rotinas que eram LISP e foram convertidas para C#, com o mesmo comando (ALLTORGB, TLEN, JOBECOUNT, SMARTHATCH, LSLAYOUTS, MOFF/MOFFSET, SEPARA_CURVAS_RAIO, KB/PP), mais o `C3DOBJLAYERS` (copia so a aba Object Layers das Drawing Settings de outro DWG/DWT) o `C3DORDEMDESENHO` (copia a ordem de desenho de outro DWG/DWT, por layer ou por objeto) e o `C3DCOPIARLAYERS` (copia o estado das layers de outro DWG/DWT, com os xrefs casados pelo arquivo) e o `C3DUNIRHACHURAS` (remonta o contorno original de hachuras picadas, como as filled regions exportadas do Revit, e as troca por uma hachura associativa; geometria em `Utilitarios/Contorno`, testes em `tests/Contorno.Tests`). As maiores (QHPE, JPLUS, MAPACHAVE...) continuam como LISP embutida ate serem convertidas.
 
 `C3DLISP` mostra tudo numa lista: icone, nome, comando e descricao; duplo clique executa.
 

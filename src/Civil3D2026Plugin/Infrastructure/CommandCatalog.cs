@@ -418,7 +418,8 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Utilitarios.Pp, "Unir polilinhas", "PEDIT Join com tolerancia 0,01.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.ObjLayers, "Copiar Object Layers", "Copia so a aba Object Layers das Drawing Settings de outro DWG/DWT.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Utilitarios.OrdemDesenho, "Copiar ordem de desenho", "Copia a ordem de desenho (draw order) de outro DWG/DWT, por layer ou por objeto."),
-                    new CommandDefinition(C3DCommands.Utilitarios.CopiarLayers, "Copiar estado das layers", "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; xrefs casam pelo arquivo, mesmo com nome diferente.")
+                    new CommandDefinition(C3DCommands.Utilitarios.CopiarLayers, "Copiar estado das layers", "Copia on/off, freeze, lock, cor, linetype, lineweight e transparencia das layers de outro DWG/DWT; xrefs casam pelo arquivo, mesmo com nome diferente."),
+                    new CommandDefinition(C3DCommands.Utilitarios.UnirHachuras, "Unir hachuras picadas", "Remonta o contorno de hachuras quebradas em pedacos encostados (ex.: filled regions do Revit) e troca por uma hachura associativa.", ShowInRibbon: false)
                 }),
 
             new(

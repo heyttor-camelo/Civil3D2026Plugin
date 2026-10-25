@@ -1,3 +1,11 @@
+## 2.76.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
+
+- `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.
+- Resultado [Hachura/Contorno]: Hachura (padrao) troca as pecas por uma hachura associativa por contorno, com padrao, escala, angulo, layer, cor e transparencia da maior peca (ou cor ByLayer em [Cor]), mandada para o fundo ou deixada onde estavam as pecas ([Ordem]). Contorno so desenha as polilinhas e deixa as hachuras.
+- Agrupar [Iguais/Layer/Tudo]: pecas se unem so com mesma layer, cor e padrao (padrao), so mesma layer, ou todas juntas. Sempre por espaco e plano.
+- Confere a area: se o contorno montado difere da soma das pecas (sobreposicao ou folga maior que a tolerancia), avisa na linha de comando e indica aumentar a [Tolerancia]. Layers travadas sao ignoradas.
+- Geometria pura em `Modules/Utilitarios/Contorno/ContornoUniao.cs`, com testes em `tests/Contorno.Tests` (`dotnet test tests/Contorno.Tests`).
+
 ## 2.75.0 - Layouts v1.16.0: viewports ligadas que apareciam desligadas; legenda das cores
 
 - Corrigido: viewports **ligadas apareciam como desligadas** (hachura cinza tracejada) em alguns layouts. O `Viewport.On` da API devolve false para viewports de layouts que ainda nao foram abertos na sessao (ou alem do MAXACTVP); agora vale a flag gravada no desenho (DXF 90, bit 0x20000 = desligada), lida pelo `acdbEntGet` (`ViewportStatus.cs`). Vale para o painel, o modo leve e os pontos de restauracao (que antes podiam desligar essas viewports ao restaurar). Quando a API e a flag discordam, o log (Ctrl+Shift+L) registra.
