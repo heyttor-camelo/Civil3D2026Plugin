@@ -373,14 +373,20 @@ public sealed class HatchMergeCommands
             if (resto.Count == 0)
                 break;
 
-            int idx = resto.FindIndex(o => Perto(o[0].P, fim, tol));
+            // O trecho cuja ponta fica mais perto do fim (o primeiro a menos de tol podia ser
+            // outro trecho curto da mesma curva).
+            int idx = -1;
+            bool inverso = false;
+            double dMelhor = tol;
+            for (int j = 0; j < resto.Count; j++)
+            {
+                double da = resto[j][0].P.DistanceTo(fim), db = resto[j][^1].P.DistanceTo(fim);
+                if (da <= dMelhor) { dMelhor = da; idx = j; inverso = false; }
+                if (db < dMelhor) { dMelhor = db; idx = j; inverso = true; }
+            }
             if (idx >= 0)
             {
-                atual = resto[idx];
-            }
-            else if ((idx = resto.FindIndex(o => Perto(o[^1].P, fim, tol))) >= 0)
-            {
-                atual = Inverter(resto[idx]);
+                atual = inverso ? Inverter(resto[idx]) : resto[idx];
             }
             else
             {
@@ -481,7 +487,9 @@ public sealed class HatchMergeCommands
             var segs = new List<(P2 A, P2 B, double Bulge)>();
             Explodir(total, segs, descartar);
 
-            foreach (Laco l in EncadearSegs(segs, Math.Max(tol, 1e-6), res))
+            // As pontas que o modelador devolve batem exatas: a tolerancia do usuario aqui
+            // fecharia o laco logo no primeiro trecho curto de uma curva.
+            foreach (Laco l in EncadearSegs(segs, 1e-6, res))
             {
                 for (int i = 0; i < l.Count; i++)
                     l.Pontos[i] = new P2(l.Pontos[i].X + origem.X, l.Pontos[i].Y + origem.Y);
@@ -513,7 +521,7 @@ public sealed class HatchMergeCommands
                 int passos = 0;
                 while (passos++ <= segs.Count)
                 {
-                    if (fim.DistanceTo(inicio) <= t)
+                    if (laco.Count >= 2 && fim.DistanceTo(inicio) <= t)
                     {
                         fechou = true;
                         break;

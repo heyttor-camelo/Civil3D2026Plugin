@@ -1,3 +1,11 @@
+## 2.77.2 - Utilitarios v1.7.3: C3DUNIRHACHURAS nao engole curvas com tolerancia grande
+
+Com tolerancia 0,1 a curva do meio-fio (trechos de poucos cm) saia em escada: a tolerancia era usada tambem dentro de cada peca.
+- Motor Regiao: o encadeamento do contorno explodido usava a tolerancia para fechar o laco, e com trechos menores que ela o laco fechava logo no primeiro trecho. Agora usa 1e-6 (as pontas do modelador batem exatas) e so fecha com pelo menos dois trechos.
+- Motor Arestas: vertices repetidos e alinhados saem com epsilon fixo (1e-6 / 1e-5), nao mais com a tolerancia; a fusao de vertices nao encadeia (A perto de B e B perto de C nao junta A com C) e nunca junta dois vertices da mesma peca; trecho so e quebrado em vertice de outra peca. A tolerancia so fecha folgas entre pecas vizinhas.
+- Leitura dos lacos da hachura: o proximo trecho e o de ponta mais perto, nao o primeiro a menos da tolerancia.
+- Teste novo: curva de raio 15 m em trechos de 3 cm, tolerancia 0,1, todos os vertices mantidos.
+
 ## 2.77.1 - Utilitarios v1.7.2: C3DUNIRHACHURAS com motor de regioes
 
 - Em hachuras do Revit ao longo de um meio-fio curvo o contorno saia em escada. O motor por arestas so funciona com pecas exatamente encostadas; com pecas sobrepostas ou divisas que nao batem na tolerancia, sobram bordas duplicadas e o encadeamento ziguezagueia entre elas.

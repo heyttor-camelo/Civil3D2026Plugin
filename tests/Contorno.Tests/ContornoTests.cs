@@ -192,4 +192,33 @@ public class ContornoUniaoTests
         Assert.Empty(r.Ilhas[1].Furos);
         Assert.Equal(100 - 36 + 1, r.AreaSaida, 9);
     }
+
+    [Fact]
+    public void Curva_com_trechos_menores_que_a_tolerancia_e_mantida()
+    {
+        // Meio-fio curvo exportado como muitos trechos de ~3 cm (raio 15 m) e tolerancia de 10 cm:
+        // nenhum vertice da curva pode sumir.
+        const double r = 15.0, tol = 0.1;
+        int n = 300;
+        double passo = (Math.PI / 2) / n;
+        var curva = new List<P2>();
+        for (int i = 0; i <= n; i++)
+            curva.Add(new P2(r * Math.Cos(i * passo), r * Math.Sin(i * passo)));
+
+        // Peca 1: setor do centro ate a curva, metade 1; peca 2: metade 2.
+        Laco Setor(int de, int ate)
+        {
+            var l = new Laco();
+            l.Add(new P2(0, 0));
+            for (int i = de; i <= ate; i++)
+                l.Add(curva[i]);
+            return l;
+        }
+        var res = ContornoUniao.Unir(new[] { Peca(Setor(0, 150)), Peca(Setor(150, 300)) }, tol);
+        Ilha ilha = Assert.Single(res.Ilhas);
+        Assert.Equal(n + 2, ilha.Externo.Count); // 301 pontos da curva + centro
+        Assert.Equal(res.AreaEntrada, res.AreaSaida, 6);
+        foreach (P2 p in curva)
+            Assert.Contains(ilha.Externo.Pontos, q => q.DistanceTo(p) < 1e-9);
+    }
 }
