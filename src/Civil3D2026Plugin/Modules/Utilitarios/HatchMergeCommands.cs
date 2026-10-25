@@ -11,6 +11,7 @@ using Civil3D2026Plugin.Modules.Utilitarios.Contorno;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using AcColor = Autodesk.AutoCAD.Colors.Color;
+using Region = Autodesk.AutoCAD.DatabaseServices.Region;
 
 namespace Civil3D2026Plugin.Modules.Utilitarios;
 
