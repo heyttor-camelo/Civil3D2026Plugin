@@ -1,3 +1,7 @@
+## 2.76.1 - Utilitarios v1.7.1: C3DUNIRHACHURAS nao cai com hachura SOLID
+
+- `C3DUNIRHACHURAS` dava eInvalidInput em `Hatch.PatternAngle` ao criar a hachura nova: o angulo e a escala eram aplicados antes do padrao e, em SOLID, o AutoCAD recusa o angulo. Agora o padrao e definido primeiro e angulo, escala e origem so sao copiados nos padroes que nao sao SOLID; propriedade recusada e ignorada (vai para o log) em vez de derrubar o comando.
+
 ## 2.76.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
 
 - `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.

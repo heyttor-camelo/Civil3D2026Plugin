@@ -437,24 +437,37 @@ public sealed class HatchMergeCommands
         }
         else
         {
-            h.PatternAngle = m.PatternAngle;
-            h.PatternScale = m.PatternScale;
+            // O padrao vem primeiro: angulo e escala so valem com um padrao definido, e em SOLID
+            // o setter de angulo da eInvalidInput.
+            bool solid = string.Equals(m.PatternName, "SOLID", StringComparison.OrdinalIgnoreCase);
             if (m.PatternType == HatchPatternType.UserDefined)
             {
                 h.PatternSpace = m.PatternSpace;
                 h.PatternDouble = m.PatternDouble;
             }
             h.SetHatchPattern(m.PatternType, m.PatternName);
-            h.Origin = m.Origin;
+            if (!solid)
+            {
+                Tentar(() => h.PatternScale = m.PatternScale);
+                Tentar(() => h.PatternAngle = m.PatternAngle);
+                Tentar(() => h.Origin = m.Origin);
+            }
         }
         h.HatchStyle = HatchStyle.Normal;
+        Tentar(() => h.BackgroundColor = m.BackgroundColor);
+        return h;
+    }
+
+    /// <summary>Propriedade que o AutoCAD pode recusar para certo padrao: a hachura sai sem ela.</summary>
+    private static void Tentar(Action acao)
+    {
         try
         {
-            h.BackgroundColor = m.BackgroundColor;
+            acao();
         }
-        catch (Autodesk.AutoCAD.Runtime.Exception)
+        catch (Autodesk.AutoCAD.Runtime.Exception ex)
         {
+            PluginLog.Diag(Modulo, $"Propriedade da hachura ignorada: {ex.ErrorStatus}");
         }
-        return h;
     }
 }
