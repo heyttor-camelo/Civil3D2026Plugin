@@ -1,3 +1,11 @@
+## 2.71.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
+
+- `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.
+- Resultado [Hachura/Contorno]: Hachura (padrao) troca as pecas por uma hachura associativa por contorno, com padrao, escala, angulo, layer, cor e transparencia da maior peca (ou cor ByLayer em [Cor]), mandada para o fundo ou deixada onde estavam as pecas ([Ordem]). Contorno so desenha as polilinhas e deixa as hachuras.
+- Agrupar [Iguais/Layer/Tudo]: pecas se unem so com mesma layer, cor e padrao (padrao), so mesma layer, ou todas juntas. Sempre por espaco e plano.
+- Confere a area: se o contorno montado difere da soma das pecas (sobreposicao ou folga maior que a tolerancia), avisa na linha de comando e indica aumentar a [Tolerancia]. Layers travadas sao ignoradas.
+- Geometria pura em `Modules/Utilitarios/Contorno/ContornoUniao.cs`, com testes em `tests/Contorno.Tests` (`dotnet test tests/Contorno.Tests`).
+
 ## 2.70.0 - Layouts v1.13.0: C3DMNE (malha, norte e escala de uma vez) e escala grafica em escala grande
 
 - **Escala grafica** (`ESCALAGRAF` e aba Norte e escala grafica): as divisoes eram sempre de 10 m, entao em 1:5000 com centenas de metros saiam dezenas de blocos e rotulos amontoados. Agora o passo e 10 m quando cabe (igual a LISP) e sobe para 20, 25, 50, 100, 200, 250, 500... ate os rotulos caberem com folga e haver no maximo 12 divisoes; o padrao preto (1/4, 1/4, 1/2 do primeiro bloco) segue o passo. Rotulo que encostaria no final some (fica o traco). Os blocos novos levam `_v2` no nome para nao reaproveitar os antigos.
