@@ -177,4 +177,19 @@ public class ContornoUniaoTests
         Assert.Equal(4, i.Externo.Count);
         Assert.Equal(1.0, r.AreaSaida, 9);
     }
+
+    [Fact]
+    public void Classificar_orienta_pela_profundidade()
+    {
+        // Como vem de uma uniao de regioes: sentidos quaisquer, externo com furo e um externo dentro do furo.
+        var r = new ResultadoUniao();
+        ContornoUniao.Classificar(new[] { Ret(0, 0, 10, 10, horario: true), Ret(2, 2, 8, 8), Ret(4, 4, 5, 5, horario: true) }, Tol, r, orientarPorProfundidade: true);
+        Assert.Equal(2, r.Ilhas.Count);
+        Ilha grande = r.Ilhas[0];
+        Assert.Equal(100.0, grande.Externo.AreaComSinal(), 9);
+        Laco furo = Assert.Single(grande.Furos);
+        Assert.Equal(-36.0, furo.AreaComSinal(), 9);
+        Assert.Empty(r.Ilhas[1].Furos);
+        Assert.Equal(100 - 36 + 1, r.AreaSaida, 9);
+    }
 }

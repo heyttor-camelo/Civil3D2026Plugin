@@ -269,18 +269,51 @@ public static class ContornoUniao
 
         // 5. Encadeamento e limpeza.
         List<Laco> saida = Encadear(borda, pontos, res);
+        Classificar(saida.Select(l => Simplificar(l, tol)), tol, res, orientarPorProfundidade: false);
+        return res;
+    }
+
+    /// <summary>
+    /// Monta as ilhas a partir de lacos fechados ja prontos (ex.: vindos de uma uniao de regioes):
+    /// externos anti-horarios e furos horarios, cada furo no menor externo que o contem.
+    /// Com orientarPorProfundidade, o sentido de cada laco e corrigido pela profundidade
+    /// (quantos outros lacos o contem); sem isso, o sinal da area e que diz se e furo.
+    /// </summary>
+    public static void Classificar(IEnumerable<Laco> lacos, double tol, ResultadoUniao res, bool orientarPorProfundidade)
+    {
+        var validos = new List<Laco>();
+        foreach (Laco l in lacos)
+        {
+            if (l.Count < 2 || Math.Abs(l.AreaComSinal()) <= tol * tol)
+                continue;
+            validos.Add(l);
+        }
+
         var externos = new List<Laco>();
         var furos = new List<Laco>();
-        foreach (Laco l in saida)
+        List<List<P2>>? pols = orientarPorProfundidade ? validos.Select(l => l.Poligono()).ToList() : null;
+        for (int i = 0; i < validos.Count; i++)
         {
-            Laco s = Simplificar(l, tol);
-            if (s.Count < 2)
-                continue;
-            double a = s.AreaComSinal();
-            if (Math.Abs(a) <= tol * tol)
-                continue;
+            Laco l = validos[i];
+            double a = l.AreaComSinal();
+            if (pols is not null)
+            {
+                P2 amostra = l.PontoAmostra();
+                int prof = 0;
+                for (int j = 0; j < validos.Count; j++)
+                {
+                    if (j != i && Geo.Dentro(pols[j], amostra))
+                        prof++;
+                }
+                bool furo = (prof % 2) == 1;
+                if ((a > 0) == furo)
+                {
+                    l = l.Invertido();
+                    a = -a;
+                }
+            }
             res.AreaSaida += a;
-            (a > 0 ? externos : furos).Add(s);
+            (a > 0 ? externos : furos).Add(l);
         }
 
         var ilhas = externos
@@ -298,7 +331,6 @@ public static class ContornoUniao
                 res.TrechosAbertos += f.Count; // furo sem externo: nao deveria acontecer
         }
         res.Ilhas.AddRange(ilhas.OrderByDescending(i => i.Area).Select(i => i.Ilha));
-        return res;
     }
 
     /// <summary>Tira vertices repetidos e o fechamento duplicado; null se o laco nao tiver area.</summary>

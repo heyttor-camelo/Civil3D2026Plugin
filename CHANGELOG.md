@@ -1,3 +1,9 @@
+## 2.77.1 - Utilitarios v1.7.2: C3DUNIRHACHURAS com motor de regioes
+
+- Em hachuras do Revit ao longo de um meio-fio curvo o contorno saia em escada. O motor por arestas so funciona com pecas exatamente encostadas; com pecas sobrepostas ou divisas que nao batem na tolerancia, sobram bordas duplicadas e o encadeamento ziguezagueia entre elas.
+- Novo motor **Regiao** (padrao): cada peca vira uma Region do AutoCAD, tudo e unido pelo modelador (em coordenadas locais, para nao perder precisao em UTM) e o contorno sai da explosao da regiao final, com os vertices e arcos originais. `[Motor]` escolhe Regiao ou Arestas; se o modelador recusar alguma peca, cai no motor por arestas.
+- A conferencia de area e os avisos continuam nos dois motores.
+
 ## 2.77.0 - Comandos gerais: a lista das LISPs vira "Comandos gerais" (LispTools v1.2.0)
 
 - O grupo "LISPs" da Ribbon e do `C3DMODULOS` passa a se chamar **Comandos gerais**; a janela do `C3DLISP` tambem ("Comandos gerais", N comandos) e o modulo "Utilitarios (ex-LISP)" vira "Utilitarios". Quem tinha o grupo desativado no `C3DMODULOS` precisa desmarcar de novo (a chave gravada mudou de nome).

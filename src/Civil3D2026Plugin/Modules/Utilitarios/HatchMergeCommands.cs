@@ -29,6 +29,7 @@ public sealed class HatchMergeCommands
     private static string _agrupar = "Iguais";
     private static string _cor = "Manter";
     private static string _ordem = "Fundo";
+    private static string _motor = "Regiao";
 
     private sealed class Grupo
     {
@@ -125,7 +126,9 @@ public sealed class HatchMergeCommands
 
             foreach (Grupo g in grupos.Values)
             {
-                ResultadoUniao r = ContornoUniao.Unir(g.Pecas, _tol);
+                ResultadoUniao r = _motor == "Regiao"
+                    ? UnirPorRegiao(g.Pecas, _tol) ?? ContornoUniao.Unir(g.Pecas, _tol)
+                    : ContornoUniao.Unir(g.Pecas, _tol);
                 if (r.Ilhas.Count == 0)
                     continue;
                 abertos += r.TrechosAbertos;
@@ -205,10 +208,10 @@ public sealed class HatchMergeCommands
     {
         while (true)
         {
-            string resumo = $"tolerancia {_tol:0.####}, {_resultado}, agrupar {_agrupar}, cor {_cor}, ordem {_ordem}";
+            string resumo = $"motor {_motor}, tolerancia {_tol:0.####}, {_resultado}, agrupar {_agrupar}, cor {_cor}, ordem {_ordem}";
             var pko = new PromptKeywordOptions(
-                $"\nUnir hachuras ({resumo}) [Tolerancia/Resultado/Agrupar/Cor/Ordem] <Selecionar>: ",
-                "Tolerancia Resultado Agrupar Cor Ordem")
+                $"\nUnir hachuras ({resumo}) [Motor/Tolerancia/Resultado/Agrupar/Cor/Ordem] <Selecionar>: ",
+                "Motor Tolerancia Resultado Agrupar Cor Ordem")
             { AllowNone = true };
             PromptResult pr = ed.GetKeywords(pko);
             if (pr.Status == PromptStatus.None)
@@ -218,6 +221,9 @@ public sealed class HatchMergeCommands
 
             switch (pr.StringResult)
             {
+                case "Motor":
+                    _motor = Escolher(ed, "\nMotor: uniao de regioes do AutoCAD (aceita pecas sobrepostas) ou pelas arestas (so pecas encostadas) [Regiao/Arestas]", "Regiao Arestas", _motor);
+                    break;
                 case "Tolerancia":
                     var pdo = new PromptDistanceOptions($"\nVertices e bordas a menos disso sao o mesmo ponto/linha <{_tol:0.####}>: ")
                     {
@@ -394,6 +400,222 @@ public sealed class HatchMergeCommands
         for (int i = t.Count - 1; i >= 0; i--)
             r.Add((t[i].P, i > 0 ? -t[i - 1].B : 0.0));
         return r;
+    }
+
+    // ------------------------------------------------------------------
+    // Motor Regiao: cada peca vira uma Region, tudo e unido com o modelador do AutoCAD
+    // (aguenta pecas sobrepostas e divisas que nao batem exatamente) e o contorno sai da
+    // explosao da regiao final. Vertices e arcos originais ficam como estao.
+    // ------------------------------------------------------------------
+
+    /// <summary>Uniao pelas regioes; null se o modelador recusar alguma peca (cai no motor por arestas).</summary>
+    private static ResultadoUniao? UnirPorRegiao(IReadOnlyList<IReadOnlyList<Laco>> pecas, double tol)
+    {
+        // Coordenadas locais: o modelador perde precisao com coordenadas UTM.
+        P2 origem = pecas[0][0].Pontos[0];
+        var res = new ResultadoUniao();
+        Region? total = null;
+        var descartar = new List<DBObject>();
+        try
+        {
+            foreach (IReadOnlyList<Laco> peca in pecas)
+            {
+                using var curvas = new DBObjectCollection();
+                foreach (Laco l in peca)
+                {
+                    if (l.Count < 2)
+                        continue;
+                    var pl = new Polyline();
+                    for (int i = 0; i < l.Count; i++)
+                        pl.AddVertexAt(i, new Point2d(l.Pontos[i].X - origem.X, l.Pontos[i].Y - origem.Y), l.Bulges[i], 0, 0);
+                    pl.Closed = true;
+                    curvas.Add(pl);
+                }
+                if (curvas.Count == 0)
+                {
+                    res.LacosDescartados++;
+                    continue;
+                }
+
+                DBObjectCollection regioes;
+                try
+                {
+                    regioes = Region.CreateFromCurves(curvas);
+                }
+                catch (Autodesk.AutoCAD.Runtime.Exception ex)
+                {
+                    PluginLog.Aviso(Modulo, $"Regiao recusada pelo modelador ({ex.ErrorStatus}); usando o motor por arestas.");
+                    return null;
+                }
+                finally
+                {
+                    foreach (DBObject c in curvas)
+                        c.Dispose();
+                }
+
+                foreach (DBObject o in regioes)
+                {
+                    if (o is not Region r)
+                    {
+                        o.Dispose();
+                        continue;
+                    }
+                    if (total is null)
+                    {
+                        total = r;
+                    }
+                    else
+                    {
+                        total.BooleanOperation(BooleanOperationType.BoolUnite, r);
+                        r.Dispose();
+                    }
+                }
+            }
+            if (total is null)
+                return null;
+
+            // Soma real das pecas (furos descontados), para a conferencia de area.
+            res.AreaEntrada = AreaDasPecas(pecas, tol);
+
+            var segs = new List<(P2 A, P2 B, double Bulge)>();
+            Explodir(total, segs, descartar);
+
+            foreach (Laco l in EncadearSegs(segs, Math.Max(tol, 1e-6), res))
+            {
+                for (int i = 0; i < l.Count; i++)
+                    l.Pontos[i] = new P2(l.Pontos[i].X + origem.X, l.Pontos[i].Y + origem.Y);
+            }
+        }
+        finally
+        {
+            total?.Dispose();
+            foreach (DBObject d in descartar)
+                d.Dispose();
+        }
+        return res;
+
+        // Lacos locais encadeados e classificados, ja somados em res.
+        static IEnumerable<Laco> EncadearSegs(List<(P2 A, P2 B, double Bulge)> segs, double t, ResultadoUniao r)
+        {
+            var lacos = new List<Laco>();
+            var usado = new bool[segs.Count];
+            for (int ini = 0; ini < segs.Count; ini++)
+            {
+                if (usado[ini])
+                    continue;
+                usado[ini] = true;
+                var laco = new Laco();
+                laco.Add(segs[ini].A, segs[ini].Bulge);
+                P2 inicio = segs[ini].A;
+                P2 fim = segs[ini].B;
+                bool fechou = false;
+                int passos = 0;
+                while (passos++ <= segs.Count)
+                {
+                    if (fim.DistanceTo(inicio) <= t)
+                    {
+                        fechou = true;
+                        break;
+                    }
+                    int prox = -1;
+                    bool inverso = false;
+                    double melhor = t;
+                    for (int j = 0; j < segs.Count; j++)
+                    {
+                        if (usado[j])
+                            continue;
+                        double da = segs[j].A.DistanceTo(fim), db = segs[j].B.DistanceTo(fim);
+                        if (da <= melhor) { melhor = da; prox = j; inverso = false; }
+                        if (db < melhor) { melhor = db; prox = j; inverso = true; }
+                    }
+                    if (prox < 0)
+                        break;
+                    usado[prox] = true;
+                    if (inverso)
+                    {
+                        laco.Add(segs[prox].B, -segs[prox].Bulge);
+                        fim = segs[prox].A;
+                    }
+                    else
+                    {
+                        laco.Add(segs[prox].A, segs[prox].Bulge);
+                        fim = segs[prox].B;
+                    }
+                }
+                if (fechou)
+                    lacos.Add(laco);
+                else
+                    r.TrechosAbertos += laco.Count;
+            }
+            ContornoUniao.Classificar(lacos, t, r, orientarPorProfundidade: true);
+            return r.Ilhas.SelectMany(i => i.Furos.Prepend(i.Externo));
+        }
+    }
+
+    /// <summary>Soma das areas das pecas, furos (lacos dentro de outro laco da mesma peca) descontados.</summary>
+    private static double AreaDasPecas(IReadOnlyList<IReadOnlyList<Laco>> pecas, double tol)
+    {
+        double total = 0.0;
+        foreach (IReadOnlyList<Laco> peca in pecas)
+        {
+            var r = new ResultadoUniao();
+            ContornoUniao.Classificar(peca, tol, r, orientarPorProfundidade: true);
+            total += r.AreaSaida;
+        }
+        return total;
+    }
+
+    /// <summary>Segmentos (reta ou arco com bulge) das bordas da regiao, no plano XY local.</summary>
+    private static void Explodir(Region regiao, List<(P2 A, P2 B, double Bulge)> segs, List<DBObject> descartar)
+    {
+        using var partes = new DBObjectCollection();
+        regiao.Explode(partes);
+        foreach (DBObject o in partes)
+        {
+            descartar.Add(o);
+            switch (o)
+            {
+                case Region sub:
+                    Explodir(sub, segs, descartar);
+                    break;
+                case Line ln:
+                    segs.Add((new P2(ln.StartPoint.X, ln.StartPoint.Y), new P2(ln.EndPoint.X, ln.EndPoint.Y), 0.0));
+                    break;
+                case Arc arc:
+                {
+                    double varre = arc.EndAngle - arc.StartAngle;
+                    while (varre <= 0)
+                        varre += 2.0 * Math.PI;
+                    while (varre > 2.0 * Math.PI)
+                        varre -= 2.0 * Math.PI;
+                    double bulge = Math.Tan(varre / 4.0) * (arc.Normal.Z < 0 ? -1.0 : 1.0);
+                    segs.Add((new P2(arc.StartPoint.X, arc.StartPoint.Y), new P2(arc.EndPoint.X, arc.EndPoint.Y), bulge));
+                    break;
+                }
+                case Circle ci:
+                {
+                    var a = new P2(ci.Center.X + ci.Radius, ci.Center.Y);
+                    var b = new P2(ci.Center.X - ci.Radius, ci.Center.Y);
+                    segs.Add((a, b, 1.0));
+                    segs.Add((b, a, 1.0));
+                    break;
+                }
+                case Curve cv:
+                {
+                    // Elipse, spline: aproximada por retas.
+                    const int n = 32;
+                    double p0 = cv.StartParam, p1 = cv.EndParam;
+                    Point3d ant = cv.GetPointAtParameter(p0);
+                    for (int i = 1; i <= n; i++)
+                    {
+                        Point3d p = cv.GetPointAtParameter(p0 + ((p1 - p0) * i / n));
+                        segs.Add((new P2(ant.X, ant.Y), new P2(p.X, p.Y), 0.0));
+                        ant = p;
+                    }
+                    break;
+                }
+            }
+        }
     }
 
     private static Polyline NovaPolilinha(Transaction tr, BlockTableRecord espaco, Hatch modelo, Laco laco)
