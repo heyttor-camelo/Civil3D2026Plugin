@@ -373,35 +373,91 @@ internal static class LayoutConjunto
             tr.AddNewlyCreatedDBObject(e, true);
         }
 
-        void Rotulo(string texto, Point3d a, Point3d b, bool noInicio)
+        // Caixas (no papel) dos rotulos ja colocados, para um nao cair em cima do outro.
+        var ocupadas = new List<Point3d[]>();
+        double folga = th * 0.4;
+
+        DBText NovoTexto(string texto)
+        {
+            var t = new DBText { TextString = texto, Height = th, TextStyleId = estilo, Position = Point3d.Origin };
+            Add(t);
+            return t;
+        }
+
+        double Largura(DBText t)
+        {
+            try
+            {
+                Extents3d e = t.GeometricExtents;
+                return Math.Max(e.MaxPoint.X, th);
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                return t.TextString.Length * th * 0.9;
+            }
+        }
+
+        bool Dentro(Point3d[] caixa) =>
+            caixa.All(c => c.X >= x0 + folga && c.X <= x1 - folga && c.Y >= y0 + folga && c.Y <= y1 - folga);
+
+        void Rotulos(string texto, Point3d a, Point3d b)
         {
             // Texto ao longo da linha, sempre legivel (da esquerda para a direita / de baixo para cima).
             Vector3d d = (b - a).GetNormal();
             if (d.X < -1e-9 || (Math.Abs(d.X) <= 1e-9 && d.Y < 0))
             {
                 d = d.Negate();
-                noInicio = !noInicio;
                 (a, b) = (b, a);
             }
             Vector3d perp = d.RotateBy(Math.PI / 2, Vector3d.ZAxis);
-            Point3d pt = noInicio ? a + d * (th * 0.6) + perp * (th * 0.4) : b - d * (th * 0.6) + perp * (th * 0.4);
-            var t = new DBText
+            double comp = a.DistanceTo(b);
+            double desl = th * 0.4;
+            DBText t = NovoTexto(texto);
+            double largura = Largura(t);
+
+            Point3d[] Caixa(double s)
             {
-                TextString = texto,
-                Height = th,
-                TextStyleId = estilo,
-                Rotation = Math.Atan2(d.Y, d.X),
-                Position = pt
-            };
-            if (!noInicio)
-            {
-                // Na ponta final o texto termina no ponto (alinhado a direita).
-                t.HorizontalMode = TextHorizontalMode.TextRight;
-                t.AlignmentPoint = pt;
+                // Retangulo do texto com uma folga, comecando a "s" do inicio da linha.
+                Point3d p0 = a + d * (s - th * 0.25) + perp * (desl - th * 0.3);
+                Vector3d ao = d * (largura + th * 0.5), alto = perp * (th * 1.6);
+                return new[] { p0, p0 + ao, p0 + ao + alto, p0 + alto };
             }
-            Add(t);
-            if (!noInicio)
-                t.AdjustAlignment(db);
+
+            // Desliza o texto para dentro da viewport a partir da ponta ate caber inteiro no
+            // retangulo e sem encostar em outro rotulo. Cada ponta procura so na sua metade.
+            double? Procurar(bool noInicio)
+            {
+                double passo = th * 0.5, metade = comp / 2;
+                for (double r = th * 0.6; r + largura <= metade; r += passo)
+                {
+                    double s = noInicio ? r : comp - r - largura;
+                    Point3d[] caixa = Caixa(s);
+                    if (Dentro(caixa) && !ocupadas.Any(o => Sobrepoe(o, caixa)))
+                        return s;
+                }
+                return null;
+            }
+
+            void Colocar(DBText texto1, double s)
+            {
+                texto1.Rotation = Math.Atan2(d.Y, d.X);
+                texto1.Position = a + d * s + perp * desl;
+                ocupadas.Add(Caixa(s));
+            }
+
+            double? s1 = Procurar(true);
+            if (s1 is double v1)
+                Colocar(t, v1);
+
+            // Linha curta (canto da viewport): um rotulo so, para nao repetir o mesmo valor colado.
+            if (s1 is null || comp >= largura * 4)
+            {
+                double? s2 = Procurar(false);
+                if (s2 is double v2)
+                    Colocar(s1 is null ? t : NovoTexto(texto), v2);
+                else if (s1 is null)
+                    t.Erase();
+            }
         }
 
         void Familia(bool verticais)
@@ -427,8 +483,7 @@ internal static class LayoutConjunto
                     Add(new Line(pa, pb));
                 }
                 string texto = (verticais ? "E=" : "N=") + Math.Round(v / unidadesPorM).ToString("#,0", Br);
-                Rotulo(texto, pa, pb, true);
-                Rotulo(texto, pa, pb, false);
+                Rotulos(texto, pa, pb);
             }
         }
 
@@ -463,6 +518,33 @@ internal static class LayoutConjunto
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "texto=" + th.ToString("R", CultureInfo.InvariantCulture)),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, "cruzes=" + (p.MalhaCruzes ? "1" : "0")));
         return id;
+    }
+
+    /// <summary>Dois quadrilateros convexos se sobrepoem (eixos separadores).</summary>
+    private static bool Sobrepoe(Point3d[] p, Point3d[] q)
+    {
+        foreach (Point3d[] poli in new[] { p, q })
+            for (int i = 0; i < poli.Length; i++)
+            {
+                Point3d u = poli[i], w = poli[(i + 1) % poli.Length];
+                double nx = -(w.Y - u.Y), ny = w.X - u.X;
+                double pMin = double.MaxValue, pMax = double.MinValue, qMin = double.MaxValue, qMax = double.MinValue;
+                foreach (Point3d c in p)
+                {
+                    double v = c.X * nx + c.Y * ny;
+                    pMin = Math.Min(pMin, v);
+                    pMax = Math.Max(pMax, v);
+                }
+                foreach (Point3d c in q)
+                {
+                    double v = c.X * nx + c.Y * ny;
+                    qMin = Math.Min(qMin, v);
+                    qMax = Math.Max(qMax, v);
+                }
+                if (pMax < qMin || qMax < pMin)
+                    return false;
+            }
+        return true;
     }
 
     /// <summary>Corta o segmento no retangulo (Liang-Barsky).</summary>

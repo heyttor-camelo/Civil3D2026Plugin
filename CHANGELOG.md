@@ -1,3 +1,10 @@
+## 2.76.1 - Layouts v1.16.1: rotulos da malha de coordenadas sem corte nem sobreposicao
+
+- Malha/norte/escala (`C3DMNE`): os rotulos `E=` / `N=` da malha **nao saem mais cortados pela borda da viewport**. Cada texto tem a largura medida e desliza ao longo da sua linha, a partir da borda, ate caber inteiro dentro da viewport (vale para viewport girada, onde as linhas chegam inclinadas na borda).
+- Rotulos **nao ficam mais um em cima do outro** (por exemplo `E=` e `N=` de linhas que se cruzam perto da borda): se a posicao esta ocupada, o texto anda mais para dentro.
+- Linha curta, cortando um canto da viewport, ganha **um rotulo so** (antes saia o mesmo valor duas vezes, colado). Linha onde o texto nao cabe fica sem rotulo.
+- Para refazer a malha das pranchas ja montadas, rode o `C3DMNE` de novo nelas.
+
 ## 2.76.0 - Utilitarios v1.7.0: C3DUNIRHACHURAS (contorno original de hachuras picadas)
 
 - `C3DUNIRHACHURAS` (lista do `C3DLISP`): DWGs exportados do Revit trazem cada filled region como varias hachuras SOLID encostadas, nao associativas. O comando le os lacos de cada hachura selecionada, funde os vertices pela tolerancia (0,001 por padrao), quebra as bordas nos vertices das pecas vizinhas (juncoes em T) e cancela as divisas percorridas nos dois sentidos: o que sobra e o contorno original, encadeado em polilinhas fechadas (externo + furos), com os vertices alinhados removidos e os arcos mantidos. Pecas encostadas so por um canto, ou separadas, ficam contornos distintos.
