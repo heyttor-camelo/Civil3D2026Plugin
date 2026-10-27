@@ -52,8 +52,8 @@ $kJoinOperation        = 20481
 $kCutOperation         = 20482
 $kNegativeExtent       = 20994
 $kSymmetricExtent      = 20995
-$kHorizontalDim        = 19202
-$kVerticalDim          = 19203
+$kHorizontalDim        = 19201
+$kVerticalDim          = 19202
 
 function Get-Inventor {
     try { return [Runtime.InteropServices.Marshal]::GetActiveObject('Inventor.Application') }
@@ -124,7 +124,9 @@ function Add-Rect($sketch, [double[]]$a, [double[]]$b, $exprA, $exprB) {
                     $s = $l.StartSketchPoint.Geometry; $f = $l.EndSketchPoint.Geometry
                     $onAxis = if ($i -eq 0) { [math]::Abs($s.X - $f.X) -lt 1e-6 } else { [math]::Abs($s.Y - $f.Y) -lt 1e-6 }
                     if ($onAxis -and ($l.StartSketchPoint -eq $corner -or $l.EndSketchPoint -eq $corner)) {
-                        $null = $gc.AddCoincident($l, $origin); break
+                        # o Inventor pode já ter inferido a coincidência ao criar o retângulo: aí dá E_FAIL
+                        try { $null = $gc.AddCoincident($l, $origin) } catch { }
+                        break
                     }
                 }
                 continue
@@ -149,22 +151,22 @@ $Lo = $p.SIL + 2 * $p.WTh
 $Wo = $p.SIW + 2 * $p.WTh
 
 # 1. Corpo externo: topo em Z = 0, desce SRS
-$sk = $def.Sketches.Add($xyPlane); $sk.Name = 'Corpo'
-$prof = Add-Rect $sk @(-$Lo/2, 0, 0) @($Lo/2, $Wo, 0) @('(SIL + 2 * WTh) / 2', $null) @('(SIL + 2 * WTh) / 2', 'SIW + 2 * WTh')
+$sk = $def.Sketches.Add($xyPlane); $sk.Name = 'Esboco_Corpo'
+$prof = Add-Rect $sk @((-$Lo / 2), 0, 0) @(($Lo / 2), $Wo, 0) @('(SIL + 2 * WTh) / 2', $null) @('(SIL + 2 * WTh) / 2', 'SIW + 2 * WTh')
 $f = Extrude $prof $kJoinOperation 'SRS' $kNegativeExtent; $f.Name = 'Corpo'
 
 # 2. Laje de fundo com aba
 $wpBase = $def.WorkPlanes.AddByPlaneAndOffset($xyPlane, '-SRS'); $wpBase.Name = 'Plano_Fundo'; $wpBase.Visible = $false
-$sk = $def.Sketches.Add($wpBase); $sk.Name = 'Laje_Fundo'
+$sk = $def.Sketches.Add($wpBase); $sk.Name = 'Esboco_Laje_Fundo'
 $a = $p.Base_Aba
-$prof = Add-Rect $sk @(-$Lo/2 - $a, -$a, -$p.SRS) @($Lo/2 + $a, $Wo + $a, -$p.SRS) `
+$prof = Add-Rect $sk @((-$Lo / 2 - $a), (-$a), (-$p.SRS)) @(($Lo / 2 + $a), ($Wo + $a), (-$p.SRS)) `
     @('(SIL + 2 * WTh) / 2 + Base_Aba', 'Base_Aba') @('(SIL + 2 * WTh) / 2 + Base_Aba', 'SIW + 2 * WTh + Base_Aba')
 $f = Extrude $prof $kJoinOperation 'FTh' $kNegativeExtent; $f.Name = 'Laje_Fundo'
 
 # 3. Vazio interno: da laje do topo até o fundo interno
 $wpTop = $def.WorkPlanes.AddByPlaneAndOffset($xyPlane, '-Tampa_E'); $wpTop.Name = 'Plano_Tampa'; $wpTop.Visible = $false
-$sk = $def.Sketches.Add($wpTop); $sk.Name = 'Vazio'
-$prof = Add-Rect $sk @(-$p.SIL/2, $p.WTh, -$p.Tampa_E) @($p.SIL/2, $p.WTh + $p.SIW, -$p.Tampa_E) `
+$sk = $def.Sketches.Add($wpTop); $sk.Name = 'Esboco_Vazio'
+$prof = Add-Rect $sk @((-$p.SIL / 2), $p.WTh, (-$p.Tampa_E)) @(($p.SIL / 2), ($p.WTh + $p.SIW), (-$p.Tampa_E)) `
     @('SIL / 2', 'WTh') @('SIL / 2', 'WTh + SIW')
 $f = Extrude $prof $kCutOperation 'SRS - Tampa_E' $kNegativeExtent; $f.Name = 'Vazio'
 
@@ -172,10 +174,10 @@ $f = Extrude $prof $kCutOperation 'SRS - Tampa_E' $kNegativeExtent; $f.Name = 'V
 $x1 = $p.Ab_Vao; $x2 = $p.Ab_Vao + $p.Ab_L
 $z1 = -$p.Tampa_E; $z2 = -$p.Tampa_E - $p.Ab_H
 foreach ($side in @(1, -1)) {
-    $sk = $def.Sketches.Add($xzPlane); $sk.Name = if ($side -gt 0) { 'Abertura_Direita' } else { 'Abertura_Esquerda' }
+    $sk = $def.Sketches.Add($xzPlane); $nome = if ($side -gt 0) { 'Abertura_Direita' } else { 'Abertura_Esquerda' }; $sk.Name = 'Esboco_' + $nome
     # sentido dos eixos do esboço no plano XZ depende do Inventor: as expressões são valores absolutos
-    $prof = Add-Rect $sk @($side * $x1, 0, $z1) @($side * $x2, 0, $z2) @('Ab_Vao', 'Tampa_E') @('Ab_Vao + Ab_L', 'Tampa_E + Ab_H')
-    $f = Extrude $prof $kCutOperation '2 * WTh' $kSymmetricExtent; $f.Name = $sk.Name
+    $prof = Add-Rect $sk @(($side * $x1), 0, $z1) @(($side * $x2), 0, $z2) @('Ab_Vao', 'Tampa_E') @('Ab_Vao + Ab_L', 'Tampa_E + Ab_H')
+    $f = Extrude $prof $kCutOperation '2 * WTh' $kSymmetricExtent; $f.Name = $nome
 }
 
 # 5. Pontos de trabalho para os pontos de conexão, na interseção de planos de deslocamento

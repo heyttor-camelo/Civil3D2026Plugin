@@ -1,4 +1,4 @@
-param([string]$Path = 'C:\Temp\BLDC-IPE\BLDC.ipt')
+﻿param([string]$Path = 'C:\Temp\BLDC-IPE\BLDC.ipt')
 $ErrorActionPreference = 'Stop'
 $inv = [Runtime.InteropServices.Marshal]::GetActiveObject('Inventor.Application')
 $doc = $null
@@ -15,8 +15,8 @@ function Report($label) {
         "  caixa (mm): X {0:N1}..{1:N1}  Y {2:N1}..{3:N1}  Z {4:N1}..{5:N1}" -f ($r.MinPoint.X*10),($r.MaxPoint.X*10),($r.MinPoint.Y*10),($r.MaxPoint.Y*10),($r.MinPoint.Z*10),($r.MaxPoint.Z*10)
         "  volume (m3): {0:N4}" -f ($b.Volume(0.01) / 1e6)
     }
-    foreach ($f in $def.Features) { if ($f.HealthStatus -ne 11777) { "  feature {0}: health {1}" -f $f.Name, $f.HealthStatus } }
-    foreach ($s in $def.Sketches) { if ($s.HealthStatus -ne 11777) { "  sketch {0}: health {1}" -f $s.Name, $s.HealthStatus } }
+    foreach ($f in $def.Features) { if ($f.HealthStatus -ne 11778) { "  feature {0}: health {1}" -f $f.Name, $f.HealthStatus } }
+    foreach ($s in $def.Sketches) { if ($s.HealthStatus -ne 11778) { "  sketch {0}: health {1}" -f $s.Name, $s.HealthStatus } }
     foreach ($wp in $def.WorkPoints) {
         if ($wp.Name -like 'Conexao_*') { $g = $wp.Point; "  {0}: ({1:N1}, {2:N1}, {3:N1})" -f $wp.Name,($g.X*10),($g.Y*10),($g.Z*10) }
     }
