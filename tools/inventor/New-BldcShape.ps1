@@ -69,6 +69,9 @@ $tg = $inv.TransientGeometry
 $template = $inv.FileManager.GetTemplateFile($kPartDocumentObject, $kMetricSystemOfMeasure)
 $doc = $inv.Documents.Add($kPartDocumentObject, $template, $true)
 $def = $doc.ComponentDefinition
+# o template "métrico" da instalação em inglês vem em polegadas; o Export Template do Shape
+# Utilities grava a unidade do documento (LengthUnit) no XML
+$doc.UnitsOfMeasure.LengthUnits = 11269   # kMillimeterLengthUnits
 
 # --- parâmetros (mm) ---
 $userParams = $def.Parameters.UserParameters
