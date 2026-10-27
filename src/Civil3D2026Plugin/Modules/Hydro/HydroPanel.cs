@@ -1701,7 +1701,8 @@ internal sealed partial class HydroPanel : SW.Window
         Category("Estrutura " + s.Name);
         EditProp("nome", "Nome", s.Name, () => ApplyStructures(new[] { s }, false));
         Prop("Familia / tamanho", $"{s.Family} / {s.Size}");
-        Prop("Tipo", s.Type);
+        Prop("Tipo hidraulico", s.Type);
+        Prop("Tipo no catalogo", s.CatalogPartType.Length > 0 ? s.CatalogPartType : "-");
         MeasureProp(s, HydroRules.Rim, "Tampa (rim) [m]", s.Rim, () => ApplyStructures(new[] { s }, false));
         MeasureProp(s, HydroRules.Sump, "Fundo (sump) [m]", s.Sump, () => ApplyStructures(new[] { s }, false));
         Prop("Profundidade", N(s.Depth, 2) + " m");

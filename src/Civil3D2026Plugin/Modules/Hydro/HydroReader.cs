@@ -140,6 +140,7 @@ internal static class HydroReader
         si.Family = Safe(() => s.PartFamilyName);
         si.Size = Safe(() => s.PartSizeName);
         si.Type = Safe(() => s.StructureType.ToString());
+        si.CatalogPartType = Safe(() => CatalogPartTypeName(s.PartType));
         si.Rim = Safe(() => s.RimElevation);
         si.Sump = Safe(() => s.SumpElevation);
         si.SumpDepth = Safe(() => s.SumpDepth);
@@ -163,6 +164,17 @@ internal static class HydroReader
 
         return si;
     }
+
+    /// <summary>Tipo da peca no catalogo (o do Part Builder), distinto do tipo hidraulico.</summary>
+    internal static string CatalogPartTypeName(CivilDb.PartType t) => t switch
+    {
+        CivilDb.PartType.StructJunction => "Juncao",
+        CivilDb.PartType.StructInletOutlet => "Entrada/saida",
+        CivilDb.PartType.StructGeneral => "Geral",
+        CivilDb.PartType.StructEquipment => "Equipamento",
+        CivilDb.PartType.StructNull => "Nulo",
+        _ => t.ToString()
+    };
 
     /// <summary>
     /// Todos os parametros numericos da peca (PartData): faixa, lista, fixos da familia e os

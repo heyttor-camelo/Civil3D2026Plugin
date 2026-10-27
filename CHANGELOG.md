@@ -1,3 +1,14 @@
+## 2.77.1 - HYDRO v0.10.1: trava do SRS, tipo do catalogo no painel, ids de coluna no catalogo
+
+**Trava da altura tampa-fundo (SRS)**
+- Ao mudar o fundo, a altura do PartData so e gravada se o campo for mesmo o SRS (nome SRS, ou nome/indice que nenhum outro campo repete). Em catalogo com id de coluna duplicado (ex. SIL e SRS ambos CCR1) a gravacao e pulada com aviso no log, em vez de escrever no comprimento interno.
+
+**Painel**
+- O rotulo "Tipo" virou "Tipo hidraulico" e, logo abaixo, "Tipo no catalogo" mostra o tipo da peca no Part Builder (Juncao, Entrada/saida, Geral...).
+
+**Ferramentas de catalogo**
+- 	ools/Sanitize-CsbimCatalog.ps1: ao converter lista em faixa usa o proximo id CCR livre do arquivo (antes CCL1 virava CCR1 e colidia com o SRS).
+- Novo 	ools/Fix-DuplicateColumnIds.ps1: lista (padrao) e corrige com -Apply os ids de coluna repetidos nos .xml de um catalogo, com backup .zip da pasta antes de gravar; so o atributo id muda. Depois rodar PARTCATALOGREGEN.
 ## 2.77.0 - HYDRO v0.10.0: HYFUNDO por cota/deslocamento/altura, listas em menu, realce no desenho
 
 **HYFUNDO**

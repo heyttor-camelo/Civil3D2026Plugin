@@ -114,6 +114,11 @@ internal static class HydroEditor
             CivilDb.PartDataField f = rec.GetDataFieldBy(CivilDb.PartContextType.StructRimToSumpHeight);
             if (f.IsReadOnly || meters <= 0)
                 return;
+            if (!IsTrueRimToSump(rec, f, out string why))
+            {
+                PluginLog.Aviso(Module, $"{s.Name}: altura tampa-fundo nao gravada no PartData ({why}); confira ids duplicados no catalogo (tools/Fix-DuplicateColumnIds.ps1).");
+                return;
+            }
             double v = meters / HydroRules.Factor(f.Units);
             if (f.Value is double cur && Math.Abs(cur - v) < 1e-6 * Math.Max(1, Math.Abs(v)))
                 return;
@@ -138,6 +143,41 @@ internal static class HydroEditor
         {
             PluginLog.Diag(Module, $"{s.Name}: SRS nao gravado: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Trava contra catalogos com id de coluna duplicado (ex. SIL e SRS ambos CCR1): o campo do
+    /// contexto StructRimToSumpHeight so e gravado se for mesmo o SRS - nome SRS, ou nome/indice
+    /// que nenhum outro campo do registro repete.
+    /// </summary>
+    private static bool IsTrueRimToSump(CivilDb.PartDataRecord rec, CivilDb.PartDataField f, out string why)
+    {
+        why = "";
+        string name = f.Name ?? "";
+        bool conflict = false;
+        foreach (CivilDb.PartDataField o in rec.GetAllDataFields())
+        {
+            if (o.Context == CivilDb.PartContextType.StructRimToSumpHeight)
+                continue;
+            if (string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase) || o.Index == f.Index)
+            {
+                conflict = true;
+                why = $"campo '{name}' conflita com '{o.Name}' ({o.ContextString})";
+                break;
+            }
+        }
+
+        if (string.Equals(name, "SRS", StringComparison.OrdinalIgnoreCase))
+            return !conflict;
+        if (conflict)
+            return false;
+        if (name.Length == 0)
+        {
+            why = "campo sem nome";
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>

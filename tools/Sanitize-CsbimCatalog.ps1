@@ -59,6 +59,15 @@ function Parse-Num([string]$s) { [double]::Parse($s.Trim(), [Globalization.Cultu
 
 function Round-Nice([double]$v, [int]$step) { [math]::Round($v / $step) * $step }
 
+# Próximo id livre com o prefixo dado (CCR1, CCR2...) entre todos os ids do arquivo.
+function New-FreeColumnId([xml]$xml, [string]$prefix) {
+    $used = @{}
+    foreach ($e in $xml.SelectNodes('//*[@id]')) { $used[$e.GetAttribute('id')] = $true }
+    $n = 1
+    while ($used.ContainsKey("$prefix$n")) { $n++ }
+    return "$prefix$n"
+}
+
 # Converte uma ColumnConstList dimensional em ColumnRangeList.
 function Convert-ToRange([xml]$xml, [System.Xml.XmlElement]$col, [double[]]$values, [string]$file) {
     $min = ($values | Measure-Object -Minimum).Minimum
@@ -75,7 +84,9 @@ function Convert-ToRange([xml]$xml, [System.Xml.XmlElement]$col, [double[]]$valu
 
     $range = $xml.CreateElement('ColumnRangeList')
     foreach ($a in $col.Attributes) { $range.SetAttribute($a.Name, $a.Value) | Out-Null }
-    $range.SetAttribute('id', ($col.GetAttribute('id') -replace '^CCL', 'CCR'))
+    # id CCR livre no arquivo: trocar CCLn por CCRn colidia com faixas já existentes (ex.: SIL
+    # virava CCR1 igual ao SRS) e o Civil passava a ler/gravar a coluna errada.
+    $range.SetAttribute('id', (New-FreeColumnId $xml 'CCR'))
     $i = 0
     foreach ($pair in @(@('Min', $min), @('Max', $max), @('Default', $default))) {
         $item = $xml.CreateElement('Item')

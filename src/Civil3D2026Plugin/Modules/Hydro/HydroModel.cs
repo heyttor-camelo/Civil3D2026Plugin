@@ -194,6 +194,8 @@ internal sealed class StructureInfo
     public string Family { get; set; } = "";
     public string Size { get; set; } = "";
     public string Type { get; set; } = "";
+    /// <summary>Tipo da peca no catalogo (Part Builder): Juncao, Entrada/saida, Geral...</summary>
+    public string CatalogPartType { get; set; } = "";
     public P2 Point { get; set; }
     public double Rotation { get; set; }
     public double Rim { get; set; }
