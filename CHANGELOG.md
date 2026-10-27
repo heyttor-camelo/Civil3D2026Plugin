@@ -1,3 +1,8 @@
+## 2.78.0 - HYDRO v0.11.0: campos com cara de campo, peca 3D real, 3D em lote
+
+- Aba Propriedades: os campos de valor agora tem borda, fundo branco (escuro no tema escuro), "digite aqui" quando vazios e borda azul no foco.
+- Peca 3D: mostra o solido real da peca no desenho (geometria do Part Builder, via Solid3dBody ou explode); enquanto ha medida digitada e nao aplicada, mostra a previa pelo modelo simplificado. Se a peca nao tiver solido legivel, fica o modelo simplificado.
+- Edicao em lote: botao "Peca 3D (lote)" abre o editor 3D com a primeira marcada como previa; Aplicar grava em todas as marcadas.
 ## 2.77.4 - HYDRO v0.10.4: valores no lote
 
 - Edicao em lote (aba Propriedades): as medidas comuns (SIL, SIW, AC...) mostram o valor atual quando todas as marcadas tem o mesmo; quando variam, o rotulo mostra a faixa. So o que for digitado e gravado (Enter ou Aplicar nos marcados).

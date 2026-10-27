@@ -98,6 +98,9 @@ internal sealed partial class HydroPanel : SW.Window
     private WC.StackPanel _props = new();
     private WC.WrapPanel _actions = new();
     private readonly Dictionary<string, SW.FrameworkElement> _fields = new();
+    private readonly Dictionary<string, WC.TextBlock> _fieldLabels = new();
+    private static readonly WM.Brush FieldBackLight = Brush(255, 255, 255), FieldBackDark = Brush(24, 24, 26);
+    private static readonly WM.Brush FieldBorderLight = Brush(150, 150, 150), FieldBorderDark = Brush(100, 100, 106);
 
     private bool _showGrid = true;
     private bool _showNames = true;
@@ -1535,6 +1538,7 @@ internal sealed partial class HydroPanel : SW.Window
         _props = new WC.StackPanel();
         _actions = new WC.WrapPanel { Margin = new SW.Thickness(4) };
         _fields.Clear();
+        _fieldLabels.Clear();
         _render = () => RenderPlan(null);
 
         switch (_current?.Data)
@@ -1600,12 +1604,40 @@ internal sealed partial class HydroPanel : SW.Window
         WC.TextBox box = new()
         {
             Text = value,
-            BorderThickness = new SW.Thickness(0),
-            Padding = new SW.Thickness(3, 2, 3, 2),
-            Background = T.Input,
+            BorderThickness = new SW.Thickness(1),
+            BorderBrush = _dark ? FieldBorderDark : FieldBorderLight,
+            Margin = new SW.Thickness(3, 1, 3, 1),
+            Padding = new SW.Thickness(3, 1, 3, 1),
+            Background = _dark ? FieldBackDark : FieldBackLight,
             Foreground = T.Text,
-            CaretBrush = T.Text
+            CaretBrush = T.Text,
+            VerticalContentAlignment = SW.VerticalAlignment.Center
         };
+
+        // Cara de campo: borda, fundo proprio, dica quando vazio e borda azul no foco.
+        WC.TextBlock hint = new()
+        {
+            Text = "digite aqui",
+            Foreground = T.Muted,
+            FontStyle = SW.FontStyles.Italic,
+            Margin = new SW.Thickness(9, 0, 0, 0),
+            VerticalAlignment = SW.VerticalAlignment.Center,
+            IsHitTestVisible = false,
+            Visibility = value.Length == 0 ? SW.Visibility.Visible : SW.Visibility.Collapsed
+        };
+        box.TextChanged += (_, _) => hint.Visibility = box.Text.Length == 0 && !box.IsKeyboardFocused ? SW.Visibility.Visible : SW.Visibility.Collapsed;
+        box.GotKeyboardFocus += (_, _) =>
+        {
+            box.BorderBrush = T.Accent;
+            hint.Visibility = SW.Visibility.Collapsed;
+        };
+        box.LostKeyboardFocus += (_, _) =>
+        {
+            box.BorderBrush = _dark ? FieldBorderDark : FieldBorderLight;
+            hint.Visibility = box.Text.Length == 0 ? SW.Visibility.Visible : SW.Visibility.Collapsed;
+        };
+        if (row.Children.OfType<WC.Border>().FirstOrDefault()?.Child is WC.TextBlock caption)
+            _fieldLabels[key] = caption;
         if (enter is not null)
         {
             box.KeyDown += (_, e) =>
@@ -1618,8 +1650,11 @@ internal sealed partial class HydroPanel : SW.Window
             };
         }
 
-        WC.Grid.SetColumn(box, 1);
-        row.Children.Add(box);
+        WC.Grid cell = new();
+        cell.Children.Add(box);
+        cell.Children.Add(hint);
+        WC.Grid.SetColumn(cell, 1);
+        row.Children.Add(cell);
         _props.Children.Add(row);
         _fields[key] = box;
         return box;
@@ -1817,6 +1852,23 @@ internal sealed partial class HydroPanel : SW.Window
         HydroPart3DWindow.Open(s, net, (x, edits) => ApplyStructureEdits(new[] { x }, edits, "", "", false), GoTo);
     }
 
+    /// <summary>Editor 3D com a primeira marcada como previa; "Aplicar" grava em todas as marcadas.</summary>
+    private void OpenPart3DBatch(List<StructureInfo> list)
+    {
+        if (Net is not NetworkInfo net || list.Count == 0)
+            return;
+        // Por handle: depois de cada gravacao o painel rele e as medidas atuais valem (ex. +0,10).
+        List<string> handles = list.Select(s => s.Handle).ToList();
+        HydroPart3DWindow.Open(list[0], net, (_, edits) =>
+        {
+            List<StructureInfo> targets = handles
+                .Select(h => _snap.Networks.Select(n => n.StructureByHandle.TryGetValue(h, out StructureInfo? x) ? x : null).FirstOrDefault(x => x is not null))
+                .OfType<StructureInfo>().ToList();
+            if (targets.Count > 0)
+                ApplyStructureEdits(targets, edits, "", "", true);
+        }, GoTo, handles.Count);
+    }
+
     private void ShowStructuresBatch(List<StructureInfo> list)
     {
         Category($"Edicao em lote: {list.Count} estrutura(s)");
@@ -1840,6 +1892,7 @@ internal sealed partial class HydroPanel : SW.Window
         RulesSection(list);
         AllPropertiesSection(list.Select(s => s.Handle).ToList());
         Act("Aplicar nos marcados", () => ApplyStructures(list, true), true);
+        Act("Peca 3D (lote)", () => OpenPart3DBatch(list));
         Act("Selecionar no desenho", () => SelectHandles(list.Select(s => s.Handle)));
         _render = () => RenderPlan(Net, null, list.Select(s => s.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
     }
@@ -1864,7 +1917,7 @@ internal sealed partial class HydroPanel : SW.Window
                 box.Text = N(min, 3);
                 box.Tag = box.Text;
             }
-            else if (box.Parent is WC.Grid row && row.Children.OfType<WC.Border>().FirstOrDefault()?.Child is WC.TextBlock label)
+            else if (_fieldLabels.TryGetValue("med:" + name, out WC.TextBlock? label))
             {
                 label.Text += $"  (varia {N(min, 3)} a {N(max, 3)})";
             }

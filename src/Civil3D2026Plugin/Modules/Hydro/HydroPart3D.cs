@@ -27,7 +27,10 @@ internal sealed class HydroPart3DWindow : SW.Window
 
     private StructureInfo _s;
     private NetworkInfo _net;
-    private readonly Action<StructureInfo, List<(string Target, string Text)>> _apply;
+    private Action<StructureInfo, List<(string Target, string Text)>> _apply;
+    private int _batch = 1;
+    private List<M3.Point3D>? _real;
+    private string _realKey = "";
     private readonly Action<string> _zoom;
 
     private readonly Dictionary<string, WC.TextBox> _boxes = new(StringComparer.OrdinalIgnoreCase);
@@ -59,16 +62,22 @@ internal sealed class HydroPart3DWindow : SW.Window
         return b;
     }
 
-    public static void Open(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom)
+    /// <summary>
+    /// Abre (ou reaproveita) a janela. batch &gt; 1: edicao em lote, a peca mostrada e a primeira
+    /// marcada e "Aplicar" grava em todas (o apply recebido ja aponta para o lote).
+    /// </summary>
+    public static void Open(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch = 1)
     {
         if (_current is not null)
         {
+            _current._apply = apply;
+            _current._batch = batch;
             _current.Load(s, net);
             _current.Activate();
             return;
         }
 
-        _current = new HydroPart3DWindow(s, net, apply, zoom);
+        _current = new HydroPart3DWindow(s, net, apply, zoom, batch);
         AcApp.ShowModelessWindow(_current);
     }
 
@@ -83,11 +92,12 @@ internal sealed class HydroPart3DWindow : SW.Window
             w.Load(s, net);
     }
 
-    private HydroPart3DWindow(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom)
+    private HydroPart3DWindow(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch)
     {
         _s = s;
         _net = net;
         _apply = apply;
+        _batch = batch;
         _zoom = zoom;
         Title = "HYDRO - Peca 3D";
         Width = 1000;
@@ -190,19 +200,50 @@ internal sealed class HydroPart3DWindow : SW.Window
         _s = s;
         _net = net;
         _preview.Clear();
-        Title = $"HYDRO - Peca 3D: {s.Name} ({s.Family} / {s.Size})";
+        Title = _batch > 1
+            ? $"HYDRO - Peca 3D (lote: {_batch} estruturas, mostrando {s.Name})"
+            : $"HYDRO - Peca 3D: {s.Name} ({s.Family} / {s.Size})";
+        LoadReal();
         BuildFields();
         Rebuild();
         if (!same)
             ResetView();
-        _status.Text = "Digite as medidas (m): a previa aparece na hora. Aplicar grava no desenho.";
+        _status.Text = (_real is null ? "Modelo simplificado (a peca do desenho nao tem solido legivel). " : "Peca real do desenho. ")
+            + (_batch > 1 ? $"Digite as medidas (m): a previa aparece na hora. Aplicar grava nas {_batch} marcadas." : "Digite as medidas (m): a previa aparece na hora. Aplicar grava no desenho.");
+    }
+
+    /// <summary>
+    /// Le o solido real da peca (geometria do Part Builder) quando a peca ou suas medidas mudaram;
+    /// fica null se nao der (aí vale o modelo simplificado pelas medidas).
+    /// </summary>
+    private void LoadReal()
+    {
+        string key = _s.Handle + "|" + string.Join(";", _s.Parameters.Select(p => p.Name + "=" + p.Value.ToString("R", CultureInfo.InvariantCulture))) + "|" + _s.Rim.ToString("R", CultureInfo.InvariantCulture) + "|" + _s.Sump.ToString("R", CultureInfo.InvariantCulture);
+        if (key == _realKey)
+            return;
+        _realKey = key;
+        _real = null;
+        try
+        {
+            if (AcApp.DocumentManager.MdiActiveDocument?.Database is Autodesk.AutoCAD.DatabaseServices.Database db
+                && HydroPartMesh.Read(db, _s.Handle) is List<M3.Point3D> tris && tris.Count >= 3)
+            {
+                double zMin = tris.Min(p => p.Z), zMax = tris.Max(p => p.Z);
+                if (zMax - zMin > 0.05)
+                    _real = tris;
+            }
+        }
+        catch
+        {
+            _real = null;
+        }
     }
 
     private void BuildFields()
     {
         _fields.Children.Clear();
         _boxes.Clear();
-        Header($"{_s.Name}  -  {_s.Family} / {_s.Size}");
+        Header(_batch > 1 ? $"Lote: {_batch} estruturas (valores de {_s.Name}; vale o que voce digitar)" : $"{_s.Name}  -  {_s.Family} / {_s.Size}");
         Field(HydroRules.Rim, "Tampa (rim) [m]", Rule(HydroRules.Rim) ?? N(_s.Rim, 3));
         Field(HydroRules.Sump, "Fundo (sump) [m]", Rule(HydroRules.Sump) ?? N(_s.Sump, 3));
         Field("prof", "Profundidade (tampa - fundo) [m]", N(_s.Rim - _s.Sump, 3));
@@ -276,7 +317,9 @@ internal sealed class HydroPart3DWindow : SW.Window
             Background = Frozen(new WM.SolidColorBrush(WM.Color.FromRgb(30, 30, 30))),
             Foreground = value.StartsWith('=') ? PipeLabel : WM.Brushes.White,
             CaretBrush = WM.Brushes.White,
-            BorderThickness = new SW.Thickness(0, 0, 0, 1),
+            BorderThickness = new SW.Thickness(1),
+            BorderBrush = Frozen(new WM.SolidColorBrush(WM.Color.FromRgb(110, 110, 116))),
+            Padding = new SW.Thickness(2, 1, 2, 1),
             FontFamily = new WM.FontFamily("Consolas"),
             TextAlignment = SW.TextAlignment.Right,
             ToolTip = "Valor em m, +0,10 / -0,10 (relativo) ou =regra. Enter aplica no desenho."
@@ -413,17 +456,30 @@ internal sealed class HydroPart3DWindow : SW.Window
         WM.Color concrete = WM.Color.FromRgb(150, 150, 150), inside = WM.Color.FromRgb(200, 196, 186), cap = WM.Color.FromRgb(70, 70, 75);
         double ox = (w / 2) + wall, oy = (l / 2) + wall;
 
+        // Peca real do desenho quando nao ha previa pendente; com previa, o modelo pelas medidas.
+        bool real = _real is not null && _preview.Count == 0;
+        if (real)
+        {
+            M3.MeshGeometry3D rm = new();
+            foreach (M3.Point3D p in _real!)
+                rm.Positions.Add(p);
+            glass.Children.Add(Geo(rm, WM.Color.FromRgb(165, 165, 160), 0.62));
+        }
+
+        // Com a peca real na tela, o modelo pelas medidas so serve para as cotas (nao e desenhado).
+        M3.Model3DGroup shapeOpaque = real ? new() : opaque, shapeGlass = real ? new() : glass;
+
         // Fundo (laje de fundo), sempre opaco.
-        opaque.Children.Add(Geo(round ? Frustum(ox, ox, -floor, 0) : Box(-ox, -oy, -floor, ox, oy, 0), concrete, 1));
+        shapeOpaque.Children.Add(Geo(round ? Frustum(ox, ox, -floor, 0) : Box(-ox, -oy, -floor, ox, oy, 0), concrete, 1));
 
         // Corpo: casca interna opaca (sem tampa) e externa translucida.
-        opaque.Children.Add(Geo(round ? Frustum(w / 2, w / 2, 0, body, caps: false) : Box(-w / 2, -l / 2, 0, w / 2, l / 2, body, top: false, bottom: false), inside, 0.55));
-        glass.Children.Add(Geo(round ? Frustum(ox, ox, 0, body, caps: false) : Box(-ox, -oy, 0, ox, oy, body, top: false, bottom: false), concrete, 0.28));
+        shapeOpaque.Children.Add(Geo(round ? Frustum(w / 2, w / 2, 0, body, caps: false) : Box(-w / 2, -l / 2, 0, w / 2, l / 2, body, top: false, bottom: false), inside, 0.55));
+        shapeGlass.Children.Add(Geo(round ? Frustum(ox, ox, 0, body, caps: false) : Box(-ox, -oy, 0, ox, oy, body, top: false, bottom: false), concrete, 0.28));
 
         double z = body;
         if (slab > 0)
         {
-            glass.Children.Add(Geo(round ? Frustum(ox, ox, z, z + slab) : Box(-ox, -oy, z, ox, oy, z + slab), concrete, 0.45));
+            shapeGlass.Children.Add(Geo(round ? Frustum(ox, ox, z, z + slab) : Box(-ox, -oy, z, ox, oy, z + slab), concrete, 0.45));
             z += slab;
         }
 
@@ -431,18 +487,18 @@ internal sealed class HydroPart3DWindow : SW.Window
         if (cone > 0)
         {
             double r0 = round ? ox : Math.Min(ox, oy);
-            glass.Children.Add(Geo(Frustum(r0, fr, z, z + cone, caps: false), concrete, 0.35));
+            shapeGlass.Children.Add(Geo(Frustum(r0, fr, z, z + cone, caps: false), concrete, 0.35));
             z += cone;
         }
 
         if (frameH > 0)
         {
-            glass.Children.Add(Geo(Frustum(fr, fr, z, z + frameH, caps: false), concrete, 0.4));
+            shapeGlass.Children.Add(Geo(Frustum(fr, fr, z, z + frameH, caps: false), concrete, 0.4));
             z += frameH;
         }
 
         // Tampa no topo (cota da tampa).
-        opaque.Children.Add(Geo(Frustum(frameD / 2, frameD / 2, h, h + 0.04), cap, 1));
+        shapeOpaque.Children.Add(Geo(Frustum(frameD / 2, frameD / 2, h, h + 0.04), cap, 1));
 
         // Tubos ligados na cota real (eixo = fundo + altura/2), na direcao da outra ponta.
         foreach ((PipeInfo p, bool atStart) in Pipes())
