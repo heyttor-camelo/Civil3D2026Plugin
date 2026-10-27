@@ -440,6 +440,15 @@ internal sealed partial class HydroPanel : SW.Window
         };
         _list.PreviewKeyDown += (_, e) =>
         {
+            // Ctrl+A seleciona todas as linhas mesmo com o cursor numa celula editavel.
+            if (e.Key == WI.Key.A && WI.Keyboard.Modifiers == WI.ModifierKeys.Control && InCellEditor(e.OriginalSource))
+            {
+                _list.SelectAll();
+                _list.Focus();
+                e.Handled = true;
+                return;
+            }
+
             if (e.Key == WI.Key.Space && Checkable && _list.SelectedItems.Count > 0 && !InCellEditor(e.OriginalSource))
             {
                 List<Row> sel = _list.SelectedItems.OfType<Row>().ToList();
@@ -450,6 +459,7 @@ internal sealed partial class HydroPanel : SW.Window
                 e.Handled = true;
             }
         };
+        _list.PreviewMouseLeftButtonDown += OnListMouseDown;
         _list.MouseRightButtonUp += (_, e) =>
         {
             OpenListMenu();
@@ -1082,10 +1092,7 @@ internal sealed partial class HydroPanel : SW.Window
         if (col >= _columns.Length)
             return;
         string column = _columns[col];
-        List<Row> targets = Targets();
-        if (!targets.Contains(row))
-            targets = new List<Row> { row };
-        targets = targets.Where(r => r.Data?.GetType() == row.Data?.GetType()).ToList();
+        List<Row> targets = BatchTargets(row);
         _selectedRow = row.Id;
         switch (row.Data)
         {
@@ -1198,6 +1205,75 @@ internal sealed partial class HydroPanel : SW.Window
         if (marked.Count > 0)
             return marked;
         return _list.SelectedItems.OfType<Row>().ToList();
+    }
+
+    /// <summary>
+    /// Lote da edicao a partir de uma linha (aba Propriedades e celulas da lista), do mesmo tipo
+    /// dela: os marcados se ela esta marcada, senao os selecionados se ela esta na selecao
+    /// multipla; fora disso so ela.
+    /// </summary>
+    private List<Row> BatchTargets(Row row)
+    {
+        Type? type = row.Data?.GetType();
+        List<Row> marked = _rows.Where(r => r.Checked && r.Data?.GetType() == type).ToList();
+        if (marked.Count > 1 && marked.Contains(row))
+            return marked;
+        List<Row> selected = _list.SelectedItems.OfType<Row>().Where(r => r.Data?.GetType() == type).ToList();
+        if (selected.Count > 1 && selected.Contains(row))
+            return selected;
+        return new List<Row> { row };
+    }
+
+    private void SayBatch(int count, string what) =>
+        Say($"EDICAO EM LOTE: {count} {what} - o que for gravado (aba ou celula da lista) vale para todos. Ctrl/Shift+clique soma, Ctrl+A todos, Espaco marca.");
+
+    private Row? _anchor;
+
+    /// <summary>
+    /// Ctrl/Shift+clique numa celula editavel: a caixa de texto engoliria o clique, entao a
+    /// selecao e estendida aqui (Ctrl soma/tira a linha, Shift seleciona do ultimo clique ate ela).
+    /// </summary>
+    private void OnListMouseDown(object sender, WI.MouseButtonEventArgs e)
+    {
+        SW.DependencyObject? up = e.OriginalSource as SW.DependencyObject;
+        while (up is not null and not WC.ListViewItem)
+            up = up is WM.Visual ? WM.VisualTreeHelper.GetParent(up) : SW.LogicalTreeHelper.GetParent(up);
+        if (up is not WC.ListViewItem item || item.DataContext is not Row row)
+            return;
+        WI.ModifierKeys mods = WI.Keyboard.Modifiers;
+        bool ctrl = (mods & WI.ModifierKeys.Control) != 0, shift = (mods & WI.ModifierKeys.Shift) != 0;
+        if (!ctrl && !shift)
+        {
+            _anchor = row;
+            return;
+        }
+
+        if (!InCellEditor(e.OriginalSource))
+        {
+            if (!shift)
+                _anchor = row;
+            return;
+        }
+
+        e.Handled = true;
+        if (shift && _anchor is not null && _list.Items.IndexOf(_anchor) is int a and >= 0)
+        {
+            int b = _list.Items.IndexOf(row);
+            if (!ctrl)
+                _list.SelectedItems.Clear();
+            for (int k = Math.Min(a, b); k <= Math.Max(a, b); k++)
+            {
+                if (!_list.SelectedItems.Contains(_list.Items[k]))
+                    _list.SelectedItems.Add(_list.Items[k]);
+            }
+        }
+        else
+        {
+            item.IsSelected = !item.IsSelected;
+            _anchor = row;
+        }
+
+        _list.Focus();
     }
 
     private static readonly System.Text.RegularExpressions.Regex NumberLike =
@@ -1353,6 +1429,9 @@ internal sealed partial class HydroPanel : SW.Window
                 return;
             b.Uid = "";
             b.SelectAll();
+            // Com Ctrl/Shift a linha entra na selecao (OnListMouseDown); nao zera a selecao multipla.
+            if ((WI.Keyboard.Modifiers & (WI.ModifierKeys.Control | WI.ModifierKeys.Shift)) != 0)
+                return;
             SW.DependencyObject? up = b;
             while (up is not null and not WC.ListViewItem)
                 up = WM.VisualTreeHelper.GetParent(up);
@@ -1691,8 +1770,8 @@ internal sealed partial class HydroPanel : SW.Window
     private void ShowStructure(StructureInfo s)
     {
         NetworkInfo? net = Net;
-        List<Row> targets = Targets().Where(r => r.Data is StructureInfo).ToList();
-        if (targets.Count > 1 && targets.Any(r => r.Id == _current?.Id))
+        List<Row> targets = _current is null ? new List<Row>() : BatchTargets(_current);
+        if (targets.Count > 1)
         {
             ShowStructuresBatch(targets.Select(r => (StructureInfo)r.Data!).ToList());
             return;
@@ -1741,6 +1820,7 @@ internal sealed partial class HydroPanel : SW.Window
     private void ShowStructuresBatch(List<StructureInfo> list)
     {
         Category($"Edicao em lote: {list.Count} estrutura(s)");
+        SayBatch(list.Count, "estrutura(s)");
         Prop("Itens", string.Join(", ", list.Select(s => s.Name)));
         MeasureProp(null, HydroRules.Rim, "Tampa [m] (valor, +0,10 / -0,30 ou =regra)", 0, () => ApplyStructures(list, true));
         MeasureProp(null, HydroRules.Sump, "Fundo [m] (valor, +0,10 / -0,30 ou =regra)", 0, () => ApplyStructures(list, true));
@@ -2055,8 +2135,8 @@ internal sealed partial class HydroPanel : SW.Window
     private void ShowPipe(PipeInfo p)
     {
         NetworkInfo? net = Net;
-        List<Row> targets = Targets().Where(r => r.Data is PipeInfo).ToList();
-        if (targets.Count > 1 && targets.Any(r => r.Id == _current?.Id))
+        List<Row> targets = _current is null ? new List<Row>() : BatchTargets(_current);
+        if (targets.Count > 1)
         {
             ShowPipesBatch(targets.Select(r => (PipeInfo)r.Data!).ToList());
             return;
@@ -2175,6 +2255,7 @@ internal sealed partial class HydroPanel : SW.Window
     private void ShowPipesBatch(List<PipeInfo> list)
     {
         Category($"Edicao em lote: {list.Count} tubo(s)");
+        SayBatch(list.Count, "tubo(s)");
         Prop("Itens", string.Join(", ", list.Select(p => p.Name)));
         EditProp("decliv", "Declividade [%] (segura montante)", "", () => ApplyBatchPipes(list));
         EditProp("fundomont", "Fundo de montante [m] (valor ou +/-)", "", () => ApplyBatchPipes(list));

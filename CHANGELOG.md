@@ -1,3 +1,9 @@
+## 2.77.2 - HYDRO v0.10.2: edicao em lote no painel
+
+- Ctrl+clique e Shift+clique tambem nas celulas editaveis (Tampa, Fundo, Prof., medidas): antes a caixa de texto engolia o clique e zerava a selecao multipla.
+- Selecao multipla (ou linha marcada com outras marcadas) sempre abre a edicao em lote na aba Propriedades, com as medidas da peca comuns (SIL, SIW, AC, SRS...) e as fixas da familia. Antes, com algum item marcado, a selecao multipla era ignorada.
+- Editar uma celula numa linha que faz parte da selecao/marcados grava em todos.
+- Ctrl+A seleciona todas as linhas mesmo com o cursor numa celula; a barra de status mostra "EDICAO EM LOTE: N estrutura(s)/tubo(s)".
 ## 2.77.1 - HYDRO v0.10.1: trava do SRS, tipo do catalogo no painel, ids de coluna no catalogo
 
 **Trava da altura tampa-fundo (SRS)**
