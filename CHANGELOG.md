@@ -1,3 +1,6 @@
+## 2.77.4 - HYDRO v0.10.4: valores no lote
+
+- Edicao em lote (aba Propriedades): as medidas comuns (SIL, SIW, AC...) mostram o valor atual quando todas as marcadas tem o mesmo; quando variam, o rotulo mostra a faixa. So o que for digitado e gravado (Enter ou Aplicar nos marcados).
 ## 2.77.3 - HYDRO v0.10.3: opcoes de menu sem "_"
 
 - Listas na linha de comando (HYTROCAR, tamanhos etc.): as opcoes agora usam so letras e numeros (PVdnit, BLDCsul, POcodevisitapv). Com "_" no nome o AutoCAD lia o clique como Enter e ficava a opcao padrao: escolher PV_dnit trocava para a boca de lobo BLDC_sul.

@@ -1832,13 +1832,43 @@ internal sealed partial class HydroPanel : SW.Window
             .Aggregate((a, b) => { a.IntersectWith(b); return a; })
             .Select(name => list[0].Parameters.First(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase))).ToList();
         if (common.Count > 0)
-            MeasuresSection(common, null, "comuns aos marcados", () => ApplyStructures(list, true));
+        {
+            MeasuresSection(common, null, "comuns aos marcados: digite e Enter (ou Aplicar nos marcados)", () => ApplyStructures(list, true));
+            BatchMeasureValues(list, common.Select(p => p.Name));
+        }
 
         RulesSection(list);
         AllPropertiesSection(list.Select(s => s.Handle).ToList());
         Act("Aplicar nos marcados", () => ApplyStructures(list, true), true);
         Act("Selecionar no desenho", () => SelectHandles(list.Select(s => s.Handle)));
         _render = () => RenderPlan(Net, null, list.Select(s => s.Handle).ToHashSet(StringComparer.OrdinalIgnoreCase));
+    }
+
+    /// <summary>
+    /// Mostra nos campos do lote o valor atual quando todas as marcadas tem o mesmo (ex. SIL 2,400);
+    /// se variam, o campo fica vazio e o rotulo mostra a faixa. So o que for digitado e gravado.
+    /// </summary>
+    private void BatchMeasureValues(IReadOnlyList<StructureInfo> list, IEnumerable<string> names)
+    {
+        foreach (string name in names)
+        {
+            if (!_fields.TryGetValue("med:" + name, out SW.FrameworkElement? el) || el is not WC.TextBox box)
+                continue;
+            List<double> values = list.Select(s => s.Parameters.FirstOrDefault(p => p.Name.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                .Where(p => p is not null).Select(p => Math.Round(p!.Meters, 4)).ToList();
+            if (values.Count == 0)
+                continue;
+            double min = values.Min(), max = values.Max();
+            if (max - min < 1e-6)
+            {
+                box.Text = N(min, 3);
+                box.Tag = box.Text;
+            }
+            else if (box.Parent is WC.Grid row && row.Children.OfType<WC.Border>().FirstOrDefault()?.Child is WC.TextBlock label)
+            {
+                label.Text += $"  (varia {N(min, 3)} a {N(max, 3)})";
+            }
+        }
     }
 
     private bool _showAllProps;
