@@ -93,8 +93,8 @@ $originWp = $def.WorkPoints.Item(1)
 # passa pela origem: restrição de coincidência em vez de cota).
 function Add-Rect($sketch, [double[]]$a, [double[]]$b, $exprA, $exprB) {
     $origin = $sketch.AddByProjectingEntity($originWp)
-    $pa = $sketch.ModelToSketchSpace($tg.CreatePoint(cm $a[0], (cm $a[1]), (cm $a[2])))
-    $pb = $sketch.ModelToSketchSpace($tg.CreatePoint(cm $b[0], (cm $b[1]), (cm $b[2])))
+    $pa = $sketch.ModelToSketchSpace($tg.CreatePoint((cm $a[0]), (cm $a[1]), (cm $a[2])))
+    $pb = $sketch.ModelToSketchSpace($tg.CreatePoint((cm $b[0]), (cm $b[1]), (cm $b[2])))
     $lines = $sketch.SketchLines.AddAsTwoPointRectangle($pa, $pb)
 
     $pts = @()
@@ -134,7 +134,8 @@ function Add-Rect($sketch, [double[]]$a, [double[]]$b, $exprA, $exprB) {
             $dim.Parameter.Expression = $e
         }
     }
-    $sketch.Profiles.AddForSolid()
+    # vírgula: o Profile é uma coleção e o PowerShell o desmontaria em ProfilePaths
+    return , $sketch.Profiles.AddForSolid()
 }
 
 function Extrude($profile, $op, $extentExpr, $dir) {
@@ -177,16 +178,30 @@ foreach ($side in @(1, -1)) {
     $f = Extrude $prof $kCutOperation '2 * WTh' $kSymmetricExtent; $f.Name = $sk.Name
 }
 
-# 5. Pontos de trabalho para os pontos de conexão
-function Add-Wp($name, [double]$x, [double]$y, [double]$z) {
-    $wp = $def.WorkPoints.AddFixed($tg.CreatePoint((cm $x), (cm $y), (cm $z)))
+# 5. Pontos de trabalho para os pontos de conexão, na interseção de planos de deslocamento
+# (seguem os parâmetros). O sentido da normal dos planos de origem depende do Inventor: se o
+# plano cair do lado errado, a expressão é negada.
+$yzPlane = $def.WorkPlanes.Item(1)
+function Add-OffsetPlane($name, $base, [string]$expr, [string]$axis, [double]$mm) {
+    $wp = $def.WorkPlanes.AddByPlaneAndOffset($base, $expr)
+    $rp = $wp.Plane.RootPoint
+    $v = switch ($axis) { 'X' { $rp.X } 'Y' { $rp.Y } 'Z' { $rp.Z } }
+    if ([math]::Abs($v - (cm $mm)) -gt 1e-6) { $wp.Definition.Offset.Expression = "-($expr)" }
+    $wp.Name = $name; $wp.Visible = $false
+    $wp
+}
+$wpMeioY  = Add-OffsetPlane 'Plano_Meio_Y'  $xzPlane '(SIW + 2 * WTh) / 2' 'Y' ($Wo / 2)
+$wpFundoY = Add-OffsetPlane 'Plano_Fundo_Y' $xzPlane 'SIW + 2 * WTh' 'Y' $Wo
+$wpEsq    = Add-OffsetPlane 'Plano_Esq'     $yzPlane '-(SIL + 2 * WTh) / 2' 'X' (-$Lo / 2)
+$wpDir    = Add-OffsetPlane 'Plano_Dir'     $yzPlane '(SIL + 2 * WTh) / 2' 'X' ($Lo / 2)
+function Add-Wp($name, $p1, $p2, $p3) {
+    $wp = $def.WorkPoints.AddByThreePlanes($p1, $p2, $p3)
     $wp.Name = $name
 }
-$zc = -$p.SRS
-Add-Wp 'Conexao_Centro'   0 ($Wo / 2) $zc
-Add-Wp 'Conexao_Fundo'    0 $Wo $zc
-Add-Wp 'Conexao_Esquerda' (-$Lo / 2) ($Wo / 2) $zc
-Add-Wp 'Conexao_Direita'  ($Lo / 2) ($Wo / 2) $zc
+Add-Wp 'Conexao_Centro'   $yzPlane $wpMeioY  $wpBase
+Add-Wp 'Conexao_Fundo'    $yzPlane $wpFundoY $wpBase
+Add-Wp 'Conexao_Esquerda' $wpEsq   $wpMeioY  $wpBase
+Add-Wp 'Conexao_Direita'  $wpDir   $wpMeioY  $wpBase
 
 $doc.Update()
 if ($Save) {
