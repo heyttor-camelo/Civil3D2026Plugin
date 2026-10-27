@@ -51,8 +51,9 @@ internal static class HydroPrompt
     }
 
     /// <summary>
-    /// Opcoes a partir dos nomes: sem espacos nem simbolos, unicas, e com o menor prefixo que
-    /// distingue cada uma em maiusculas (o atalho), ex. Pv_dnit / POco_de_visita.
+    /// Opcoes a partir dos nomes: so letras e numeros (o AutoCAD trata "_" como prefixo de opcao
+    /// global, e um clique em "PV_dnit" voltava como Enter = opcao padrao), unicas, e com o menor
+    /// prefixo que distingue cada uma em maiusculas (o atalho), ex. PVdnit / POcodevisitapv.
     /// </summary>
     internal static List<string> Keywords(IReadOnlyList<string> items)
     {
@@ -63,7 +64,7 @@ internal static class HydroPrompt
             string t = Token(item);
             string u = t;
             for (int n = 2; !seen.Add(u); n++)
-                u = t + "_" + n.ToString(CultureInfo.InvariantCulture);
+                u = t + n.ToString(CultureInfo.InvariantCulture);
             tokens.Add(u.ToLowerInvariant());
         }
 
@@ -89,14 +90,12 @@ internal static class HydroPrompt
         {
             if (char.IsLetterOrDigit(c) && c < 128)
                 sb.Append(c);
-            else if (sb.Length > 0 && sb[^1] != '_')
-                sb.Append('_');
         }
 
-        string t = sb.ToString().Trim('_');
+        string t = sb.ToString();
         if (t.Length == 0 || !char.IsLetter(t[0]))
             t = "T" + t;
-        return t.Length > 40 ? t[..40].TrimEnd('_') : t;
+        return t.Length > 40 ? t[..40] : t;
     }
 
     private static int ChooseWindow(string prompt, IReadOnlyList<string> items, int def)

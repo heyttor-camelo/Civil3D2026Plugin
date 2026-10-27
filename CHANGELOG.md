@@ -1,3 +1,6 @@
+## 2.77.3 - HYDRO v0.10.3: opcoes de menu sem "_"
+
+- Listas na linha de comando (HYTROCAR, tamanhos etc.): as opcoes agora usam so letras e numeros (PVdnit, BLDCsul, POcodevisitapv). Com "_" no nome o AutoCAD lia o clique como Enter e ficava a opcao padrao: escolher PV_dnit trocava para a boca de lobo BLDC_sul.
 ## 2.77.2 - HYDRO v0.10.2: edicao em lote no painel
 
 - Ctrl+clique e Shift+clique tambem nas celulas editaveis (Tampa, Fundo, Prof., medidas): antes a caixa de texto engolia o clique e zerava a selecao multipla.
