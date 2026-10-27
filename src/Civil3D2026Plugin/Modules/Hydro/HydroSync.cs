@@ -12,8 +12,8 @@ namespace Civil3D2026Plugin.Modules.Hydro;
 /// Edicao associativa das estruturas (§9), no molde do ViarioSync:
 /// - ObjectModified so anota as estruturas mexidas (a propria, ou as duas pontas do tubo mexido);
 ///   nada e lido nem gravado dentro do evento;
-/// - no fim do comando (ou no Idle, para edicoes pela paleta de propriedades) as anotadas que tem
-///   regra sao recalculadas (HydroRules.Apply) com o documento travado;
+/// - no Idle seguinte, sem comando ativo (fim do comando ou edicao pela paleta de propriedades), as
+///   anotadas que tem regra sao recalculadas (HydroRules.Apply) com o documento travado;
 /// - as mudancas feitas pelo proprio recalculo nao anotam de novo (sem laco);
 /// - UNDO/REDO nao disparam recalculo (o desfazer ja restaura tudo);
 /// - com a atualizacao automatica desligada (Calculo > Regras, ou HYREGRASAUTO) as anotadas ficam
@@ -165,12 +165,10 @@ internal static class HydroSync
         try
         {
             if (UndoCommands.Contains(e.GlobalCommandName))
-            {
                 Pending.Remove(doc.Database);
-                return;
-            }
 
-            Process(doc);
+            // O recalculo fica para o Idle (sem comando ativo): o CommandEnded tambem vem de comandos
+            // aninhados (ex. dentro das Network Layout Tools), com a peca nova ainda em criacao.
         }
         catch (Exception ex)
         {

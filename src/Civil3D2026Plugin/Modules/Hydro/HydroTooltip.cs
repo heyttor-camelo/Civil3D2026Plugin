@@ -102,6 +102,12 @@ internal static class HydroTooltip
             return;
         try
         {
+            // Durante comandos de outros (ex. lancamento pelas Network Layout Tools) nao le a peca sob
+            // o cursor: abrir a estrutura que o jig do Civil esta criando atrapalhava o primeiro clique.
+            string cmd = AcApp.DocumentManager.MdiActiveDocument?.CommandInProgress ?? "";
+            if (cmd.Length > 0 && !cmd.StartsWith("HY", StringComparison.OrdinalIgnoreCase) && !cmd.StartsWith("DREN", StringComparison.OrdinalIgnoreCase))
+                return;
+
             AcadDb.FullSubentityPath[]? paths = e.Context.GetPickedEntities();
             if (paths is null || paths.Length == 0)
                 return;

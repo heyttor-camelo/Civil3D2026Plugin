@@ -176,6 +176,7 @@ internal sealed partial class HydroPanel : SW.Window
             _instance = new HydroPanel();
             _instance.Closed += (_, _) =>
             {
+                HighlightInDrawing(Array.Empty<string>());
                 _instance = null;
                 AcApp.DocumentManager.DocumentActivated -= OnDocumentActivated;
                 DetachAll();
@@ -212,9 +213,48 @@ internal sealed partial class HydroPanel : SW.Window
         panel.Dispatcher.BeginInvoke(new Action(() =>
         {
             panel._refreshQueued = false;
-            if (_instance == panel && panel._refreshCount == seen)
-                panel.Refresh();
+            if (_instance != panel || panel._refreshCount != seen)
+                return;
+
+            // Com comando ativo (ex. Network Layout Tools no meio de um lancamento) nao rele a rede:
+            // espera o AutoCAD ficar livre.
+            if (CadBusy())
+            {
+                if (!_refreshOnIdle)
+                {
+                    _refreshOnIdle = true;
+                    AcApp.Idle += OnIdleRefresh;
+                }
+
+                return;
+            }
+
+            panel.Refresh();
         }), System.Windows.Threading.DispatcherPriority.Background);
+    }
+
+    private static bool _refreshOnIdle;
+
+    private static bool CadBusy()
+    {
+        try
+        {
+            Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+            return doc is not null && (!string.IsNullOrEmpty(doc.CommandInProgress) || !doc.Editor.IsQuiescent);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void OnIdleRefresh(object? sender, EventArgs e)
+    {
+        if (CadBusy())
+            return;
+        AcApp.Idle -= OnIdleRefresh;
+        _refreshOnIdle = false;
+        NotifyChanged();
     }
 
     private static readonly HashSet<Document> Attached = new();
@@ -1335,6 +1375,7 @@ internal sealed partial class HydroPanel : SW.Window
         _current = _list.SelectedItem as Row;
         _selectedRow = _current?.Id;
         BuildTabs();
+        HighlightSelection();
     }
 
     // ------------------------------------------------------------------
@@ -2554,13 +2595,13 @@ internal sealed partial class HydroPanel : SW.Window
         }
 
         List<string> errors = new();
-        List<(string Handle, string? Name, Dictionary<string, string?> Rules, Dictionary<string, double> Part, double? Rim, double? Sump)> jobs = new();
+        List<(string Handle, string? Name, Dictionary<string, string?> Rules, Dictionary<string, double> Part, double? Rim, double? Sump, double? Depth)> jobs = new();
         int i = 1;
         foreach (StructureInfo s in list)
         {
             Dictionary<string, string?> rules = new(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, double> part = new(StringComparer.OrdinalIgnoreCase);
-            double? rim = null, sump = null;
+            double? rim = null, sump = null, depth = null;
             foreach ((string target, string text) in edits)
             {
                 bool isRim = target == HydroRules.Rim, isSump = target == HydroRules.Sump, isDepth = target == DepthTarget;
@@ -2590,7 +2631,8 @@ internal sealed partial class HydroPanel : SW.Window
                         bool fromTpl = s.OwnRules.Template.Length > 0 && _snap.Templates.TryGetValue(s.OwnRules.Template, out HydroRuleTemplate? tp) && tp.Rules.ContainsKey(HydroRules.Sump);
                         rules[HydroRules.Sump] = fromTpl ? "" : null;
                     }
-                    sump = (rim ?? s.Rim) - d.Value;
+                    // Medida na tampa do desenho na hora de gravar (a do painel pode estar velha).
+                    depth = d.Value;
                     continue;
                 }
 
@@ -2665,7 +2707,7 @@ internal sealed partial class HydroPanel : SW.Window
 
             string? newName = !batch && name.Length > 0 && name != s.Name ? name
                 : prefix.Length > 0 ? prefix + (i++).ToString("00", CultureInfo.InvariantCulture) : null;
-            jobs.Add((s.Handle, newName, rules, part, rim, sump));
+            jobs.Add((s.Handle, newName, rules, part, rim, sump, depth));
         }
 
         if (errors.Count > 0)
@@ -2678,14 +2720,14 @@ internal sealed partial class HydroPanel : SW.Window
         RunApply(batch ? $"Lote em {list.Count} estrutura(s)" : "Editar " + list[0].Name, db =>
         {
             List<string> ruled = new();
-            foreach ((string h, string? newName, Dictionary<string, string?> rules, Dictionary<string, double> part, double? rim, double? sump) in jobs)
+            foreach ((string h, string? newName, Dictionary<string, string?> rules, Dictionary<string, double> part, double? rim, double? sump, double? depth) in jobs)
             {
                 if (rules.Count > 0)
                     HydroRules.Edit(db, new[] { h }, rules, null);
                 if (part.Count > 0)
                     HydroEditor.SetParameters(db, h, part);
-                if (newName is not null || rim.HasValue || sump.HasValue)
-                    HydroEditor.EditStructure(db, h, newName, rim, sump, hold);
+                if (newName is not null || rim.HasValue || sump.HasValue || depth.HasValue)
+                    HydroEditor.EditStructure(db, h, newName, rim, sump, hold, depth: depth);
                 if (rules.Values.Any(v => !string.IsNullOrEmpty(v)))
                     ruled.Add(h);
             }

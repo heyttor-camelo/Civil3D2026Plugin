@@ -161,11 +161,11 @@ public sealed class HydroCatchmentCommands
     [CommandMethod(C3DCommands.Hydro.Tc, Flags)]
     public void Tc() => Run("HYTC", (doc, ed) =>
     {
-        PromptKeywordOptions ko = new("\nFormula do tempo de concentracao [Kirpich/Ventechow/Dooge/Kerby]") { AllowNone = true };
+        PromptKeywordOptions ko = new("\nFormula do tempo de concentracao [Kirpich/Ventechow/Dooge/kErby]") { AllowNone = true };
         ko.Keywords.Add("Kirpich");
         ko.Keywords.Add("Ventechow");
         ko.Keywords.Add("Dooge");
-        ko.Keywords.Add("Kerby");
+        ko.Keywords.Add("kErby");
         ko.Keywords.Default = "Kirpich";
         PromptResult kr = ed.GetKeywords(ko);
         if (kr.Status != PromptStatus.OK && kr.Status != PromptStatus.None)
@@ -174,7 +174,7 @@ public sealed class HydroCatchmentCommands
         {
             "Ventechow" => TcMethod.VenTeChow,
             "Dooge" => TcMethod.Dooge,
-            "Kerby" => TcMethod.Kerby,
+            "kErby" => TcMethod.Kerby,
             _ => TcMethod.Kirpich
         };
 

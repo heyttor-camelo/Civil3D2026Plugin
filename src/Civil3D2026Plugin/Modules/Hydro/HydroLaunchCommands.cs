@@ -53,14 +53,10 @@ public sealed class HydroLaunchCommands
         NetworkInfo? net = snap.Find(HydroApply.ActiveNetwork ?? HydroPanel.ActiveNetworkHandle) ?? (snap.Networks.Count == 1 ? snap.Networks[0] : null);
         if (net is null && snap.Networks.Count > 1)
         {
-            ed.WriteMessage("\nRedes no desenho:");
-            for (int i = 0; i < snap.Networks.Count; i++)
-                ed.WriteMessage($"\n  {i + 1}: {snap.Networks[i].Name}");
-            PromptIntegerOptions io = new("\nNumero da rede: ") { LowerLimit = 1, UpperLimit = snap.Networks.Count };
-            PromptIntegerResult ir = ed.GetInteger(io);
-            if (ir.Status != PromptStatus.OK)
+            int ni = HydroPrompt.Choose(ed, "Rede", snap.Networks.Select(n => n.Name).ToList());
+            if (ni < 0)
                 return;
-            net = snap.Networks[ir.Value - 1];
+            net = snap.Networks[ni];
         }
 
         if (net is null)
@@ -280,28 +276,20 @@ public sealed class HydroLaunchCommands
             def = Math.Max(0, families.FindIndex(f => f.Sizes.Count > 0 && string.Equals(f.Family, preferred, StringComparison.OrdinalIgnoreCase)));
         if (families[def].Sizes.Count == 0)
             def = families.FindIndex(f => f.Sizes.Count > 0);
-        ed.WriteMessage($"\nFamilias de {what}:");
-        for (int i = 0; i < families.Count; i++)
-            ed.WriteMessage($"\n  {i + 1}: {families[i].Family} ({families[i].Sizes.Count} tamanho(s))");
-        PromptIntegerOptions fo = new($"\nFamilia de {what}") { LowerLimit = 1, UpperLimit = families.Count, DefaultValue = def + 1, UseDefaultValue = true };
-        PromptIntegerResult fr = ed.GetInteger(fo);
-        if (fr.Status != PromptStatus.OK)
+        int fi = HydroPrompt.Choose(ed, $"Familia de {what}", families.Select(f => f.Family).ToList(), def);
+        if (fi < 0)
             return (AcadDb.ObjectId.Null, AcadDb.ObjectId.Null, "");
-        HydroEditor.FamilyChoice fam = families[fr.Value - 1];
+        HydroEditor.FamilyChoice fam = families[fi];
         if (fam.Sizes.Count == 0)
         {
             ed.WriteMessage("\nEssa familia nao tem tamanhos.");
             return (AcadDb.ObjectId.Null, AcadDb.ObjectId.Null, "");
         }
 
-        ed.WriteMessage($"\nTamanhos de {fam.Family}:");
-        for (int i = 0; i < fam.Sizes.Count; i++)
-            ed.WriteMessage($"\n  {i + 1}: {fam.Sizes[i].Size}");
         int defSize = Math.Max(0, fam.Sizes.FindIndex(sz => string.Equals(sz.Size, savedSize, StringComparison.OrdinalIgnoreCase)));
-        PromptIntegerOptions so = new("\nTamanho") { LowerLimit = 1, UpperLimit = fam.Sizes.Count, DefaultValue = defSize + 1, UseDefaultValue = true };
-        PromptIntegerResult sr = ed.GetInteger(so);
-        if (sr.Status != PromptStatus.OK)
+        int si = HydroPrompt.Choose(ed, $"Tamanho de {fam.Family}", fam.Sizes.Select(s => s.Size).ToList(), defSize);
+        if (si < 0)
             return (AcadDb.ObjectId.Null, AcadDb.ObjectId.Null, "");
-        return (fam.FamilyId, fam.Sizes[sr.Value - 1].SizeId, fam.Family + " | " + fam.Sizes[sr.Value - 1].Size);
+        return (fam.FamilyId, fam.Sizes[si].SizeId, fam.Family + " | " + fam.Sizes[si].Size);
     }
 }

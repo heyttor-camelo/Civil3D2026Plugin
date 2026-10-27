@@ -161,15 +161,33 @@ public sealed class HydroModelCommands
 
         HydroSettings st = Settings(doc.Database);
         ed.WriteMessage($"\n{name}: tampa {N(rim)}  fundo {N(sump)}  profundidade {N(rim - sump, 2)} m");
-        string? hold = AskKeyword(ed, "Os tubos ligados seguram [Outraponta/Declividade]", st.HoldMode == HydroStore.HoldMode.Declividade ? "Declividade" : "Outraponta", "Outraponta", "Declividade");
-        if (hold is null)
+        string? mode = AskKeyword(ed, "Fundo por [Cota/Deslocamento/Altura]", "Cota", "Cota", "Deslocamento", "Altura");
+        if (mode is null)
             return;
-        double? value = AskDouble(ed, "Novo fundo (ou +/-dz, ex. -0.30)", sump);
+        double? value = mode switch
+        {
+            "Cota" => AskDouble(ed, "Cota do fundo", sump),
+            "Deslocamento" => AskDouble(ed, "Deslocamento do fundo (+ sobe, - desce) [m]", 0),
+            _ => AskDouble(ed, "Altura da estrutura (tampa - fundo) [m]", rim - sump, false)
+        };
         if (value is null)
             return;
-        double target = value.Value;
-        HydroEditor.EditStructure(doc.Database, H(id.Value), null, null, target, hold == "Declividade" ? HydroStore.HoldMode.Declividade : HydroStore.HoldMode.OutraPonta);
-        ed.WriteMessage($"\n{name}: fundo {N(sump)} -> {N(target)} ({hold}).");
+        double target = mode switch
+        {
+            "Cota" => value.Value,
+            "Deslocamento" => sump + value.Value,
+            _ => rim - value.Value
+        };
+
+        string? follow = AskKeyword(ed, "O tubo acompanha o fundo? [Sim/Nao]", "Sim", "Sim", "Nao");
+        if (follow is null)
+            return;
+        bool movePipes = follow == "Sim";
+
+        // A tampa nao muda: o fundo anda e a altura da peca acompanha.
+        HydroEditor.EditStructure(doc.Database, H(id.Value), null, null, target, st.HoldMode, movePipes);
+        ed.WriteMessage($"\n{name}: fundo {N(sump)} -> {N(target)}, profundidade {N(rim - target, 2)} m, tampa {N(rim)} mantida; " +
+            (movePipes ? "tubos acompanharam." : "tubos ficaram onde estavam."));
     });
 
     [CommandMethod(C3DCommands.Hydro.Tampa, Flags)]
@@ -273,31 +291,57 @@ public sealed class HydroModelCommands
                 continue;
             }
 
-            ed.WriteMessage($"\nFamilias de {(isPipe ? "tubos" : "estruturas")} ({group.Count} item(ns) selecionado(s)):");
-            for (int i = 0; i < families.Count; i++)
-                ed.WriteMessage($"\n  {i + 1}: {families[i].Family}");
-            PromptIntegerOptions fo = new("\nNumero da familia: ") { LowerLimit = 1, UpperLimit = families.Count };
-            PromptIntegerResult fr = ed.GetInteger(fo);
-            if (fr.Status != PromptStatus.OK)
+            string current;
+            using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction())
+                current = ((CivilDb.Part)tr.GetObject(group[0], AcadDb.OpenMode.ForRead)).PartFamilyName;
+            int def = Math.Max(0, families.FindIndex(f => string.Equals(f.Family, current, StringComparison.OrdinalIgnoreCase)));
+            int fi = HydroPrompt.Choose(ed, $"Familia de {(isPipe ? "tubo" : "estrutura")} ({group.Count} item(ns))", families.Select(f => f.Family).ToList(), def);
+            if (fi < 0)
                 return;
-            HydroEditor.FamilyChoice fam = families[fr.Value - 1];
-            if (fam.Sizes.Count == 0)
-            {
-                ed.WriteMessage("\nA familia nao tem tamanhos na parts list.");
-                continue;
-            }
-
-            ed.WriteMessage($"\nTamanhos de {fam.Family}:");
-            for (int i = 0; i < fam.Sizes.Count; i++)
-                ed.WriteMessage($"\n  {i + 1}: {fam.Sizes[i].Size}");
-            PromptIntegerOptions so = new("\nNumero do tamanho: ") { LowerLimit = 1, UpperLimit = fam.Sizes.Count };
-            PromptIntegerResult sr = ed.GetInteger(so);
-            if (sr.Status != PromptStatus.OK)
+            HydroEditor.FamilyChoice fam = families[fi];
+            (AcadDb.ObjectId sizeId, string sizeLabel)? size = ChooseSize(ed, doc.Database, fam, isPipe);
+            if (size is null)
                 return;
-            int n = HydroEditor.Swap(doc.Database, group.Select(H), fam.FamilyId, fam.Sizes[sr.Value - 1].SizeId);
-            ed.WriteMessage($"\n{n} item(ns) trocado(s) para {fam.Family} / {fam.Sizes[sr.Value - 1].Size} (conexoes mantidas).");
+            int n = HydroEditor.Swap(doc.Database, group.Select(H), fam.FamilyId, size.Value.sizeId);
+            ed.WriteMessage($"\n{n} item(ns) trocado(s) para {fam.Family} / {size.Value.sizeLabel} (conexoes mantidas).");
         }
     });
+
+    private const string NewSize = "Novo tamanho (comprimento x largura)";
+
+    /// <summary>
+    /// Tamanho da familia por menu; nas estruturas com comprimento/largura interna ha a opcao de
+    /// criar um tamanho novo na parts list (ex. PV 3000 x 2000) a partir do primeiro tamanho.
+    /// </summary>
+    private static (AcadDb.ObjectId, string)? ChooseSize(Editor ed, AcadDb.Database db, HydroEditor.FamilyChoice fam, bool isPipe, int def = 0)
+    {
+        List<string> labels = fam.Sizes.Select(s => s.Size).ToList();
+        bool canCreate = !isPipe && fam.Sizes.Count > 0 && HydroEditor.HasPlanSize(db, fam.Sizes[0].SizeId);
+        if (canCreate)
+            labels.Add(NewSize);
+        if (labels.Count == 0)
+        {
+            ed.WriteMessage("\nA familia nao tem tamanhos na parts list.");
+            return null;
+        }
+
+        int si = HydroPrompt.Choose(ed, $"Tamanho de {fam.Family}", labels, def);
+        if (si < 0)
+            return null;
+        if (si < fam.Sizes.Count)
+            return (fam.Sizes[si].SizeId, fam.Sizes[si].Size);
+
+        (double length, double width) = HydroEditor.PlanSize(db, fam.Sizes[0].SizeId);
+        double? l = AskDouble(ed, "Comprimento interno [m]", length, false);
+        if (l is null)
+            return null;
+        double? w = AskDouble(ed, "Largura interna [m]", width, false);
+        if (w is null)
+            return null;
+        (AcadDb.ObjectId id, string label) = HydroEditor.AddStructureSize(db, fam.FamilyId, l.Value, w.Value);
+        ed.WriteMessage($"\nTamanho {label} criado na parts list ({fam.Family}).");
+        return (id, label);
+    }
 
     [CommandMethod(C3DCommands.Hydro.Igualar, Flags)]
     public void Igualar() => Run("HYIGUALAR", (doc, ed) =>
@@ -442,24 +486,14 @@ public sealed class HydroModelCommands
         }
 
         int def = Math.Max(0, families.FindIndex(f => string.Equals(f.Family, defaultFamily, StringComparison.OrdinalIgnoreCase)));
-        ed.WriteMessage("\nFamilias de estruturas:");
-        for (int i = 0; i < families.Count; i++)
-            ed.WriteMessage($"\n  {i + 1}: {families[i].Family}");
-        PromptIntegerOptions fo = new("\nNumero da familia") { LowerLimit = 1, UpperLimit = families.Count, DefaultValue = def + 1, UseDefaultValue = true };
-        PromptIntegerResult fr = ed.GetInteger(fo);
-        if (fr.Status != PromptStatus.OK)
+        int fi = HydroPrompt.Choose(ed, "Familia da estrutura", families.Select(f => f.Family).ToList(), def);
+        if (fi < 0)
             return null;
-        HydroEditor.FamilyChoice fam = families[fr.Value - 1];
-        if (fam.Sizes.Count == 0)
+        HydroEditor.FamilyChoice fam = families[fi];
+        (AcadDb.ObjectId sizeId, string sizeLabel)? size = ChooseSize(ed, db, fam, false);
+        if (size is null)
             return null;
-        ed.WriteMessage($"\nTamanhos de {fam.Family}:");
-        for (int i = 0; i < fam.Sizes.Count; i++)
-            ed.WriteMessage($"\n  {i + 1}: {fam.Sizes[i].Size}");
-        PromptIntegerOptions so = new("\nNumero do tamanho") { LowerLimit = 1, UpperLimit = fam.Sizes.Count, DefaultValue = 1, UseDefaultValue = true };
-        PromptIntegerResult sr = ed.GetInteger(so);
-        if (sr.Status != PromptStatus.OK)
-            return null;
-        return (fam.FamilyId, fam.Sizes[sr.Value - 1].SizeId, fam.Family + " / " + fam.Sizes[sr.Value - 1].Size);
+        return (fam.FamilyId, size.Value.sizeId, fam.Family + " / " + size.Value.sizeLabel);
     }
 
     [CommandMethod(C3DCommands.Hydro.Remover, Flags)]
@@ -617,6 +651,17 @@ public sealed class HydroModelCommands
         if (k is null)
             return;
         HydroSync.SetAuto(doc, k == "Ligar");
+    });
+
+    [CommandMethod(C3DCommands.Hydro.Dica, CommandFlags.Modal)]
+    public void Dica() => Run("HYDICA", (doc, ed) =>
+    {
+        bool on = HydroTooltip.Enabled;
+        string? k = AskKeyword(ed, $"Dica do HYDRO no cursor esta {(on ? "LIGADA" : "DESLIGADA")} [Ligar/Desligar]", on ? "Desligar" : "Ligar", "Ligar", "Desligar");
+        if (k is null)
+            return;
+        HydroTooltip.Enabled = k == "Ligar";
+        ed.WriteMessage($"\n[HYDRO] Dica no cursor {(HydroTooltip.Enabled ? "ligada" : "desligada")} (nesta sessao).");
     });
 
     private static void WriteReport(Editor ed, HydroRules.Report rep)

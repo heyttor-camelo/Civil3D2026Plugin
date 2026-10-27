@@ -28,10 +28,12 @@ internal static class HydroEditor
     // ------------------------------------------------------------------
 
     /// <summary>
-    /// Nome, tampa e fundo. Ao mudar o fundo, os tubos ligados acompanham (movePipes): segurando a
-    /// outra ponta (muda a declividade) ou a declividade (tubo inteiro sobe/desce).
+    /// Nome, tampa e fundo (ou profundidade = tampa - fundo, medida na tampa atual do desenho). Ao
+    /// mudar o fundo a tampa fica onde esta e a altura da peca (SRS) acompanha; os tubos ligados
+    /// acompanham (movePipes): segurando a outra ponta (muda a declividade) ou a declividade (tubo
+    /// inteiro sobe/desce).
     /// </summary>
-    public static void EditStructure(AcadDb.Database db, string handle, string? name, double? rim, double? sump, HydroStore.HoldMode hold, bool movePipes = true)
+    public static void EditStructure(AcadDb.Database db, string handle, string? name, double? rim, double? sump, HydroStore.HoldMode hold, bool movePipes = true, double? depth = null)
     {
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         CivilDb.Structure? s = Open<CivilDb.Structure>(tr, db, handle, AcadDb.OpenMode.ForWrite);
@@ -40,6 +42,10 @@ internal static class HydroEditor
 
         if (name is not null && name.Length > 0 && name != s.Name)
             s.Name = name;
+
+        double rimTarget = rim ?? s.RimElevation;
+        if (depth.HasValue && !sump.HasValue)
+            sump = rimTarget - depth.Value;
 
         if (rim.HasValue && Math.Abs(rim.Value - s.RimElevation) > 1e-6)
         {
@@ -84,9 +90,54 @@ internal static class HydroEditor
                     }
                 }
             }
+
+            // O Civil guarda a altura tampa-fundo no PartData (SRS) e pode refazer a tampa a partir
+            // dela: grava a altura nova e repoe tampa/fundo se algum dos dois andou.
+            SyncRimToSump(s, rimTarget - sump.Value);
+            if (!s.AutomaticRimSurfaceAdjustment && Math.Abs(s.RimElevation - rimTarget) > 1e-4)
+                s.RimElevation = rimTarget;
+            if (Math.Abs(s.SumpElevation - sump.Value) > 1e-4)
+                s.SumpElevation = sump.Value;
+            if (Math.Abs(s.RimElevation - rimTarget) > 1e-3)
+                PluginLog.Aviso(Module, $"{s.Name}: tampa {s.RimElevation:0.000} depois do fundo (esperada {rimTarget:0.000}).");
         }
 
         tr.Commit();
+    }
+
+    /// <summary>Altura tampa-fundo da peca (contexto StructRimToSumpHeight), se o catalogo aceitar.</summary>
+    private static void SyncRimToSump(CivilDb.Structure s, double meters)
+    {
+        try
+        {
+            using CivilDb.PartDataRecord rec = s.PartData;
+            CivilDb.PartDataField f = rec.GetDataFieldBy(CivilDb.PartContextType.StructRimToSumpHeight);
+            if (f.IsReadOnly || meters <= 0)
+                return;
+            double v = meters / HydroRules.Factor(f.Units);
+            if (f.Value is double cur && Math.Abs(cur - v) < 1e-6 * Math.Max(1, Math.Abs(v)))
+                return;
+            if (f.IsFromRange)
+            {
+                using CivilDb.PartDataRange r = f.ValueRange;
+                if (!r.IsValidValue(v))
+                {
+                    PluginLog.Aviso(Module, $"{s.Name}: altura {meters:0.000} m fora da faixa do catalogo ({r.RangeMin}..{r.RangeMax} {f.Units}).");
+                    return;
+                }
+            }
+            else if (f.IsFromList)
+            {
+                return;
+            }
+
+            f.Value = v;
+            s.PartData = rec;
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Diag(Module, $"{s.Name}: SRS nao gravado: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -761,6 +812,84 @@ internal static class HydroEditor
         }
 
         return list.OrderBy(f => f.Family, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    /// <summary>O tamanho tem comprimento e largura interna em faixa (da para criar tamanhos novos).</summary>
+    public static bool HasPlanSize(AcadDb.Database db, AcadDb.ObjectId sizeId)
+    {
+        try
+        {
+            using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+            if (tr.GetObject(sizeId, AcadDb.OpenMode.ForRead, false) is not CivilDb.Styles.PartSize size)
+                return false;
+            CivilDb.PartDataRecord rec = size.SizeDataRecord;
+            return rec.GetDataFieldBy(CivilDb.PartContextType.StructInnerLength).IsFromRange &&
+                   rec.GetDataFieldBy(CivilDb.PartContextType.StructInnerWidth).IsFromRange;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Comprimento e largura interna do tamanho, em metros.</summary>
+    public static (double Length, double Width) PlanSize(AcadDb.Database db, AcadDb.ObjectId sizeId)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        CivilDb.Styles.PartSize size = (CivilDb.Styles.PartSize)tr.GetObject(sizeId, AcadDb.OpenMode.ForRead, false);
+        CivilDb.PartDataRecord rec = size.SizeDataRecord;
+        double M(CivilDb.PartContextType ctx)
+        {
+            CivilDb.PartDataField f = rec.GetDataFieldBy(ctx);
+            return f.Value is double d ? d * HydroRules.Factor(f.Units) : double.NaN;
+        }
+
+        return (M(CivilDb.PartContextType.StructInnerLength), M(CivilDb.PartContextType.StructInnerWidth));
+    }
+
+    /// <summary>
+    /// Cria na parts list um tamanho novo da familia com o comprimento e a largura internos dados
+    /// (o resto com os valores padrao do catalogo). Valores fora da faixa do catalogo sao recusados.
+    /// </summary>
+    public static (AcadDb.ObjectId Id, string Label) AddStructureSize(AcadDb.Database db, AcadDb.ObjectId familyId, double length, double width)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        CivilDb.Styles.PartFamily fam = (CivilDb.Styles.PartFamily)tr.GetObject(familyId, AcadDb.OpenMode.ForWrite, false);
+        using CivilDb.Styles.SizeFilterRecord rec = new(fam);
+        HashSet<AcadDb.ObjectId> before = new();
+        for (int i = 0; i < fam.PartSizeCount; i++)
+            before.Add(fam[i]);
+        foreach ((CivilDb.PartContextType ctx, double meters, string what) in new[]
+        {
+            (CivilDb.PartContextType.StructInnerLength, length, "comprimento"),
+            (CivilDb.PartContextType.StructInnerWidth, width, "largura")
+        })
+        {
+            CivilDb.Styles.SizeFilterField f = rec.GetParamByContextAndIndex(ctx, 0);
+            double v = meters / HydroRules.Factor(f.Units);
+            using (CivilDb.PartDataRange r = f.ValueRange)
+            {
+                if (!r.IsValidValue(v))
+                    throw new InvalidOperationException($"{what} {meters:0.###} m fora da faixa do catalogo ({r.RangeMin}..{r.RangeMax} {f.Units}).");
+            }
+
+            f.Value = v;
+        }
+
+        fam.AddPartSize(rec);
+        AcadDb.ObjectId id = AcadDb.ObjectId.Null;
+        for (int i = 0; i < fam.PartSizeCount; i++)
+        {
+            if (!before.Contains(fam[i]))
+                id = fam[i];
+        }
+
+        if (id.IsNull)
+            throw new InvalidOperationException("O Civil nao criou o tamanho (ja existe um igual na parts list?).");
+        string label = tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize created ? SizeLabel(created, false) : "novo";
+        tr.Commit();
+        PluginLog.Info(Module, $"{fam.Description}: tamanho novo {label}");
+        return (id, label);
     }
 
     private static string SizeLabel(CivilDb.Styles.PartSize size, bool pipes)

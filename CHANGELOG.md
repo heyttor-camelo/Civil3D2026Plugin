@@ -1,3 +1,26 @@
+## 2.77.0 - HYDRO v0.10.0: HYFUNDO por cota/deslocamento/altura, listas em menu, realce no desenho
+
+**HYFUNDO**
+- Primeiro escolhe como definir o fundo: [Cota/Deslocamento/Altura]. Altura = tampa - fundo.
+- Depois: "O tubo acompanha o fundo? [Sim/Nao]" (padrao Sim). Com Nao os tubos ficam onde estao.
+- A tampa nao muda: o fundo anda e a altura da peca acompanha.
+
+**Profundidade e tampa (painel)**
+- Corrigido: profundidade digitada no painel (Prof.) nao aplicava na segunda vez e a tampa subia. A profundidade agora e medida na tampa do desenho na hora de gravar. Ao mudar o fundo, a altura tampa-fundo do PartData (SRS) e gravada junto e a tampa e reposta se o Civil a mover.
+
+**Listas em menu, nunca numero**
+- HYTROCAR, HYINSERIR e HYLANCAR: familia, tamanho e rede escolhidos num menu clicavel (cursor e linha de comando), cada opcao com o seu atalho em maiusculas. Listas com mais de 30 itens abrem uma janela com filtro.
+- HYTC: Kerby e Kirpich tinham a mesma letra; agora `kErby` (E).
+
+**Tamanhos da parts list**
+- HYTROCAR / HYINSERIR em estruturas com comprimento e largura em faixa (ex. PV DNIT): opcao "Novo tamanho (comprimento x largura)" cria o tamanho na parts list e ja troca as pecas para ele.
+
+**Realce no desenho**
+- O que e selecionado na lista do painel (ou pelo clique no monitor) fica realcado no desenho, como a selecao do Civil.
+
+**Lancamento pelas Network Layout Tools**
+- Para o caso "primeira estrutura vai para a origem": a dica do cursor nao le mais pecas durante comandos que nao sao do HYDRO, as regras automaticas so rodam com o AutoCAD livre (antes rodavam no fim de comandos aninhados) e o painel so rele a rede quando o comando termina.
+- `HYDICA` liga/desliga a dica do HYDRO no cursor (para isolar problemas).
 ## 2.76.1 - Layouts v1.16.1: rotulos da malha de coordenadas sem corte nem sobreposicao
 
 - Malha/norte/escala (`C3DMNE`): os rotulos `E=` / `N=` da malha **nao saem mais cortados pela borda da viewport**. Cada texto tem a largura medida e desliza ao longo da sua linha, a partir da borda, ate caber inteiro dentro da viewport (vale para viewport girada, onde as linhas chegam inclinadas na borda).

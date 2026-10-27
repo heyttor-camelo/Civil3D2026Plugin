@@ -69,6 +69,7 @@ public static class CommandNames
         public const string Regras = "HYREGRAS";
         public const string Regra = "HYREGRA";
         public const string RegrasAuto = "HYREGRASAUTO";
+        public const string Dica = "HYDICA";
     }
 
     public static class Qto

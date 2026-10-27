@@ -178,6 +178,13 @@ o UNDO da troca de tubo e do recalculo sao dois passos (o recalculo roda depois 
 3. Passe o mouse no perfil: a cota mostrada embaixo deve bater com a cota real (antes saia multiplicada pelo exagero). Hover destaca tubo/estrutura; clique seleciona na lista e o perfil continua no mesmo caminho.
 4. **Shift+roda** no perfil: o exagero muda (aparece na barra). Shift+duplo clique: volta ao automatico.
 5. Monitor baixo (arraste o divisor): a faixa de dados reduz para 3 linhas e some abaixo de ~200 px.
+## 5f. v0.10.0: HYFUNDO, profundidade, menus, realce, layout nativo (15 min)
+
+1. `HYFUNDO` num PV: opcoes [Cota/Deslocamento/Altura] pela letra (C, D, A). Teste Altura `3`: fundo = tampa - 3, tampa nao muda. Depois [Sim/Nao]: com Nao os tubos ficam onde estavam.
+2. Painel, Estruturas, celula **Prof.**: `20`, Enter; depois `10`; depois `5`. Cada uma deve aplicar e a tampa nao deve mudar (confira tampa e CT no rotulo).
+3. `HYTROCAR` num PV: familia e tamanho aparecem em menu no cursor (sem pedir numero). Escolha "Novo tamanho", digite 3 x 2: o tamanho entra na parts list e o PV troca.
+4. Clique linhas na lista do painel: as pecas ficam realcadas no desenho. Clique outra: o realce passa para ela. Feche o painel: o realce some.
+5. Com o plugin carregado (painel aberto), lance PVs pelas Network Layout Tools nativas: a primeira estrutura deve ficar no ponto clicado. Se ainda for para a origem, rode `HYDICA` > Desligar e repita; anote se mudou.
 ## 6. Regressao rapida
 
 - `DRENNUM` e `DRENEXCEL` continuam funcionando pelos botoes de Redes.
