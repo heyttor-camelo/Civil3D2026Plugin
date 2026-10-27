@@ -13,6 +13,16 @@
     SIW  largura interna (600)           FTh  fundo (100)
     SRS  tampa ao fundo interno (1000)
 
+  O conversor do IPE para o Civil 3D exige que a forma subterrânea tenha os parâmetros com
+  os nomes padrão da biblioteca (senão o Publish falha com "does not have property"):
+
+    USLength = SIL + 2 WTh   comprimento externo    WallTh = WTh
+    USWidth  = SIW + 2 WTh   largura externa        BaseTh = FTh
+    USHeight = SRS + FTh     altura total
+
+  Esses cinco são os parâmetros-chave (IsKey) e aparecem na tabela de tamanhos do IPE; os
+  do CSBIM derivam deles por expressão, para a geometria continuar escrita como no Part Builder.
+
   e alguns da geometria fixa do Part Builder, agora editáveis:
 
     Tampa_E  espessura da laje do topo (100)
@@ -75,14 +85,30 @@ $doc.UnitsOfMeasure.LengthUnits = 11269   # kMillimeterLengthUnits
 
 # --- parâmetros (mm) ---
 $userParams = $def.Parameters.UserParameters
+# valores do CSBIM (usados abaixo para posicionar os esboços)
 $params = [ordered]@{
     SIL = 2000; SIW = 600; WTh = 100; FTh = 100; SRS = 1000
     Tampa_E = 100; Base_Aba = 100; Ab_H = 150; Ab_L = 900; Ab_Vao = 50
 }
-foreach ($name in $params.Keys) {
-    $p = $userParams.AddByExpression($name, "$($params[$name]) mm", 'mm')
+# parâmetros-chave com os nomes que o IPE/Civil 3D exigem
+$keyParams = [ordered]@{
+    USLength = $params.SIL + 2 * $params.WTh
+    USWidth  = $params.SIW + 2 * $params.WTh
+    USHeight = $params.SRS + $params.FTh
+    WallTh   = $params.WTh
+    BaseTh   = $params.FTh
+    Tampa_E = 100; Base_Aba = 100; Ab_H = 150; Ab_L = 900; Ab_Vao = 50
+}
+foreach ($name in $keyParams.Keys) {
+    $p = $userParams.AddByExpression($name, "$($keyParams[$name]) mm", 'mm')
     try { $p.IsKey = $true } catch { }
 }
+# parâmetros do CSBIM derivados (não-chave)
+$derived = [ordered]@{
+    WTh = 'WallTh'; FTh = 'BaseTh'
+    SIL = 'USLength - 2 * WallTh'; SIW = 'USWidth - 2 * WallTh'; SRS = 'USHeight - BaseTh'
+}
+foreach ($name in $derived.Keys) { $null = $userParams.AddByExpression($name, $derived[$name], 'mm') }
 
 # API trabalha em cm
 function cm([double]$mm) { $mm / 10.0 }

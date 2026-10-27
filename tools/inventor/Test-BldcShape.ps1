@@ -26,9 +26,10 @@ function Report($label) {
 
 $up = $def.Parameters.UserParameters
 Report 'padrao'
-$up.Item('SIL').Expression = '3000 mm'; $up.Item('SRS').Expression = '1500 mm'
+# SIL e SRS derivam dos parâmetros-chave do IPE: SIL = USLength - 2 WallTh, SRS = USHeight - BaseTh
+$up.Item('USLength').Expression = '3200 mm'; $up.Item('USHeight').Expression = '1600 mm'
 Report 'SIL=3000 SRS=1500'
-$up.Item('SIL').Expression = '2000 mm'; $up.Item('SRS').Expression = '1000 mm'
+$up.Item('USLength').Expression = '2200 mm'; $up.Item('USHeight').Expression = '1100 mm'
 Report 'de volta ao padrao'
 $doc.Save()
 'salvo'
