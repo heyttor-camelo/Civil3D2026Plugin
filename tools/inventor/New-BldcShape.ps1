@@ -205,6 +205,11 @@ Add-Wp 'Conexao_Fundo'    $yzPlane $wpFundoY $wpBase
 Add-Wp 'Conexao_Esquerda' $wpEsq   $wpMeioY  $wpBase
 Add-Wp 'Conexao_Direita'  $wpDir   $wpMeioY  $wpBase
 
+# Ponto de inserção para o Assembly Connector do Shape Utilities: na face da guia, no meio
+# do vão entre as aberturas, na soleira (fundo das aberturas)
+$wpSoleira = Add-OffsetPlane 'Plano_Soleira' $xyPlane '-(Tampa_E + Ab_H)' 'Z' (-($p.Tampa_E + $p.Ab_H))
+Add-Wp 'Ponto_Insercao' $yzPlane $xzPlane $wpSoleira
+
 $doc.Update()
 if ($Save) {
     $doc.SaveAs($Save, $false)
