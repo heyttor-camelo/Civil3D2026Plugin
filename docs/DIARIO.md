@@ -85,3 +85,24 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - (mesma sessao, depois) suportes pela area, prefixo N:/E:, importacao direta da pasta do SinC (`PAsta`), monitor da
   placa no explorador (desenho da placa + planta com nomes dos eixos) e **atrativos turisticos** (`C3DVIARIOATRATIVOS`,
   KMZ da prefeitura: 105 pontos em 5 pastas). Tambem sem compilar.
+
+---
+
+## 2026-10-28 - notebook (LAPTOP-11TNS6P8)
+
+- Pecas de receita (_IPE): grupo 1 montado e instalado, depois abandonado a pedido do usuario. O FDX
+  voltou ao estado de 27/10 17:26; os arquivos ficaram em `C:\Temp\_arquivo-catalogo-ipe-20261028`.
+  Aprendizado em `docs/CATALOGO-PONTOS-CONEXAO.md`.
+- HYDRO 0.12 a 0.16 (plugin 2.79.0 a 2.83.0):
+  - Tubos levados para dentro das bocas de lobo de calcada (base point na face), no automatico, com
+    botao no painel.
+  - Medidas da peca refazem o solido: o setter do PartData nao redimensiona, entao a peca e trocada
+    para um tamanho da parts list com os valores novos.
+  - HYMEDIDAS (cotas dinamicas no desenho), aba Peca 3D no painel, nomes em portugues (HydroNames),
+    HYREGRA em portugues.
+- Nada testado no Civil nesta sessao: o accoreconsole nao carrega DLL de pasta nao confiavel.
+- DLL de teste em `C:\Temp\hydro-build`.
+
+### Pendente
+1. Rodar `C:\Temp\Ampliar-Faixas-FDX.ps1` (Civil fechado) para medidas livres e depois PARTCATALOGREGEN.
+2. Testar no Civil: edicao de comprimento/largura (troca de tamanho), HYMEDIDAS, aba Peca 3D e os tubos dentro.
