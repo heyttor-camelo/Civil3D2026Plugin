@@ -1,3 +1,6 @@
+## 2.86.2 - HYDRO v0.19.2: troca peca a peca
+
+- HYTROCAR/troca de familia: a peca que o Civil recusar e pulada (com o motivo na linha de comando) e as outras seguem; antes um erro desfazia o lote inteiro.
 ## 2.86.1 - HYDRO v0.19.1: HYTROCAR com familia fora do catalogo
 
 - Corrigido: HYTROCAR (e as listas de familias) parava com "Part Family is invalid" quando a parts list do desenho tinha uma familia que saiu do catalogo (ex. as _IPE removidas) ou a peca era dessa familia. A familia invalida e pulada com aviso, e a troca segue.

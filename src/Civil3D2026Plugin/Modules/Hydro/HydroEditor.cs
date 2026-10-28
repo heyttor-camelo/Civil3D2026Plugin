@@ -651,32 +651,47 @@ internal static class HydroEditor
     }
 
     /// <summary>Troca familia e tamanho mantendo as conexoes (Part.SwapPartFamilyAndSize).</summary>
-    public static int Swap(AcadDb.Database db, IEnumerable<string> handles, AcadDb.ObjectId familyId, AcadDb.ObjectId sizeId)
+    public static int Swap(AcadDb.Database db, IEnumerable<string> handles, AcadDb.ObjectId familyId, AcadDb.ObjectId sizeId) =>
+        Swap(db, handles, familyId, sizeId, out _);
+
+    /// <summary>Como Swap, peca a peca: a que o Civil recusar e pulada (motivo em skipped) e as outras seguem.</summary>
+    public static int Swap(AcadDb.Database db, IEnumerable<string> handles, AcadDb.ObjectId familyId, AcadDb.ObjectId sizeId, out List<string> skipped)
     {
         int n = 0;
+        skipped = new List<string>();
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         foreach (string h in handles)
         {
             CivilDb.Part? part = Open<CivilDb.Part>(tr, db, h, AcadDb.OpenMode.ForWrite);
             if (part is null)
                 continue;
-            bool isPipe = part is CivilDb.Pipe;
-            double zUp = 0, zDown = 0;
-            if (part is CivilDb.Pipe pp)
+            string name = h;
+            try
             {
-                zUp = pp.StartPoint.Z - (pp.InnerHeight / 2.0);
-                zDown = pp.EndPoint.Z - (pp.InnerHeight / 2.0);
-            }
+                name = part.Name;
+                bool isPipe = part is CivilDb.Pipe;
+                double zUp = 0, zDown = 0;
+                if (part is CivilDb.Pipe pp)
+                {
+                    zUp = pp.StartPoint.Z - (pp.InnerHeight / 2.0);
+                    zDown = pp.EndPoint.Z - (pp.InnerHeight / 2.0);
+                }
 
-            part.SwapPartFamilyAndSize(familyId, sizeId);
-            if (isPipe && part is CivilDb.Pipe p2)
+                part.SwapPartFamilyAndSize(familyId, sizeId);
+                if (isPipe && part is CivilDb.Pipe p2)
+                {
+                    double half = p2.InnerHeight / 2.0;
+                    p2.StartPoint = new Point3d(p2.StartPoint.X, p2.StartPoint.Y, zUp + half);
+                    p2.EndPoint = new Point3d(p2.EndPoint.X, p2.EndPoint.Y, zDown + half);
+                }
+
+                n++;
+            }
+            catch (Exception ex)
             {
-                double half = p2.InnerHeight / 2.0;
-                p2.StartPoint = new Point3d(p2.StartPoint.X, p2.StartPoint.Y, zUp + half);
-                p2.EndPoint = new Point3d(p2.EndPoint.X, p2.EndPoint.Y, zDown + half);
+                skipped.Add($"{name}: {ex.Message}");
+                PluginLog.Aviso(Module, $"Troca pulada em {name}: {ex.Message}");
             }
-
-            n++;
         }
 
         tr.Commit();

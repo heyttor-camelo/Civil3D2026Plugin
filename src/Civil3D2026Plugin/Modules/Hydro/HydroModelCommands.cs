@@ -313,8 +313,10 @@ public sealed class HydroModelCommands
             (AcadDb.ObjectId sizeId, string sizeLabel)? size = ChooseSize(ed, doc.Database, fam, isPipe);
             if (size is null)
                 return;
-            int n = HydroEditor.Swap(doc.Database, group.Select(H), fam.FamilyId, size.Value.sizeId);
-            ed.WriteMessage($"\n{n} item(ns) trocado(s) para {fam.Family} / {size.Value.sizeLabel} (conexoes mantidas).");
+            int n = HydroEditor.Swap(doc.Database, group.Select(H), fam.FamilyId, size.Value.sizeId, out List<string> skipped);
+            ed.WriteMessage($"\n{n} item(ns) trocado(s) para {fam.Family} / {size.Value.sizeLabel} (conexoes mantidas)" + (skipped.Count > 0 ? $"; {skipped.Count} pulado(s):" : "."));
+            foreach (string s in skipped.Take(10))
+                ed.WriteMessage("\n  " + s);
         }
     });
 
