@@ -1,3 +1,6 @@
+## 2.82.1 - HYDRO v0.15.1: medidas da peca passam a refazer o solido
+
+- Corrigido: editar comprimento, largura, parede etc. (painel, Peca 3D, HYMEDIDAS, regras) gravava o valor no PartData, mas o Civil nao refazia o solido das pecas do Part Builder; o setter so guarda o dado, e o redimensionamento (ApplyResizing) e interno. Agora, depois do PartData, a peca e trocada para um tamanho da parts list com os valores novos (um igual e reaproveitado; senao e criado), mantendo tampa, fundo e as ligacoes dos tubos. A profundidade (SRS) continua pela tampa/fundo.
 ## 2.82.0 - HYDRO v0.15.0: HYMEDIDAS (editar medidas no desenho)
 
 - HYMEDIDAS e botao direito na estrutura > "Editar medidas (comprimento, largura)...": cotas dinamicas editaveis (Dynamic Input) sobre as arestas internas da caixa em planta. Tab passa de cota, a previa do contorno interno e externo acompanha o valor, Enter/clique grava no PartData (um UNDO), Esc cancela. Respeita a rotacao e o ponto de insercao na face (a face fica parada e a caixa cresce para dentro). Valores fora da faixa do catalogo sao limitados a ela.
