@@ -42,3 +42,15 @@ No NOT (27/10/2026) as três peças foram recriadas com os mesmos ids de recipe,
 - Medidas do Part Builder (Drawing2): aberturas 950 x 150 a 50 do topo; BLDC 2 aberturas com vao 50; BLTC 3 com folga 175; caixa C atras da guia (0 a +800), G do lado da pista (-920 a 0, grelhas 1000 x 520 com 10 fendas 440 x 40, laje 100 abaixo da guia), M dos dois lados (-400 a +800, faixa de grelha 1000 x 335 rebaixada 200). As versoes SUL/CENTRO tem o mesmo solido e viram uma peca so.
 - Bocas de bueiro com alas (grupo 3): alem dos pontos da caixa/boca, um ponto de conexao no meio de cada aba (ala), na cota do fundo, conferido com o solido do Drawing2.
 - Duplicadas (SUL/CENTRO e outros pares com o mesmo solido) viram uma peca so, com insercao na face lateral se ficam no meio-fio e no centro nas demais.
+
+## Noite de 27 para 28/10/2026 (NOT)
+- Grupo 1 montado em `C:\Temp\BLDC-IPE\recipes` (nao instalado): BLDC, BLSC, BLTC (boca na guia), BLDG, BLSG, BLTG (grelha, caixa do lado da pista, insercao na guia = face de tras) e BLDM, BLSM (mista, caixa dos dois lados, guia a 400 da face da pista). Grelha no nivel (a): vaos abertos na laje, sem fendas. Ids das receitas em `ids-grupo1.txt`.
+- Volumes da caixa contra o Part Builder: BLDG 1,509 x 1,514; BLSG 0,904 x 0,894; BLTG 2,160 x 2,177; BLDM 1,108 x 1,019 e BLSM 0,703 x 0,637 (as mistas sem o rebaixo de 200 da grelha).
+- Tabelas por linha em `C:\Temp\BLDC-IPE\tabelas-grupo1` (`Gerar-TabelasGrupo1.ps1`): SIL de 100 em 100, SIW 600/800/1000 (C), 520/720/920 (G), 1000 (M); AbL acompanha SIL; medidas de projeto como coluna com contexto proprio (StructAberturaComprimento, StructSlabThickness, StructGrelhaComprimento...).
+- Instalacao: `Instalar-Grupo1.ps1` (sem `-Executar` so simula). Esperar o diagnostico abaixo antes de instalar.
+
+### Por que as receitas nao regeneram no NOT (so leitura)
+- O Civil gera as pecas de receita pelo Inventor Server ("Inventor Interoperability 2026", em `C:\Program Files\Common Files\Autodesk Shared\Inventor Interoperability 2026\Bin`). A instalacao do Inventor em 27/10 atualizou esse motor de 30.10.23300 para 30.40.43500 (1096 de 1347 arquivos com data 27/10, 20:43).
+- O registro COM do motor aponta para o Inventor completo, nao para o Interoperability: `Inventor.InventorServer` (CLSID {3FC94EB5-AEBD-4f3f-A2A4-B6CE57113C01}) -> `C:\Program Files\Autodesk\Inventor 2026\Bin\RxAppDocView.dll`, e a typelib do Inventor -> `Inventor 2026\Bin\RxInventor.tlb`. O manifesto do Civil (`AutoCAD 2026\InventorServerClient.manifest`) espera `AutoCAD 2026\Inventor Server\Bin`, que nao existe.
+- O controle com a peca Autodesk `f0ebc5ac` foi inconclusivo para tamanhos (os 36 tamanhos da parts list eram a mesma linha, e os campos de tabela sao somente leitura no SizeFilterRecord pela API), mas o SRS dela tambem nao mudou.
+- Correcao proposta (precisa de aprovacao e de Administrador): Reparar o "Autodesk Inventor Interoperability 2026" e depois o Civil 3D 2026 (Painel de Controle > Programas), para refazer o registro do motor; depois testar pela interface: Parts List > tamanho maior da familia Autodesk e conferir se o solido muda.

@@ -50,3 +50,6 @@ Passos feitos direto pela API, sem script próprio:
 - `Add-ParametrosRecipe.ps1 -Recipe <pasta> -Params @{Nome=@('valor mm','descricao')}`: leva parametros da tabela ate o .ipt (geom.iam + regra iLogic + param.xml).
 - `New-BltcRecipe.ps1`: BLTC (3 aberturas) a partir da receita da BLDC_IPE.
 - `New-TabelaIPE.ps1 -Linhas`: tamanhos por linha (pecas de receita nao aceitam faixa; ver docs).
+- `New-BlGrelhaRecipe.ps1`: bocas de lobo de grelha (G) e mistas (M) a partir da receita da BLSC_IPE.
+- `Gerar-TabelasGrupo1.ps1`: tabelas por linha das 8 bocas de lobo do grupo 1.
+- `Instalar-Grupo1.ps1 [-Executar]`: instala o grupo 1 no FDX com backup (sem -Executar so simula).
