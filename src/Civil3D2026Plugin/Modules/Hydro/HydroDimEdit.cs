@@ -85,30 +85,37 @@ public sealed class HydroDimEdit
             return;
         }
 
-        ed.WriteMessage($"\n{shape.Name}: digite a medida na cota (m). Tab: proxima cota   Enter/clique: grava   Esc: cancela.");
+        ed.WriteMessage($"\n{shape.Name}: digite a medida (m); Enter mantem o valor atual, Esc cancela.");
         string? focus = FocusNext;
         FocusNext = null;
-        DimJig jig = new(shape, focus);
-        // As cotas editaveis sao do Dynamic Input: liga-o (e as cotas dinamicas) so durante a edicao.
-        object dynMode = AcApp.GetSystemVariable("DYNMODE"), dynGrip = AcApp.GetSystemVariable("DYNDIGRIP");
-        PromptResult res;
+        // Perguntas de valor (com o Dynamic Input ligado aparecem como caixa junto ao cursor). As cotas
+        // dinamicas do jig (DimJig) derrubavam o Civil 3D ao receber o valor digitado: nao sao mais usadas.
+        object dynMode = AcApp.GetSystemVariable("DYNMODE");
         try
         {
             if (Convert.ToInt32(dynMode) <= 0)
                 AcApp.SetSystemVariable("DYNMODE", 3);
-            AcApp.SetSystemVariable("DYNDIGRIP", 31);
-            res = ed.Drag(jig);
+            List<Measure> order = new[] { shape.Length, shape.Width }.Where(m => m is not null).Select(m => m!).ToList();
+            if (focus is not null)
+                order = order.OrderBy(m => m.Label.Equals(focus, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToList();
+            foreach (Measure m in order)
+            {
+                string range = double.IsNaN(m.Min) ? "" : $" ({m.Min:0.00} a {m.Max:0.00})";
+                PromptDoubleOptions o = new($"\n{char.ToUpper(m.Label[0]) + m.Label[1..]} interno [m]{range}") { AllowNegative = false, AllowZero = false, AllowNone = true, DefaultValue = m.Value, UseDefaultValue = true };
+                PromptDoubleResult r = ed.GetDouble(o);
+                if (r.Status == PromptStatus.Cancel)
+                {
+                    ed.WriteMessage("\n[HYDRO] Medidas canceladas; a peca nao mudou.");
+                    return;
+                }
+
+                if (r.Status == PromptStatus.OK)
+                    m.Value = m.Clamp(r.Value);
+            }
         }
         finally
         {
             AcApp.SetSystemVariable("DYNMODE", dynMode);
-            AcApp.SetSystemVariable("DYNDIGRIP", dynGrip);
-        }
-
-        if (res.Status is not (PromptStatus.OK or PromptStatus.None))
-        {
-            ed.WriteMessage("\n[HYDRO] Medidas canceladas; a peca nao mudou.");
-            return;
         }
 
         Dictionary<string, double> values = new(StringComparer.OrdinalIgnoreCase);

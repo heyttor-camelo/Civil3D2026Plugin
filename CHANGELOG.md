@@ -1,3 +1,6 @@
+## 2.86.5 - HYDRO v0.19.5: a troca do HYMEDIDAS por perguntas (a 2.86.4 saiu sem ela)
+
+- A mudanca descrita na 2.86.4 nao tinha entrado no codigo; entra aqui.
 ## 2.86.4 - HYDRO v0.19.4: HYMEDIDAS por perguntas de valor
 
 - O fatal error continuou na 2.86.3: o HYMEDIDAS deixa de usar as cotas dinamicas do jig e pergunta comprimento e largura internos (valor atual como padrao, faixa no texto); com o Dynamic Input ligado a pergunta aparece junto ao cursor. O grip de cota escolhe qual medida vem primeiro.
