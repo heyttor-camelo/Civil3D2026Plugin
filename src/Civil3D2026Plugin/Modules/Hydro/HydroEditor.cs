@@ -963,6 +963,45 @@ internal static class HydroEditor
         return (id, label);
     }
 
+    /// <summary>
+    /// Grava comprimento e largura internos (m) direto no PartData da estrutura, pelo contexto do campo
+    /// (o nome do parametro muda de familia para familia). Retorna "" se gravou, ou o motivo.
+    /// </summary>
+    public static string SetPlanSize(AcadDb.Database db, string handle, double length, double width)
+    {
+        try
+        {
+            string? lName = null, wName = null;
+            double lk = 1, wk = 1;
+            using (AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction())
+            {
+                CivilDb.Part? part = Open<CivilDb.Part>(tr, db, handle, AcadDb.OpenMode.ForRead);
+                if (part is null)
+                    return "";
+                using CivilDb.PartDataRecord rec = part.PartData;
+                CivilDb.PartDataField fl = rec.GetDataFieldBy(CivilDb.PartContextType.StructInnerLength);
+                CivilDb.PartDataField fw = rec.GetDataFieldBy(CivilDb.PartContextType.StructInnerWidth);
+                lName = fl.Name;
+                wName = fw.Name;
+                lk = HydroRules.Factor(fl.Units);
+                wk = HydroRules.Factor(fw.Units);
+            }
+
+            Dictionary<string, double> values = new(StringComparer.OrdinalIgnoreCase)
+            {
+                [lName] = length / lk,
+                [wName] = width / wk
+            };
+            SetParameters(db, handle, values);
+            return "";
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Aviso(Module, $"Medidas nao gravadas em {handle}: {ex.Message}");
+            return $"medidas nao gravadas ({ex.Message})";
+        }
+    }
+
     private static string SizeLabel(CivilDb.Styles.PartSize size, bool pipes)
     {
         CivilDb.PartDataRecord rec = size.SizeDataRecord;

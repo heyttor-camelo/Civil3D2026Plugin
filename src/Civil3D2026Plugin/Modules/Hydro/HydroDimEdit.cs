@@ -85,37 +85,32 @@ public sealed class HydroDimEdit
             return;
         }
 
-        ed.WriteMessage($"\n{shape.Name}: digite a medida (m); Enter mantem o valor atual, Esc cancela.");
+        ed.WriteMessage($"\n{shape.Name}: digite a medida na cota (m). Tab: proxima cota   Enter/clique: grava   Esc: cancela.");
         string? focus = FocusNext;
         FocusNext = null;
-        // Perguntas de valor (com o Dynamic Input ligado aparecem como caixa junto ao cursor). As cotas
-        // dinamicas do jig (DimJig) derrubavam o Civil 3D ao receber o valor digitado: nao sao mais usadas.
-        object dynMode = AcApp.GetSystemVariable("DYNMODE");
+        DimJig jig = new(shape, focus);
+        // As cotas editaveis sao do Dynamic Input: liga-o (e as cotas dinamicas) so durante a edicao.
+        object dynMode = AcApp.GetSystemVariable("DYNMODE"), dynGrip = AcApp.GetSystemVariable("DYNDIGRIP");
+        PromptResult res;
         try
         {
             if (Convert.ToInt32(dynMode) <= 0)
                 AcApp.SetSystemVariable("DYNMODE", 3);
-            List<Measure> order = new[] { shape.Length, shape.Width }.Where(m => m is not null).Select(m => m!).ToList();
-            if (focus is not null)
-                order = order.OrderBy(m => m.Label.Equals(focus, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ToList();
-            foreach (Measure m in order)
-            {
-                string range = double.IsNaN(m.Min) ? "" : $" ({m.Min:0.00} a {m.Max:0.00})";
-                PromptDoubleOptions o = new($"\n{char.ToUpper(m.Label[0]) + m.Label[1..]} interno [m]{range}") { AllowNegative = false, AllowZero = false, AllowNone = true, DefaultValue = m.Value, UseDefaultValue = true };
-                PromptDoubleResult r = ed.GetDouble(o);
-                if (r.Status == PromptStatus.Cancel)
-                {
-                    ed.WriteMessage("\n[HYDRO] Medidas canceladas; a peca nao mudou.");
-                    return;
-                }
-
-                if (r.Status == PromptStatus.OK)
-                    m.Value = m.Clamp(r.Value);
-            }
+            AcApp.SetSystemVariable("DYNDIGRIP", 31);
+            res = ed.Drag(jig);
+            // Cotas e colecao vivas ate o fim do arrasto (nada pode ser coletado no meio).
+            GC.KeepAlive(jig);
         }
         finally
         {
             AcApp.SetSystemVariable("DYNMODE", dynMode);
+            AcApp.SetSystemVariable("DYNDIGRIP", dynGrip);
+        }
+
+        if (res.Status is not (PromptStatus.OK or PromptStatus.None))
+        {
+            ed.WriteMessage("\n[HYDRO] Medidas canceladas; a peca nao mudou.");
+            return;
         }
 
         Dictionary<string, double> values = new(StringComparer.OrdinalIgnoreCase);
@@ -229,6 +224,7 @@ public sealed class HydroDimEdit
         private readonly List<(AcadDb.AlignedDimension Dim, Measure M)> _dims = new();
         private bool _dirty = true;
         private readonly string? _focus;
+        private AcadDb.DynamicDimensionDataCollection? _ddc;
         private const double Gap = 0.35;
 
         public DimJig(Shape s, string? focus)
@@ -333,12 +329,18 @@ public sealed class HydroDimEdit
 
         protected override AcadDb.DynamicDimensionDataCollection GetDynamicDimensionData(double dimScale)
         {
+            // O AutoCAD pede as cotas de novo a cada Tab/valor digitado. Uma colecao nova a cada pedido, com a
+            // cota "possuida" (ownsDimension = true), fazia o coletor de lixo apagar a cota nativa que o AutoCAD
+            // ainda estava editando: fatal error. Agora a colecao e criada uma vez, guardada, e nao possui as cotas.
+            if (_ddc is not null)
+                return _ddc;
             AcadDb.DynamicDimensionDataCollection col = new();
             // Foco na medida do grip clicado; sem grip, na primeira.
             int focal = Math.Max(0, _dims.FindIndex(d => d.M.Label.Equals(_focus ?? "", StringComparison.OrdinalIgnoreCase)));
             for (int i = 0; i < _dims.Count; i++)
-                col.Add(new AcadDb.DynamicDimensionData(_dims[i].Dim, true, true) { Editable = true, Focal = i == focal });
+                col.Add(new AcadDb.DynamicDimensionData(_dims[i].Dim, false, true) { Editable = true, Focal = i == focal });
 
+            _ddc = col;
             return col;
         }
 

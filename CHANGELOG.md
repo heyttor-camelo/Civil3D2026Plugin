@@ -1,3 +1,8 @@
+## 2.86.6 - HYDRO v0.19.6: HYMEDIDAS volta com as cotas do Dynamic Input, sem fatal error; HYTROCAR com medidas novas
+
+- HYMEDIDAS volta a editar direto na cota (Dynamic Input), a pedido. Causa real do fatal error: a cada Tab/valor o jig criava uma colecao nova de cotas dinamicas que "possuia" a cota (ownsDimension = true); o coletor de lixo apagava a cota nativa que o AutoCAD ainda editava. Agora a colecao e criada uma vez, guardada ate o fim do arrasto, e nao possui as cotas.
+- Corrigido: HYTROCAR com "Novo tamanho (comprimento x largura)" montava a peca com as medidas da primeira linha da familia. O comprimento e a largura digitados agora sao gravados direto em cada estrutura trocada.
+
 ## 2.86.5 - HYDRO v0.19.5: a troca do HYMEDIDAS por perguntas (a 2.86.4 saiu sem ela)
 
 - A mudanca descrita na 2.86.4 nao tinha entrado no codigo; entra aqui.

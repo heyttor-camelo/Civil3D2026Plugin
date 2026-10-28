@@ -314,6 +314,19 @@ public sealed class HydroModelCommands
             if (size is null)
                 return;
             int n = HydroEditor.Swap(doc.Database, group.Select(H), fam.FamilyId, size.Value.sizeId, out List<string> skipped);
+            // Tamanho novo digitado: o Civil pode montar a peca com as medidas da primeira linha da familia;
+            // grava o comprimento e a largura escolhidos direto em cada peca trocada.
+            if (!isPipe && _chosenPlan is (double cl, double cw))
+            {
+                foreach (AcadDb.ObjectId sid in group)
+                {
+                    string r = HydroEditor.SetPlanSize(doc.Database, H(sid), cl, cw);
+                    if (r.Length > 0)
+                        ed.WriteMessage("
+[HYDRO] " + r);
+                }
+            }
+
             ed.WriteMessage($"\n{n} item(ns) trocado(s) para {fam.Family} / {size.Value.sizeLabel} (conexoes mantidas)" + (skipped.Count > 0 ? $"; {skipped.Count} pulado(s):" : "."));
             foreach (string s in skipped.Take(10))
                 ed.WriteMessage("\n  " + s);
@@ -326,8 +339,12 @@ public sealed class HydroModelCommands
     /// Tamanho da familia por menu; nas estruturas com comprimento/largura interna ha a opcao de
     /// criar um tamanho novo na parts list (ex. PV 3000 x 2000) a partir do primeiro tamanho.
     /// </summary>
+    /// <summary>Comprimento x largura digitados no ultimo ChooseSize (null quando escolheu um tamanho da lista).</summary>
+    private static (double, double)? _chosenPlan;
+
     private static (AcadDb.ObjectId, string)? ChooseSize(Editor ed, AcadDb.Database db, HydroEditor.FamilyChoice fam, bool isPipe, int def = 0)
     {
+        _chosenPlan = null;
         List<string> labels = fam.Sizes.Select(s => s.Size).ToList();
         bool canCreate = !isPipe && fam.Sizes.Count > 0 && HydroEditor.HasPlanSize(db, fam.Sizes[0].SizeId);
         if (canCreate)
@@ -352,6 +369,7 @@ public sealed class HydroModelCommands
         if (w is null)
             return null;
         (AcadDb.ObjectId id, string label) = HydroEditor.AddStructureSize(db, fam.FamilyId, l.Value, w.Value);
+        _chosenPlan = (l.Value, w.Value);
         ed.WriteMessage($"\nTamanho {label} criado na parts list ({fam.Family}).");
         return (id, label);
     }
