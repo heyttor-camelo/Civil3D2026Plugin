@@ -72,7 +72,8 @@ foreach ($f in Get-ChildItem $cat -Recurse -Filter *.xml -File) {
             if ($a -and $a.LocalName -ne 'ColumnCalc' -and $linear -and $resto -notmatch '^\s*[\*/]') {
                 try {
                     $padrao = Txt (Avalia $x $expr)
-                    $nova = if ($resto -eq '') { '$' + $srs.GetAttribute('name') } else { '$' + $srs.GetAttribute('name') + ' - (' + ($resto.TrimStart('+')) + ')' }
+                    # "$SRS - (0-$FTh)": sem menos unario dentro dos parenteses (o avaliador do Part Builder pode nao aceitar).
+                    $nova = if ($resto -eq '') { '$' + $srs.GetAttribute('name') } else { '$' + $srs.GetAttribute('name') + ' - (0' + $resto + ')' }
                     $acoes += [pscustomobject]@{ T = 'inverte'; N = $srs; A = $a; Padrao = $padrao; Nova = $nova; Txt = "SRS = $expr  ->  SRS faixa livre (padrao $padrao); $aNome = $nova" }
                     $ok = $true
                 } catch { }
