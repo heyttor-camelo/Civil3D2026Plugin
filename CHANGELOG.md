@@ -1,3 +1,7 @@
+## 2.85.0 - HYDRO v0.18.0: vazao estimada pela capacidade quando nao ha bacia
+
+- Calculo (HYCALCULAR): bocas de lobo e pontas de montante sem bacia nem vazao conhecida recebem uma vazao propria estimada pela capacidade. Comeca na capacidade do tubo de saida (Manning na lamina maxima dos criterios); a cada volta, se algum trecho a jusante passa da capacidade, as estimativas a montante dele caem na mesma proporcao; para com variacao < 1% (ate 50 voltas). A peca fica com o aviso "vazao estimada pela capacidade" no Property Set; o log diz quantas e em quantas iteracoes.
+- Configuracao "calc.estimar" (padrao: sim). Testes em Hydro.Calc.Tests (59 verdes).
 ## 2.84.0 - HYDRO v0.17.0: cotas ao selecionar, listas em vez de digitar, clique na planta do monitor
 
 - Selecionar uma estrutura no desenho mostra as cotas de comprimento e largura internos (grips com a cota desenhada); clicar numa abre o campo de valor do Dynamic Input naquela medida (Tab: a outra, Enter: grava, Esc: cancela). Configuracao "cotas.grips" (padrao: sim).

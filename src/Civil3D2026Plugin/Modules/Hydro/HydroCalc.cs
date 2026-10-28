@@ -21,7 +21,7 @@ internal static class HydroCalc
     /// <summary>Monta as entradas puras a partir do modelo lido.</summary>
     public static (List<NodeInput> Nodes, List<PipeInput> Pipes, List<CatchmentInput> Catchments) Inputs(NetworkInfo net, HydroSnapshot snap, HydroSettings s)
     {
-        List<NodeInput> nodes = net.Structures.Select(st => new NodeInput(st.Handle, st.KnownFlow)).ToList();
+        List<NodeInput> nodes = net.Structures.Select(st => new NodeInput(st.Handle, st.KnownFlow, IsInlet(st))).ToList();
         List<PipeInput> pipes = net.Pipes.Where(p => p.Defined)
             .Select(p => new PipeInput(p.Handle, p.FromHandle!, p.ToHandle!, p.InnerDiameter, Math.Max(p.Slope, 0), p.Length2D, double.IsNaN(p.Manning) ? s.Manning : p.Manning))
             .ToList();
@@ -30,11 +30,20 @@ internal static class HydroCalc
         return (nodes, pipes, catchments);
     }
 
+    /// <summary>Dispositivo de engolimento: tipo do Civil com "Inlet" ou familia de boca de lobo (BL..., grelha, boca).</summary>
+    private static bool IsInlet(StructureInfo st) =>
+        st.Type.Contains("Inlet", StringComparison.OrdinalIgnoreCase) ||
+        st.Family.StartsWith("BL", StringComparison.OrdinalIgnoreCase) ||
+        st.Family.Contains("GRELHA", StringComparison.OrdinalIgnoreCase) ||
+        st.Family.Contains("BOCA", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Calcula e grava. Deve rodar num comando (documento travado).</summary>
     public static Outcome Run(AcadDb.Database db, NetworkInfo net, HydroSnapshot snap, HydroSettings s)
     {
         (List<NodeInput> nodes, List<PipeInput> pipes, List<CatchmentInput> catchments) = Inputs(net, snap, s);
-        NetworkResult r = NetworkCalc.Run(nodes, pipes, catchments, s.Idf, s.ReturnPeriod, s.Criteria, s.Manning);
+        NetworkResult r = s.EstimateFlows
+            ? NetworkCalc.RunEstimated(nodes, pipes, catchments, s.Idf, s.ReturnPeriod, s.Criteria, s.Manning)
+            : NetworkCalc.Run(nodes, pipes, catchments, s.Idf, s.ReturnPeriod, s.Criteria, s.Manning);
 
         Dictionary<string, HydroResult> results = new(StringComparer.OrdinalIgnoreCase);
         foreach ((string id, ReachResult x) in r.Pipes)
@@ -90,7 +99,8 @@ internal static class HydroCalc
 
                 if (results.TryGetValue(st.Handle, out HydroResult? res))
                 {
-                    string warnings = string.Join(" | ", violations.Where(v => v.Handle == st.Handle).Select(v => v.Rule + ": " + v.Value));
+                    string warnings = string.Join(" | ", violations.Where(v => v.Handle == st.Handle).Select(v => v.Rule + ": " + v.Value)
+                        .Concat(res.EstimatedFlow > 0 ? new[] { $"vazao estimada pela capacidade ({res.EstimatedFlow.ToString("0.0000", CultureInfo.InvariantCulture)} m3/s; sem bacia)" } : Array.Empty<string>()));
                     HydroPropertySet.TryApply(tr, db, structure, Values(res, s, warnings), out string msg);
                     if (msg.Length > 0)
                         PluginLog.Aviso(Module, $"Property Set em {st.Name}: {msg}");
@@ -111,7 +121,8 @@ internal static class HydroCalc
     private static HydroResult ToResult(ReachResult x) => new()
     {
         Flow = x.Flow, AreaHa = x.AreaHa, C = x.C, Tc = x.TcMinutes, Intensity = x.Intensity,
-        DepthRatio = x.DepthRatio, Velocity = x.Velocity, TravelTime = x.TravelTimeMinutes, Flows = x.Flows, FullFlow = x.FullFlow
+        DepthRatio = x.DepthRatio, Velocity = x.Velocity, TravelTime = x.TravelTimeMinutes, Flows = x.Flows, FullFlow = x.FullFlow,
+        EstimatedFlow = x.EstimatedFlow
     };
 
     private static void Merge(Dictionary<string, (double Hgl, double Egl)> map, string key, double hgl, double egl)

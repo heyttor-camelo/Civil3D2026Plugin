@@ -226,3 +226,56 @@ public class NetworkCalcTests
         Assert.Equal(2, r.Pipes.Count);
     }
 }
+
+public class EstimatedFlowTests
+{
+    private static readonly IdfEquation Idf = new("teste", 1000, 0.2, 10, 0.8);
+    private static readonly Criteria Crit = new(MaxDepthRatio: 0.85, MinTcMinutes: 10);
+
+    private static double Cap(PipeInput p) => Manning.Flow(p.Diameter, p.Slope, p.Manning, Crit.MaxDepthRatio);
+
+    [Fact]
+    public void Boca_sem_bacia_recebe_a_capacidade_do_tubo_de_saida()
+    {
+        List<NodeInput> nodes = new() { new("BL1", 0, true), new("PV1") };
+        List<PipeInput> pipes = new() { new("T1", "BL1", "PV1", 0.4, 0.01, 30, 0.013) };
+
+        NetworkResult r = NetworkCalc.RunEstimated(nodes, pipes, new List<CatchmentInput>(), Idf, 10, Crit);
+
+        Assert.Equal(Cap(pipes[0]), r.Nodes["BL1"].EstimatedFlow, 6);
+        Assert.Equal(Cap(pipes[0]), r.Pipes["T1"].Flow, 6);
+    }
+
+    [Fact]
+    public void Trecho_a_jusante_estourado_reduz_as_estimativas_ate_a_capacidade()
+    {
+        // Duas bocas com tubos de 0,6 m chegam num PV que sai por 0,4 m: a soma das estimativas
+        // tem de convergir para a capacidade do 0,4 m (a menos de 1%).
+        List<NodeInput> nodes = new() { new("BL1", 0, true), new("BL2", 0, true), new("PV1"), new("PV2") };
+        List<PipeInput> pipes = new()
+        {
+            new("T1", "BL1", "PV1", 0.6, 0.01, 30, 0.013),
+            new("T2", "BL2", "PV1", 0.6, 0.01, 30, 0.013),
+            new("T3", "PV1", "PV2", 0.4, 0.01, 30, 0.013)
+        };
+
+        NetworkResult r = NetworkCalc.RunEstimated(nodes, pipes, new List<CatchmentInput>(), Idf, 10, Crit);
+
+        double cap = Cap(pipes[2]);
+        Assert.InRange(r.Pipes["T3"].Flow, cap * 0.98, cap * 1.01);
+        Assert.Equal(r.Nodes["BL1"].EstimatedFlow, r.Nodes["BL2"].EstimatedFlow, 6);
+    }
+
+    [Fact]
+    public void Estrutura_com_bacia_nao_recebe_estimativa()
+    {
+        List<NodeInput> nodes = new() { new("BL1", 0, true), new("PV1") };
+        List<PipeInput> pipes = new() { new("T1", "BL1", "PV1", 0.4, 0.01, 30, 0.013) };
+        List<CatchmentInput> bacias = new() { new("B1", "BL1", 0.5, 0.8, 10) };
+
+        NetworkResult r = NetworkCalc.RunEstimated(nodes, pipes, bacias, Idf, 10, Crit);
+
+        Assert.Equal(0, r.Nodes["BL1"].EstimatedFlow);
+        Assert.Equal(NetworkCalc.Run(nodes, pipes, bacias, Idf, 10, Crit).Pipes["T1"].Flow, r.Pipes["T1"].Flow, 9);
+    }
+}

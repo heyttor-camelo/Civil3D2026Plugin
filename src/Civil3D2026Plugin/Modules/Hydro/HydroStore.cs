@@ -44,6 +44,9 @@ internal sealed class HydroSettings
     /// <summary>Cotas editaveis (comprimento/largura) como grips ao selecionar uma estrutura.</summary>
     public bool DimGrips { get; set; } = true;
 
+    /// <summary>Calculo: bocas de lobo e pontas sem bacia recebem vazao estimada pela capacidade (iterada).</summary>
+    public bool EstimateFlows { get; set; } = true;
+
     public IdfEquation Idf => new(IdfName == "custom" ? "personalizada" : IdfName, IdfK, IdfA, IdfB, IdfC);
 
     public Criteria Criteria => new(MaxDepthRatio, MinVelocity, MaxVelocity, MinCover, MinSlope, MaxSlope, 0, MaxDrop, MinTc);
@@ -64,6 +67,9 @@ internal sealed class HydroResult
     public double TravelTime { get; set; }
     public double FullFlow { get; set; }
     public bool Flows { get; set; } = true;
+
+    /// <summary>Vazao propria estimada pela capacidade (estrutura sem bacia), m3/s; 0 = veio de bacia.</summary>
+    public double EstimatedFlow { get; set; }
 }
 
 /// <summary>
@@ -173,6 +179,7 @@ internal static class HydroStore
         yield return ("lancar.tubo", "Lancamento: tubo padrao (Familia | Tamanho)", s.LaunchPipe);
         yield return ("regras.auto", "Regras das estruturas: atualizar no fim de cada comando", s.RulesAuto ? "sim" : "nao");
         yield return ("tubos.dentro", "Bocas de lobo de calcada: tubos entram ate o centro da caixa", s.PipesInside ? "sim" : "nao");
+        yield return ("calc.estimar", "Calculo: sem bacia, estimar a vazao pela capacidade (iterativo)", s.EstimateFlows ? "sim" : "nao");
         yield return ("cotas.grips", "Cotas editaveis ao selecionar a estrutura (comprimento, largura)", s.DimGrips ? "sim" : "nao");
     }
 
@@ -238,6 +245,7 @@ internal static class HydroStore
             case "lancar.estrutura": s.LaunchStructure = value.Trim(); break;
             case "lancar.tubo": s.LaunchPipe = value.Trim(); break;
             case "regras.auto": s.RulesAuto = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
+            case "calc.estimar": s.EstimateFlows = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
             case "cotas.grips": s.DimGrips = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
             case "tubos.dentro": s.PipesInside = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
         }
@@ -255,7 +263,8 @@ internal static class HydroStore
         "lancar.tubo=" + s.LaunchPipe,
         "regras.auto=" + (s.RulesAuto ? "1" : "0"),
         "tubos.dentro=" + (s.PipesInside ? "1" : "0"),
-        "cotas.grips=" + (s.DimGrips ? "1" : "0")
+        "cotas.grips=" + (s.DimGrips ? "1" : "0"),
+        "calc.estimar=" + (s.EstimateFlows ? "1" : "0")
     };
 
     // ---------------- NOD ----------------
