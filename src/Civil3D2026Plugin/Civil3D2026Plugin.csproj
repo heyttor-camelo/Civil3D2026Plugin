@@ -162,4 +162,19 @@
     <Message Importance="high" Text="DLL $(PluginVer) copiada para $(DriveDir)\atual" />
   </Target>
 
+  <!--
+    Copia local com a versao no nome (C:\Temp\hydro-build\Civil3D2026Plugin-2.86.2.dll): nunca esta presa
+    pelo Civil aberto, entao cada compilacao ja fica pronta para o proximo NETLOAD (pegue a de versao maior).
+  -->
+  <PropertyGroup>
+    <LocalBuildDir Condition="'$(LocalBuildDir)' == ''">C:\Temp\hydro-build</LocalBuildDir>
+  </PropertyGroup>
+  <Target Name="CopyVersionedLocal" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And Exists('$(LocalBuildDir)')">
+    <PropertyGroup>
+      <LocalVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Infrastructure\PluginVersions.cs')), '(?&lt;=Plugin = ")[^"]+').Value)</LocalVer>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" ContinueOnError="true" />
+    <Message Importance="high" Text="DLL $(LocalVer) em $(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" />
+  </Target>
+
 </Project>
