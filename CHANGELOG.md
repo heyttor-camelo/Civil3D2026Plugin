@@ -1,3 +1,8 @@
+## 2.80.0 - HYDRO v0.13.0: tubos entram nas bocas de lobo de calcada (automatico)
+
+- No fim de cada comando (HydroSync, no Idle), nas estruturas cujo ponto de insercao fica fora do centro da caixa (bocas de lobo de calcada do CSBIM, base point na face da guia), as pontas de tubo que estao no ponto de insercao vao para o centro da caixa em planta, com a mesma cota. Ponta posta em outro lugar pelo usuario nao e mexida; UNDO desfaz.
+- Configuracao `tubos.dentro` (Configuracao do painel; padrao: sim), independente da atualizacao automatica das regras.
+- HYENTRAR continua como comando manual para uma estrutura (leva todas as pontas ligadas).
 ## 2.79.0 - HYDRO v0.12.0: HYENTRAR (tubo para dentro da boca de lobo)
 
 - HYENTRAR (teste): nas bocas de lobo de calcada do CSBIM o ponto de insercao e a face da guia. O comando leva a ponta de cada tubo ligado a estrutura escolhida para o centro da caixa em planta (centro do retangulo envolvente do solido, vale com a peca girada), mantendo a cota. Depois de gravar, rele e informa se o Civil manteve a ponta e a ligacao. Ainda nao e automatico.

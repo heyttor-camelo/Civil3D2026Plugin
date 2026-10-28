@@ -38,6 +38,9 @@ internal sealed class HydroSettings
     /// <summary>Regras das estruturas recalculadas no fim de cada comando (como o "Auto" do Viario).</summary>
     public bool RulesAuto { get; set; } = true;
 
+    /// <summary>Bocas de lobo de calcada (insercao na face da guia): pontas dos tubos levadas para dentro da caixa no fim de cada comando.</summary>
+    public bool PipesInside { get; set; } = true;
+
     public IdfEquation Idf => new(IdfName == "custom" ? "personalizada" : IdfName, IdfK, IdfA, IdfB, IdfC);
 
     public Criteria Criteria => new(MaxDepthRatio, MinVelocity, MaxVelocity, MinCover, MinSlope, MaxSlope, 0, MaxDrop, MinTc);
@@ -166,6 +169,7 @@ internal static class HydroStore
         yield return ("lancar.estrutura", "Lancamento: estrutura padrao (Familia | Tamanho)", s.LaunchStructure);
         yield return ("lancar.tubo", "Lancamento: tubo padrao (Familia | Tamanho)", s.LaunchPipe);
         yield return ("regras.auto", "Regras das estruturas: atualizar no fim de cada comando", s.RulesAuto ? "sim" : "nao");
+        yield return ("tubos.dentro", "Bocas de lobo de calcada: tubos entram ate o centro da caixa", s.PipesInside ? "sim" : "nao");
     }
 
     /// <summary>Le os campos editados no painel (vazio = mantem).</summary>
@@ -230,6 +234,7 @@ internal static class HydroStore
             case "lancar.estrutura": s.LaunchStructure = value.Trim(); break;
             case "lancar.tubo": s.LaunchPipe = value.Trim(); break;
             case "regras.auto": s.RulesAuto = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
+            case "tubos.dentro": s.PipesInside = !(v.StartsWith("n", StringComparison.OrdinalIgnoreCase) || v == "0" || v.StartsWith("desl", StringComparison.OrdinalIgnoreCase)); break;
         }
     }
 
@@ -243,7 +248,8 @@ internal static class HydroStore
         "segurar=" + (s.HoldMode == HoldMode.Declividade ? "1" : "0"),
         "lancar.estrutura=" + s.LaunchStructure,
         "lancar.tubo=" + s.LaunchPipe,
-        "regras.auto=" + (s.RulesAuto ? "1" : "0")
+        "regras.auto=" + (s.RulesAuto ? "1" : "0"),
+        "tubos.dentro=" + (s.PipesInside ? "1" : "0")
     };
 
     // ---------------- NOD ----------------

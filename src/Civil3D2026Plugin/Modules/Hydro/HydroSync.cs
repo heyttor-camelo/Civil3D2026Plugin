@@ -24,6 +24,7 @@ internal static class HydroSync
     private const string Module = "Hydro";
 
     private static readonly Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> Pending = new();
+    private static readonly Dictionary<AcadDb.Database, HashSet<AcadDb.ObjectId>> PendingInside = new();
     private static readonly HashSet<Document> Attached = new();
     private static bool _initialized;
     private static bool _applying;
@@ -95,6 +96,7 @@ internal static class HydroSync
             doc.Database.ObjectModified -= OnObjectModified;
             doc.CommandEnded -= OnCommandEnded;
             Pending.Remove(doc.Database);
+            PendingInside.Remove(doc.Database);
         }
         catch
         {
@@ -126,6 +128,8 @@ internal static class HydroSync
     /// <summary>Estruturas anotadas e ainda nao recalculadas neste desenho.</summary>
     public static int PendingCount(AcadDb.Database db) => Pending.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set) ? set.Count : 0;
 
+    private static int InsideCount(AcadDb.Database db) => PendingInside.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set) ? set.Count : 0;
+
     private static void OnObjectModified(object? sender, AcadDb.ObjectEventArgs e)
     {
         if (_applying)
@@ -156,6 +160,9 @@ internal static class HydroSync
         if (!Pending.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set))
             Pending[db] = set = new HashSet<AcadDb.ObjectId>();
         set.Add(id);
+        if (!PendingInside.TryGetValue(db, out HashSet<AcadDb.ObjectId>? inside))
+            PendingInside[db] = inside = new HashSet<AcadDb.ObjectId>();
+        inside.Add(id);
     }
 
     private static void OnCommandEnded(object? sender, CommandEventArgs e)
@@ -165,7 +172,10 @@ internal static class HydroSync
         try
         {
             if (UndoCommands.Contains(e.GlobalCommandName))
+            {
                 Pending.Remove(doc.Database);
+                PendingInside.Remove(doc.Database);
+            }
 
             // O recalculo fica para o Idle (sem comando ativo): o CommandEnded tambem vem de comandos
             // aninhados (ex. dentro das Network Layout Tools), com a peca nova ainda em criacao.
@@ -181,7 +191,7 @@ internal static class HydroSync
         if (_applying)
             return;
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
-        if (doc is null || PendingCount(doc.Database) == 0)
+        if (doc is null || (PendingCount(doc.Database) == 0 && InsideCount(doc.Database) == 0))
             return;
         try
         {
@@ -204,20 +214,48 @@ internal static class HydroSync
     private static void Process(Document doc)
     {
         AcadDb.Database db = doc.Database;
-        if (_applying || !Pending.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set) || set.Count == 0)
+        if (_applying || (PendingCount(db) == 0 && InsideCount(db) == 0))
             return;
+        if (!Pending.TryGetValue(db, out HashSet<AcadDb.ObjectId>? set))
+            Pending[db] = set = new HashSet<AcadDb.ObjectId>();
         HydroSettings settings = HydroStore.Load(db);
-        if (!settings.RulesAuto)
-            return;
 
-        List<AcadDb.ObjectId> ids = set.ToList();
-        set.Clear();
-        HydroRules.Report report;
+        // Tubos para dentro das bocas de lobo: lista propria, para nao consumir as pendentes das
+        // regras quando a atualizacao automatica delas esta desligada (ficam para o HYREGRAS).
+        List<AcadDb.ObjectId> insideIds = new();
+        if (PendingInside.TryGetValue(db, out HashSet<AcadDb.ObjectId>? marked))
+        {
+            insideIds = marked.ToList();
+            marked.Clear();
+        }
+
+        List<AcadDb.ObjectId> ids = new();
+        if (settings.RulesAuto)
+        {
+            ids = set.ToList();
+            set.Clear();
+        }
+
+        if (ids.Count == 0 && (insideIds.Count == 0 || !settings.PipesInside))
+            return;
+        HydroRules.Report? report = null;
+        List<string> inside = new();
         using (doc.LockDocument())
         using (Applying())
-            report = HydroRules.Apply(db, ids, settings.HoldMode);
+        {
+            if (ids.Count > 0)
+                report = HydroRules.Apply(db, ids, settings.HoldMode);
+            if (settings.PipesInside && insideIds.Count > 0)
+                inside = HydroPipeInside.Apply(db, insideIds);
+        }
 
-        if (report.Changed > 0 || report.Errors.Count > 0)
+        if (inside.Count > 0)
+        {
+            doc.Editor.WriteMessage($"\n[HYDRO] {inside.Count} ponta(s) de tubo levada(s) para dentro da boca de lobo.");
+            HydroPanel.NotifyChanged();
+        }
+
+        if (report is not null && (report.Changed > 0 || report.Errors.Count > 0))
         {
             doc.Editor.WriteMessage("\n[HYDRO] " + report.Summary + ".");
             foreach (string line in report.Lines.Take(8))

@@ -110,5 +110,49 @@ public sealed class HydroPipeInside
         return report;
     }
 
+    /// <summary>Insercao a mais que isto do centro da caixa = peca com base point na face (calcada).</summary>
+    private const double FaceOffset = 0.05;
+
+    /// <summary>
+    /// Automatico (fim de comando, HydroSync): nas estruturas cujo ponto de insercao fica fora do
+    /// centro da caixa, leva para o centro so as pontas que estao no ponto de insercao (onde o Civil
+    /// liga o tubo). Ponta posta em outro lugar pelo usuario fica onde esta. Rodar com o documento travado.
+    /// </summary>
+    public static List<string> Apply(AcadDb.Database db, IEnumerable<AcadDb.ObjectId> structureIds)
+    {
+        List<string> lines = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId sid in structureIds)
+        {
+            if (sid.IsNull || sid.IsErased || tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is not CivilDb.Structure s || s.ConnectedPipesCount == 0)
+                continue;
+            Point2d c = BoxCenter(s);
+            Point2d ins = new(s.Location.X, s.Location.Y);
+            if (ins.GetDistanceTo(c) < FaceOffset)
+                continue;
+            for (int i = 0; i < s.ConnectedPipesCount; i++)
+            {
+                if (tr.GetObject(s.get_ConnectedPipe(i), AcadDb.OpenMode.ForRead, false) is not CivilDb.Pipe p)
+                    continue;
+                bool start = p.StartStructureId == sid;
+                Point3d end = start ? p.StartPoint : p.EndPoint;
+                if (new Point2d(end.X, end.Y).GetDistanceTo(ins) > FaceOffset)
+                    continue;
+                p.UpgradeOpen();
+                Point3d target = new(c.X, c.Y, end.Z);
+                if (start)
+                    p.StartPoint = target;
+                else
+                    p.EndPoint = target;
+                lines.Add($"{p.Name}: ponta levada para dentro de {s.Name} ({N(end.DistanceTo(target))} m).");
+            }
+        }
+
+        tr.Commit();
+        if (lines.Count > 0)
+            PluginLog.Info(Module, "Tubos para dentro das bocas de lobo:\n" + string.Join("\n", lines));
+        return lines;
+    }
+
     private static string N(double v) => v.ToString("0.000", CultureInfo.InvariantCulture);
 }
