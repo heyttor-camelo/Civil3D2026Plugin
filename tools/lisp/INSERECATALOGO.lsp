@@ -32,8 +32,9 @@
   (if (not (setq app (ic:pipeapp)))
     (progn (princ "\nNao achei a API de Pipe Network do Civil 3D.") (exit))
   )
+  ;; as Parts Lists ficam em Settings (AeccPipeSettingsRoot.PartLists), nao no documento
   (setq pdoc (vlax-get app 'ActiveDocument)
-        pls  (vlax-get pdoc 'PartsLists)
+        pls  (vlax-get (vlax-get pdoc 'Settings) 'PartLists)
         nl   (vlax-get pls 'Count)
         i    0)
   (princ "\nParts Lists do desenho:")
@@ -46,8 +47,9 @@
   (setq i (getint (strcat "\nNumero da Parts List <1>: ")))
   (if (or (null i) (< i 1) (> i nl)) (setq i 1))
   (setq pl (vlax-invoke-method pls 'Item (1- i)))
-  (setq dx (getdist "\nEspacamento da grade <8000>: "))
-  (if (null dx) (setq dx 8000.0))
+  ;; padrao de 8 m: 8000 em desenho mm (INSUNITS 4), 8 nos demais
+  (setq dx (if (= (getvar "INSUNITS") 4) 8000.0 8.0))
+  (setq dx (cond ((getdist (strcat "\nEspacamento da grade <" (rtos dx 2 0) ">: "))) (dx)))
   (setq dy dx)
   (setq net (vlax-invoke-method (vlax-get pdoc 'PipeNetworks) 'Add
               (strcat "REF-CATALOGO-" (menucmd "M=$(edtime,$(getvar,date),HHMMSS)")))
@@ -57,7 +59,8 @@
   (while (< i nfam)
     (setq fam (vlax-invoke-method pl 'Item i)
           szs (vl-catch-all-apply 'vlax-get (list fam 'SizeFilters)))
-    (if (not (vl-catch-all-error-p szs))
+    ;; so familias de estrutura (Domain 2 = aeccDomStructure); tubos ficam de fora
+    (if (and (not (vl-catch-all-error-p szs)) (= (vlax-get fam 'Domain) 2))
       (progn
         (setq nsz (vlax-get szs 'Count) j 0 x 0.0 res nil)
         (while (< j nsz)
@@ -66,7 +69,11 @@
                 res (vl-catch-all-apply 'vlax-invoke-method
                       (list strs 'Add (vlax-get fam 'GUID) sz (vlax-3d-point pt) 0.0)))
           (if (vl-catch-all-error-p res)
-            (setq falhas (1+ falhas)) ; familia de tubo ou tamanho invalido: pula
+            (progn                        ; tamanho invalido: pula e mostra o motivo
+              (setq falhas (1+ falhas))
+              (princ (strcat "\n  pulado: " (vlax-get fam 'Name) " | " (vlax-get sz 'Name)
+                             " -> " (vl-catch-all-error-message res)))
+            )
             (progn
               (setq ok (1+ ok))
               (ic:texto (list (- x (* 0.4 dx)) (- y (* 0.35 dy)) 0.0)
