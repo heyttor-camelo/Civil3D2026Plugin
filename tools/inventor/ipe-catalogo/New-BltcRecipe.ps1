@@ -29,7 +29,7 @@ foreach($pair in @(@((Nearest $pa),$pa,@('Ab_L / 2','Tampa_E')),@((Nearest $pb),
     for($i=0;$i -lt 2;$i++){ $or= if($i -eq 0){$kH}else{$kV}; $dim=$sk.DimensionConstraints.AddTwoPointDistance($o,$corner,$or,$tg.CreatePoint2d($geo.X/2+1,$geo.Y/2+1)); $dim.Parameter.Expression=$expr[$i] } }
 $ed=$def.Features.ExtrudeFeatures.CreateExtrudeDefinition($sk.Profiles.AddForSolid(),$kCut); $ed.SetDistanceExtent('USWidth / 2 + 1 cm',$kNeg)
 $f=$def.Features.ExtrudeFeatures.Add($ed); $f.Name='BLTC_Abertura_Central'
-$hit=$false; $yF=-$P.Item('USWidth').Value/2+5; foreach($fc in $f.Faces){ if($fc.PointOnFace.Y -lt $yF){ $hit=$true } }; if(-not $hit){ $f.Definition.SetDistanceExtent('USWidth / 2 + 1 cm',$kPos) }
+$hit=$false; $yF=-$P.Item('USWidth').Value/4; foreach($fc in $f.Faces){ if($fc.PointOnFace.Y -lt $yF){ $hit=$true } }; if(-not $hit){ $f.Definition.SetDistanceExtent('USWidth / 2 + 1 cm',$kPos) }
 $doc.Update(); & (Join-Path $PSScriptRoot 'Sync-ConectoresXml.ps1') -Doc $doc
 "BLTC caixa: volume $([math]::Round($def.MassProperties.Volume/1e6,4)) m3; erros: $($inv.ErrorManager.HasErrors)"; $doc.Close($true)
 

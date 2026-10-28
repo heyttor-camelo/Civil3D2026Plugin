@@ -53,3 +53,6 @@ Passos feitos direto pela API, sem script próprio:
 - `New-BlGrelhaRecipe.ps1`: bocas de lobo de grelha (G) e mistas (M) a partir da receita da BLSC_IPE.
 - `Gerar-TabelasGrupo1.ps1`: tabelas por linha das 8 bocas de lobo do grupo 1.
 - `Instalar-Grupo1.ps1 [-Executar]`: instala o grupo 1 no FDX com backup (sem -Executar so simula).
+- `Set-PadraoIam.ps1 -Recipe <pasta> -L -W -WTh -H`: padroes do geom.iam iguais a peca. Rodar no fim de cada
+  receita: salvar o geom.iam (Add-ParametrosRecipe, New-Bl*) roda a regra iLogic e devolve a caixa aos padroes
+  da Autodesk (1828,8 x 1219,2 x 750).

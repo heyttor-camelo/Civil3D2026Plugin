@@ -30,7 +30,7 @@ foreach ($pair in @(@((Nearest $pa), $pa, @('Ab_L / 2', 'Tampa_E')), @((Nearest 
 $ed = $def.Features.ExtrudeFeatures.CreateExtrudeDefinition($sk.Profiles.AddForSolid(), $kCut); $ed.SetDistanceExtent('USWidth / 2 + 1 cm', $kNeg)
 $f = $def.Features.ExtrudeFeatures.Add($ed); $f.Name = 'BLSC_Abertura_Central'
 # confere se cortou a parede da frente (Y < 0); se cortou a de tras, inverte o sentido
-$hit = $false; $yFrente = -$def.Parameters.Item('USWidth').Value / 2 + 5
+$hit = $false; $yFrente = -$def.Parameters.Item('USWidth').Value / 4   # quarto da frente; -USWidth/2+5 caia no meio da parede
 foreach ($fc in $f.Faces) { if ($fc.PointOnFace.Y -lt $yFrente) { $hit = $true } }
 if (-not $hit) { $f.Definition.SetDistanceExtent('USWidth / 2 + 1 cm', $kPos) }
 $doc.Update()
