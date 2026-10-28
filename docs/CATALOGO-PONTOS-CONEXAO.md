@@ -40,3 +40,5 @@ No NOT (27/10/2026) as três peças foram recriadas com os mesmos ids de recipe,
 - BLDC/BLSC/BLTC (boca na guia): SIL, SIW, WTh, FTh, SRS, SFH (marcador), AbL (abertura), AbH, AbVao (BLDC) ou Ab_Gap (BLTC), Aba (aba do fundo), TampaE (laje de topo).
 - PV_DNIT: SIL, SIW, WTh, FTh, SRS, AC (chamine), DC (tampao), CB (acrescimo da base do cone), SFH.
 - Medidas do Part Builder (Drawing2): aberturas 950 x 150 a 50 do topo; BLDC 2 aberturas com vao 50; BLTC 3 com folga 175; caixa C atras da guia (0 a +800), G do lado da pista (-920 a 0, grelhas 1000 x 520 com 10 fendas 440 x 40, laje 100 abaixo da guia), M dos dois lados (-400 a +800, faixa de grelha 1000 x 335 rebaixada 200). As versoes SUL/CENTRO tem o mesmo solido e viram uma peca so.
+- Bocas de bueiro com alas (grupo 3): alem dos pontos da caixa/boca, um ponto de conexao no meio de cada aba (ala), na cota do fundo, conferido com o solido do Drawing2.
+- Duplicadas (SUL/CENTRO e outros pares com o mesmo solido) viram uma peca so, com insercao na face lateral se ficam no meio-fio e no centro nas demais.
