@@ -1,3 +1,6 @@
+## 2.80.1 - HYDRO v0.13.1: botao Tubos dentro no painel
+
+- Categoria Estruturas, grupo Medidas: botao "Tubos dentro da boca de lobo (liga/desliga)", salvo no desenho, ligado por padrao. A aba de regras mostra o estado.
 ## 2.80.0 - HYDRO v0.13.0: tubos entram nas bocas de lobo de calcada (automatico)
 
 - No fim de cada comando (HydroSync, no Idle), nas estruturas cujo ponto de insercao fica fora do centro da caixa (bocas de lobo de calcada do CSBIM, base point na face da guia), as pontas de tubo que estao no ponto de insercao vao para o centro da caixa em planta, com a mesma cota. Ponta posta em outro lugar pelo usuario nao e mexida; UNDO desfaz.

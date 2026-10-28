@@ -131,6 +131,7 @@ internal sealed partial class HydroPanel : SW.Window
         new("REGRAS", "ESTRUTURAS", "", "Aplicar regras", "Edicao", "Aplica o rule set do Civil nos itens marcados.", new[] { "Marque as linhas e clique." }),
         new("MEDIDAS", "ESTRUTURAS", "", "Atualizar regras das medidas", "Medidas", "Recalcula as regras das medidas (=regra nos campos: SIL, SIW, tampa, fundo...) das estruturas marcadas, ou de todas da rede, e refaz as que mudaram.", new[] { "Escreva =regra nas medidas (aba Propriedades) ou use HYREGRA no desenho.", "Marque as estruturas (nenhuma = todas) e clique." }),
         new("AUTO", "ESTRUTURAS", "", "Regras automaticas (liga/desliga)", "Medidas", "Liga/desliga o recalculo das regras no fim de cada comando, como o Auto do Viario. Desligado, as pecas so mudam no Atualizar regras.", new[] { "Clique para alternar; o estado aparece na barra de status." }),
+        new("DENTRO", "ESTRUTURAS", "", "Tubos dentro da boca de lobo (liga/desliga)", "Medidas", "Nas pecas com o ponto de insercao fora do centro (bocas de lobo de calcada, base point na face da guia), leva a ponta do tubo para o centro da caixa no fim de cada comando. Ligado por padrao.", new[] { "Clique para alternar; vale para o desenho (fica salvo nele)." }),
         new("ZOOM", "ESTRUTURAS", "", "Zoom", "Ver", "Zoom no desenho para o item selecionado.", new[] { "Selecione na lista e clique (ou duplo clique)." }),
         new("SELECIONAR", "ESTRUTURAS", "", "Selecionar no desenho", "Ver", "Seleciona no desenho os itens marcados (ou o selecionado).", new[] { "Marque e clique." }),
         new("LOTE", "TUBOS", "", "Editar em lote", "Edicao", "Fundo de montante/jusante, declividade, familia/tamanho, nome: vale para os tubos marcados.", new[] { "Marque as linhas (caixinha ou Espaco).", "O botao abre o menu." }),
@@ -2139,6 +2140,7 @@ internal sealed partial class HydroPanel : SW.Window
         }
 
         Prop("Atualizacao", _settings.RulesAuto ? "automatica, no fim de cada comando" : "manual: use Atualizar regras (HYREGRAS)");
+        Prop("Tubos nas bocas de lobo", _settings.PipesInside ? "entram ate o centro da caixa (botao Tubos dentro)" : "ficam onde o Civil ligar (desligado)");
         Prop("Como escrever", HydroRules.Help);
         Act("Atualizar regras", () => UpdateRules(list.Select(x => x.Handle).ToList()));
     }
@@ -2633,6 +2635,18 @@ internal sealed partial class HydroPanel : SW.Window
                     {
                         HydroSettings st = HydroStore.Load(db);
                         st.RulesAuto = on;
+                        HydroStore.Save(db, st);
+                    });
+                    return;
+                }
+
+            case "DENTRO":
+                {
+                    bool on = !_settings.PipesInside;
+                    RunApply(on ? "Tubos dentro da boca de lobo: ligado" : "Tubos dentro da boca de lobo: desligado", db =>
+                    {
+                        HydroSettings st = HydroStore.Load(db);
+                        st.PipesInside = on;
                         HydroStore.Save(db, st);
                     });
                     return;
