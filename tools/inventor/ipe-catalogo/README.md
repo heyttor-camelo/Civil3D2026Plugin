@@ -18,8 +18,11 @@ peças BLDC_IPE, BLSC_IPE e PV_DNIT_IPE no catálogo FDX (out/2026).
   de cone (`ConeBaseD = SPDiameter + 600`), 2800 × 2800, paredes 200, SP 1200.
 - `Sync-ConectoresXml.ps1`: copia a posição dos work points para o `CenterPoint` do XML
   `ContentBuilderAttributeSets` e salva (os três scripts acima chamam).
-- `New-TabelaIPE.ps1`: gera a tabela da peça (.xml + .jpg) a partir da tabela Autodesk do recipe base
-  (só a primeira linha; `-Valores`, `-Calc` e `-SrsMin`).
+- `New-TabelaIPE.ps1`: gera a tabela da peça (.xml + .jpg) a partir da tabela Autodesk do recipe base.
+  As medidas de projeto vão em faixa (`-Faixas`: SIL/SIW/WTh/FTh/SRS com os contextos StructInnerLength etc.,
+  como nas Part Builder) para a peça ser editável pelo PartData e pelo painel HYDRO; o resto sai em `-Calc`
+  (reordenado por dependência) ou `-Valores`.
+- `Gerar-TabelasIPE.ps1`: gera as tabelas da BLDC_IPE, BLSC_IPE e PV_DNIT_IPE com esse padrão.
 
 Volumes de conferência (só a caixa): BLDC 0,893 m³ em 2200 × 800 × 1100; BLSC 0,548 m³ em 1200 × 800 × 1100;
 PV 4,071 m³ em 2800 × 2800 com SBSH 1600 (USHeight 1500, base 700, chaminé 800).
