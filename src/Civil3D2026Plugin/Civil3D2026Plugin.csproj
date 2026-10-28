@@ -146,4 +146,20 @@
     <Message Importance="high" Text="============================================================" />
   </Target>
 
+  <!--
+    Copia a DLL Release para o Google Drive (acesso de qualquer computador): atual\ e versoes\<versao>\.
+    So roda se a pasta existir (notebook e CAMELO com o Drive sincronizado); a versao vem de PluginVersions.cs.
+  -->
+  <PropertyGroup>
+    <DriveDir Condition="'$(DriveDir)' == ''">G:\Meu Drive\Civil3D2026Plugin</DriveDir>
+  </PropertyGroup>
+  <Target Name="CopyToDrive" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And Exists('$(DriveDir)')">
+    <PropertyGroup>
+      <PluginVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Infrastructure\PluginVersions.cs')), '(?&lt;=Plugin = ")[^"]+').Value)</PluginVer>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\versoes\$(PluginVer)" ContinueOnError="true" />
+    <Message Importance="high" Text="DLL $(PluginVer) copiada para $(DriveDir)\atual" />
+  </Target>
+
 </Project>
