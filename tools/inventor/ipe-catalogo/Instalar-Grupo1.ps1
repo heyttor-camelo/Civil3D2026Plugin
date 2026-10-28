@@ -6,8 +6,8 @@ $ErrorActionPreference='Stop'
 $pc='C:\ProgramData\Autodesk\C3D 2026\enu'; $fdx="$pc\Pipes Catalog\FDX Metric Structures"; $T="$pc\ContentLibrary\Templates"
 if($Executar -and (Get-Process acad -EA SilentlyContinue)){ throw 'Feche o Civil 3D antes de instalar.' }
 $pecas=Get-ChildItem $Tabelas -Filter '*_IPE.xml'
-$plano=foreach($t in $pecas){ $rid=([xml](Get-Content $t.FullName -Raw)).LandPart.ColumnConstView.Recipe; $src=Join-Path $Recipes "$($rid.Substring(0,2))\$($rid.Substring(2))"
-    [pscustomobject]@{ Peca=$t.BaseName; Recipe=$rid; Origem=$src; OrigemOk=(Test-Path $src); JaNoApc=([IO.File]::ReadAllText("$fdx\FDX Metric Structures.apc") -match "name=""$($t.BaseName)""") } }
+$plano=foreach($tab in $pecas){ $rid=([xml](Get-Content $tab.FullName -Raw)).LandPart.ColumnConstView.Recipe; $src=Join-Path $Recipes "$($rid.Substring(0,2))\$($rid.Substring(2))"
+    [pscustomobject]@{ Peca=$tab.BaseName; Recipe=$rid; Origem=$src; OrigemOk=(Test-Path $src); JaNoApc=([IO.File]::ReadAllText("$fdx\FDX Metric Structures.apc") -match "name=""$($tab.BaseName)""") } }   # $t seria o mesmo que $T (PowerShell nao diferencia)
 $plano | ft -AutoSize | Out-String -Width 200
 if(-not $Executar){ 'Simulacao. Rode com -Executar para instalar.'; return }
 $bk="C:\Temp\backup-FDX-Structures-$(Get-Date -f yyyyMMdd-HHmmss)"; robocopy $fdx $bk /E /NFL /NDL /NJH /NJS /NP | Out-Null
