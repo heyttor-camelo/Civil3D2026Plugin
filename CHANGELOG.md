@@ -1,3 +1,6 @@
+## 2.81.2 - HYDRO v0.14.2: Peca 3D mais clara
+
+- Botoes "Aplicar no desenho (Enter)" e "Desfazer previa (Esc)"; Esc num campo desfaz a previa (nao fecha a janela). Ajuda e status em portugues claro, com exemplo de valor.
 ## 2.81.1 - HYDRO v0.14.1: HYREGRA em portugues
 
 - HYREGRA: lista as medidas pelo nome em portugues (comprimento, largura, parede, espfundo, laje...) com o codigo entre colchetes; a pergunta aceita o nome em portugues ou o codigo (SIL, SIW...).

@@ -125,7 +125,7 @@ internal sealed class HydroPart3DWindow : SW.Window
         stage.Children.Add(_overlay);
         stage.Children.Add(new WC.TextBlock
         {
-            Text = "arrastar: girar   roda: zoom   duplo clique: vista inicial   clique na cota: editar",
+            Text = "arrastar: girar   roda: zoom   duplo clique: vista inicial   clique numa cota: edita a medida (a cota fica laranja)",
             Foreground = WM.Brushes.Gray,
             Margin = new SW.Thickness(8, 6, 8, 6),
             VerticalAlignment = SW.VerticalAlignment.Bottom,
@@ -166,8 +166,8 @@ internal sealed class HydroPart3DWindow : SW.Window
 
         WC.DockPanel right = new() { Width = 360, Background = Frozen(new WM.SolidColorBrush(WM.Color.FromRgb(37, 37, 38))) };
         WC.WrapPanel buttons = new() { Margin = new SW.Thickness(6) };
-        buttons.Children.Add(Button("Aplicar no desenho", ApplyNow, true));
-        buttons.Children.Add(Button("Desfazer previa", () => Load(_s, _net)));
+        buttons.Children.Add(Button("Aplicar no desenho (Enter)", ApplyNow, true));
+        buttons.Children.Add(Button("Desfazer previa (Esc)", () => Load(_s, _net)));
         buttons.Children.Add(Button("Zoom no desenho", () => _zoom(_s.Handle)));
         WC.DockPanel.SetDock(buttons, WC.Dock.Bottom);
         right.Children.Add(buttons);
@@ -210,7 +210,7 @@ internal sealed class HydroPart3DWindow : SW.Window
         if (!same)
             ResetView();
         _status.Text = (_real is null ? "Modelo simplificado (a peca do desenho nao tem solido legivel). " : "Peca real do desenho. ")
-            + (_batch > 1 ? $"Digite as medidas (m): a previa aparece na hora. Aplicar grava nas {_batch} marcadas." : "Digite as medidas (m): a previa aparece na hora. Aplicar grava no desenho.");
+            + (_batch > 1 ? $"Digite as medidas em metros: a previa aparece na hora. Enter grava nas {_batch} marcadas; Esc desfaz." : "Digite as medidas em metros (ex. 2,40 ou +0,20): a previa aparece na hora. Enter grava no desenho; Esc desfaz.");
     }
 
     /// <summary>
@@ -370,6 +370,12 @@ internal sealed class HydroPart3DWindow : SW.Window
             if (e.Key == WI.Key.Enter)
             {
                 ApplyNow();
+                e.Handled = true;
+            }
+            else if (e.Key == WI.Key.Escape)
+            {
+                // Esc desfaz a previa (nao fecha a janela).
+                Load(_s, _net);
                 e.Handled = true;
             }
         };
