@@ -27,3 +27,5 @@ Esse método foi validado no Civil 3D 2026 com a BLDC_IPE, a BLSC_IPE e o PV_DNI
 - PV_DNIT_IPE: `fe685653-c694-456e-ae8c-3d9a20d98f82`
 
 Backups: `C:\Temp\BLDC-IPE\backup-FDX-1726` e `backup-PipesCatalog`. Os catálogos removidos estão em `C:\Temp\BLDC-IPE\catalogos-teste-removidos`.
+
+No NOT (27/10/2026) as três peças foram recriadas com os mesmos ids de recipe, a partir dos scripts de `tools/inventor/ipe-catalogo`. Backup do FDX Metric Structures: `C:\Temp\backup-FDX-Structures-20261027-205645`.
