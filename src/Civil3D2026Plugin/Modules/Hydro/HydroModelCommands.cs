@@ -322,8 +322,7 @@ public sealed class HydroModelCommands
                 {
                     string r = HydroEditor.SetPlanSize(doc.Database, H(sid), cl, cw);
                     if (r.Length > 0)
-                        ed.WriteMessage("
-[HYDRO] " + r);
+                        ed.WriteMessage("\n[HYDRO] " + r);
                 }
             }
 
