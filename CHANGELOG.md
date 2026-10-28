@@ -1,3 +1,6 @@
+## 2.79.0 - HYDRO v0.12.0: HYENTRAR (tubo para dentro da boca de lobo)
+
+- HYENTRAR (teste): nas bocas de lobo de calcada do CSBIM o ponto de insercao e a face da guia. O comando leva a ponta de cada tubo ligado a estrutura escolhida para o centro da caixa em planta (centro do retangulo envolvente do solido, vale com a peca girada), mantendo a cota. Depois de gravar, rele e informa se o Civil manteve a ponta e a ligacao. Ainda nao e automatico.
 ## 2.78.1 - HYDRO v0.11.1: HYFUNDO grava o SRS nas tabelas com index 0 por contexto
 
 - A trava do SRS (2.77.1) tratava como conflito qualquer campo com o mesmo index, mesmo de outro contexto. Nas tabelas em que cada contexto tem index 0 (as _IPE, por exemplo), o HYFUNDO nunca gravava a altura tampa-fundo (log: "campo 'SRS' conflita com 'WTh'"). Agora o index so conta dentro do mesmo contexto; o id de coluna duplicado continua barrado pelo nome.

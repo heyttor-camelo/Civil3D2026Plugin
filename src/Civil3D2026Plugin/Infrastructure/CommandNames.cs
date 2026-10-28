@@ -65,6 +65,7 @@ public static class CommandNames
         public const string Lancar = "HYLANCAR";
 
         public const string Catalogo = "HYCATALOGO";
+        public const string Entrar = "HYENTRAR";
 
         public const string Regras = "HYREGRAS";
         public const string Regra = "HYREGRA";
