@@ -193,7 +193,6 @@ internal static class HydroEditor
         if (part is null)
             throw new InvalidOperationException("Peca nao encontrada (handle " + handle + ").");
         List<string> applied = new(), refused = new();
-        Dictionary<string, double> resize = new(StringComparer.OrdinalIgnoreCase);
         using (CivilDb.PartDataRecord rec = part.PartData)
         {
             foreach ((string name, double value) in values)
@@ -222,7 +221,9 @@ internal static class HydroEditor
                         using CivilDb.PartDataRange r = f.ValueRange;
                         if (!r.IsValidValue(value))
                         {
-                            refused.Add($"{name}: {value} fora da faixa {r.RangeMin}..{r.RangeMax}");
+                            double k = HydroRules.Factor(f.Units);
+                            string M(object o) => (Convert.ToDouble(o, System.Globalization.CultureInfo.InvariantCulture) * k).ToString("0.00", System.Globalization.CultureInfo.InvariantCulture).Replace('.', ',');
+                            refused.Add($"{HydroNames.Long(f.ContextString, f.Description, name)} {M(value)} m fora da faixa da familia ({M(r.RangeMin)} a {M(r.RangeMax)} m; para liberar rode C:\\Temp\\Ampliar-Faixas-FDX.ps1)");
                             continue;
                         }
                     }
@@ -243,112 +244,18 @@ internal static class HydroEditor
 
                 f.Value = value;
                 applied.Add($"{name}={value}");
-                if (f.IsFromRange && f.Context != CivilDb.PartContextType.StructRimToSumpHeight)
-                    resize[f.Name] = value;
             }
 
             if (applied.Count > 0)
                 part.PartData = rec;
         }
 
-        // O setter do PartData guarda o valor mas nao refaz o solido das pecas do Part Builder.
-        // Medida de faixa (comprimento, largura, parede...): tamanho na parts list com os valores
-        // novos (reaproveita um igual) e troca da peca para ele, mantendo tampa, fundo e tubos.
-        if (resize.Count > 0 && part is CivilDb.Structure st)
-        {
-            string how = ResizeBySize(tr, st, resize);
-            PluginLog.Info(Module, $"{st.Name}: {how}");
-        }
-
         tr.Commit();
         PluginLog.Info(Module, $"{part.Name}: parametros {string.Join(", ", applied)}" + (refused.Count > 0 ? "; recusados: " + string.Join("; ", refused) : ""));
+        // Recusa nunca calada: o painel e as regras nao mostram o retorno, entao avisa na linha de comando.
+        if (refused.Count > 0)
+            Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage($"\n[HYDRO] {part.Name}: nao gravado - {string.Join("; ", refused)}.");
         return (applied.Count > 0 ? $"{applied.Count} parametro(s) gravado(s)" : "nada gravado") + (refused.Count > 0 ? " (" + string.Join("; ", refused) + ")" : "");
-    }
-
-    /// <summary>
-    /// Redimensiona a estrutura por tamanho: monta um SizeFilterRecord da familia com os valores de
-    /// faixa atuais da peca e os pedidos (unidade do catalogo), acha um tamanho igual na parts list
-    /// ou cria um, e troca a peca para ele (SwapPartFamilyAndSize), repondo tampa e fundo.
-    /// </summary>
-    private static string ResizeBySize(AcadDb.Transaction tr, CivilDb.Structure s, IReadOnlyDictionary<string, double> wanted)
-    {
-        CivilDb.Styles.PartFamily fam = (CivilDb.Styles.PartFamily)tr.GetObject(s.PartFamilyId, AcadDb.OpenMode.ForWrite, false);
-        Dictionary<string, double> target = new(StringComparer.OrdinalIgnoreCase);
-        using (CivilDb.PartDataRecord cur = s.PartData)
-        {
-            foreach (CivilDb.PartDataField f in cur.GetAllDataFields())
-            {
-                if (f.IsFromRange && f.Value is double v && !string.IsNullOrEmpty(f.Name))
-                    target[f.Name] = wanted.TryGetValue(f.Name, out double w) ? w : v;
-            }
-        }
-
-        bool Same(CivilDb.PartDataRecord r)
-        {
-            foreach ((string n, double v) in target)
-            {
-                try
-                {
-                    if (r.GetDataFieldBy(n).Value is not double x || Math.Abs(x - v) > 1e-6 * Math.Max(1, Math.Abs(v)))
-                        return false;
-                }
-                catch
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
-
-        AcadDb.ObjectId sizeId = AcadDb.ObjectId.Null;
-        for (int i = 0; i < fam.PartSizeCount && sizeId.IsNull; i++)
-        {
-            if (tr.GetObject(fam[i], AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize ps && Same(ps.SizeDataRecord))
-                sizeId = fam[i];
-        }
-
-        bool created = false;
-        if (sizeId.IsNull)
-        {
-            HashSet<AcadDb.ObjectId> before = new();
-            for (int i = 0; i < fam.PartSizeCount; i++)
-                before.Add(fam[i]);
-            using (CivilDb.Styles.SizeFilterRecord rec = new(fam))
-            {
-                for (int i = 0; i < rec.ParamCount; i++)
-                {
-                    CivilDb.Styles.SizeFilterField f = rec[i];
-                    if (f.DataSource == CivilDb.Styles.PartDataSourceType.RangeList && target.TryGetValue(f.Name, out double v))
-                        f.Value = v;
-                }
-
-                fam.AddPartSize(rec);
-            }
-
-            for (int i = 0; i < fam.PartSizeCount; i++)
-            {
-                if (!before.Contains(fam[i]))
-                    sizeId = fam[i];
-            }
-
-            if (sizeId.IsNull)
-                return "tamanho novo nao criado pelo Civil (ficou so o PartData)";
-            created = true;
-        }
-
-        double rim = s.RimElevation, sump = s.SumpElevation;
-        CivilDb.StructureControlSumpType control = s.ControlSumpBy;
-        s.SwapPartFamilyAndSize(fam.ObjectId, sizeId);
-        if (!s.AutomaticRimSurfaceAdjustment && Math.Abs(s.RimElevation - rim) > 1e-4)
-            s.RimElevation = rim;
-        if (s.ControlSumpBy != CivilDb.StructureControlSumpType.ByElevation)
-            s.ControlSumpBy = CivilDb.StructureControlSumpType.ByElevation;
-        if (Math.Abs(s.SumpElevation - sump) > 1e-4)
-            s.SumpElevation = sump;
-        if (control != CivilDb.StructureControlSumpType.ByElevation)
-            s.ControlSumpBy = control;
-        return $"refeita pelo tamanho {(created ? "novo" : "existente")} {s.PartSizeName}";
     }
 
     /// <summary>Move a estrutura em planta; os tubos ligados acompanham (o Civil mantem a conexao).</summary>

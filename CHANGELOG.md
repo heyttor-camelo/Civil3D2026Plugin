@@ -1,3 +1,7 @@
+## 2.83.1 - HYDRO v0.16.1: recusa avisada, sem troca de tamanho
+
+- Valor fora da faixa da familia: aviso na linha de comando em portugues e em metros (ex. "Largura interna 1,50 m fora da faixa da familia (0,30 a 1,20 m...)"), tambem quando a edicao vem do painel ou das regras. Antes so ia para o log.
+- Desfeito o redimensionamento por troca de tamanho da 2.82.1: no teste no Civil o comprimento mudou so com o PartData (2.82.0), entao a troca era desnecessaria e criava tamanhos na parts list. O limite de 1,20 m da largura era a faixa do catalogo.
 ## 2.83.0 - HYDRO v0.16.0: Peca 3D dentro do painel
 
 - Estruturas: aba "Peca 3D" no painel com o editor 3D (modelo em cima, medidas embaixo, divisoria arrastavel), acompanhando a estrutura selecionada; a aba fica escolhida ao trocar de linha. Botao "Abrir em janela" leva para a janela separada, que continua existindo (HydroPart3DView e o controle comum).
