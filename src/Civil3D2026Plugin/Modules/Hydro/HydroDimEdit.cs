@@ -230,17 +230,26 @@ public sealed class HydroDimEdit
             _focus = focus;
             if (s.Length is not null)
             {
-                _lenDim = new AcadDb.AlignedDimension { DynamicDimension = true };
+                _lenDim = NewDim();
                 _dims.Add((_lenDim, s.Length));
             }
 
             if (s.Width is not null)
             {
-                _widDim = new AcadDb.AlignedDimension { DynamicDimension = true };
+                _widDim = NewDim();
                 _dims.Add((_widDim, s.Width));
             }
 
             PlaceDims();
+        }
+
+        /// <summary>Cota dinamica com o estilo do desenho (sem SetDatabaseDefaults o AutoCAD pode cair ao desenha-la).</summary>
+        private static AcadDb.AlignedDimension NewDim()
+        {
+            AcadDb.AlignedDimension d = new();
+            d.SetDatabaseDefaults();
+            d.DynamicDimension = true;
+            return d;
         }
 
         private void PlaceDims()
@@ -273,6 +282,16 @@ public sealed class HydroDimEdit
             if (!_dirty)
                 return SamplerStatus.NoChange;
             _dirty = false;
+            // As cotas so mudam de lugar aqui, fora do aviso de valor (mexer nelas la dentro derruba o Civil).
+            try
+            {
+                PlaceDims();
+            }
+            catch
+            {
+                // Mantem o lugar anterior.
+            }
+
             return SamplerStatus.OK;
         }
 
@@ -326,7 +345,6 @@ public sealed class HydroDimEdit
                     return;
                 Measure m = _dims[i].M;
                 m.Value = m.Clamp(v);
-                PlaceDims();
                 _dirty = true;
             }
             catch

@@ -1,3 +1,6 @@
+## 2.86.3 - HYDRO v0.19.3: HYMEDIDAS nao derruba mais o Civil
+
+- Corrigido: o Civil 3D fechava (fatal error) ao digitar o valor na cota do HYMEDIDAS. As cotas dinamicas eram criadas sem SetDatabaseDefaults (sem estilo de cota) e eram movidas dentro do aviso de valor do Dynamic Input. Agora tem o estilo do desenho, e so mudam de lugar no ciclo do jig.
 ## 2.86.2 - HYDRO v0.19.2: troca peca a peca
 
 - HYTROCAR/troca de familia: a peca que o Civil recusar e pulada (com o motivo na linha de comando) e as outras seguem; antes um erro desfazia o lote inteiro.
