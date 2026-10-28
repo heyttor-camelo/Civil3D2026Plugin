@@ -232,7 +232,9 @@ internal static class HydroReader
             list.Add(new PartParam(f.Name, f.Description, context, v, min, max, f.Units, range, f.IsReadOnly)
             {
                 List = fromList ? vals.OrderBy(x => x).ToList() : new List<double>(),
-                Internal = context.StartsWith("Geometry_", StringComparison.OrdinalIgnoreCase) || context.StartsWith("BodyGeometry_", StringComparison.OrdinalIgnoreCase)
+                // Geometry_* em faixa/lista e medida de projeto exposta pela familia (tabelas _IPE: aberturas, lajes...), entao editavel.
+                Internal = !range && !fromList &&
+                           (context.StartsWith("Geometry_", StringComparison.OrdinalIgnoreCase) || context.StartsWith("BodyGeometry_", StringComparison.OrdinalIgnoreCase))
             });
         }
 

@@ -29,3 +29,14 @@ Esse método foi validado no Civil 3D 2026 com a BLDC_IPE, a BLSC_IPE e o PV_DNI
 Backups: `C:\Temp\BLDC-IPE\backup-FDX-1726` e `backup-PipesCatalog`. Os catálogos removidos estão em `C:\Temp\BLDC-IPE\catalogos-teste-removidos`.
 
 No NOT (27/10/2026) as três peças foram recriadas com os mesmos ids de recipe, a partir dos scripts de `tools/inventor/ipe-catalogo`. Backup do FDX Metric Structures: `C:\Temp\backup-FDX-Structures-20261027-205645`.
+
+## Parametros editaveis e o que o Civil aceita (testes no NOT, 27/10/2026)
+- Cada parametro novo da caixa chega a geometria assim: parametro de usuario `UndergroundStructure_<Nome>` no `geom.iam`, linha na regra iLogic `UndergroundStructure` e `Param` no `param.xml` (cm). Script: `tools/inventor/ipe-catalogo/Add-ParametrosRecipe.ps1`.
+- Campos com contexto `Geometry_*` nao aparecem no PartData das pecas de receita. Para o plugin enxergar, use contexto de estrutura (padrao ou proprio, como `StructAlturaCaixa`).
+- No NOT, nenhuma peca de receita do Inventor redimensiona: nem as _IPE nem a original Autodesk `f0ebc5ac` (receita `ccf8165e`). Faixa (SIL, SRS) volta ao padrao, e todos os tamanhos saem com o mesmo solido. As Part Builder redimensionam normalmente. Suspeita: o motor de pecas de receita do Civil quebrou com a reinstalacao de componentes do Civil feita pelo instalador do Inventor. Conferir no notebook e reparar o Civil 3D antes de concluir.
+- Plano (opcao A): tamanhos por linha na tabela (`New-TabelaIPE.ps1 -Linhas`), AbL/TampaE como colunas com contexto proprio, SRS livre se o motor permitir.
+
+## Parametros por familia (tabelas _IPE)
+- BLDC/BLSC/BLTC (boca na guia): SIL, SIW, WTh, FTh, SRS, SFH (marcador), AbL (abertura), AbH, AbVao (BLDC) ou Ab_Gap (BLTC), Aba (aba do fundo), TampaE (laje de topo).
+- PV_DNIT: SIL, SIW, WTh, FTh, SRS, AC (chamine), DC (tampao), CB (acrescimo da base do cone), SFH.
+- Medidas do Part Builder (Drawing2): aberturas 950 x 150 a 50 do topo; BLDC 2 aberturas com vao 50; BLTC 3 com folga 175; caixa C atras da guia (0 a +800), G do lado da pista (-920 a 0, grelhas 1000 x 520 com 10 fendas 440 x 40, laje 100 abaixo da guia), M dos dois lados (-400 a +800, faixa de grelha 1000 x 335 rebaixada 200). As versoes SUL/CENTRO tem o mesmo solido e viram uma peca so.

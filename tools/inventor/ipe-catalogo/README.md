@@ -46,3 +46,7 @@ Passos feitos direto pela API, sem script próprio:
   ângulo de saída `atan((ConeBaseD − SPDiameter) / (2·USRiserHeight))` em `RiserBody` e
   `RiserInnerBody`.
 - **param.xml do recipe**: Value em cm (o IPE e o Civil 3D leem assim; em mm a peça sai 10× maior).
+
+- `Add-ParametrosRecipe.ps1 -Recipe <pasta> -Params @{Nome=@('valor mm','descricao')}`: leva parametros da tabela ate o .ipt (geom.iam + regra iLogic + param.xml).
+- `New-BltcRecipe.ps1`: BLTC (3 aberturas) a partir da receita da BLDC_IPE.
+- `New-TabelaIPE.ps1 -Linhas`: tamanhos por linha (pecas de receita nao aceitam faixa; ver docs).

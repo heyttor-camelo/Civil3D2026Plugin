@@ -63,7 +63,7 @@ foreach ($side in 1, -1) {
     $f = $def.Features.ExtrudeFeatures.Add($ed); $f.Name = $nome
     # confere se cortou a parede da frente (Y < 0); se cortou a de trás, inverte o sentido
     $hit = $false
-    foreach ($fc in $f.Faces) { if ($fc.PointOnFace.Y -lt -($P.USWidth / 20) + 0.5) { $hit = $true } }
+    foreach ($fc in $f.Faces) { if ($fc.PointOnFace.Y -lt -($P.USWidth / 20) + 5) { $hit = $true } }   # cm: dentro da parede da frente
     if (-not $hit) { $f.Definition.SetDistanceExtent('USWidth / 2 + 1 cm', $kPos) }
 }
 $doc.Update()
