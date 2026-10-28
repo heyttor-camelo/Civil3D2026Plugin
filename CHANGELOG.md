@@ -1,3 +1,7 @@
+## 2.81.1 - HYDRO v0.14.1: HYREGRA em portugues
+
+- HYREGRA: lista as medidas pelo nome em portugues (comprimento, largura, parede, espfundo, laje...) com o codigo entre colchetes; a pergunta aceita o nome em portugues ou o codigo (SIL, SIW...).
+- Regras: os nomes em portugues tambem sao variaveis nas formulas (ex. comprimento + 2*parede).
 ## 2.81.0 - HYDRO v0.14.0: Peca 3D com cotas no lugar, nomes em portugues, tubos so nas pecas de face
 
 - Peca 3D: o modelo pelas medidas usa o mesmo sistema do solido real (comprimento em X, largura em Y; antes estavam trocados) e fica no centro do solido, que nas bocas de lobo de calcada nao e o ponto de insercao. As cotas ficam sobre as arestas e a previa nao "muda outra coisa".

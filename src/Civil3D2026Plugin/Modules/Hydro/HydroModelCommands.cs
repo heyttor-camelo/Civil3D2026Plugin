@@ -554,24 +554,26 @@ public sealed class HydroModelCommands
 
         Dictionary<string, string> eff = HydroRules.Effective(own, templates);
         ed.WriteMessage($"\n{name}" + (own.Template.Length > 0 ? $" (modelo {own.Template})" : "") + ":");
-        foreach (PartParam p in parameters.Where(p => p.Editable))
+        foreach (PartParam p in parameters.Where(p => p.Editable && !p.Fixed))
         {
-            string rule = eff.TryGetValue(p.Name, out string? r) ? "  = " + r : "  (fixa)";
-            ed.WriteMessage($"\n  {p.Name,-6} {N(p.Meters)} m  {p.Description}{rule}");
+            string rule = eff.TryGetValue(p.Name, out string? r) ? "  = " + r : "  (sem regra)";
+            ed.WriteMessage($"\n  {HydroNames.Short(p.Context, p.Name),-13} {N(p.Meters)} m  {p.Description} [{p.Name}]{rule}");
         }
 
         ed.WriteMessage($"\n  tampa  {N(vars[HydroRules.Rim])} m" + (eff.TryGetValue(HydroRules.Rim, out string? rr) ? "  = " + rr : "  (fixa)"));
         ed.WriteMessage($"\n  fundo  {N(vars[HydroRules.Sump])} m" + (eff.TryGetValue(HydroRules.Sump, out string? rf) ? "  = " + rf : "  (fixa)"));
-        ed.WriteMessage("\n  Variaveis: " + string.Join("  ", vars.Where(kv => !parameters.Any(p => Calc.HydroExpr.Normalize(p.Name) == kv.Key))
+        HashSet<string> partVars = new(parameters.SelectMany(p => new[] { Calc.HydroExpr.Normalize(p.Name), Calc.HydroExpr.Normalize(HydroNames.Short(p.Context, p.Name)) }));
+        ed.WriteMessage("\n  Outras variaveis (m): " + string.Join("  ", vars.Where(kv => !partVars.Contains(kv.Key))
             .Select(kv => $"{kv.Key}={N(kv.Value)}")));
         ed.WriteMessage("\n  " + HydroRules.Help);
 
-        PromptStringOptions to = new("\nMedida (SIL, SIW, tampa, fundo...): ") { AllowSpaces = false };
+        PromptStringOptions to = new("\nMedida (comprimento, largura, parede, tampa, fundo...): ") { AllowSpaces = false };
         PromptResult tr1 = ed.GetString(to);
         if (tr1.Status != PromptStatus.OK || tr1.StringResult.Trim().Length == 0)
             return;
         string target = tr1.StringResult.Trim();
-        PartParam? param = parameters.FirstOrDefault(p => p.Name.Equals(target, StringComparison.OrdinalIgnoreCase));
+        PartParam? param = parameters.FirstOrDefault(p => p.Name.Equals(target, StringComparison.OrdinalIgnoreCase))
+            ?? parameters.FirstOrDefault(p => HydroNames.Short(p.Context, p.Name).Equals(target, StringComparison.OrdinalIgnoreCase));
         if (param is not null)
             target = param.Name;
         else if (target.Equals(HydroRules.Rim, StringComparison.OrdinalIgnoreCase) || target.Equals(HydroRules.Sump, StringComparison.OrdinalIgnoreCase))

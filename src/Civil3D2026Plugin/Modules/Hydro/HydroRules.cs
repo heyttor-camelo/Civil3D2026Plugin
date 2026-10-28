@@ -50,7 +50,7 @@ internal static class HydroRules
 
     /// <summary>Texto de ajuda das variaveis, para o painel e a linha de comando.</summary>
     public const string Help =
-        "Variaveis em m: medidas da peca pelo nome (SIL, SIW, AC...), tampa, fundo, prof, sup, dmax, dmin, dext, fundo_min, fundo_max, fundo_saida, d_saida, ntubos. " +
+        "Variaveis em m: medidas da peca pelo nome (comprimento, largura, parede, espfundo, laje...; os codigos SIL, SIW tambem valem), tampa, fundo, prof, sup, dmax (maior diametro dos tubos), dmin, dext (maior diametro externo), fundo_min, fundo_max, fundo_saida, d_saida, ntubos. " +
         "Funcoes: max, min, abs, raiz, arred(x;n), teto(x;passo), piso(x;passo), limitar(x;a;b), se(cond;a;b). Decimal com virgula, argumentos com ';'.";
 
     // ------------------------------------------------------------------
@@ -252,6 +252,13 @@ internal static class HydroRules
         parameters = HydroReader.ReadParameters(s);
         foreach (PartParam p in parameters)
             v[HydroExpr.Normalize(p.Name)] = p.Value * p.Factor;
+        // Os mesmos valores pelo nome em portugues (comprimento, largura, parede...), sem tirar o codigo.
+        foreach (PartParam p in parameters)
+        {
+            string pt = HydroExpr.Normalize(HydroNames.Short(p.Context, p.Name));
+            if (!v.ContainsKey(pt))
+                v[pt] = p.Value * p.Factor;
+        }
 
         double rim = s.RimElevation, sump = s.SumpElevation;
         v[Rim] = rim;
