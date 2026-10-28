@@ -1,3 +1,6 @@
+## 2.83.0 - HYDRO v0.16.0: Peca 3D dentro do painel
+
+- Estruturas: aba "Peca 3D" no painel com o editor 3D (modelo em cima, medidas embaixo, divisoria arrastavel), acompanhando a estrutura selecionada; a aba fica escolhida ao trocar de linha. Botao "Abrir em janela" leva para a janela separada, que continua existindo (HydroPart3DView e o controle comum).
 ## 2.82.1 - HYDRO v0.15.1: medidas da peca passam a refazer o solido
 
 - Corrigido: editar comprimento, largura, parede etc. (painel, Peca 3D, HYMEDIDAS, regras) gravava o valor no PartData, mas o Civil nao refazia o solido das pecas do Part Builder; o setter so guarda o dado, e o redimensionamento (ApplyResizing) e interno. Agora, depois do PartData, a peca e trocada para um tamanho da parts list com os valores novos (um igual e reaproveitado; senao e criado), mantendo tampa, fundo e as ligacoes dos tubos. A profundidade (SRS) continua pela tampa/fundo.

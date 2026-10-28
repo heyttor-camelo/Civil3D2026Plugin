@@ -24,7 +24,47 @@ namespace Civil3D2026Plugin.Modules.Hydro;
 internal sealed class HydroPart3DWindow : SW.Window
 {
     private static HydroPart3DWindow? _current;
+    private readonly HydroPart3DView _view;
 
+    private HydroPart3DWindow(HydroPart3DView view)
+    {
+        _view = view;
+        Title = "HYDRO - Peca 3D";
+        Width = 1000;
+        Height = 660;
+        Content = view;
+        view.CaptionChanged += c => Title = c;
+        Closed += (_, _) => _current = null;
+        Title = view.Caption;
+    }
+
+    /// <summary>
+    /// Abre (ou reaproveita) a janela. batch &gt; 1: edicao em lote, a peca mostrada e a primeira
+    /// marcada e "Aplicar" grava em todas (o apply recebido ja aponta para o lote).
+    /// </summary>
+    public static void Open(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch = 1)
+    {
+        if (_current is not null)
+        {
+            _current._view.Show(s, net, apply, batch);
+            _current.Activate();
+            return;
+        }
+
+        _current = new HydroPart3DWindow(new HydroPart3DView(s, net, apply, zoom, batch, false));
+        AcApp.ShowModelessWindow(_current);
+    }
+
+    /// <summary>O painel releu o desenho: atualiza a peca aberta (mesmo handle) com os valores gravados.</summary>
+    public static void Refreshed(Func<string, (StructureInfo? S, NetworkInfo? Net)> find) => _current?._view.Refreshed(find);
+}
+
+/// <summary>
+/// O editor 3D em si (controle): vai na janela "Peca 3D" e na aba Peca 3D do painel, que acompanha
+/// a selecao. Compacto (painel): o modelo em cima e as medidas embaixo.
+/// </summary>
+internal sealed class HydroPart3DView : WC.UserControl
+{
     private StructureInfo _s;
     private NetworkInfo _net;
     private Action<StructureInfo, List<(string Target, string Text)>> _apply;
@@ -63,52 +103,44 @@ internal sealed class HydroPart3DWindow : SW.Window
         return b;
     }
 
-    /// <summary>
-    /// Abre (ou reaproveita) a janela. batch &gt; 1: edicao em lote, a peca mostrada e a primeira
-    /// marcada e "Aplicar" grava em todas (o apply recebido ja aponta para o lote).
-    /// </summary>
-    public static void Open(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch = 1)
-    {
-        if (_current is not null)
-        {
-            _current._apply = apply;
-            _current._batch = batch;
-            _current.Load(s, net);
-            _current.Activate();
-            return;
-        }
+    private readonly bool _compact;
 
-        _current = new HydroPart3DWindow(s, net, apply, zoom, batch);
-        AcApp.ShowModelessWindow(_current);
-    }
+    /// <summary>Titulo (peca, familia e tamanho), para a janela que hospeda.</summary>
+    public string Caption { get; private set; } = "HYDRO - Peca 3D";
 
-    /// <summary>O painel releu o desenho: atualiza a peca aberta (mesmo handle) com os valores gravados.</summary>
-    public static void Refreshed(Func<string, (StructureInfo? S, NetworkInfo? Net)> find)
-    {
-        HydroPart3DWindow? w = _current;
-        if (w is null)
-            return;
-        (StructureInfo? s, NetworkInfo? net) = find(w._s.Handle);
-        if (s is not null && net is not null)
-            w.Load(s, net);
-    }
+    public event Action<string>? CaptionChanged;
 
-    private HydroPart3DWindow(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch)
+    public HydroPart3DView(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, Action<string> zoom, int batch, bool compact)
     {
         _s = s;
         _net = net;
         _apply = apply;
         _batch = batch;
         _zoom = zoom;
-        Title = "HYDRO - Peca 3D";
-        Width = 1000;
-        Height = 660;
+        _compact = compact;
         Background = Back;
         Foreground = WM.Brushes.Gainsboro;
-        Closed += (_, _) => _current = null;
         Content = BuildUi();
         Load(s, net);
     }
+
+    /// <summary>Mostra outra peca (ou a mesma relida), com o destino de gravacao dado.</summary>
+    public void Show(StructureInfo s, NetworkInfo net, Action<StructureInfo, List<(string Target, string Text)>> apply, int batch = 1)
+    {
+        _apply = apply;
+        _batch = batch;
+        Load(s, net);
+    }
+
+    /// <summary>O painel releu o desenho: atualiza a peca (mesmo handle) com os valores gravados.</summary>
+    public void Refreshed(Func<string, (StructureInfo? S, NetworkInfo? Net)> find)
+    {
+        (StructureInfo? s, NetworkInfo? net) = find(_s.Handle);
+        if (s is not null && net is not null)
+            Load(s, net);
+    }
+
+    public string Handle => _s.Handle;
 
     // ------------------------------------------------------------------
     // Interface
@@ -164,16 +196,36 @@ internal sealed class HydroPart3DWindow : SW.Window
         };
         stage.SizeChanged += (_, _) => QueueOverlay();
 
-        WC.DockPanel right = new() { Width = 360, Background = Frozen(new WM.SolidColorBrush(WM.Color.FromRgb(37, 37, 38))) };
+        WC.DockPanel right = new() { Background = Frozen(new WM.SolidColorBrush(WM.Color.FromRgb(37, 37, 38))) };
+        if (!_compact)
+            right.Width = 360;
         WC.WrapPanel buttons = new() { Margin = new SW.Thickness(6) };
         buttons.Children.Add(Button("Aplicar no desenho (Enter)", ApplyNow, true));
         buttons.Children.Add(Button("Desfazer previa (Esc)", () => Load(_s, _net)));
         buttons.Children.Add(Button("Zoom no desenho", () => _zoom(_s.Handle)));
+        if (_compact)
+            buttons.Children.Add(Button("Abrir em janela", () => HydroPart3DWindow.Open(_s, _net, _apply, _zoom, _batch)));
         WC.DockPanel.SetDock(buttons, WC.Dock.Bottom);
         right.Children.Add(buttons);
         WC.DockPanel.SetDock(_status, WC.Dock.Bottom);
         right.Children.Add(_status);
         right.Children.Add(new WC.ScrollViewer { Content = _fields, VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto });
+
+        if (_compact)
+        {
+            // Painel: modelo em cima (divisoria arrastavel), medidas e botoes embaixo.
+            WC.Grid g = new();
+            g.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 140 });
+            g.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(5) });
+            g.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1.2, SW.GridUnitType.Star), MinHeight = 120 });
+            g.Children.Add(stage);
+            WC.GridSplitter split = new() { Height = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = Back };
+            WC.Grid.SetRow(split, 1);
+            g.Children.Add(split);
+            WC.Grid.SetRow(right, 2);
+            g.Children.Add(right);
+            return g;
+        }
 
         WC.DockPanel root = new();
         WC.DockPanel.SetDock(right, WC.Dock.Right);
@@ -201,9 +253,10 @@ internal sealed class HydroPart3DWindow : SW.Window
         _s = s;
         _net = net;
         _preview.Clear();
-        Title = _batch > 1
+        Caption = _batch > 1
             ? $"HYDRO - Peca 3D (lote: {_batch} estruturas, mostrando {s.Name})"
             : $"HYDRO - Peca 3D: {s.Name} ({s.Family} / {s.Size})";
+        CaptionChanged?.Invoke(Caption);
         LoadReal();
         BuildFields();
         Rebuild();

@@ -1477,6 +1477,7 @@ internal sealed partial class HydroPanel : SW.Window
                 tabs.Add(("Pecas", "Lista de pecas", () => PartsView(n)));
                 break;
             case StructureInfo s when net is not null:
+                tabs.Add(("Peca3D", "Peca 3D", () => Part3DTab(s, net)));
                 tabs.Add(("Conexoes", $"Conexoes ({s.PipeCount + s.Catchments.Count})", () => ConnectionsView(s, net)));
                 tabs.Add(("Hidraulica", "Hidraulica", () => StructureHydraulicsView(s, net)));
                 tabs.Add(("Regras", "Regras", () => RulesView(s.Handle, s.RuleSet)));
@@ -1843,6 +1844,24 @@ internal sealed partial class HydroPanel : SW.Window
         RulesSection(new[] { s });
         AllPropertiesSection(new[] { s.Handle });
         _render = () => RenderPlan(net, s.Handle);
+    }
+
+    private HydroPart3DView? _part3d;
+
+    /// <summary>
+    /// Aba Peca 3D: o editor 3D dentro do painel, acompanhando a estrutura selecionada (a aba fica
+    /// escolhida ao trocar de linha). Um so controle, reaproveitado entre selecoes.
+    /// </summary>
+    private SW.UIElement Part3DTab(StructureInfo s, NetworkInfo net)
+    {
+        void Apply(StructureInfo x, List<(string Target, string Text)> edits) => ApplyStructureEdits(new[] { x }, edits, "", "", false);
+        if (_part3d is null)
+            _part3d = new HydroPart3DView(s, net, Apply, GoTo, 1, true);
+        else
+            _part3d.Show(s, net, Apply);
+        if (_part3d.Parent is WC.ContentControl old && !ReferenceEquals(old, _tabContent))
+            old.Content = null;
+        return _part3d;
     }
 
     /// <summary>Abre (ou troca) o editor da peca em 3D; grava pelo mesmo caminho da aba Propriedades.</summary>
