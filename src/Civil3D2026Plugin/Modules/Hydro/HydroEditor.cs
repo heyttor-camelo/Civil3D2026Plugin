@@ -159,7 +159,8 @@ internal static class HydroEditor
         {
             if (o.Context == CivilDb.PartContextType.StructRimToSumpHeight)
                 continue;
-            if (string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase) || o.Index == f.Index)
+            // Index so conta dentro do mesmo contexto: as tabelas _IPE tem index 0 em cada contexto (SRS, WTh...).
+            if (string.Equals(o.Name, name, StringComparison.OrdinalIgnoreCase) || (o.Index == f.Index && o.Context == f.Context))
             {
                 conflict = true;
                 why = $"campo '{name}' conflita com '{o.Name}' ({o.ContextString})";

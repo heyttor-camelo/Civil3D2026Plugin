@@ -1,3 +1,6 @@
+## 2.78.1 - HYDRO v0.11.1: HYFUNDO grava o SRS nas tabelas com index 0 por contexto
+
+- A trava do SRS (2.77.1) tratava como conflito qualquer campo com o mesmo index, mesmo de outro contexto. Nas tabelas em que cada contexto tem index 0 (as _IPE, por exemplo), o HYFUNDO nunca gravava a altura tampa-fundo (log: "campo 'SRS' conflita com 'WTh'"). Agora o index so conta dentro do mesmo contexto; o id de coluna duplicado continua barrado pelo nome.
 ## 2.78.0 - HYDRO v0.11.0: campos com cara de campo, peca 3D real, 3D em lote
 
 - Aba Propriedades: os campos de valor agora tem borda, fundo branco (escuro no tema escuro), "digite aqui" quando vazios e borda azul no foco.
