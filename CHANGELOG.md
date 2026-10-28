@@ -1,3 +1,6 @@
+## 2.86.4 - HYDRO v0.19.4: HYMEDIDAS por perguntas de valor
+
+- O fatal error continuou na 2.86.3: o HYMEDIDAS deixa de usar as cotas dinamicas do jig e pergunta comprimento e largura internos (valor atual como padrao, faixa no texto); com o Dynamic Input ligado a pergunta aparece junto ao cursor. O grip de cota escolhe qual medida vem primeiro.
 ## 2.86.3 - HYDRO v0.19.3: HYMEDIDAS nao derruba mais o Civil
 
 - Corrigido: o Civil 3D fechava (fatal error) ao digitar o valor na cota do HYMEDIDAS. As cotas dinamicas eram criadas sem SetDatabaseDefaults (sem estilo de cota) e eram movidas dentro do aviso de valor do Dynamic Input. Agora tem o estilo do desenho, e so mudam de lugar no ciclo do jig.
