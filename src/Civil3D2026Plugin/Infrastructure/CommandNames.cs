@@ -66,6 +66,7 @@ public static class CommandNames
 
         public const string Catalogo = "HYCATALOGO";
         public const string Entrar = "HYENTRAR";
+        public const string Medidas = "HYMEDIDAS";
 
         public const string Regras = "HYREGRAS";
         public const string Regra = "HYREGRA";

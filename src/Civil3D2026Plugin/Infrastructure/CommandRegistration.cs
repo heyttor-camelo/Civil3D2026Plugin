@@ -12,6 +12,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroLaunchCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroCatalogCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroPipeInside))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Hydro.HydroDimEdit))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.QTO.QtoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo.MFRebaixoCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.CorridorSplit.CorridorSplitCommands))]

@@ -1,3 +1,6 @@
+## 2.82.0 - HYDRO v0.15.0: HYMEDIDAS (editar medidas no desenho)
+
+- HYMEDIDAS e botao direito na estrutura > "Editar medidas (comprimento, largura)...": cotas dinamicas editaveis (Dynamic Input) sobre as arestas internas da caixa em planta. Tab passa de cota, a previa do contorno interno e externo acompanha o valor, Enter/clique grava no PartData (um UNDO), Esc cancela. Respeita a rotacao e o ponto de insercao na face (a face fica parada e a caixa cresce para dentro). Valores fora da faixa do catalogo sao limitados a ela.
 ## 2.81.2 - HYDRO v0.14.2: Peca 3D mais clara
 
 - Botoes "Aplicar no desenho (Enter)" e "Desfazer previa (Esc)"; Esc num campo desfaz a previa (nao fecha a janela). Ajuda e status em portugues claro, com exemplo de valor.
