@@ -128,7 +128,7 @@ public sealed class HydroPipeInside
                 continue;
             Point2d c = BoxCenter(s);
             Point2d ins = new(s.Location.X, s.Location.Y);
-            if (ins.GetDistanceTo(c) < FaceOffset)
+            if (ins.GetDistanceTo(c) < FaceOffset || !OnFace(s, c, ins))
                 continue;
             for (int i = 0; i < s.ConnectedPipesCount; i++)
             {
@@ -152,6 +152,41 @@ public sealed class HydroPipeInside
         if (lines.Count > 0)
             PluginLog.Info(Module, "Tubos para dentro das bocas de lobo:\n" + string.Join("\n", lines));
         return lines;
+    }
+
+    /// <summary>
+    /// O ponto de insercao esta na face externa (base point na face da guia), e nao dentro da peca
+    /// (chamine de PV, centro de dissipador...): no sistema local da estrutura (rotacao), o ponto fica
+    /// a no maximo uma parede (+ 2 cm) da borda do retangulo externo Length x Width.
+    /// </summary>
+    private static bool OnFace(CivilDb.Structure s, Point2d center, Point2d ins)
+    {
+        double l2, w2, tol;
+        try
+        {
+            l2 = s.Length / 2.0;
+            w2 = (s.InnerDiameterOrWidth / 2.0) + s.WallThickness;
+            tol = Math.Max(0.05, s.WallThickness + 0.02);
+        }
+        catch
+        {
+            return false;
+        }
+
+        if (l2 <= 0 || w2 <= 0)
+            return false;
+        Vector2d d = ins - center;
+        double cos = Math.Cos(-s.Rotation), sin = Math.Sin(-s.Rotation);
+        double x = Math.Abs((d.X * cos) - (d.Y * sin)), y = Math.Abs((d.X * sin) + (d.Y * cos));
+        foreach ((double a, double b) in new[] { (l2, w2), (w2, l2) })
+        {
+            if (x > a + tol || y > b + tol)
+                continue;   // fora do retangulo nesta orientacao
+            if (x >= a - tol || y >= b - tol)
+                return true;
+        }
+
+        return false;
     }
 
     private static string N(double v) => v.ToString("0.000", CultureInfo.InvariantCulture);

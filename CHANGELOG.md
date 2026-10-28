@@ -1,3 +1,8 @@
+## 2.81.0 - HYDRO v0.14.0: Peca 3D com cotas no lugar, nomes em portugues, tubos so nas pecas de face
+
+- Peca 3D: o modelo pelas medidas usa o mesmo sistema do solido real (comprimento em X, largura em Y; antes estavam trocados) e fica no centro do solido, que nas bocas de lobo de calcada nao e o ponto de insercao. As cotas ficam sobre as arestas e a previa nao "muda outra coisa".
+- Nomes em portugues pelo contexto do catalogo (comprimento, largura, parede, espessura do fundo, profundidade, laje, moldura...) no painel, na Peca 3D e nas cotas. A Peca 3D lista so as medidas editaveis; os valores fixos da familia ficam num grupo fechado, e Barrel/Cone/Frame Diameter das caixas somem.
+- Tubos dentro: so quando o ponto de insercao esta na face externa da peca. PV com chamine fora do centro e dissipador nao sao mais mexidos.
 ## 2.80.1 - HYDRO v0.13.1: botao Tubos dentro no painel
 
 - Categoria Estruturas, grupo Medidas: botao "Tubos dentro da boca de lobo (liga/desliga)", salvo no desenho, ligado por padrao. A aba de regras mostra o estado.

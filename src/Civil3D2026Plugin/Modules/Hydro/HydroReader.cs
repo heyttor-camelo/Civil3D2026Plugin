@@ -229,7 +229,8 @@ internal static class HydroReader
             }
 
             bool fromList = !range && f.IsFromList;
-            list.Add(new PartParam(f.Name, f.Description, context, v, min, max, f.Units, range, f.IsReadOnly)
+            // Descricao em portugues (Comprimento interno, Espessura da parede...) para painel, Peca 3D e prompts.
+            list.Add(new PartParam(f.Name, HydroNames.Long(context, f.Description, f.Name), context, v, min, max, f.Units, range, f.IsReadOnly)
             {
                 List = fromList ? vals.OrderBy(x => x).ToList() : new List<double>(),
                 // Geometry_* em faixa/lista e medida de projeto exposta pela familia (tabelas _IPE: aberturas, lajes...), entao editavel.

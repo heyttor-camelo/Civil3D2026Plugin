@@ -31,6 +31,7 @@ internal sealed class HydroPart3DWindow : SW.Window
     private int _batch = 1;
     private List<M3.Point3D>? _real;
     private string _realKey = "";
+    private double _cx, _cy;
     private readonly Action<string> _zoom;
 
     private readonly Dictionary<string, WC.TextBox> _boxes = new(StringComparer.OrdinalIgnoreCase);
@@ -223,6 +224,7 @@ internal sealed class HydroPart3DWindow : SW.Window
             return;
         _realKey = key;
         _real = null;
+        _cx = _cy = 0;
         try
         {
             if (AcApp.DocumentManager.MdiActiveDocument?.Database is Autodesk.AutoCAD.DatabaseServices.Database db
@@ -230,7 +232,12 @@ internal sealed class HydroPart3DWindow : SW.Window
             {
                 double zMin = tris.Min(p => p.Z), zMax = tris.Max(p => p.Z);
                 if (zMax - zMin > 0.05)
+                {
                     _real = tris;
+                    // Centro em planta do solido: nas pecas de calcada a insercao (origem local) fica na face.
+                    _cx = (tris.Min(p => p.X) + tris.Max(p => p.X)) / 2;
+                    _cy = (tris.Min(p => p.Y) + tris.Max(p => p.Y)) / 2;
+                }
             }
         }
         catch
@@ -244,21 +251,33 @@ internal sealed class HydroPart3DWindow : SW.Window
         _fields.Children.Clear();
         _boxes.Clear();
         Header(_batch > 1 ? $"Lote: {_batch} estruturas (valores de {_s.Name}; vale o que voce digitar)" : $"{_s.Name}  -  {_s.Family} / {_s.Size}");
-        Field(HydroRules.Rim, "Tampa (rim) [m]", Rule(HydroRules.Rim) ?? N(_s.Rim, 3));
-        Field(HydroRules.Sump, "Fundo (sump) [m]", Rule(HydroRules.Sump) ?? N(_s.Sump, 3));
-        Field("prof", "Profundidade (tampa - fundo) [m]", N(_s.Rim - _s.Sump, 3));
+        Header("Elevacoes (m)");
+        Field(HydroRules.Rim, "Elevacao da tampa", Rule(HydroRules.Rim) ?? N(_s.Rim, 3));
+        Field(HydroRules.Sump, "Elevacao do fundo", Rule(HydroRules.Sump) ?? N(_s.Sump, 3));
+        Field("prof", "Profundidade (tampa - fundo)", N(_s.Rim - _s.Sump, 3));
 
-        List<PartParam> editable = _s.Parameters.Where(p => p.Editable).ToList();
+        // So o que se pode mudar nesta peca; os valores fixos da familia vao para um grupo fechado.
+        List<PartParam> editable = _s.Parameters.Where(p => p.Editable && !p.Fixed).ToList();
         if (editable.Count > 0)
         {
-            Header($"Medidas da peca ({editable.Count})");
-            foreach (PartParam p in editable.OrderBy(p => p.Fixed ? 1 : 0))
+            Header($"Medidas da peca ({editable.Count}, em metros)");
+            foreach (PartParam p in editable.OrderBy(p => Order(p.Context)))
             {
-                string range = p.Fixed ? "fixo"
-                    : p.IsRange && !double.IsNaN(p.Min) ? $"{N(p.Min * p.Factor, 2)}..{N(p.Max * p.Factor, 2)}"
-                    : p.List.Count > 0 ? string.Join("/", p.List.Take(6).Select(x => N(x * p.Factor, 2))) : "";
-                Field(p.Name, $"{p.Description} [{p.Name}] {range}", Rule(p.Name) ?? N(p.Meters, 3));
+                string range = p.IsRange && !double.IsNaN(p.Min) ? $"{N(p.Min * p.Factor, 2)} a {N(p.Max * p.Factor, 2)}"
+                    : p.List.Count > 0 ? string.Join(" / ", p.List.Take(6).Select(x => N(x * p.Factor, 2))) : "";
+                Field(p.Name, $"{HydroNames.Long(p.Context, p.Description, p.Name)}  ({range})", Rule(p.Name) ?? N(p.Meters, 3));
             }
+        }
+
+        List<PartParam> fixedOnes = _s.Parameters.Where(p => p.Editable && p.Fixed && !HydroNames.Minor.Contains(p.Context)).ToList();
+        if (fixedOnes.Count > 0)
+        {
+            WC.Expander fx = new() { Header = $"Valores fixos da familia ({fixedOnes.Count}, so mudam no catalogo)", Foreground = WM.Brushes.Gray, Margin = new SW.Thickness(4, 6, 4, 2) };
+            WC.StackPanel inner = new();
+            foreach (PartParam p in fixedOnes)
+                inner.Children.Add(new WC.TextBlock { Text = $"{HydroNames.Long(p.Context, p.Description, p.Name)} = {N(p.Meters, 3)} m", Foreground = WM.Brushes.Gray, Margin = new SW.Thickness(6, 1, 2, 1) });
+            fx.Content = inner;
+            _fields.Children.Add(fx);
         }
 
         List<PartParam> locked = _s.Parameters.Where(p => !p.Editable).ToList();
@@ -292,6 +311,21 @@ internal sealed class HydroPart3DWindow : SW.Window
     }
 
     private string? Rule(string target) => _s.Rules.TryGetValue(target, out string? r) ? "=" + r : null;
+
+    /// <summary>Ordem das medidas na lista: planta, paredes, alturas, o resto.</summary>
+    private static int Order(string context) => context switch
+    {
+        "StructInnerLength" => 0,
+        "StructInnerWidth" => 1,
+        "StructInnerDiameter" => 2,
+        "WallThickness" => 3,
+        "FloorThickness" => 4,
+        "StructSlabThickness" => 5,
+        "StructConeHeight" => 6,
+        "StructFrameHeight" => 7,
+        "StructFrameDiameter" => 8,
+        _ => 20
+    };
 
     private void Header(string text) => _fields.Children.Add(new WC.TextBlock
     {
@@ -420,6 +454,9 @@ internal sealed class HydroPart3DWindow : SW.Window
 
     private double Pv(string key, double recorded) => _preview.TryGetValue(key, out double v) ? v : recorded;
 
+    /// <summary>Ponto do modelo (centrado na caixa) no sistema local da estrutura.</summary>
+    private M3.Point3D At(double x, double y, double z) => new(x + _cx, y + _cy, z);
+
     private void Rebuild()
     {
         _dims.Clear();
@@ -454,7 +491,9 @@ internal sealed class HydroPart3DWindow : SW.Window
         _height = h;
 
         WM.Color concrete = WM.Color.FromRgb(150, 150, 150), inside = WM.Color.FromRgb(200, 196, 186), cap = WM.Color.FromRgb(70, 70, 75);
-        double ox = (w / 2) + wall, oy = (l / 2) + wall;
+        // Sistema local da estrutura (o mesmo do solido real): comprimento no eixo X, largura no Y.
+        // O modelo fica no centro do solido (_cx, _cy), que nas pecas de calcada nao e a insercao.
+        double ox = (l / 2) + wall, oy = (w / 2) + wall;
 
         // Peca real do desenho quando nao ha previa pendente; com previa, o modelo pelas medidas.
         bool real = _real is not null && _preview.Count == 0;
@@ -467,13 +506,21 @@ internal sealed class HydroPart3DWindow : SW.Window
         }
 
         // Com a peca real na tela, o modelo pelas medidas so serve para as cotas (nao e desenhado).
-        M3.Model3DGroup shapeOpaque = real ? new() : opaque, shapeGlass = real ? new() : glass;
+        M3.Model3DGroup shapeOpaque = new(), shapeGlass = new();
+        if (!real)
+        {
+            M3.TranslateTransform3D at = new(_cx, _cy, 0);
+            shapeOpaque.Transform = at;
+            shapeGlass.Transform = at;
+            opaque.Children.Add(shapeOpaque);
+            glass.Children.Add(shapeGlass);
+        }
 
         // Fundo (laje de fundo), sempre opaco.
         shapeOpaque.Children.Add(Geo(round ? Frustum(ox, ox, -floor, 0) : Box(-ox, -oy, -floor, ox, oy, 0), concrete, 1));
 
         // Corpo: casca interna opaca (sem tampa) e externa translucida.
-        shapeOpaque.Children.Add(Geo(round ? Frustum(w / 2, w / 2, 0, body, caps: false) : Box(-w / 2, -l / 2, 0, w / 2, l / 2, body, top: false, bottom: false), inside, 0.55));
+        shapeOpaque.Children.Add(Geo(round ? Frustum(w / 2, w / 2, 0, body, caps: false) : Box(-l / 2, -w / 2, 0, l / 2, w / 2, body, top: false, bottom: false), inside, 0.55));
         shapeGlass.Children.Add(Geo(round ? Frustum(ox, ox, 0, body, caps: false) : Box(-ox, -oy, 0, ox, oy, body, top: false, bottom: false), concrete, 0.28));
 
         double z = body;
@@ -519,31 +566,38 @@ internal sealed class HydroPart3DWindow : SW.Window
             tf.Children.Add(new M3.RotateTransform3D(new M3.AxisAngleRotation3D(new M3.Vector3D(0, 1, 0), 90)));
             tf.Children.Add(new M3.TranslateTransform3D(0, 0, zc));
             tf.Children.Add(new M3.RotateTransform3D(new M3.AxisAngleRotation3D(new M3.Vector3D(0, 0, 1), ang * 180 / Math.PI)));
+            tf.Children.Add(new M3.TranslateTransform3D(_cx, _cy, 0));
             tube.Transform = tf;
             opaque.Children.Add(tube);
-            M3.Point3D tip = new(Math.Cos(ang) * to, Math.Sin(ang) * to, zc + r + 0.1);
+            M3.Point3D tip = At(Math.Cos(ang) * to, Math.Sin(ang) * to, zc + r + 0.1);
             _dims.Add(new Dim("", tip, tip, $"{p.Name} D{Math.Round(p.InnerDiameter * 1000)}  fundo +{N(inv, 2)}", false));
         }
 
-        // Cotas: cada medida que a peca tem, no lugar dela.
+        // Cotas sobre as arestas do solido, no sistema local da estrutura: comprimento na aresta da
+        // frente (X), largura na lateral (Y), alturas nos cantos. Rotulo pelo nome em portugues.
+        string Lbl(string key, string fallback) => key.Length == 0 ? fallback
+            : HydroNames.Short(_s.Parameters.FirstOrDefault(p => p.Name.Equals(key, StringComparison.OrdinalIgnoreCase))?.Context ?? "", key);
         double gap = 0.35;
-        if (wKey.Length > 0)
-            _dims.Add(new Dim(wKey, new(-w / 2, -oy - gap, body), new(w / 2, -oy - gap, body), $"{wKey} {N(w, 2)}", true));
+        if (round && wKey.Length > 0)
+            _dims.Add(new Dim(wKey, At(-w / 2, -oy - gap, body), At(w / 2, -oy - gap, body), $"{Lbl(wKey, "diametro")} {N(w, 2)}", true));
         if (!round && lengthKey.Length > 0)
-            _dims.Add(new Dim(lengthKey, new(ox + gap, -l / 2, body), new(ox + gap, l / 2, body), $"{lengthKey} {N(l, 2)}", true));
+            _dims.Add(new Dim(lengthKey, At(-l / 2, -oy - gap, body), At(l / 2, -oy - gap, body), $"{Lbl(lengthKey, "comprimento")} {N(l, 2)}", true));
+        if (!round && wKey.Length > 0)
+            _dims.Add(new Dim(wKey, At(ox + gap, -w / 2, body), At(ox + gap, w / 2, body), $"{Lbl(wKey, "largura")} {N(w, 2)}", true));
         if (wallKey.Length > 0)
-            _dims.Add(new Dim(wallKey, new(w / 2, 0, body + 0.05), new(ox, 0, body + 0.05), $"{wallKey} {N(wall, 2)}", true));
+            _dims.Add(new Dim(wallKey, At(round ? w / 2 : l / 2, 0, body + 0.05), At(ox, 0, body + 0.05), $"{Lbl(wallKey, "parede")} {N(wall, 2)}", true));
         if (floorKey.Length > 0)
-            _dims.Add(new Dim(floorKey, new(-ox - gap, -oy, -floor), new(-ox - gap, -oy, 0), $"{floorKey} {N(floor, 2)}", true));
-        _dims.Add(new Dim("prof", new(-ox - (2 * gap), -oy, 0), new(-ox - (2 * gap), -oy, h), $"prof {N(h, 2)}  (tampa {N(rim, 2)} / fundo {N(sump, 2)})", true));
+            _dims.Add(new Dim(floorKey, At(-ox - gap, -oy, -floor), At(-ox - gap, -oy, 0), $"{Lbl(floorKey, "espfundo")} {N(floor, 2)}", true));
+        _dims.Add(new Dim("prof", At(-ox - (2 * gap), -oy, 0), At(-ox - (2 * gap), -oy, h), $"profundidade {N(h, 2)}  (tampa {N(rim, 2)} / fundo {N(sump, 2)})", true));
         if (slabKey.Length > 0 && slab > 0)
-            _dims.Add(new Dim(slabKey, new(ox + gap, oy, body), new(ox + gap, oy, body + slab), $"{slabKey} {N(slab, 2)}", true));
+            _dims.Add(new Dim(slabKey, At(ox + gap, oy, body), At(ox + gap, oy, body + slab), $"{Lbl(slabKey, "laje")} {N(slab, 2)}", true));
         if (coneKey.Length > 0 && cone > 0)
-            _dims.Add(new Dim(coneKey, new(fr + gap, 0, body + slab), new(fr + gap, 0, body + slab + cone), $"{coneKey} {N(cone, 2)}", true));
+            _dims.Add(new Dim(coneKey, At(fr + gap, 0, body + slab), At(fr + gap, 0, body + slab + cone), $"{Lbl(coneKey, "cone")} {N(cone, 2)}", true));
         if (frameHKey.Length > 0 && frameH > 0)
-            _dims.Add(new Dim(frameHKey, new(-fr - gap, 0, h - frameH), new(-fr - gap, 0, h), $"{frameHKey} {N(frameH, 2)}", true));
-        if (frameDKey.Length > 0)
-            _dims.Add(new Dim(frameDKey, new(-frameD / 2, 0, h + 0.25), new(frameD / 2, 0, h + 0.25), $"{frameDKey} {N(frameD, 2)}", true));
+            _dims.Add(new Dim(frameHKey, At(-fr - gap, 0, h - frameH), At(-fr - gap, 0, h), $"{Lbl(frameHKey, "moldura")} {N(frameH, 2)}", true));
+        // Tampao so nos pocos (cone/chamine ou peca redonda); nas caixas o campo e fixo e nao conta.
+        if (frameDKey.Length > 0 && (cone > 0 || round))
+            _dims.Add(new Dim(frameDKey, At(-frameD / 2, 0, h + 0.25), At(frameD / 2, 0, h + 0.25), $"{Lbl(frameDKey, "tampao")} {N(frameD, 2)}", true));
 
         M3.Model3DGroup all = new();
         all.Children.Add(new M3.AmbientLight(WM.Color.FromRgb(95, 95, 95)));
@@ -572,7 +626,7 @@ internal sealed class HydroPart3DWindow : SW.Window
     {
         double size = 3;
         foreach (Dim d in _dims.Where(d => d.Editable))
-            size = Math.Max(size, Math.Max(Math.Abs(d.A.X), Math.Abs(d.A.Y)) * 2);
+            size = Math.Max(size, Math.Max(Math.Abs(d.A.X - _cx), Math.Abs(d.A.Y - _cy)) * 2);
         _dist = Math.Max(size, _height) * 2.3;
         _yaw = -55;
         _pitch = 22;
@@ -582,7 +636,7 @@ internal sealed class HydroPart3DWindow : SW.Window
     private void PlaceCamera()
     {
         double y = _yaw * Math.PI / 180, p = _pitch * Math.PI / 180;
-        M3.Point3D target = new(0, 0, _height / 2);
+        M3.Point3D target = new(_cx, _cy, _height / 2);
         M3.Vector3D dir = new(Math.Cos(p) * Math.Cos(y), Math.Cos(p) * Math.Sin(y), Math.Sin(p));
         _camera.Position = target + (dir * _dist);
         _camera.LookDirection = -dir * _dist;
