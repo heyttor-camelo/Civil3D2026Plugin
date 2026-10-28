@@ -221,6 +221,7 @@ internal sealed partial class HydroPanel
         bool click = _dragFrom is not null && !_dragged && e.ChangedButton == WI.MouseButton.Left;
         _dragFrom = null;
         _graphic.ReleaseMouseCapture();
+        Civil3D2026Plugin.Infrastructure.PluginLog.Info(Module, $"Monitor: clique={click} arrastou={_dragged} escala={_vScale:0.###} perfil={_profileShown}");
         if (!click || _vScale <= 0)
             return;
 
@@ -228,6 +229,7 @@ internal sealed partial class HydroPanel
         // e no desenho (a estrutura selecionada mostra as cotas editaveis). Ctrl+clique soma a selecao.
         SW.Point at = e.GetPosition(_graphic);
         (string? handle, _) = _profileShown ? UnderProfile(at) : Under(ToWorld(at));
+        Civil3D2026Plugin.Infrastructure.PluginLog.Info(Module, $"Monitor: peca sob o clique = {handle ?? "(nenhuma)"}");
         if (handle is null)
             return;
         bool add = (WI.Keyboard.Modifiers & WI.ModifierKeys.Control) != 0;

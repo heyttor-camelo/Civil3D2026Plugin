@@ -271,7 +271,46 @@ internal sealed partial class HydroPanel : SW.Window
         doc.Database.ObjectModified += OnDbChanged;
         doc.Database.ObjectAppended += OnDbChanged;
         doc.Database.ObjectErased += OnDbErased;
+        doc.ImpliedSelectionChanged += OnImpliedSelectionChanged;
         doc.BeginDocumentClose += (_, _) => Detach(doc);
+    }
+
+    /// <summary>
+    /// Selecao no desenho -> painel: uma peca da rede selecionada (clique no model) vira a linha
+    /// selecionada da lista e acende no monitor. Fora de comando; protegido (excecao aqui derruba o Civil).
+    /// </summary>
+    private static void OnImpliedSelectionChanged(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_instance is null || sender is not Document doc || doc != AcApp.DocumentManager.MdiActiveDocument)
+                return;
+            Autodesk.AutoCAD.EditorInput.PromptSelectionResult r = doc.Editor.SelectImplied();
+            if (r.Status != Autodesk.AutoCAD.EditorInput.PromptStatus.OK || r.Value.Count != 1)
+                return;
+            AcadDb.ObjectId id = r.Value[0].ObjectId;
+            if (!id.ObjectClass.IsDerivedFrom(Autodesk.AutoCAD.Runtime.RXObject.GetClass(typeof(CivilDb.Part))))
+                return;
+            string handle = id.Handle.ToString();
+            HydroPanel panel = _instance;
+            panel.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (panel._current?.Data is StructureInfo s && s.Handle == handle || panel._current?.Data is PipeInfo p && p.Handle == handle)
+                        return;
+                    panel.ShowInPanel(handle);
+                }
+                catch (Exception ex)
+                {
+                    PluginLog.Diag(Module, "Selecao do desenho no painel: " + ex.Message);
+                }
+            }));
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Diag(Module, "Selecao do desenho: " + ex.Message);
+        }
     }
 
     /// <summary>
@@ -303,6 +342,7 @@ internal sealed partial class HydroPanel : SW.Window
             doc.Database.ObjectModified -= OnDbChanged;
             doc.Database.ObjectAppended -= OnDbChanged;
             doc.Database.ObjectErased -= OnDbErased;
+            doc.ImpliedSelectionChanged -= OnImpliedSelectionChanged;
         }
         catch
         {
@@ -3176,6 +3216,15 @@ internal sealed partial class HydroPanel : SW.Window
             menu.Items.Add(new WC.Separator());
         }
 
+        if (_current?.Data is StructureInfo es)
+        {
+            // Direto nas cotas do desenho (Dynamic Input), sem passar pela Peca 3D.
+            WC.MenuItem medidas = new() { Header = "Editar medidas no desenho (comprimento, largura)", FontWeight = SW.FontWeights.Bold };
+            medidas.Click += (_, _) => HydroSelect.Request(new[] { es.Handle }, C3DCommands.Hydro.Medidas);
+            menu.Items.Add(medidas);
+            menu.Items.Add(new WC.Separator());
+        }
+
         WC.MenuItem zoom = new() { Header = "Zoom" };
         zoom.Click += (_, _) => ZoomCurrent();
         menu.Items.Add(zoom);
@@ -3305,13 +3354,10 @@ internal sealed partial class HydroPanel : SW.Window
 
         try
         {
-            using (doc.LockDocument())
-            {
-                List<AcadDb.ObjectId> ids = handles.Select(h => HydroReader.Id(doc.Database, h)).Where(id => id.HasValue).Select(id => id!.Value).ToList();
-                if (ids.Count > 0)
-                    doc.Editor.SetImpliedSelection(ids.ToArray());
-                Say($"{ids.Count} item(ns) selecionado(s) no desenho.");
-            }
+            // Por comando (HYSELECIONAR): da paleta, sem comando, a selecao nem sempre aparece com grips.
+            List<string> list = handles.ToList();
+            HydroSelect.Request(list);
+            Say($"{list.Count} item(ns) selecionado(s) no desenho.");
         }
         catch (Exception ex)
         {

@@ -6,9 +6,9 @@ namespace Civil3D2026Plugin.Infrastructure;
 /// </summary>
 public static class PluginVersions
 {
-    public const string Plugin = "2.85.0";
+    public const string Plugin = "2.86.0";
 
-    public const string Hydro = "0.18.0";
+    public const string Hydro = "0.19.0";
     public const string DrenExcel = "5.2";
     public const string DrenNum = "2.3";
     public const string Qto = "0.16";

@@ -1,3 +1,9 @@
+## 2.86.0 - HYDRO v0.19.0: selecao sincronizada monitor, painel e desenho; Editar medidas na lista
+
+- Selecao no desenho a partir do painel (clique no monitor, "Selecionar no desenho") agora por comando (HYSELECIONAR): os grips aparecem (e as cotas editaveis da estrutura) e ha zoom so se a peca estiver fora da vista. Antes era SetImpliedSelection direto da paleta, que nem sempre mostrava a selecao.
+- Selecionar uma peca da rede no desenho seleciona a linha no painel e acende no monitor.
+- Botao direito numa estrutura da lista do painel: "Editar medidas no desenho (comprimento, largura)" abre direto as cotas editaveis, sem a Peca 3D.
+- Log do clique no monitor (o que foi clicado), para diagnostico.
 ## 2.85.0 - HYDRO v0.18.0: vazao estimada pela capacidade quando nao ha bacia
 
 - Calculo (HYCALCULAR): bocas de lobo e pontas de montante sem bacia nem vazao conhecida recebem uma vazao propria estimada pela capacidade. Comeca na capacidade do tubo de saida (Manning na lamina maxima dos criterios); a cada volta, se algum trecho a jusante passa da capacidade, as estimativas a montante dele caem na mesma proporcao; para com variacao < 1% (ate 50 voltas). A peca fica com o aviso "vazao estimada pela capacidade" no Property Set; o log diz quantas e em quantas iteracoes.
