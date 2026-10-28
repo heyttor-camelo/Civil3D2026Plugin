@@ -291,9 +291,20 @@ public sealed class HydroModelCommands
                 continue;
             }
 
-            string current;
+            // Peca de familia que saiu do catalogo (ex. _IPE) acusa "Part Family is invalid" ao ler o nome:
+            // nao impede a troca, que e justamente o jeito de consertar.
+            string current = "";
             using (AcadDb.Transaction tr = doc.Database.TransactionManager.StartOpenCloseTransaction())
-                current = ((CivilDb.Part)tr.GetObject(group[0], AcadDb.OpenMode.ForRead)).PartFamilyName;
+            {
+                try
+                {
+                    current = ((CivilDb.Part)tr.GetObject(group[0], AcadDb.OpenMode.ForRead)).PartFamilyName;
+                }
+                catch (System.Exception ex)
+                {
+                    ed.WriteMessage($"\n[HYDRO] Familia atual ilegivel ({ex.Message}); escolha a nova familia.");
+                }
+            }
             int def = Math.Max(0, families.FindIndex(f => string.Equals(f.Family, current, StringComparison.OrdinalIgnoreCase)));
             int fi = HydroPrompt.Choose(ed, $"Familia de {(isPipe ? "tubo" : "estrutura")} ({group.Count} item(ns))", families.Select(f => f.Family).ToList(), def);
             if (fi < 0)

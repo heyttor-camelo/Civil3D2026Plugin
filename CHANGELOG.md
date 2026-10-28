@@ -1,3 +1,6 @@
+## 2.86.1 - HYDRO v0.19.1: HYTROCAR com familia fora do catalogo
+
+- Corrigido: HYTROCAR (e as listas de familias) parava com "Part Family is invalid" quando a parts list do desenho tinha uma familia que saiu do catalogo (ex. as _IPE removidas) ou a peca era dessa familia. A familia invalida e pulada com aviso, e a troca segue.
 ## 2.86.0 - HYDRO v0.19.0: selecao sincronizada monitor, painel e desenho; Editar medidas na lista
 
 - Selecao no desenho a partir do painel (clique no monitor, "Selecionar no desenho") agora por comando (HYSELECIONAR): os grips aparecem (e as cotas editaveis da estrutura) e ha zoom so se a peca estiver fora da vista. Antes era SetImpliedSelection direto da paleta, que nem sempre mostrava a selecao.

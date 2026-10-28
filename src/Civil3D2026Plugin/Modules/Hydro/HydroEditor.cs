@@ -834,27 +834,37 @@ internal static class HydroEditor
         CivilDb.DomainType domain = pipes ? CivilDb.DomainType.Pipe : CivilDb.DomainType.Structure;
         foreach (AcadDb.ObjectId fid in pl.GetPartFamilyIdsByDomain(domain))
         {
-            if (tr.GetObject(fid, AcadDb.OpenMode.ForRead, false) is not CivilDb.Styles.PartFamily fam)
-                continue;
-            List<(string, AcadDb.ObjectId)> sizes = new();
-            for (int i = 0; i < fam.PartSizeCount; i++)
+            // Familia da parts list que saiu do catalogo (ex. as _IPE removidas): o Civil acusa
+            // "Part Family is invalid" ao ler; fica de fora da lista em vez de derrubar o comando.
+            try
             {
-                AcadDb.ObjectId sid = fam[i];
-                string label = "tamanho " + (i + 1);
-                try
+                if (tr.GetObject(fid, AcadDb.OpenMode.ForRead, false) is not CivilDb.Styles.PartFamily fam)
+                    continue;
+                List<(string, AcadDb.ObjectId)> sizes = new();
+                for (int i = 0; i < fam.PartSizeCount; i++)
                 {
-                    if (tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize size)
-                        label = SizeLabel(size, pipes);
-                }
-                catch
-                {
-                    // Fica o rotulo generico.
+                    AcadDb.ObjectId sid = fam[i];
+                    string label = "tamanho " + (i + 1);
+                    try
+                    {
+                        if (tr.GetObject(sid, AcadDb.OpenMode.ForRead, false) is CivilDb.Styles.PartSize size)
+                            label = SizeLabel(size, pipes);
+                    }
+                    catch
+                    {
+                        // Fica o rotulo generico.
+                    }
+
+                    sizes.Add((label, sid));
                 }
 
-                sizes.Add((label, sid));
+                list.Add(new FamilyChoice(fam.Description, fid, sizes));
             }
-
-            list.Add(new FamilyChoice(fam.Description, fid, sizes));
+            catch (Exception ex)
+            {
+                PluginLog.Aviso(Module, $"Familia da parts list ignorada (nao esta mais no catalogo?): {ex.Message}");
+                Autodesk.AutoCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage($"\n[HYDRO] Uma familia da parts list foi ignorada ({ex.Message}); se ela saiu do catalogo, apague-a da parts list.");
+            }
         }
 
         return list.OrderBy(f => f.Family, StringComparer.OrdinalIgnoreCase).ToList();
