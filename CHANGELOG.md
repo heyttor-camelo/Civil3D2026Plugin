@@ -1,3 +1,9 @@
+## 2.84.0 - HYDRO v0.17.0: cotas ao selecionar, listas em vez de digitar, clique na planta do monitor
+
+- Selecionar uma estrutura no desenho mostra as cotas de comprimento e largura internos (grips com a cota desenhada); clicar numa abre o campo de valor do Dynamic Input naquela medida (Tab: a outra, Enter: grava, Esc: cancela). Configuracao "cotas.grips" (padrao: sim).
+- HYMEDIDAS liga o Dynamic Input (DYNMODE/DYNDIGRIP) durante a edicao e devolve como estava: com o DYNMODE desligado as cotas editaveis nao apareciam.
+- HYREGRA: a medida e escolhida numa lista clicavel (nomes em portugues + elevacao da tampa/fundo), sem digitar o nome.
+- Planta do monitor: o clique pega a estrutura em qualquer ponto da caixa (antes so perto do ponto de insercao), seleciona tambem no desenho, e Ctrl+clique soma a selecao.
 ## 2.83.1 - HYDRO v0.16.1: recusa avisada, sem troca de tamanho
 
 - Valor fora da faixa da familia: aviso na linha de comando em portugues e em metros (ex. "Largura interna 1,50 m fora da faixa da familia (0,30 a 1,20 m...)"), tambem quando a edicao vem do painel ou das regras. Antes so ia para o log.

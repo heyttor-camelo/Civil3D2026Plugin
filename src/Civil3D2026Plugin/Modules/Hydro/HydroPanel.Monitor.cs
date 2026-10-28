@@ -224,11 +224,19 @@ internal sealed partial class HydroPanel
         if (!click || _vScale <= 0)
             return;
 
-        // Clique simples (planta ou perfil) seleciona a peca na lista (troca de categoria se precisar).
+        // Clique simples (planta ou perfil) seleciona a peca na lista (troca de categoria se precisar)
+        // e no desenho (a estrutura selecionada mostra as cotas editaveis). Ctrl+clique soma a selecao.
         SW.Point at = e.GetPosition(_graphic);
         (string? handle, _) = _profileShown ? UnderProfile(at) : Under(ToWorld(at));
-        if (handle is not null)
-            ShowInPanel(handle);
+        if (handle is null)
+            return;
+        bool add = (WI.Keyboard.Modifiers & WI.ModifierKeys.Control) != 0;
+        if (add && !_pickedInPlan.Add(handle))
+            _pickedInPlan.Remove(handle);
+        else if (!add)
+            _pickedInPlan = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { handle };
+        ShowInPanel(handle);
+        SelectHandles(_pickedInPlan.ToList());
     }
 
     private string StructureText(StructureInfo s) =>
@@ -242,6 +250,22 @@ internal sealed partial class HydroPanel
             (r is null ? "" : $"  Q {N(r.Flow, 4)} m3/s  y/D {N(r.DepthRatio * 100, 0)}%  V {N(r.Velocity, 2)} m/s");
     }
 
+    /// <summary>Pecas escolhidas na planta do monitor (Ctrl+clique soma), selecionadas no desenho.</summary>
+    private HashSet<string> _pickedInPlan = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Alcance do clique numa estrutura (m): meia diagonal da caixa externa, a partir das medidas da peca.</summary>
+    private static double PickRadius(StructureInfo s)
+    {
+        double M(string ctx) => s.Parameters.FirstOrDefault(p => p.Context.Equals(ctx, StringComparison.OrdinalIgnoreCase))?.Meters ?? double.NaN;
+        double l = M("StructInnerLength"), w = M("StructInnerWidth"), wall = M("WallThickness");
+        if (double.IsNaN(wall))
+            wall = 0.1;
+        if (double.IsNaN(l) || double.IsNaN(w))
+            return Math.Max(0.3, (s.InnerDiameter / 2) + wall);
+        // A insercao pode estar na face (bocas de lobo de calcada): a diagonal inteira cobre a caixa.
+        return Math.Sqrt(Math.Pow(l + (2 * wall), 2) + Math.Pow(w + (2 * wall), 2));
+    }
+
     /// <summary>O que esta sob o cursor na planta: handle e texto da barra.</summary>
     private (string? Handle, string Text) Under(P2 w)
     {
@@ -250,11 +274,12 @@ internal sealed partial class HydroPanel
             return (null, "");
         double tol = 8 / _vScale;
         StructureInfo? s = null;
-        double best = tol;
+        double best = double.MaxValue;
         foreach (StructureInfo x in net.Structures)
         {
+            // Pega a caixa inteira (nao so o ponto de insercao): raio pelo tamanho externo da peca.
             double d = P2.Dist(x.Point, w);
-            if (d < best)
+            if (d < Math.Max(tol, PickRadius(x)) && d < best)
             {
                 best = d;
                 s = x;

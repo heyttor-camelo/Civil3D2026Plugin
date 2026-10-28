@@ -24,6 +24,9 @@ public sealed class HydroDimEdit
 {
     private const string Module = "Hydro";
 
+    /// <summary>Medida que recebe o foco no proximo HYMEDIDAS (grip clicado: "comprimento"/"largura").</summary>
+    internal static string? FocusNext;
+
     [CommandMethod(C3DCommands.Hydro.Medidas, CommandFlags.Modal | CommandFlags.UsePickSet)]
     public void Medidas()
     {
@@ -83,8 +86,25 @@ public sealed class HydroDimEdit
         }
 
         ed.WriteMessage($"\n{shape.Name}: digite a medida na cota (m). Tab: proxima cota   Enter/clique: grava   Esc: cancela.");
-        DimJig jig = new(shape);
-        PromptResult res = ed.Drag(jig);
+        string? focus = FocusNext;
+        FocusNext = null;
+        DimJig jig = new(shape, focus);
+        // As cotas editaveis sao do Dynamic Input: liga-o (e as cotas dinamicas) so durante a edicao.
+        object dynMode = AcApp.GetSystemVariable("DYNMODE"), dynGrip = AcApp.GetSystemVariable("DYNDIGRIP");
+        PromptResult res;
+        try
+        {
+            if (Convert.ToInt32(dynMode) <= 0)
+                AcApp.SetSystemVariable("DYNMODE", 3);
+            AcApp.SetSystemVariable("DYNDIGRIP", 31);
+            res = ed.Drag(jig);
+        }
+        finally
+        {
+            AcApp.SetSystemVariable("DYNMODE", dynMode);
+            AcApp.SetSystemVariable("DYNDIGRIP", dynGrip);
+        }
+
         if (res.Status is not (PromptStatus.OK or PromptStatus.None))
         {
             ed.WriteMessage("\n[HYDRO] Medidas canceladas; a peca nao mudou.");
@@ -114,7 +134,7 @@ public sealed class HydroDimEdit
     // ------------------------------------------------------------------
 
     /// <summary>Uma medida editavel (m), com a faixa do catalogo.</summary>
-    private sealed class Measure
+    internal sealed class Measure
     {
         public string Name = "";
         public string Label = "";
@@ -129,7 +149,7 @@ public sealed class HydroDimEdit
     }
 
     /// <summary>Caixa em planta: insercao, eixos locais, centro, parede e as medidas editaveis.</summary>
-    private sealed class Shape
+    internal sealed class Shape
     {
         public string Name = "";
         public Point3d Insertion;
@@ -201,11 +221,13 @@ public sealed class HydroDimEdit
         private readonly AcadDb.AlignedDimension? _lenDim, _widDim;
         private readonly List<(AcadDb.AlignedDimension Dim, Measure M)> _dims = new();
         private bool _dirty = true;
+        private readonly string? _focus;
         private const double Gap = 0.35;
 
-        public DimJig(Shape s)
+        public DimJig(Shape s, string? focus)
         {
             _s = s;
+            _focus = focus;
             if (s.Length is not null)
             {
                 _lenDim = new AcadDb.AlignedDimension { DynamicDimension = true };
@@ -286,12 +308,10 @@ public sealed class HydroDimEdit
         protected override AcadDb.DynamicDimensionDataCollection GetDynamicDimensionData(double dimScale)
         {
             AcadDb.DynamicDimensionDataCollection col = new();
-            bool first = true;
-            foreach ((AcadDb.AlignedDimension dim, _) in _dims)
-            {
-                col.Add(new AcadDb.DynamicDimensionData(dim, true, true) { Editable = true, Focal = first });
-                first = false;
-            }
+            // Foco na medida do grip clicado; sem grip, na primeira.
+            int focal = Math.Max(0, _dims.FindIndex(d => d.M.Label.Equals(_focus ?? "", StringComparison.OrdinalIgnoreCase)));
+            for (int i = 0; i < _dims.Count; i++)
+                col.Add(new AcadDb.DynamicDimensionData(_dims[i].Dim, true, true) { Editable = true, Focal = i == focal });
 
             return col;
         }

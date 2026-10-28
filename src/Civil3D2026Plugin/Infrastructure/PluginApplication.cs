@@ -51,6 +51,7 @@ public sealed class PluginApplication : IExtensionApplication
         {
             Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Initialize();
             Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Initialize();
+            Civil3D2026Plugin.Modules.Hydro.HydroDimGrips.Initialize();
             Civil3D2026Plugin.Modules.Hydro.HydroSync.Initialize();
         }
 
@@ -88,6 +89,7 @@ public sealed class PluginApplication : IExtensionApplication
         Civil3D2026Plugin.Modules.Layouts.KeyMapSync.Terminate();
         Civil3D2026Plugin.Modules.Secao.SecaoCommands.Terminate();
         Civil3D2026Plugin.Modules.Hydro.HydroContextMenu.Terminate();
+            Civil3D2026Plugin.Modules.Hydro.HydroDimGrips.Terminate();
         Civil3D2026Plugin.Modules.Hydro.HydroTooltip.Terminate();
         Civil3D2026Plugin.Modules.Hydro.HydroSync.Terminate();
         ViarioSync.Terminate();

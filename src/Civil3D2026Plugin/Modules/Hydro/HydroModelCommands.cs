@@ -567,13 +567,14 @@ public sealed class HydroModelCommands
             .Select(kv => $"{kv.Key}={N(kv.Value)}")));
         ed.WriteMessage("\n  " + HydroRules.Help);
 
-        PromptStringOptions to = new("\nMedida (comprimento, largura, parede, tampa, fundo...): ") { AllowSpaces = false };
-        PromptResult tr1 = ed.GetString(to);
-        if (tr1.Status != PromptStatus.OK || tr1.StringResult.Trim().Length == 0)
+        // Lista clicavel (nunca digitar o nome da medida): as editaveis da familia + tampa e fundo.
+        List<PartParam> choices = parameters.Where(p => p.Editable && !p.Fixed).ToList();
+        List<string> labels = choices.Select(p => p.Description).Concat(new[] { "Elevacao da tampa", "Elevacao do fundo" }).ToList();
+        int pick = HydroPrompt.Choose(ed, "Medida para a regra", labels);
+        if (pick < 0)
             return;
-        string target = tr1.StringResult.Trim();
-        PartParam? param = parameters.FirstOrDefault(p => p.Name.Equals(target, StringComparison.OrdinalIgnoreCase))
-            ?? parameters.FirstOrDefault(p => HydroNames.Short(p.Context, p.Name).Equals(target, StringComparison.OrdinalIgnoreCase));
+        string target = pick < choices.Count ? choices[pick].Name : pick == choices.Count ? HydroRules.Rim : HydroRules.Sump;
+        PartParam? param = pick < choices.Count ? choices[pick] : null;
         if (param is not null)
             target = param.Name;
         else if (target.Equals(HydroRules.Rim, StringComparison.OrdinalIgnoreCase) || target.Equals(HydroRules.Sump, StringComparison.OrdinalIgnoreCase))
@@ -590,7 +591,7 @@ public sealed class HydroModelCommands
             return;
         }
 
-        PromptStringOptions eo = new($"\nRegra para {target} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao modelo): ") { AllowSpaces = true };
+        PromptStringOptions eo = new($"\nRegra para {labels[pick].ToLowerInvariant()} (ex. dmax + 2*0,15; vazio = valor fixo; '.' = volta ao modelo): ") { AllowSpaces = true };
         if (eff.TryGetValue(target, out string? current))
         {
             eo.DefaultValue = current;
