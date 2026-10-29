@@ -163,6 +163,18 @@
   </Target>
 
   <!--
+    Copia tambem para a pasta "dll" da FDX no Drive (2 - Arquivos de Engenharia\dll). O caminho muda entre
+    os PCs (Meu Drive ou atalho em G:\.shortcut-targets-by-id): tools\Copy-DllFdx.ps1 acha sozinho e so avisa
+    se nao encontrar.
+  -->
+  <Target Name="CopyToFdx" AfterTargets="Build" Condition="'$(Configuration)' == 'Release' And Exists('G:\')">
+    <PropertyGroup>
+      <FdxVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Infrastructure\PluginVersions.cs')), '(?&lt;=Plugin = ")[^"]+').Value)</FdxVer>
+    </PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Copy-DllFdx.ps1&quot; -Dll &quot;$(TargetPath)&quot; -Version $(FdxVer)" ContinueOnError="true" />
+  </Target>
+
+  <!--
     Copia local com a versao no nome (C:\Temp\hydro-build\Civil3D2026Plugin-2.86.2.dll): nunca esta presa
     pelo Civil aberto, entao cada compilacao ja fica pronta para o proximo NETLOAD (pegue a de versao maior).
   -->

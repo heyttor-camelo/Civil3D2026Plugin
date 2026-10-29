@@ -65,10 +65,8 @@ Copy-Item $dll "$drv\atual\Civil3D2026Plugin.dll" -Force           # e o que ele
 Copy-Item $dll "$drv\versoes\$v\Civil3D2026Plugin.dll" -Force       # copia por versao
 Copy-Item $dll "$drv\atual\Civil3D2026Plugin-$v.dll" -Force         # com a versao no nome
 Copy-Item $dll "C:\Temp\hydro-build\Civil3D2026Plugin-$v.dll" -Force
-# copia da ultima DLL na pasta da FDX (sempre, pedido do Heyvid em 29/10/2026)
-$fdx = 'G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll'
-New-Item -ItemType Directory -Force $fdx | Out-Null
-Copy-Item $dll "$fdx\Civil3D2026Plugin.dll" -Force
+# copia da ultima DLL na pasta da FDX (sempre, pedido do Heyvid em 29/10/2026); acha o caminho sozinho
+tools\Copy-DllFdx.ps1 -Dll $dll -Version $v
 ```
 
 - `G:\Meu Drive\Civil3D2026Plugin\atual\Civil3D2026Plugin.dll` é a DLL "oficial", acessível de qualquer
@@ -79,7 +77,8 @@ Copy-Item $dll "$fdx\Civil3D2026Plugin.dll" -Force
 - **Sempre** copie também a última DLL para `G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll`.
   Em PCs onde a pasta da FDX é um atalho compartilhado, ela fica em
   `G:\.shortcut-targets-by-id\<id>\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll` (procure a pasta
-  `1 FDX ENGENHARIA` dentro de `G:\`).
+  `1 FDX ENGENHARIA` dentro de `G:\`). O build Release já faz isso sozinho (`tools\Copy-DllFdx.ps1`,
+  alvo `CopyToFdx` do csproj) e só avisa se não achar a pasta.
 - Se `G:\Meu Drive` não existir na máquina (Google Drive não instalado/logado), avise o Heyvid.
 - No Civil 3D: `NETLOAD` na DLL. Não há instalador/bundle. Ao carregar, o plugin mostra versão,
   caminho da DLL e a árvore de comandos; `C3DHELP` repete a árvore.
