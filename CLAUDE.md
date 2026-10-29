@@ -65,6 +65,10 @@ Copy-Item $dll "$drv\atual\Civil3D2026Plugin.dll" -Force           # e o que ele
 Copy-Item $dll "$drv\versoes\$v\Civil3D2026Plugin.dll" -Force       # copia por versao
 Copy-Item $dll "$drv\atual\Civil3D2026Plugin-$v.dll" -Force         # com a versao no nome
 Copy-Item $dll "C:\Temp\hydro-build\Civil3D2026Plugin-$v.dll" -Force
+# copia da ultima DLL na pasta da FDX (sempre, pedido do Heyvid em 29/10/2026)
+$fdx = 'G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll'
+New-Item -ItemType Directory -Force $fdx | Out-Null
+Copy-Item $dll "$fdx\Civil3D2026Plugin.dll" -Force
 ```
 
 - `G:\Meu Drive\Civil3D2026Plugin\atual\Civil3D2026Plugin.dll` é a DLL "oficial", acessível de qualquer
@@ -72,6 +76,10 @@ Copy-Item $dll "C:\Temp\hydro-build\Civil3D2026Plugin-$v.dll" -Force
   (`Civil3D2026Plugin-2.x.y.dll`) resolve: ele carrega a de número maior. Não espere o Civil fechar.
 - **Pasta de teste local: só `C:\Temp\hydro-build`.** Não crie `hydro-build2` e afins (confunde ele).
   Mantenha só as ~5 DLLs mais recentes lá e em `atual\` (apague as versionadas antigas).
+- **Sempre** copie também a última DLL para `G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll`.
+  Em PCs onde a pasta da FDX é um atalho compartilhado, ela fica em
+  `G:\.shortcut-targets-by-id\<id>\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll` (procure a pasta
+  `1 FDX ENGENHARIA` dentro de `G:\`).
 - Se `G:\Meu Drive` não existir na máquina (Google Drive não instalado/logado), avise o Heyvid.
 - No Civil 3D: `NETLOAD` na DLL. Não há instalador/bundle. Ao carregar, o plugin mostra versão,
   caminho da DLL e a árvore de comandos; `C3DHELP` repete a árvore.
@@ -136,6 +144,10 @@ o do **Viário** (categorias, barra de comandos com ícones, vista gráfica/moni
   montado por `tools/Merge-PartCatalogs.ps1`; cópia no Drive da FDX (`1 FDX ENGENHARIA\2 - Arquivos de
   Engenharia\Windows\...\FDX-Catalogo-2026-10-21`). Instalar = copiar as pastas para o `Pipes Catalog`
   com o Civil fechado, depois `PARTCATALOGREGEN` e `SETPIPENETWORKCATALOG`.
+- **Sempre sincronize com o Drive** depois de qualquer mudança no catálogo FDX instalado: copie as pastas
+  `FDX Metric Structures` e `FDX Metric Pipes` do `Pipes Catalog` para a cópia do Drive
+  (`...\FDX-Catalogo-2026-10-21`), guardando antes a cópia antiga do Drive como backup (ex. renomear
+  para `FDX-Catalogo-2026-10-21-backup-<data-hora>`, na mesma pasta). Pedido do Heyvid em 29/10/2026.
 - Scripts em `tools/`: `Ampliar-Faixas-FDX.ps1` (medidas em faixa 1 mm–100 m), `Liberar-Profundidade-FDX.ps1`,
   `Sanitize-CsbimCatalog.ps1`, `Fix-DuplicateColumnIds.ps1`, `Export-PartData.ps1`. Todos fazem backup.
 - O caminho das peças de receita do Inventor (_IPE, `tools/inventor/ipe-catalogo/`) foi **abandonado**
