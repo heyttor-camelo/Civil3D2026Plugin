@@ -93,4 +93,6 @@ foreach ($m in $mudancas) {
     $x.Save($m.Arquivo)
 }
 "Gravado. Backup: $bk"
+# Leva o catalogo atualizado para o Google Drive (pedido do usuario: sincronizar sempre).
+try { & (Join-Path $PSScriptRoot 'Sincronizar-Catalogo-Drive.ps1') } catch { "Drive nao sincronizado: $($_.Exception.Message). Rode tools\Sincronizar-Catalogo-Drive.ps1 depois." }
 'Agora abra o Civil e rode PARTCATALOGREGEN. Pecas novas ja vem com as faixas livres.'

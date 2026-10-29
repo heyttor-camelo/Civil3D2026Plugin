@@ -112,4 +112,6 @@ foreach ($m in $mudas) {
     $x.Save($m.Arq)
 }
 "Gravado. Backup: $bk"
+# Leva o catalogo atualizado para o Google Drive (pedido do usuario: sincronizar sempre).
+try { & (Join-Path $PSScriptRoot 'Sincronizar-Catalogo-Drive.ps1') } catch { "Drive nao sincronizado: $($_.Exception.Message). Rode tools\Sincronizar-Catalogo-Drive.ps1 depois." }
 'Agora abra o Civil, rode PARTCATALOGREGEN e troque as pecas ja inseridas pela mesma familia (HYTROCAR).'
