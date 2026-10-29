@@ -134,6 +134,7 @@ internal static class IconArt
         ["DRENNUM"] = ("drenagem", "numero"),
         ["DRENNUMPREVIEW"] = ("drenagem", "previa"),
         ["DRENNUMHELP"] = ("drenagem", "ajuda"),
+        ["DRENNUMCLASSICO"] = ("drenagem", "numero"),
         ["QTOESTUDO"] = ("qto", null),
         ["QTOGEOTESTE"] = ("qto", "teste"),
         ["TESTEQTO"] = ("qto", "teste"),

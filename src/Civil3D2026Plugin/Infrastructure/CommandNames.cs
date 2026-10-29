@@ -26,6 +26,7 @@ public static class CommandNames
         public const string Num = "DRENNUM";
         public const string NumPreview = "DRENNUMPREVIEW";
         public const string NumHelp = "DRENNUMHELP";
+        public const string NumClassico = "DRENNUMCLASSICO";
     }
 
     /// <summary>HYDRO: apoio a Pipe Network (painel C3DHYDRO e comandos HY* de edicao no model).</summary>

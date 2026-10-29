@@ -156,8 +156,9 @@ public static class CommandCatalog
                 C3DVersions.DrenNum,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Drenagem.Num, "Numerar rede", "Numera estruturas e tubos pela hierarquia hidraulica."),
-                    new CommandDefinition(C3DCommands.Drenagem.NumPreview, "Previa numeracao", "Mostra a numeracao sem aplicar."),
+                    new CommandDefinition(C3DCommands.Drenagem.Num, "Numerar rede", "Janela com a planta da rede: numera estruturas e tubos pelo fluxo, um contador por prefixo (tipos diferentes com o mesmo prefixo sem conflito), so estruturas, so tubos ou so um tipo."),
+                    new CommandDefinition(C3DCommands.Drenagem.NumPreview, "Previa numeracao", "Abre a mesma janela do DRENNUM (Fechar nao muda nada)."),
+                    new CommandDefinition(C3DCommands.Drenagem.NumClassico, "Numerar (janela antiga)", "A janela de numeracao anterior, por linha de comando."),
                     new CommandDefinition(C3DCommands.Drenagem.NumHelp, "Ajuda numeracao", "Mostra a ajuda do modulo DRENNUM.")
                 }),
 

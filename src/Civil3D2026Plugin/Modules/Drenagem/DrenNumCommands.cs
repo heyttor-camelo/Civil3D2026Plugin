@@ -60,11 +60,16 @@ namespace Civil3D2026Plugin.Modules.Drenagem;
 
 public sealed class DrenNumCommands
 {
-    [CommandMethod(C3DCommands.Drenagem.Num)]
-    public void DrenNum() => Execute(previewOnly: false);
+    // DRENNUM e DRENNUMPREVIEW abrem a janela nova (HYDRO: planta, contador por prefixo, so um
+    // tipo); a janela antiga continua em DRENNUMCLASSICO.
+    [CommandMethod(C3DCommands.Drenagem.Num, CommandFlags.Modal | CommandFlags.UsePickSet)]
+    public void DrenNum() => Civil3D2026Plugin.Modules.Hydro.HydroNumbering.Run();
 
-    [CommandMethod(C3DCommands.Drenagem.NumPreview)]
-    public void DrenNumPreview() => Execute(previewOnly: true);
+    [CommandMethod(C3DCommands.Drenagem.NumPreview, CommandFlags.Modal | CommandFlags.UsePickSet)]
+    public void DrenNumPreview() => Civil3D2026Plugin.Modules.Hydro.HydroNumbering.Run();
+
+    [CommandMethod(C3DCommands.Drenagem.NumClassico)]
+    public void DrenNumClassico() => Execute(previewOnly: false);
 
     [CommandMethod(C3DCommands.Drenagem.NumHelp)]
     public void DrenNumHelp()

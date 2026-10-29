@@ -1,3 +1,11 @@
+## 2.87.0 - DRENNUM 3.0: numeracao da rede em janela nova (estilo HYDRO)
+
+- DRENNUM (e o botao Numerar do painel HYDRO) abre uma janela com a planta da rede: tubos com seta do fluxo, estruturas na cor do tipo, nome novo em destaque e o atual pequeno embaixo, atualizando enquanto voce digita.
+- Um contador por prefixo: tipos de estrutura diferentes podem usar o mesmo prefixo (PV- para caixa e poco) e seguem uma numeracao so, sem repetir. Numeros que ja existem em pecas que ficam (outras redes, tipos desmarcados, pecas tiradas) sao pulados.
+- Numerar so estruturas, so tubos ou so um tipo (caixinha por tipo, botoes So estruturas / So tubos / Tudo); opcao de separar os tipos pelo tamanho; digitos 1 a 4.
+- Clique numa peca da planta tira/poe ela do lote; "Selecionar no desenho" numera so a parte da rede ligada aos objetos escolhidos.
+- Aplicar renomeia tudo numa transacao (um U desfaz). Prefixos e opcoes ficam lembrados no desenho durante a sessao. A janela antiga continua em DRENNUMCLASSICO.
+
 ## 2.86.6 - HYDRO v0.19.6: HYMEDIDAS volta com as cotas do Dynamic Input, sem fatal error; HYTROCAR com medidas novas
 
 - HYMEDIDAS volta a editar direto na cota (Dynamic Input), a pedido. Causa real do fatal error: a cada Tab/valor o jig criava uma colecao nova de cotas dinamicas que "possuia" a cota (ownsDimension = true); o coletor de lixo apagava a cota nativa que o AutoCAD ainda editava. Agora a colecao e criada uma vez, guardada ate o fim do arrasto, e nao possui as cotas.
