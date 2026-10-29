@@ -174,8 +174,8 @@
       <LocalVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Infrastructure\PluginVersions.cs')), '(?&lt;=Plugin = ")[^"]+').Value)</LocalVer>
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" ContinueOnError="true" />
-    <!-- Ficam as 5 mais novas; as mais antigas saem (a que estiver carregada no Civil fica, por estar presa). -->
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'Civil3D2026Plugin-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 5 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+    <!-- Fica so a mais nova; as antigas saem (a que estiver carregada no Civil fica, por estar presa). -->
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'Civil3D2026Plugin-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
     <Message Importance="high" Text="DLL $(LocalVer) em $(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" />
   </Target>
 
