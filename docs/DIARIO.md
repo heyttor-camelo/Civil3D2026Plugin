@@ -8,6 +8,23 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-01 — nuvem (Claude) + CAMELO (build)
+
+- **Viario 0.13.0 / plugin 2.88.0** (commit `1a47d77`): revisao do `C3DVIARIOCIVIL` depois das mudancas
+  da planta (cache por eixo, atualizacao manual, hachura em blocos, placas). A geracao em si (eixos,
+  bordos LD/LE offset, curb returns) nao tinha quebrado; ajustes foram no caminho ate ela:
+  Gerar com rede pendente oferece "Atualizar rede" antes; `Gerar [Tudo/Selecionar]` (escopo gravado
+  no NOD, chave `CIVILESCOPO`, fora da assinatura da rede); acompanhar a rede mais leve (sem reconferir
+  curb returns mantidos, nomes lidos so ao criar, cache de ids para o painel); `U` depois do Gerar
+  relê o estado; botoes do explorador renomeados; `DebugWidening` desligado.
+- Build Release x64 na CAMELO: net8, 0 erros, 9 avisos antigos de nulabilidade; ValidateProject OK.
+  DLL em `atual\`, `versoes\2.88.0`, `C:\Temp\hydro-build` e pasta dll da FDX.
+- **Pendente**: teste no Civil (roteiro: C3DVIARIOCIVIL > Gerar > Tudo numa rede pequena; Selecionar em
+  rede grande com atualizacao manual; `U` depois do Gerar; `C3DVIARIOTESTE`). Perfis/greides (etapa 2)
+  continuam fora.
+
+---
+
 ## 2026-10-21 — CAMELO (Civil 3D R25.1.60, .NET 8 e 10)
 
 - `git pull` do master (c8990b8 → 9ef223d). `dotnet build -c Release` OK: 0 erros, 9 avisos de
