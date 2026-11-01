@@ -25,6 +25,11 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
   dinamico ligado ao greide pela declividade transversal (padrao 3%). A sobrecarga `Profile.CreateOffsetProfile*`
   nao foi conferida na nuvem (PC fora da ponte): e chamada por reflexao, com fallback calculado pelo plugin
   (PVIs do greide projetadas no bordo, refeitas quando o greide muda). Opcoes no NOD `CIVILPERFIS`.
+- **2.89.1**: a API real (AeccDbMgd 13.8.1516, lida por metadados na CAMELO) e o metodo de instancia do perfil pai
+  `Profile.CreateOffsetProfileBySlope(string profileName, ObjectId offsetAlignmentId, ObjectId profileStyleId, double slope)`
+  (nao ha estatico `CreateOffsetProfile*`); `OffsetProfileParameters.Stations` (lista de Station/Slope/Description) permite
+  declividade por estaca, ainda nao usada. `ProfilePVI.Station` esta obsoleta: usar `RawStation`. Build na CAMELO: net8,
+  0 erros, 9 avisos antigos; DLL 2.89.1 em atual\, versoes\, hydro-build e dll da FDX.
 - **Pendente**: teste no Civil (roteiro: C3DVIARIOCIVIL > Gerar > Tudo numa rede pequena; Selecionar em
   rede grande com atualizacao manual; `U` depois do Gerar; `Perfis` com uma superficie; `C3DVIARIOTESTE`).
   Conferir no `C3DLOG` se o offset dinamico saiu ou se caiu no calculado ("Perfil offset nao criado").
