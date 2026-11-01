@@ -1,3 +1,15 @@
+## 2.88.0 - Viario v0.13.0: objetos do Civil revisados para o desenho em planta novo
+
+Revisao do `C3DVIARIOCIVIL` (eixos, bordos LD/LE e curb returns do Civil) depois das mudancas da planta (cache por eixo, atualizacao manual, hachura em blocos, placas). O que gerava alinhamentos continuava igual ao v0.9; o que mudou foi o jeito de a rede chegar ate ele.
+
+- **Rede pendente** (atualizacao automatica desligada): o Gerar passava a geometria nova dos eixos para o Civil enquanto as linhas da planta ainda eram as antigas, e so avisava. Agora pergunta se atualiza a rede antes (padrao Sim) e so entao gera: planta e Civil saem iguais.
+- **Gerar por selecao** (`C3DVIARIOCIVIL > Gerar > Selecionar`, botao "Gerar por selecao" no explorador): alinhamentos so dos eixos escolhidos (bordos deles e curb returns entre dois eixos escolhidos). Chamar de novo acrescenta eixos; a escolha fica gravada no desenho e os "Atualizar rede" seguintes atualizam so esses. `Tudo` volta para a rede inteira. Rede com mais de 150 eixos recebe o aviso para fazer por partes.
+- **Mais leve ao acompanhar a rede**: curb returns cujos eixos e bordos nao mudaram nao sao mais reconferidos ponto a ponto no Civil a cada atualizacao (so no Gerar); a lista de nomes de todos os alinhamentos do desenho so e lida quando algo vai ser criado; o painel guarda os ids dos alinhamentos dos eixos em vez de varrer o Model a cada leitura.
+- **Desfazer**: `U` depois de Gerar deixava o painel dizendo "Civil ativo" sem nenhum alinhamento no desenho; agora o estado e relido.
+- Explorador: botoes "Gerar tudo"/"Refazer tudo", "Gerar por selecao" e "Remover" (sem o "Atualizar" ambiguo); mostra a abrangencia (rede inteira ou N eixos; se o eixo atual esta incluso) e avisa quando a rede esta pendente.
+- Mensagens do Gerar: ate 12 na linha de comando, todas no log (`C3DLOG`); o diagnostico das regioes de alargamento (`[v0]: R[...]`) deixa de aparecer para o usuario.
+- `C3DVIARIOTESTE` confere so os eixos escolhidos quando a geracao foi por selecao.
+
 ## 2.87.0 - DRENNUM 3.0: numeracao da rede em janela nova (estilo HYDRO)
 
 - DRENNUM (e o botao Numerar do painel HYDRO) abre uma janela com a planta da rede: tubos com seta do fluxo, estruturas na cor do tipo, nome novo em destaque e o atual pequeno embaixo, atualizando enquanto voce digita.

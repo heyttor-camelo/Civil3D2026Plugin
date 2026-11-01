@@ -34,12 +34,18 @@ internal static class ViarioCivil
 
     private static readonly Dictionary<AcadDb.Database, bool> Active = new();
 
+    /// <summary>Alinhamentos dos eixos (chave do eixo -> id), para o painel nao varrer o desenho a cada leitura.</summary>
+    private static readonly Dictionary<AcadDb.Database, Dictionary<string, AcadDb.ObjectId>> AxisIdCache = new();
+
     internal sealed class Report
     {
         public int AxesCreated, AxesUpdated, EdgesCreated, EdgesKept, CurbsCreated, CurbsKept, Erased;
         public int CurbsConnected, CurbsSimple, CurbsFailed, EdgesFixed;
         public List<string> Messages { get; } = new();
         public string Styles { get; set; } = "";
+
+        /// <summary>Eixos com objetos do Civil quando gerados por selecao (-1 = rede inteira).</summary>
+        public int Scoped { get; set; } = -1;
 
         public override string ToString() =>
             $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, divergentes {EdgesFixed}) | " +
@@ -84,7 +90,25 @@ internal static class ViarioCivil
         return active;
     }
 
-    public static void Forget(AcadDb.Database db) => Active.Remove(db);
+    public static void Forget(AcadDb.Database db)
+    {
+        Active.Remove(db);
+        AxisIdCache.Remove(db);
+    }
+
+    /// <summary>
+    /// So os eixos escolhidos (C3DVIARIOCIVIL > Gerar > Selecionar): bordos dos eixos escolhidos
+    /// e curb returns entre dois eixos escolhidos. A rede e calculada inteira (as esquinas
+    /// dependem dos vizinhos); null = rede inteira.
+    /// </summary>
+    private static void ApplyScope(CivilPlan plan, HashSet<string>? scope)
+    {
+        if (scope is null)
+            return;
+        plan.Axes.RemoveAll(a => !scope.Contains(a.Key));
+        plan.Edges.RemoveAll(e => !scope.Contains(e.AxisKey));
+        plan.Curbs.RemoveAll(c => !scope.Contains(c.AxisIn) || !scope.Contains(c.AxisOut));
+    }
 
     // ------------------------------------------------------------------
     // Sincronizacao
@@ -96,13 +120,22 @@ internal static class ViarioCivil
         return Sync(doc, axes, result, create);
     }
 
-    /// <summary>Atualiza os objetos do Civil. O documento precisa estar travado.</summary>
+    /// <summary>
+    /// Atualiza os objetos do Civil. O documento precisa estar travado. create = pedido do
+    /// usuario (Gerar): cria do zero se preciso e confere tambem os curb returns mantidos;
+    /// sem create (acompanhar a rede) so mexe no que mudou.
+    /// </summary>
     public static Report Sync(Document doc, IReadOnlyList<AxisInput> axes, ViarioResult result, bool create)
     {
         AcadDb.Database db = doc.Database;
         Report report = new();
         CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
-        report.Messages.AddRange(plan.Warnings);
+        HashSet<string>? scope = ViarioStore.LoadCivilScope(db);
+        ApplyScope(plan, scope);
+        report.Scoped = scope is null ? -1 : plan.Axes.Count;
+        if (scope is null)
+            report.Messages.AddRange(plan.Warnings);
+        AxisIdCache.Remove(db);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
         List<Tagged> existing = Scan(tr, db);
@@ -164,8 +197,10 @@ internal static class ViarioCivil
             bool edgesKept = c.EdgeIn is not null && c.EdgeOut is not null && keepEdge.ContainsKey(c.EdgeIn) && keepEdge.ContainsKey(c.EdgeOut);
             bool axesKept = !changedAxes.Contains(c.AxisIn) && !changedAxes.Contains(c.AxisOut);
             bool simpleOk = match.Method.StartsWith("SIMPLES", StringComparison.Ordinal) && axesKept;
+            // Acompanhando a rede, eixos e bordos mantidos garantem o mesmo arco (3 consultas a
+            // menos por esquina em redes grandes); no Gerar confere de novo.
             if ((edgesKept || simpleOk) && match.Geom == ArcKey(c.Arc) &&
-                tr.GetObject(match.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al && VerifyArc(al, c.Arc))
+                tr.GetObject(match.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al && (!create || VerifyArc(al, c.Arc)))
             {
                 match.Used = true;
                 keepCurb[c] = match;
@@ -182,8 +217,11 @@ internal static class ViarioCivil
         foreach (Tagged t in existing.Where(t => t.Kind == KindAxis && axisTags.TryGetValue(t.Key, out Tagged? first) && first != t))
             Erase(tr, t.Id, report); // duplicados (copias do usuario)
 
-        // Nomes livres so depois das remocoes (trechos refeitos mantem o nome).
-        HashSet<string> names = AlignmentNames(tr, db);
+        // Nomes livres so depois das remocoes (trechos refeitos mantem o nome). Varre os
+        // alinhamentos do desenho so se algo vai ser criado.
+        bool creates = plan.Axes.Any(a => !axisTags.ContainsKey(a.Key)) || plan.Edges.Any(e => !keepEdge.ContainsKey(e)) ||
+                       plan.Curbs.Any(c => !keepCurb.ContainsKey(c));
+        HashSet<string> names = creates ? AlignmentNames(tr, db) : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         report.Styles = $"estilo '{StyleName(tr, styleId)}', rotulos '{StyleName(tr, labelId)}'";
 
         // ---------- Eixos ----------
@@ -311,6 +349,8 @@ internal static class ViarioCivil
         AcadDb.Database db = doc.Database;
         (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
         CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
+        HashSet<string>? scope = ViarioStore.LoadCivilScope(db);
+        ApplyScope(plan, scope);
         lines.Add($"Rede: {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s), {result.Corners.Count} esquina(s), {result.Warnings.Distinct().Count()} aviso(s) do motor.");
         List<OutputLine> pink = result.Lines.Where(l => l.Level == EdgeLevel.Ilha).ToList();
         lines.Add($"Ilhas canalizadoras: {pink.Count} ({string.Join(", ", pink.Select(l => $"{l.Segs.Count} trechos/{l.Segs.Count(sg => sg.IsArc)} arcos"))}); eliminadas: {ViarioStore.LoadRemovedIslands(db).Count}; com raio: {ViarioStore.LoadIslandRadii(db).Count}.");
@@ -350,6 +390,9 @@ internal static class ViarioCivil
             lines.Add("AVISO nenhum objeto do Civil gerado (rode C3DVIARIOCIVIL > Gerar).");
             return lines;
         }
+
+        if (scope is not null)
+            lines.Add($"Objetos do Civil so dos eixos escolhidos: {plan.Axes.Count} de {axes.Count}.");
 
         HashSet<Tagged> seen = new();
         Dictionary<string, AxisInput> byKey = axes.GroupBy(a => a.Key).ToDictionary(g => g.Key, g => g.First());
@@ -465,6 +508,7 @@ internal static class ViarioCivil
         }
 
         Active[db] = false;
+        AxisIdCache.Remove(db);
         return report.Erased;
     }
 
@@ -573,7 +617,7 @@ internal static class ViarioCivil
     }
 
     /// <summary>Diagnostico temporario das regioes/transicoes criadas pelo Civil.</summary>
-    public static bool DebugWidening { get; set; } = true;
+    public static bool DebugWidening { get; set; }
 
     private static string DescribeRegions(CivilDb.Alignment al)
     {
@@ -1100,12 +1144,31 @@ internal static class ViarioCivil
     {
         Dictionary<string, string> names = new(StringComparer.Ordinal);
         using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+
+        // Ids guardados: le so os nomes (renomear no Civil aparece na hora). Alinhamento
+        // apagado ou desfeito: varre o desenho de novo.
+        if (AxisIdCache.TryGetValue(db, out Dictionary<string, AcadDb.ObjectId>? ids) && ids.Values.All(id => !id.IsNull && !id.IsErased))
+        {
+            foreach ((string key, AcadDb.ObjectId id) in ids)
+            {
+                if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al)
+                    names[key] = al.Name;
+            }
+
+            return names;
+        }
+
+        ids = new Dictionary<string, AcadDb.ObjectId>(StringComparer.Ordinal);
         foreach (Tagged t in Scan(tr, db).Where(t => t.Kind == KindAxis))
         {
             if (tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al)
+            {
                 names[t.Key] = al.Name;
+                ids[t.Key] = t.Id;
+            }
         }
 
+        AxisIdCache[db] = ids;
         return names;
     }
 

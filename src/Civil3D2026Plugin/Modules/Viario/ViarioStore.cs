@@ -782,6 +782,46 @@ internal static class ViarioStore
     }
 
     // ------------------------------------------------------------------
+    // Objetos do Civil: eixos escolhidos (fora da assinatura: nao muda a rede)
+    // ------------------------------------------------------------------
+
+    private const string CivilScopeKey = "CIVILESCOPO";
+    private const string CivilScopeSignature = "VCIVESC1";
+
+    /// <summary>
+    /// Eixos (chaves) que tem objetos do Civil quando foram gerados so para uma selecao;
+    /// null = a rede inteira.
+    /// </summary>
+    public static HashSet<string>? LoadCivilScope(AcadDb.Database db)
+    {
+        AcadDb.TypedValue[]? v = ReadRecord(db, CivilScopeKey);
+        if (v is null || v.Length < 1 || v[0].Value as string != CivilScopeSignature)
+            return null;
+
+        HashSet<string> keys = new(StringComparer.Ordinal);
+        for (int i = 1; i < v.Length; i++)
+        {
+            if (v[i].Value is string key && key.Length > 0)
+                keys.Add(key);
+        }
+
+        return keys;
+    }
+
+    /// <summary>Grava os eixos escolhidos; null volta para a rede inteira.</summary>
+    public static void SaveCivilScope(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<string>? keys)
+    {
+        List<AcadDb.TypedValue> list = new() { new((int)AcadDb.DxfCode.Text, keys is null ? "" : CivilScopeSignature) };
+        if (keys is not null)
+        {
+            foreach (string key in keys)
+                list.Add(new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, key));
+        }
+
+        WriteRecord(tr, db, CivilScopeKey, new AcadDb.ResultBuffer(list.ToArray()));
+    }
+
+    // ------------------------------------------------------------------
     // NOD
     // ------------------------------------------------------------------
 

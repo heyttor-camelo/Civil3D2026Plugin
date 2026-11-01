@@ -431,8 +431,9 @@ internal static class ViarioSync
 
             if (UndoCommands.Contains(e.GlobalCommandName))
             {
-                // A opcao salva pode ter sido desfeita junto.
+                // A opcao salva pode ter sido desfeita junto; os objetos do Civil tambem (Gerar desfeito).
                 state.Auto = null;
+                ViarioCivil.Forget(doc.Database);
                 bool auto = IsAuto(doc.Database);
                 state.Dirty.Clear();
                 ViarioGripPreview.Invalidate();

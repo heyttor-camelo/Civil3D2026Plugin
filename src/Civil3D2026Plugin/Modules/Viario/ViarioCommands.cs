@@ -206,14 +206,18 @@ public sealed class ViarioCommands
     [CommandMethod(C3DCommands.Viario.Civil, CommandFlags.Modal)]
     public void Civil() => Run(C3DCommands.Viario.Civil, CivilMenu);
 
-    /// <summary>Gera/atualiza ou remove os alinhamentos do Civil (eixos, LD/LE, curb returns).</summary>
+    /// <summary>Gera/refaz ou remove os alinhamentos do Civil (eixos, LD/LE, curb returns).</summary>
     private static void CivilMenu(Document doc)
     {
         Editor ed = doc.Editor;
-        bool active = ViarioCivil.IsActive(doc.Database);
-        ed.WriteMessage(active
-            ? "\n  Objetos do Civil ativos: acompanham a rede automaticamente."
-            : "\n  Ainda nao ha objetos do Civil gerados para esta rede.");
+        AcadDb.Database db = doc.Database;
+        bool active = ViarioCivil.IsActive(db);
+        HashSet<string>? scope = ViarioStore.LoadCivilScope(db);
+        ed.WriteMessage(!active
+            ? "\n  Ainda nao ha objetos do Civil gerados para esta rede."
+            : scope is null
+                ? "\n  Objetos do Civil ativos para a rede inteira: acompanham a rede automaticamente."
+                : $"\n  Objetos do Civil ativos para {scope.Count} eixo(s) escolhido(s): acompanham a rede automaticamente.");
 
         PromptKeywordOptions options = new("\nObjetos do Civil [Gerar/Remover] <Gerar>: ", "Gerar Remover")
         {
@@ -234,17 +238,106 @@ public sealed class ViarioCommands
                 return;
 
             int n = ViarioCivil.RemoveAll(doc);
-            ed.WriteMessage($"\n  {n} alinhamento(s) removido(s). A rede em polilinhas continua.");
+            using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+            {
+                ViarioStore.SaveCivilScope(tr, db, null);
+                tr.Commit();
+            }
+
+            ed.WriteMessage($"\n  {n} alinhamento(s) removido(s). A rede em polilinhas continua. (Desfazer: U)");
             return;
+        }
+
+        // Para quais eixos: rede inteira ou so os escolhidos (redes grandes: por partes).
+        string def = scope is null ? "Tudo" : "Selecionar";
+        PromptKeywordOptions which = new($"\nGerar para quais eixos [Tudo/Selecionar] <{def}>: ", "Tudo Selecionar")
+        {
+            AllowNone = true
+        };
+        PromptResult w = ed.GetKeywords(which);
+        if (w.Status == PromptStatus.Cancel || w.Status == PromptStatus.Error)
+            return;
+        string pick = w.Status == PromptStatus.OK && w.StringResult.Length > 0 ? w.StringResult : def;
+
+        HashSet<string>? newScope;
+        if (pick == "Selecionar")
+        {
+            AcadDb.ObjectId[]? ids = SelectCurves(ed, scope is null
+                ? "\nSelecione os eixos que vao ganhar alinhamentos do Civil: "
+                : "\nSelecione mais eixos para os objetos do Civil (Enter: so refazer os " + scope.Count + " ja escolhidos): ");
+            HashSet<string> keys = scope is null ? new HashSet<string>(StringComparer.Ordinal) : new HashSet<string>(scope, StringComparer.Ordinal);
+            int added = 0;
+            if (ids is not null)
+            {
+                using AcadDb.Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+                foreach (AcadDb.ObjectId id in ids)
+                {
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Entity ent &&
+                        ViarioStore.ReadTag(ent, out _) == ViarioStore.TagAxis && keys.Add(ent.Handle.ToString()))
+                    {
+                        added++;
+                    }
+                }
+            }
+
+            if (keys.Count == 0)
+            {
+                ed.WriteMessage("\n  Nenhum eixo do viario selecionado.");
+                return;
+            }
+
+            if (ids is not null)
+                ed.WriteMessage($"\n  {added} eixo(s) novo(s) na selecao; {keys.Count} eixo(s) com objetos do Civil.");
+            newScope = keys;
+        }
+        else
+        {
+            newScope = null;
+            int count = ViarioSync.CurrentAxesOnly(db).Count;
+            if (count > 150 && (!active || scope is not null))
+            {
+                ed.WriteMessage($"\n  Rede com {count} eixos: gerar tudo pode levar alguns minutos e deixa cada \"Atualizar rede\" mais lento. " +
+                                "Para fazer por partes, use Selecionar.");
+            }
+        }
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            ViarioStore.SaveCivilScope(tr, db, newScope);
+            tr.Commit();
+        }
+
+        // Atualizacao manual com a rede pendente: as linhas do desenho estao atrasadas em
+        // relacao aos eixos. Refaz a rede antes, para os objetos do Civil baterem com a planta.
+        if (!ViarioSync.IsAuto(db) && ViarioSync.IsPending(db))
+        {
+            PromptKeywordOptions upd = new("\nA rede esta pendente (atualizacao manual). Atualizar a rede antes, para o Civil bater com a planta? [Sim/Nao] <Sim>: ", "Sim Nao")
+            {
+                AllowNone = true
+            };
+            PromptResult u = ed.GetKeywords(upd);
+            if (u.Status == PromptStatus.Cancel || u.Status == PromptStatus.Error)
+                return;
+            if (u.Status != PromptStatus.OK || u.StringResult != "Nao")
+                ViarioSync.Regenerate(doc, quiet: false, force: true);
+            else
+                ed.WriteMessage("\n  [AVISO] Os objetos do Civil seguem os eixos atuais; as linhas da planta continuam as de antes ate \"Atualizar rede\".");
         }
 
         ViarioCivil.Report report = ViarioCivil.Sync(doc, create: true);
         ed.WriteMessage("\n  " + report);
+        if (report.Scoped >= 0)
+            ed.WriteMessage($"\n  So os eixos escolhidos: {report.Scoped} eixo(s) (curb returns so entre dois eixos escolhidos).");
         if (report.Styles.Length > 0)
             ed.WriteMessage("\n  Alinhamentos novos: " + report.Styles);
         foreach (string m in report.Messages.Distinct().Take(12))
             ed.WriteMessage("\n  [CIVIL] " + m);
-        ed.WriteMessage($"\n  Site \"{ViarioCivil.SiteName}\", layers {ViarioCivil.LayerAxis}, {ViarioCivil.LayerEdge}, {ViarioCivil.LayerCurb}.");
+        if (report.Messages.Distinct().Count() > 12)
+            ed.WriteMessage($"\n  ... mais {report.Messages.Distinct().Count() - 12} aviso(s) no log (C3DLOG).");
+        foreach (string m in report.Messages.Distinct())
+            Civil3D2026Plugin.Infrastructure.PluginLog.Info("Viario", "Civil: " + m);
+        ed.WriteMessage($"\n  Sem site (evita lotes); layers {ViarioCivil.LayerAxis}, {ViarioCivil.LayerEdge}, {ViarioCivil.LayerCurb}.");
+        ViarioPanel.NotifyChanged(doc);
     }
 
     private static void Run(string command, Action<Document> action)
@@ -264,7 +357,7 @@ public sealed class ViarioCommands
         // Saidas (Civil, sinalizacao, hachura, cotas) seguem os eixos atuais; com a rede
         // pendente, as linhas no desenho ainda sao as de antes.
         if (!auto && ViarioSync.IsPending(doc.Database) &&
-            (command == C3DCommands.Viario.Civil || command == C3DCommands.Viario.Sinal ||
+            (command == C3DCommands.Viario.Sinal ||
              command == C3DCommands.Viario.Hachura || command == C3DCommands.Viario.Cotar))
         {
             doc.Editor.WriteMessage("\n  [AVISO] Rede pendente (atualizacao automatica desligada): esta saida segue os eixos atuais, " +

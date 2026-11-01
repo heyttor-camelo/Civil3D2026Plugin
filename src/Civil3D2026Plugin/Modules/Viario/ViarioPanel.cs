@@ -4432,9 +4432,14 @@ internal sealed class ViarioPanel : SW.Window
         Prop("Alinhamento", _names.TryGetValue(a.Key, out string? n) ? n : "-");
         Prop("Bordos", _civilActive ? "LD e LE (offset dinamico, um por lado)" : "-");
         Prop("Curb returns", _civilActive ? "conectados aos bordos, sem site" : "-");
+        HashSet<string>? scope = AcApp.DocumentManager.MdiActiveDocument is Document scopeDoc ? ViarioStore.LoadCivilScope(scopeDoc.Database) : null;
+        Prop("Abrangencia", !_civilActive ? "-" : scope is null ? "rede inteira" : $"{scope.Count} eixo(s) escolhido(s)" + (scope.Contains(a.Key) ? " (este incluso)" : " (este fora)"));
+        if (!_auto && _stale)
+            Prop("Atencao", "rede pendente: o Gerar oferece atualizar a rede antes");
         Category("Proxima etapa");
         Prop("Altimetria", "perfil dos eixos, perfis offset dos bordos, curb returns e amarracao de greides");
-        Act(_civilActive ? "Atualizar" : "Gerar", () => Send("C3DVIARIOCIVIL G ", "Objetos do Civil: siga a linha de comando."), true);
+        Act(_civilActive ? "Refazer tudo" : "Gerar tudo", () => Send("C3DVIARIOCIVIL G T ", "Objetos do Civil para a rede inteira: siga a linha de comando."), true);
+        Act("Gerar por selecao", () => Send("C3DVIARIOCIVIL G S ", "Selecione os eixos no desenho: siga a linha de comando."));
         Act("Remover", () => Send("C3DVIARIOCIVIL R ", "Remover objetos do Civil: confirme na linha de comando."));
         Act("Autoteste", () => Send("C3DVIARIOTESTE  ", "Autoteste: relatorio em %TEMP%."));
         Act("Zoom", ZoomCurrent);
