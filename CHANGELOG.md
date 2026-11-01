@@ -1,3 +1,8 @@
+## 2.89.1 - Viario v0.14.1: perfil do bordo do pavimento sai dinamico de verdade
+
+- O offset dinamico e criado pelo metodo do proprio greide (`Profile.CreateOffsetProfileBySlope`), conferido na API do Civil 2026 instalado; a 2.89.0 procurava um metodo estatico que nao existe e caia sempre no perfil calculado pelo plugin.
+- Estaca das PVIs lida por `RawStation` (a `Station` esta obsoleta na API).
+
 ## 2.89.0 - Viario v0.14.0: perfis no eixo e no bordo do pavimento (C3DVIARIOCIVIL > Perfis)
 
 Etapa 2 dos objetos do Civil. `C3DVIARIOCIVIL > Perfis` (botao "Criar perfis" no explorador) pede a superficie do terreno (ou nenhuma) e a declividade transversal do pavimento (padrao 3%) e cria, em cada eixo com alinhamento:

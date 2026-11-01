@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Reflection;
 using Autodesk.Civil.ApplicationServices;
 
 namespace Civil3D2026Plugin.Modules.Viario;
@@ -200,7 +199,7 @@ internal static class ViarioCivilProfiles
     }
 
     // ------------------------------------------------------------------
-    // Offset dinamico (API varia entre builds do Civil: por reflexao)
+    // Offset dinamico: Profile.CreateOffsetProfileBySlope (metodo do perfil pai)
     // ------------------------------------------------------------------
 
     private static AcadDb.ObjectId TryCreateOffsetProfile(AcadDb.Transaction tr, string name, AcadDb.ObjectId edgeId, AcadDb.ObjectId gradeId,
@@ -209,144 +208,50 @@ internal static class ViarioCivilProfiles
     {
         why = string.Empty;
         List<string> errors = new();
-        MethodInfo[] methods = typeof(CivilDb.Profile).GetMethods(BindingFlags.Public | BindingFlags.Static)
-            .Where(m => m.Name.StartsWith("CreateOffsetProfile", StringComparison.Ordinal) && m.ReturnType == typeof(AcadDb.ObjectId))
-            .OrderBy(m => m.GetParameters().Length)
-            .ToArray();
-        if (methods.Length == 0)
-        {
-            why = "a API deste Civil nao tem Profile.CreateOffsetProfile*";
-            return AcadDb.ObjectId.Null;
-        }
 
         // O Civil usa declividade negativa para "caindo do eixo para o bordo"; se o resultado subir, inverte.
         foreach (double signed in new[] { -slope, slope })
         {
-            foreach (MethodInfo m in methods)
+            AcadDb.ObjectId id = AcadDb.ObjectId.Null;
+            try
             {
-                AcadDb.ObjectId id = AcadDb.ObjectId.Null;
+                id = grade.CreateOffsetProfileBySlope(name, edgeId, styleId, signed);
+                if (id.IsNull)
+                    continue;
+
+                CivilDb.Profile p = (CivilDb.Profile)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
                 try
                 {
-                    object?[]? args = BuildArgs(m, name, edgeId, gradeId, layerId, styleId, labelId, signed);
-                    if (args is null)
-                        continue;
-
-                    id = (AcadDb.ObjectId)m.Invoke(null, args)!;
-                    if (id.IsNull)
-                        continue;
-
-                    CivilDb.Profile p = (CivilDb.Profile)tr.GetObject(id, AcadDb.OpenMode.ForWrite);
-                    SetCrossSlope(p, signed);
-                    if (VerifyPavement(parentAl, grade, edgeAl, p, slope))
-                        return id;
-
-                    errors.Add($"{m.Name}({m.GetParameters().Length}) i={signed:0.###}: elevacao nao confere");
-                    p.Erase();
+                    p.LayerId = layerId;
                 }
-                catch (System.Exception ex)
+                catch
                 {
-                    errors.Add($"{m.Name}({m.GetParameters().Length}): {(ex.InnerException ?? ex).Message}");
-                    try
-                    {
-                        if (!id.IsNull && !id.IsErased)
-                            tr.GetObject(id, AcadDb.OpenMode.ForWrite, false).Erase();
-                    }
-                    catch
-                    {
-                        // Ja apagado ou nunca criado.
-                    }
+                    // Layer do perfil presa ao estilo.
+                }
+
+                if (VerifyPavement(parentAl, grade, edgeAl, p, slope))
+                    return id;
+
+                errors.Add($"i={signed:0.###}: elevacao nao confere");
+                p.Erase();
+            }
+            catch (System.Exception ex)
+            {
+                errors.Add($"i={signed:0.###}: {(ex.InnerException ?? ex).Message}");
+                try
+                {
+                    if (!id.IsNull && !id.IsErased)
+                        tr.GetObject(id, AcadDb.OpenMode.ForWrite, false).Erase();
+                }
+                catch
+                {
+                    // Ja apagado ou nunca criado.
                 }
             }
         }
 
         why = string.Join(" | ", errors.Distinct().Take(3));
         return AcadDb.ObjectId.Null;
-    }
-
-    /// <summary>Casa os parametros da sobrecarga pelo tipo e pelo nome; null se nao da para preencher.</summary>
-    private static object?[]? BuildArgs(MethodInfo m, string name, AcadDb.ObjectId edgeId, AcadDb.ObjectId gradeId,
-        AcadDb.ObjectId layerId, AcadDb.ObjectId styleId, AcadDb.ObjectId labelId, double slope)
-    {
-        ParameterInfo[] ps = m.GetParameters();
-        object?[] args = new object?[ps.Length];
-        int ids = 0;
-        for (int i = 0; i < ps.Length; i++)
-        {
-            Type t = ps[i].ParameterType;
-            string n = ps[i].Name ?? "";
-            if (t == typeof(string))
-            {
-                args[i] = name;
-            }
-            else if (t == typeof(AcadDb.ObjectId))
-            {
-                if (n.Contains("layer", StringComparison.OrdinalIgnoreCase)) args[i] = layerId;
-                else if (n.Contains("label", StringComparison.OrdinalIgnoreCase)) args[i] = labelId;
-                else if (n.Contains("style", StringComparison.OrdinalIgnoreCase)) args[i] = styleId;
-                else if (n.Contains("profile", StringComparison.OrdinalIgnoreCase) || n.Contains("parent", StringComparison.OrdinalIgnoreCase) || n.Contains("source", StringComparison.OrdinalIgnoreCase)) args[i] = gradeId;
-                else if (n.Contains("alignment", StringComparison.OrdinalIgnoreCase) || n.Contains("offset", StringComparison.OrdinalIgnoreCase)) args[i] = edgeId;
-                else args[i] = ids == 0 ? edgeId : ids == 1 ? gradeId : ids == 2 ? layerId : ids == 3 ? styleId : labelId;
-                ids++;
-            }
-            else if (t == typeof(double))
-            {
-                args[i] = slope;
-            }
-            else if (t.IsClass && t.Name.Contains("OffsetProfileParameters", StringComparison.Ordinal))
-            {
-                object? prm = Activator.CreateInstance(t);
-                if (prm is null)
-                    return null;
-                SetSlopeProps(prm, slope);
-                args[i] = prm;
-            }
-            else if (t.IsEnum)
-            {
-                args[i] = Enum.GetValues(t).Cast<object>().FirstOrDefault();
-            }
-            else if (t.IsValueType)
-            {
-                args[i] = Activator.CreateInstance(t);
-            }
-            else
-            {
-                return null;
-            }
-        }
-
-        return args;
-    }
-
-    private static void SetCrossSlope(CivilDb.Profile p, double slope)
-    {
-        try
-        {
-            PropertyInfo? prm = p.GetType().GetProperties().FirstOrDefault(x => x.Name.Contains("OffsetProfileParameters", StringComparison.Ordinal));
-            object? value = prm?.GetValue(p);
-            if (value is not null)
-                SetSlopeProps(value, slope);
-        }
-        catch
-        {
-            // Parametros so leitura nesta build.
-        }
-    }
-
-    private static void SetSlopeProps(object target, double slope)
-    {
-        foreach (PropertyInfo pi in target.GetType().GetProperties())
-        {
-            if (!pi.CanWrite || pi.PropertyType != typeof(double) || !pi.Name.Contains("Slope", StringComparison.OrdinalIgnoreCase))
-                continue;
-            try
-            {
-                pi.SetValue(target, slope);
-            }
-            catch
-            {
-                // Propriedade recusada.
-            }
-        }
     }
 
     // ------------------------------------------------------------------
@@ -360,7 +265,7 @@ internal static class ViarioCivilProfiles
         try
         {
             foreach (CivilDb.ProfilePVI pvi in grade.PVIs)
-                parentStations.Add(pvi.Station);
+                parentStations.Add(pvi.RawStation);
         }
         catch
         {
@@ -456,7 +361,7 @@ internal static class ViarioCivilProfiles
     {
         try
         {
-            return string.Join(";", grade.PVIs.Cast<CivilDb.ProfilePVI>().Select(v => $"{v.Station:0.###},{v.Elevation:0.###}"));
+            return string.Join(";", grade.PVIs.Cast<CivilDb.ProfilePVI>().Select(v => $"{v.RawStation:0.###},{v.Elevation:0.###}"));
         }
         catch
         {
