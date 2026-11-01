@@ -1,3 +1,13 @@
+## 2.89.0 - Viario v0.14.0: perfis no eixo e no bordo do pavimento (C3DVIARIOCIVIL > Perfis)
+
+Etapa 2 dos objetos do Civil. `C3DVIARIOCIVIL > Perfis` (botao "Criar perfis" no explorador) pede a superficie do terreno (ou nenhuma) e a declividade transversal do pavimento (padrao 3%) e cria, em cada eixo com alinhamento:
+
+- **no eixo**: perfil do terreno `<eixo> - Terreno` (da superficie) e um greide de projeto `<eixo> - Greide` (perfil por layout, uma reta do inicio ao fim na elevacao do terreno) para editar as PVIs no Civil;
+- **bordo do pavimento**: um alinhamento offset novo por lado no encontro do pavimento com a sarjeta (`<eixo> - PAV LD/LE`, layer `VIARIO-C3D-PAV`; onde a secao nao tem sarjeta, o proprio bordo LD/LE) com o perfil `... - Perfil`: offset dinamico do Civil ligado ao greide pela declividade (mexeu no greide, o bordo acompanha). Se a build do Civil instalado nao criar o offset dinamico, o plugin calcula o perfil (greide - i x afastamento, nas estacas correspondentes) e o refaz quando o greide ou a declividade mudam;
+- tudo acompanha a rede como os demais objetos do Civil (bordo refeito ganha o perfil de novo; respeita a geracao por selecao). Perfis com XData do modulo, layer `VIARIO-C3D-PERFIL`; greides editados nao sao tocados.
+- `Perfis > Ajustar` troca superficie/declividade; `Desligar` apaga perfis e bordos do pavimento (com confirmacao); `Remover` dos objetos do Civil tambem desliga. `C3DVIARIOTESTE` confere a contagem de perfis.
+- Fora por enquanto: perfis dos curb returns e amarracao dos greides nos cruzamentos.
+
 ## 2.88.0 - Viario v0.13.0: objetos do Civil revisados para o desenho em planta novo
 
 Revisao do `C3DVIARIOCIVIL` (eixos, bordos LD/LE e curb returns do Civil) depois das mudancas da planta (cache por eixo, atualizacao manual, hachura em blocos, placas). O que gerava alinhamentos continuava igual ao v0.9; o que mudou foi o jeito de a rede chegar ate ele.

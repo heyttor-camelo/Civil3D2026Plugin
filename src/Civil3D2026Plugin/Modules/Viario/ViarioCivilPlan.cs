@@ -21,7 +21,12 @@ internal sealed class CivilEdgePlan
 
     public int Index { get; set; }
 
-    public string Code => (Side > 0 ? "LD" : "LE") + (Index > 0 ? Index.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
+    /// <summary>Linha da secao que o bordo segue: face do meio-fio (padrao) ou bordo do pavimento (encontro com a sarjeta).</summary>
+    public EdgeLevel Level { get; init; } = EdgeLevel.FaceMF;
+
+    public bool IsPavement => Level == EdgeLevel.Pista;
+
+    public string Code => (IsPavement ? "PAV " : "") + (Side > 0 ? "LD" : "LE") + (Index > 0 ? Index.ToString(System.Globalization.CultureInfo.InvariantCulture) : string.Empty);
 
     public double Length => S1 - S0;
 
@@ -94,7 +99,9 @@ internal static class ViarioCivilPlanner
 
     /// <param name="split">false (padrao): um bordo LD e um LE por eixo, inteiros, como no Civil
     /// (os curb returns passam por cima). true: bordos cortados nas esquinas.</param>
-    public static CivilPlan Build(IReadOnlyList<AxisInput> axes, ViarioResult result, bool split = false)
+    /// <param name="pavement">tambem um bordo do pavimento por lado (encontro com a sarjeta), para
+    /// os perfis; so onde ha sarjeta (sem ela, o bordo do pavimento e a propria face do meio-fio).</param>
+    public static CivilPlan Build(IReadOnlyList<AxisInput> axes, ViarioResult result, bool split = false, bool pavement = false)
     {
         CivilPlan plan = new();
         plan.Axes.AddRange(axes);
@@ -176,6 +183,27 @@ internal static class ViarioCivilPlanner
                         Index = split ? index++ : 0
                     });
                 }
+            }
+
+            if (!pavement)
+                continue;
+
+            // Bordo do pavimento: eixo inteiro (nao e cortado pelos curb returns), so com sarjeta.
+            foreach (int side in new[] { -1, +1 })
+            {
+                double pista = axis.Section.EdgeOffset(EdgeLevel.Pista, -side);
+                if (axis.Section.EdgeOffset(EdgeLevel.FaceMF, -side) - pista < 1e-3 || axis.Path.Length < MinEdge)
+                    continue;
+
+                plan.Edges.Add(new CivilEdgePlan
+                {
+                    AxisKey = axis.Key,
+                    Side = side,
+                    Offset = side * pista,
+                    S0 = 0.0,
+                    S1 = axis.Path.Length,
+                    Level = EdgeLevel.Pista
+                });
             }
         }
 
@@ -363,7 +391,7 @@ internal static class ViarioCivilPlanner
         double bestDist = double.MaxValue;
         foreach (CivilEdgePlan e in plan.Edges)
         {
-            if (e.AxisKey != axis || e.Side != side || s < e.S0 - 0.05 || s > e.S1 + 0.05)
+            if (e.IsPavement || e.AxisKey != axis || e.Side != side || s < e.S0 - 0.05 || s > e.S1 + 0.05)
                 continue;
 
             double d = Math.Min(Math.Abs(e.S0 - s), Math.Abs(e.S1 - s));

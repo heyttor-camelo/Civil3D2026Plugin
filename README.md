@@ -233,7 +233,7 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Rede viaria (C3DVIARIO v0.13.0)
+## Rede viaria (C3DVIARIO v0.14.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -253,7 +253,7 @@ C3DVIARIOCONVERSAO   -> conversao a esquerda tirada do canteiro (Tipo IV)
 C3DVIARIOABERTURA    -> abertura de canteiro para retorno
 C3DVIARIOLIVRE       -> faixa livre a direita com ilha triangular (Tipo III)
 C3DVIARIOELEMREMOVER -> remove um desses elementos
-C3DVIARIOCIVIL       -> [Gerar/Remover] alinhamentos do Civil: eixos, bordos LD/LE e curb returns; Gerar [Tudo/Selecionar] (so os eixos escolhidos)
+C3DVIARIOCIVIL       -> [Gerar/Perfis/Remover] alinhamentos do Civil: eixos, bordos LD/LE e curb returns; Gerar [Tudo/Selecionar]; Perfis (terreno + greide no eixo, bordo do pavimento seguindo o greide)
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
@@ -272,7 +272,7 @@ C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/EL
 - explorador (`C3DVIARIOPAINEL`), categoria Eixos: caixinhas para marcar varios eixos; com marcados (ou varios selecionados) as propriedades viram edicao em lote (secao, raio, concordancia, nome, inverter, selecionar, remover da rede);
 - nome do eixo (XData `C3DVIARIONOME`): editavel no explorador ou tirado dos TEXT/MTEXT proximos ("Nomear pelos textos...": filtro por layer e distancia, preferencia por texto alinhado com o eixo, previa antes de aplicar); vai para os alinhamentos do Civil.
 
-Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria (sem site, para nao formar lotes) um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. `Gerar > Selecionar` gera so para os eixos escolhidos (acrescenta aos ja escolhidos; `Tudo` volta para a rede inteira) - recomendado em redes grandes, por partes. Com a atualizacao automatica desligada e a rede pendente, o Gerar oferece atualizar a rede antes, para o Civil bater com a planta. Perfis, amarracao de greides e ilhas como feature lines vem nas proximas etapas.
+Objetos do Civil (etapa 1): `C3DVIARIOCIVIL > Gerar` cria (sem site, para nao formar lotes) um alinhamento por eixo (`Eixo VIARIO n`, layer `VIARIO-C3D-EIXO`), um alinhamento offset dinamico por lado, no eixo inteiro, na face do meio-fio (`<eixo> - LD`, `- LE`, layer `VIARIO-C3D-BORDO`; alargamentos viram regioes do offset) e um curb return por esquina (`<eixo A> x <eixo B> - CR1`, layer `VIARIO-C3D-CR`) - alinhamento conectado do Civil quando a geometria confere, senao alinhamento tipo CurbReturn com o arco fixo. Depois disso os alinhamentos acompanham a rede sozinhos: o que nao mudou fica, o que mudou e refeito. Os nomes podem ser trocados no Civil. `Gerar > Selecionar` gera so para os eixos escolhidos (acrescenta aos ja escolhidos; `Tudo` volta para a rede inteira) - recomendado em redes grandes, por partes. Com a atualizacao automatica desligada e a rede pendente, o Gerar oferece atualizar a rede antes, para o Civil bater com a planta. `Perfis` (etapa 2) pede a superficie do terreno e a declividade transversal (padrao 3%) e cria em cada eixo o perfil do terreno e um greide por layout (`<eixo> - Greide`, para editar as PVIs), mais um alinhamento offset por lado no bordo do pavimento (`<eixo> - PAV LD/LE`, encontro com a sarjeta) com perfil offset dinamico ligado ao greide; onde o Civil nao cria o offset dinamico, o plugin calcula e mantem o perfil. Perfis dos curb returns, amarracao dos greides nos cruzamentos e ilhas como feature lines vem nas proximas etapas.
 
 Secoes tem nome, tipo de via (Local, Coletora, Arterial, Transito rapido), faixas e velocidade; desenho novo comeca com Local, Coletora e Arterial com canteiro. O codigo P1, P2... e so interno.
 

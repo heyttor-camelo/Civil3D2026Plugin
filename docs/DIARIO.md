@@ -19,9 +19,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
   relê o estado; botoes do explorador renomeados; `DebugWidening` desligado.
 - Build Release x64 na CAMELO: net8, 0 erros, 9 avisos antigos de nulabilidade; ValidateProject OK.
   DLL em `atual\`, `versoes\2.88.0`, `C:\Temp\hydro-build` e pasta dll da FDX.
+- **Viario 0.14.0 / plugin 2.89.0** (mesma noite, pedido do Heyvid): etapa 2 = perfis. `C3DVIARIOCIVIL > Perfis`
+  (`ViarioCivilProfiles.cs`): terreno (superficie escolhida) + greide por layout no eixo; alinhamento offset
+  novo por lado no **bordo do pavimento** (nivel Pista, `PAV LD/LE`, so com sarjeta) com perfil offset
+  dinamico ligado ao greide pela declividade transversal (padrao 3%). A sobrecarga `Profile.CreateOffsetProfile*`
+  nao foi conferida na nuvem (PC fora da ponte): e chamada por reflexao, com fallback calculado pelo plugin
+  (PVIs do greide projetadas no bordo, refeitas quando o greide muda). Opcoes no NOD `CIVILPERFIS`.
 - **Pendente**: teste no Civil (roteiro: C3DVIARIOCIVIL > Gerar > Tudo numa rede pequena; Selecionar em
-  rede grande com atualizacao manual; `U` depois do Gerar; `C3DVIARIOTESTE`). Perfis/greides (etapa 2)
-  continuam fora.
+  rede grande com atualizacao manual; `U` depois do Gerar; `Perfis` com uma superficie; `C3DVIARIOTESTE`).
+  Conferir no `C3DLOG` se o offset dinamico saiu ou se caiu no calculado ("Perfil offset nao criado").
+  Fora: perfis dos curb returns e amarracao dos greides nos cruzamentos.
 
 ---
 

@@ -4436,10 +4436,16 @@ internal sealed class ViarioPanel : SW.Window
         Prop("Abrangencia", !_civilActive ? "-" : scope is null ? "rede inteira" : $"{scope.Count} eixo(s) escolhido(s)" + (scope.Contains(a.Key) ? " (este incluso)" : " (este fora)"));
         if (!_auto && _stale)
             Prop("Atencao", "rede pendente: o Gerar oferece atualizar a rede antes");
+        ViarioStore.CivilProfiles perfis = AcApp.DocumentManager.MdiActiveDocument is Document perfisDoc ? ViarioStore.LoadCivilProfiles(perfisDoc.Database) : new ViarioStore.CivilProfiles();
+        Category("Perfis");
+        Prop("Situacao", perfis.Enabled ? "ligados (acompanham a rede)" : "desligados");
+        Prop("Eixo", perfis.Enabled ? (perfis.Surface.Length > 0 ? $"terreno da superficie \"{perfis.Surface}\" + greide" : "greide (sem superficie)") : "-");
+        Prop("Bordo do pavimento", perfis.Enabled ? $"segue o greide a {perfis.CrossSlope * 100:0.##}% (encontro com a sarjeta)" : "-");
         Category("Proxima etapa");
-        Prop("Altimetria", "perfil dos eixos, perfis offset dos bordos, curb returns e amarracao de greides");
+        Prop("Altimetria", "perfis dos curb returns e amarracao dos greides nos cruzamentos");
         Act(_civilActive ? "Refazer tudo" : "Gerar tudo", () => Send("C3DVIARIOCIVIL G T ", "Objetos do Civil para a rede inteira: siga a linha de comando."), true);
         Act("Gerar por selecao", () => Send("C3DVIARIOCIVIL G S ", "Selecione os eixos no desenho: siga a linha de comando."));
+        Act(perfis.Enabled ? "Perfis..." : "Criar perfis", () => Send("C3DVIARIOCIVIL P ", "Perfis: superficie e declividade na linha de comando."));
         Act("Remover", () => Send("C3DVIARIOCIVIL R ", "Remover objetos do Civil: confirme na linha de comando."));
         Act("Autoteste", () => Send("C3DVIARIOTESTE  ", "Autoteste: relatorio em %TEMP%."));
         Act("Zoom", ZoomCurrent);

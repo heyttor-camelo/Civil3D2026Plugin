@@ -808,6 +808,47 @@ internal static class ViarioStore
         return keys;
     }
 
+    // ------------------------------------------------------------------
+    // Objetos do Civil: perfis (fora da assinatura: nao muda a rede)
+    // ------------------------------------------------------------------
+
+    private const string CivilProfilesKey = "CIVILPERFIS";
+    private const string CivilProfilesSignature = "VCIVPERF1";
+
+    /// <summary>Opcoes dos perfis gerados no Civil (C3DVIARIOCIVIL > Perfis).</summary>
+    internal sealed class CivilProfiles
+    {
+        /// <summary>Perfis ligados: o Sync mantem bordos do pavimento e perfis.</summary>
+        public bool Enabled { get; set; }
+
+        /// <summary>Nome da superficie do terreno (vazio = sem perfil de terreno).</summary>
+        public string Surface { get; set; } = "";
+
+        /// <summary>Declividade transversal do pavimento, do eixo para o bordo (fracao; 0.03 = 3% caindo).</summary>
+        public double CrossSlope { get; set; } = 0.03;
+    }
+
+    public static CivilProfiles LoadCivilProfiles(AcadDb.Database db)
+    {
+        CivilProfiles p = new();
+        AcadDb.TypedValue[]? v = ReadRecord(db, CivilProfilesKey);
+        if (v is null || v.Length < 4 || v[0].Value as string != CivilProfilesSignature)
+            return p;
+
+        p.Enabled = v[1].Value is int i ? i != 0 : v[1].Value is short s && s != 0;
+        p.Surface = v[2].Value as string ?? "";
+        if (v[3].Value is double slope && slope >= 0 && slope < 0.5)
+            p.CrossSlope = slope;
+        return p;
+    }
+
+    public static void SaveCivilProfiles(AcadDb.Transaction tr, AcadDb.Database db, CivilProfiles p) =>
+        WriteRecord(tr, db, CivilProfilesKey, new AcadDb.ResultBuffer(
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, CivilProfilesSignature),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Int32, p.Enabled ? 1 : 0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Text, p.Surface ?? ""),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.Real, p.CrossSlope)));
+
     /// <summary>Grava os eixos escolhidos; null volta para a rede inteira.</summary>
     public static void SaveCivilScope(AcadDb.Transaction tr, AcadDb.Database db, IEnumerable<string>? keys)
     {

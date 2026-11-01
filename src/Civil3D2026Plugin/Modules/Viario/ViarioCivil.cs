@@ -20,11 +20,14 @@ internal static class ViarioCivil
     public const string KindAxis = "EIXO";
     public const string KindEdge = "BORDO";
     public const string KindCurb = "CR";
+    /// <summary>Bordo do pavimento (encontro com a sarjeta), so quando os perfis estao ligados.</summary>
+    public const string KindPav = "PAV";
 
     public const string SiteName = "VIARIO";
     public const string LayerAxis = "VIARIO-C3D-EIXO";
     public const string LayerEdge = "VIARIO-C3D-BORDO";
     public const string LayerCurb = "VIARIO-C3D-CR";
+    public const string LayerPav = "VIARIO-C3D-PAV";
 
     private const double Tol = 0.005;
     private const double VerifyTol = 0.03;
@@ -44,12 +47,16 @@ internal static class ViarioCivil
         public List<string> Messages { get; } = new();
         public string Styles { get; set; } = "";
 
+        /// <summary>Perfis (quando ligados).</summary>
+        public ViarioCivilProfiles.Report? Profiles { get; set; }
+
         /// <summary>Eixos com objetos do Civil quando gerados por selecao (-1 = rede inteira).</summary>
         public int Scoped { get; set; } = -1;
 
         public override string ToString() =>
             $"Civil: eixos +{AxesCreated}/~{AxesUpdated} | bordos +{EdgesCreated} (mantidos {EdgesKept}, divergentes {EdgesFixed}) | " +
-            $"curb returns +{CurbsCreated} (mantidos {CurbsKept}; conectados {CurbsConnected}, simples {CurbsSimple}, falhas {CurbsFailed}) | removidos {Erased}";
+            $"curb returns +{CurbsCreated} (mantidos {CurbsKept}; conectados {CurbsConnected}, simples {CurbsSimple}, falhas {CurbsFailed}) | removidos {Erased}" +
+            (Profiles is null ? "" : "\n  " + Profiles);
     }
 
     private sealed class Tagged
@@ -129,7 +136,8 @@ internal static class ViarioCivil
     {
         AcadDb.Database db = doc.Database;
         Report report = new();
-        CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
+        ViarioStore.CivilProfiles profiles = ViarioStore.LoadCivilProfiles(db);
+        CivilPlan plan = ViarioCivilPlanner.Build(axes, result, pavement: profiles.Enabled);
         HashSet<string>? scope = ViarioStore.LoadCivilScope(db);
         ApplyScope(plan, scope);
         report.Scoped = scope is null ? -1 : plan.Axes.Count;
@@ -168,14 +176,14 @@ internal static class ViarioCivil
 
         // Bordos: casa cada trecho planejado com o existente de maior sobreposicao.
         Dictionary<CivilEdgePlan, Tagged> keepEdge = new();
-        List<Tagged> edgeTags = existing.Where(t => t.Kind == KindEdge).ToList();
+        List<Tagged> edgeTags = existing.Where(t => t.Kind == KindEdge || t.Kind == KindPav).ToList();
         foreach (CivilEdgePlan e in plan.Edges)
         {
             if (changedAxes.Contains(e.AxisKey) || !axisTags.ContainsKey(e.AxisKey))
                 continue;
 
             Tagged? match = edgeTags
-                .Where(t => !t.Used && t.Key == e.AxisKey && t.Side == e.Side &&
+                .Where(t => !t.Used && t.Kind == KindFor(e) && t.Key == e.AxisKey && t.Side == e.Side &&
                             Math.Abs(t.S0 - e.S0) < Tol && Math.Abs(t.S1 - e.S1) < Tol && Math.Abs(t.Offset - e.Offset) < Tol && t.Geom == e.WidenKey)
                 .FirstOrDefault();
             if (match is null)
@@ -292,7 +300,7 @@ internal static class ViarioCivil
                     continue;
 
                 string name = Unique(names, $"{parent.Name} - {e.Code}");
-                AcadDb.ObjectId id = CreateEdge(tr, cdoc, e, axis, parentId, st0, st1, name, siteId, layers[LayerEdge], styleId, labelId, report);
+                AcadDb.ObjectId id = CreateEdge(tr, cdoc, e, axis, parentId, st0, st1, name, siteId, layers[e.IsPavement ? LayerPav : LayerEdge], styleId, labelId, report);
                 if (!id.IsNull)
                 {
                     edgeIds[e] = id;
@@ -328,10 +336,26 @@ internal static class ViarioCivil
             }
         }
 
+        // ---------- Perfis (etapa 2) ----------
+        if (profiles.Enabled)
+        {
+            try
+            {
+                report.Profiles = ViarioCivilProfiles.Sync(tr, db, cdoc, plan, axisIds, edgeIds, profiles);
+                report.Messages.AddRange(report.Profiles.Messages);
+            }
+            catch (System.Exception ex)
+            {
+                report.Messages.Add("Perfis: " + ex.Message);
+            }
+        }
+
         tr.Commit();
         Active[db] = true;
         return report;
     }
+
+    private static string KindFor(CivilEdgePlan e) => e.IsPavement ? KindPav : KindEdge;
 
     // ------------------------------------------------------------------
     // Autoteste (C3DVIARIOTESTE)
@@ -348,7 +372,8 @@ internal static class ViarioCivil
         List<string> lines = new();
         AcadDb.Database db = doc.Database;
         (List<AxisInput> axes, ViarioResult result, _) = ViarioSync.ComputeCurrent(db);
-        CivilPlan plan = ViarioCivilPlanner.Build(axes, result);
+        ViarioStore.CivilProfiles profiles = ViarioStore.LoadCivilProfiles(db);
+        CivilPlan plan = ViarioCivilPlanner.Build(axes, result, pavement: profiles.Enabled);
         HashSet<string>? scope = ViarioStore.LoadCivilScope(db);
         ApplyScope(plan, scope);
         lines.Add($"Rede: {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s), {result.Corners.Count} esquina(s), {result.Warnings.Distinct().Count()} aviso(s) do motor.");
@@ -414,7 +439,7 @@ internal static class ViarioCivil
 
         foreach (CivilEdgePlan e in plan.Edges)
         {
-            Tagged? t = existing.FirstOrDefault(x => x.Kind == KindEdge && x.Key == e.AxisKey && x.Side == e.Side &&
+            Tagged? t = existing.FirstOrDefault(x => x.Kind == KindFor(e) && x.Key == e.AxisKey && x.Side == e.Side &&
                                                      Math.Abs(x.S0 - e.S0) < 0.01 && Math.Abs(x.S1 - e.S1) < 0.01);
             if (t is null) { Fail($"bordo {e.Code} do eixo {e.AxisKey}: nao existe"); fail++; continue; }
             seen.Add(t);
@@ -451,6 +476,26 @@ internal static class ViarioCivil
             string name = tr.GetObject(t.Id, AcadDb.OpenMode.ForRead, false) is CivilDb.Alignment al ? al.Name : t.Id.ToString();
             Fail($"{name}: sobrando ({t.Kind} {t.Key})");
             fail++;
+        }
+
+        // Perfis: um greide por eixo (e terreno, se ha superficie); um perfil por bordo do pavimento.
+        if (profiles.Enabled)
+        {
+            List<(AcadDb.ObjectId Id, string AxisKey, string Role, string Method)> all = ViarioCivilProfiles.All(tr, existing.Select(x => x.Id));
+            int grades = all.Count(p => p.Role == ViarioCivilProfiles.RoleGrade);
+            int terrain = all.Count(p => p.Role == ViarioCivilProfiles.RoleTerrain);
+            int pav = all.Count(p => p.Role == ViarioCivilProfiles.RolePavement);
+            int calc = all.Count(p => p.Role == ViarioCivilProfiles.RolePavement && p.Method == "CALC");
+            int wantPav = plan.Axes.Sum(a => new[] { -1, +1 }.Count(side => plan.Edges.Any(e => e.AxisKey == a.Key && e.Side == side)));
+            bool good = grades == plan.Axes.Count && (profiles.Surface.Length == 0 || terrain == plan.Axes.Count) && pav == wantPav;
+            lines.Add($"{(good ? "OK   " : "FALHA")} Perfis: greides {grades}/{plan.Axes.Count}, terreno {terrain}" +
+                      (profiles.Surface.Length > 0 ? $"/{plan.Axes.Count} (superficie \"{profiles.Surface}\")" : " (sem superficie)") +
+                      $", bordos do pavimento {pav}/{wantPav} ({calc} calculados pelo plugin), i = {profiles.CrossSlope * 100:0.##}%.");
+            if (good) ok++; else fail++;
+        }
+        else
+        {
+            lines.Add("Perfis: desligados (C3DVIARIOCIVIL > Perfis).");
         }
 
         return lines;
@@ -490,6 +535,26 @@ internal static class ViarioCivil
         return max;
     }
 
+    /// <summary>Apaga os perfis do modulo que sobraram nos alinhamentos dos eixos (perfis desligados).</summary>
+    public static int RemoveProfiles(Document doc)
+    {
+        AcadDb.Database db = doc.Database;
+        int erased = 0;
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            List<Tagged> all = Scan(tr, db);
+            foreach ((AcadDb.ObjectId id, _, _, _) in ViarioCivilProfiles.All(tr, all.Select(t => t.Id)))
+            {
+                if (TryErase(tr, id))
+                    erased++;
+            }
+
+            tr.Commit();
+        }
+
+        return erased;
+    }
+
     /// <summary>Apaga todos os objetos do Civil gerados pelo modulo.</summary>
     public static int RemoveAll(Document doc)
     {
@@ -498,7 +563,7 @@ internal static class ViarioCivil
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
             List<Tagged> all = Scan(tr, db);
-            foreach (string kind in new[] { KindCurb, KindEdge, KindAxis })
+            foreach (string kind in new[] { KindCurb, KindPav, KindEdge, KindAxis })
             {
                 foreach (Tagged t in all.Where(t => t.Kind == kind))
                     Erase(tr, t.Id, report);
@@ -552,8 +617,8 @@ internal static class ViarioCivil
                     report.Messages.Add($"{name} [v{v}]: {DescribeRegions(al)}");
                 if (ok || last)
                 {
-                    al.Layer = LayerEdge;
-                    SetTag(al, KindEdge, e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, ok ? "OFFSET" + (e.Widenings.Count > 0 ? "-ALARG" + v : "") : "OFFSET-DIVERGE");
+                    al.Layer = e.IsPavement ? LayerPav : LayerEdge;
+                    SetTag(al, KindFor(e), e.AxisKey, side, F(e.S0), F(e.S1), F(e.Offset), e.WidenKey, ok ? "OFFSET" + (e.Widenings.Count > 0 ? "-ALARG" + v : "") : "OFFSET-DIVERGE");
                     if (!ok)
                     {
                         report.EdgesFixed++;
@@ -1501,7 +1566,7 @@ internal static class ViarioCivil
     {
         Dictionary<string, AcadDb.ObjectId> ids = new();
         AcadDb.LayerTable lt = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
-        foreach ((string name, short color) in new[] { (LayerAxis, (short)1), (LayerEdge, (short)4), (LayerCurb, (short)6) })
+        foreach ((string name, short color) in new[] { (LayerAxis, (short)1), (LayerEdge, (short)4), (LayerCurb, (short)6), (LayerPav, (short)2) })
         {
             if (lt.Has(name))
             {

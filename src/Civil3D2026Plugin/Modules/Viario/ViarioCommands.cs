@@ -219,13 +219,25 @@ public sealed class ViarioCommands
                 ? "\n  Objetos do Civil ativos para a rede inteira: acompanham a rede automaticamente."
                 : $"\n  Objetos do Civil ativos para {scope.Count} eixo(s) escolhido(s): acompanham a rede automaticamente.");
 
-        PromptKeywordOptions options = new("\nObjetos do Civil [Gerar/Remover] <Gerar>: ", "Gerar Remover")
+        ViarioStore.CivilProfiles profiles = ViarioStore.LoadCivilProfiles(db);
+        if (profiles.Enabled)
+        {
+            ed.WriteMessage($"\n  Perfis ligados: greide no eixo{(profiles.Surface.Length > 0 ? $", terreno da superficie \"{profiles.Surface}\"" : ", sem superficie")}, bordo do pavimento a {profiles.CrossSlope * 100:0.##}%.");
+        }
+
+        PromptKeywordOptions options = new("\nObjetos do Civil [Gerar/Perfis/Remover] <Gerar>: ", "Gerar Perfis Remover")
         {
             AllowNone = true
         };
         PromptResult r = ed.GetKeywords(options);
         if (r.Status == PromptStatus.Cancel || r.Status == PromptStatus.Error)
             return;
+
+        if (r.Status == PromptStatus.OK && r.StringResult == "Perfis")
+        {
+            CivilProfilesMenu(doc, active, profiles);
+            return;
+        }
 
         if (r.Status == PromptStatus.OK && r.StringResult == "Remover")
         {
@@ -241,6 +253,8 @@ public sealed class ViarioCommands
             using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
             {
                 ViarioStore.SaveCivilScope(tr, db, null);
+                profiles.Enabled = false;
+                ViarioStore.SaveCivilProfiles(tr, db, profiles);
                 tr.Commit();
             }
 
@@ -337,6 +351,141 @@ public sealed class ViarioCommands
         foreach (string m in report.Messages.Distinct())
             Civil3D2026Plugin.Infrastructure.PluginLog.Info("Viario", "Civil: " + m);
         ed.WriteMessage($"\n  Sem site (evita lotes); layers {ViarioCivil.LayerAxis}, {ViarioCivil.LayerEdge}, {ViarioCivil.LayerCurb}.");
+        ViarioPanel.NotifyChanged(doc);
+    }
+
+    /// <summary>
+    /// Perfis (etapa 2): terreno + greide no eixo e perfil do bordo do pavimento (encontro com a
+    /// sarjeta) seguindo o greide pela declividade transversal. Liga, ajusta ou desliga.
+    /// </summary>
+    private static void CivilProfilesMenu(Document doc, bool active, ViarioStore.CivilProfiles profiles)
+    {
+        Editor ed = doc.Editor;
+        AcadDb.Database db = doc.Database;
+
+        if (profiles.Enabled)
+        {
+            PromptKeywordOptions what = new("\nPerfis [Refazer/Ajustar/Desligar] <Refazer>: ", "Refazer Ajustar Desligar")
+            {
+                AllowNone = true
+            };
+            PromptResult w = ed.GetKeywords(what);
+            if (w.Status == PromptStatus.Cancel || w.Status == PromptStatus.Error)
+                return;
+            if (w.Status == PromptStatus.OK && w.StringResult == "Desligar")
+            {
+                PromptKeywordOptions confirm = new("\nApagar os perfis e os bordos do pavimento gerados (greides editados se perdem)? [Sim/Nao] <Nao>: ", "Sim Nao")
+                {
+                    AllowNone = true
+                };
+                PromptResult c = ed.GetKeywords(confirm);
+                if (c.Status != PromptStatus.OK || c.StringResult != "Sim")
+                    return;
+
+                using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    profiles.Enabled = false;
+                    ViarioStore.SaveCivilProfiles(tr, db, profiles);
+                    tr.Commit();
+                }
+
+                // Sem a opcao, o Sync remove os bordos do pavimento (os perfis vao junto); os do eixo tambem.
+                ViarioCivil.Report off = ViarioCivil.Sync(doc, create: true);
+                int erased = ViarioCivil.RemoveProfiles(doc);
+                ed.WriteMessage($"\n  Perfis desligados: {erased} perfil(is) do eixo e {off.Erased} alinhamento(s) do pavimento removidos. (Desfazer: U)");
+                ViarioPanel.NotifyChanged(doc);
+                return;
+            }
+
+            if (w.Status != PromptStatus.OK || w.StringResult != "Ajustar")
+            {
+                RunProfiles(doc, profiles, ed);
+                return;
+            }
+        }
+
+        // Superficie do terreno.
+        List<string> surfaces = ViarioCivilProfiles.SurfaceNames(db);
+        if (surfaces.Count == 0)
+        {
+            ed.WriteMessage("\n  O desenho nao tem superficie: o greide nasce na elevacao 0 (sem perfil de terreno).");
+            profiles.Surface = "";
+        }
+        else
+        {
+            ed.WriteMessage("\n  Superficies do desenho: " + string.Join(", ", surfaces.Select((n, i) => $"[{i + 1}] {n}")));
+            string current = profiles.Surface.Length > 0 && surfaces.Contains(profiles.Surface, StringComparer.OrdinalIgnoreCase)
+                ? profiles.Surface : surfaces[0];
+            PromptStringOptions sopt = new($"\nSuperficie do terreno (numero ou nome; 0 = nenhuma) <{current}>: ") { AllowSpaces = true };
+            PromptResult sr = ed.GetString(sopt);
+            if (sr.Status != PromptStatus.OK)
+                return;
+            string typed = sr.StringResult.Trim();
+            if (typed.Length == 0)
+                profiles.Surface = current;
+            else if (typed == "0")
+                profiles.Surface = "";
+            else if (int.TryParse(typed, out int idx) && idx >= 1 && idx <= surfaces.Count)
+                profiles.Surface = surfaces[idx - 1];
+            else
+            {
+                string? found = surfaces.FirstOrDefault(n => string.Equals(n, typed, StringComparison.OrdinalIgnoreCase))
+                                ?? surfaces.FirstOrDefault(n => n.Contains(typed, StringComparison.OrdinalIgnoreCase));
+                if (found is null)
+                {
+                    ed.WriteMessage($"\n  Superficie \"{typed}\" nao encontrada.");
+                    return;
+                }
+
+                profiles.Surface = found;
+            }
+        }
+
+        // Declividade transversal.
+        PromptDoubleOptions dopt = new($"\nDeclividade transversal do pavimento, do eixo para o bordo (%) <{profiles.CrossSlope * 100:0.##}>: ")
+        {
+            AllowNegative = false,
+            AllowNone = true,
+            DefaultValue = profiles.CrossSlope * 100
+        };
+        PromptDoubleResult dr = ed.GetDouble(dopt);
+        if (dr.Status != PromptStatus.OK && dr.Status != PromptStatus.None)
+            return;
+        if (dr.Status == PromptStatus.OK)
+        {
+            if (dr.Value > 20)
+            {
+                ed.WriteMessage("\n  Declividade acima de 20%: confira o valor (e em %, ex. 3).");
+                return;
+            }
+
+            profiles.CrossSlope = dr.Value / 100.0;
+        }
+
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            profiles.Enabled = true;
+            ViarioStore.SaveCivilProfiles(tr, db, profiles);
+            tr.Commit();
+        }
+
+        if (!active)
+            ed.WriteMessage("\n  Ainda nao havia objetos do Civil: gerando eixos, bordos e curb returns junto (rede inteira).");
+
+        RunProfiles(doc, profiles, ed);
+    }
+
+    private static void RunProfiles(Document doc, ViarioStore.CivilProfiles profiles, Editor ed)
+    {
+        ViarioCivil.Report report = ViarioCivil.Sync(doc, create: true);
+        ed.WriteMessage("\n  " + report);
+        foreach (string m in report.Messages.Distinct().Take(12))
+            ed.WriteMessage("\n  [CIVIL] " + m);
+        foreach (string m in report.Messages.Distinct())
+            Civil3D2026Plugin.Infrastructure.PluginLog.Info("Viario", "Civil/perfis: " + m);
+        ed.WriteMessage($"\n  Greide: perfil por layout \"<eixo> - Greide\" (edite as PVIs no Civil; o bordo do pavimento acompanha). Layer {ViarioCivilProfiles.LayerProfile}.");
+        if (report.Profiles is { PavementCalc: > 0 })
+            ed.WriteMessage("\n  Alguns perfis do bordo foram calculados pelo plugin (esta build do Civil nao criou o offset dinamico): sao refeitos a cada atualizacao da rede.");
         ViarioPanel.NotifyChanged(doc);
     }
 
