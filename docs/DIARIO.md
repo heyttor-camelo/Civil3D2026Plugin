@@ -50,6 +50,7 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
   hachura puros, por link) e `ViarioDump` (retrato JSON gravado pelo HACHURA > Gerar em %LOCALAPPDATA% e no Drive `diag\`).
   Replay do retrato real na CAMELO: 19 nos, 60 linhas, 47 esquinas, 9 lacos, **nenhuma cunha** - o vazamento foi da copia dupla
   (26 eixos sobrepostos), nao do contorno. 2.90.5 limpa chaves de raio orfas (o retrato tinha 123 raios para 41 esquinas).
+  Builds 2.90.4 e 2.90.5 na CAMELO: 0 erros, 9 avisos antigos; DLLs em atual\, versoes\, hydro-build e dll da FDX.
   Lembrete: o `Copy-DllFdx.ps1` tenta apagar versoes antigas e a exclusao e bloqueada na sessao remota (copias feitas a mao).
 - **Pendente**: teste no Civil (roteiro: C3DVIARIOCIVIL > Gerar > Tudo numa rede pequena; Selecionar em
   rede grande com atualizacao manual; `U` depois do Gerar; `Perfis` com uma superficie; `C3DVIARIOTESTE`).
