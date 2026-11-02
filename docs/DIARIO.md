@@ -36,7 +36,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
   RAIOS/LIVRES/SOLTAS remapeados pela chave de esquina, ILHASOFF/ILHARAIO mesclados, CONFIG/AUTO so se o destino
   nao tinha rede; `ViarioSync.Forget(destino)` para a rede ser refeita la. Hachura revisada: pipeline estava certo;
   corrigidos ordem de desenho (MoveToBottom das hachuras novas), avisos do acompanhar-rede que sumiam (agora C3DLOG +
-  resumo), guarda de XData vazia, texto do aviso de contorno aberto. Build pendente/feito na CAMELO (ver abaixo).
+  resumo), guarda de XData vazia, texto do aviso de contorno aberto. Build Release x64 na CAMELO: net8, 0 erros, 9 avisos antigos;
+  DLL 2.90.0 em atual\, versoes\2.90.0, hydro-build e dll da FDX.
 - **Pendente**: teste no Civil (roteiro: C3DVIARIOCIVIL > Gerar > Tudo numa rede pequena; Selecionar em
   rede grande com atualizacao manual; `U` depois do Gerar; `Perfis` com uma superficie; `C3DVIARIOTESTE`).
   Conferir no `C3DLOG` se o offset dinamico saiu ou se caiu no calculado ("Perfil offset nao criado").
