@@ -124,6 +124,7 @@ internal static class ViarioTransfer
         Dictionary<string, string> handleMap = new(StringComparer.Ordinal);
         bool destHadNetwork = ViarioStore.RecordsSignature(dst).Length > 0;
         bool destAuto;
+        bool regenerated = false;
 
         using (dest.LockDocument())
         {
@@ -270,10 +271,22 @@ internal static class ViarioTransfer
                                  $"raios de esquina {radiiCopied}, faixas livres {slipsCopied}, ilhas eliminadas {removed.Count}, raios de ilha {islandRadii.Count}, linhas soltas {released.Count}.");
             }
 
-            // A rede e refeita no destino: os eventos do banco ja marcaram os eixos novos como
-            // pendentes; com a atualizacao automatica ela e refeita quando o desenho ficar ativo.
-            ViarioSync.Forget(dst);
+            // A rede e refeita no destino. Os eventos do banco nao servem aqui: no ObjectAppended
+            // do clone a XData ainda nao e legivel, entao os eixos novos sao registrados a mao.
+            ViarioSync.NotifyImported(dst, cloned.Values);
             destAuto = ViarioSync.IsAuto(dst);
+            if (destAuto)
+            {
+                try
+                {
+                    ViarioResult? r = ViarioSync.Regenerate(dest, quiet: true, force: true);
+                    regenerated = r is not null;
+                }
+                catch (System.Exception ex)
+                {
+                    Civil3D2026Plugin.Infrastructure.PluginLog.Aviso("Viario", "Copiar: rede nao refeita no destino: " + ex.Message);
+                }
+            }
         }
 
         foreach (string line in report)
@@ -281,8 +294,10 @@ internal static class ViarioTransfer
         foreach (string line in report)
             Civil3D2026Plugin.Infrastructure.PluginLog.Info("Viario", "Copiar: " + line);
 
-        ed.WriteMessage(destAuto
-            ? $"\n  Ao mudar para \"{Path.GetFileName(dest.Name)}\" a rede e refeita sozinha (atualizacao automatica)."
+        ed.WriteMessage(regenerated
+            ? $"\n  Rede refeita em \"{Path.GetFileName(dest.Name)}\" (bordos, meio-fio e esquinas)."
+            : destAuto
+            ? $"\n  Ao mudar para \"{Path.GetFileName(dest.Name)}\" a rede e refeita sozinha (atualizacao automatica); se nao, use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la."
             : $"\n  Em \"{Path.GetFileName(dest.Name)}\" a atualizacao automatica esta desligada: use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la.");
         ed.WriteMessage("\n  Nao copiados (gere la, se quiser): hachura, sinalizacao, cotas, placas e objetos do Civil. Para desfazer no destino: U naquele desenho.");
     }

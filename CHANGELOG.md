@@ -1,3 +1,7 @@
+## 2.90.1 - Viario v0.15.1: rede copiada era refeita so no painel, nao no desenho
+
+- `C3DVIARIOCOPIAR`: os eixos clonados nao ficavam marcados como pendentes no destino (na hora do evento de insercao a XData do clone ainda nao e legivel), entao o painel mostrava a rede certa mas as linhas em planta nao eram desenhadas. Agora os eixos sao registrados a mao e, com a atualizacao automatica ligada, a rede e refeita no destino na hora, dentro do proprio comando.
+
 ## 2.90.0 - Viario v0.15.0: copiar rede para outro desenho (C3DVIARIOCOPIAR) e hachura revisada
 
 - Novo `C3DVIARIOCOPIAR` (tambem `C3DVIARIO > COPiar`): leva eixos escolhidos (ou todos) para outro desenho aberto, junto com as secoes usadas, raios de esquina, faixas livres, ilhas eliminadas e, se o destino ainda nao tem rede, a configuracao e o modo automatico. Secoes iguais sao reaproveitadas; secao com mesmo numero e medidas diferentes entra como copia (" (copiada)"). A rede e refeita no destino (ao ativar o desenho, se automatico; senao `ATUalizar`). Nao copia hachura, sinalizacao, cotas, placas nem objetos do Civil: gere de novo la.

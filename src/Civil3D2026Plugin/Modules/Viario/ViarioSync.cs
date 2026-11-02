@@ -680,6 +680,28 @@ internal static class ViarioSync
     /// <summary>Esquece a rede guardada (o proximo calculo e completo).</summary>
     public static void Forget(AcadDb.Database db) => State(db).Last = null;
 
+    /// <summary>
+    /// Eixos trazidos de outro desenho (WblockCloneObjects): na hora do ObjectAppended a XData
+    /// ainda pode nao ser legivel (RegApp traduzido depois), entao o evento nao os marca como
+    /// pendentes. Registra os eixos no estado e deixa a rede pendente, para ser refeita.
+    /// </summary>
+    public static void NotifyImported(AcadDb.Database db, IEnumerable<AcadDb.ObjectId> axes)
+    {
+        DbState state = State(db);
+        foreach (AcadDb.ObjectId id in axes)
+        {
+            if (id.IsNull)
+                continue;
+            state.Axes.Add(id);
+            state.AxisCache.Remove(id);
+            state.Dirty.Add(id);
+        }
+        state.Last = null;
+        state.Pending = true;
+        state.Version++;
+        ViarioGripPreview.Invalidate();
+    }
+
     private static Snapshot? Valid(AcadDb.Database db, DbState state) =>
         state.Last is Snapshot last && last.Version == state.Version &&
         string.Equals(last.Signature, ViarioStore.RecordsSignature(db), StringComparison.Ordinal)
