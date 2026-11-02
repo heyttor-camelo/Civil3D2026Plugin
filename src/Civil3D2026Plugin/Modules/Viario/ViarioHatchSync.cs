@@ -39,7 +39,7 @@ internal static class ViarioHatchSync
         {
             if (!id.ObjectClass.DxfName.Equals("HATCH", StringComparison.OrdinalIgnoreCase))
                 continue;
-            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Hatch h || ViarioStore.ReadValues(h) is not { } v || v[0] != TagHatch)
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is not AcadDb.Hatch h || ViarioStore.ReadValues(h) is not { Count: > 0 } v || v[0] != TagHatch)
                 continue;
             // Hachuras antigas (sem bloco) ficam com bloco vazio e sao sempre refeitas.
             found.Add(new Existing(id, v.Count > 2 ? v[2] : "", v.Count > 3 ? v[3] : "", v.Count > 4 ? v[4] : "",
@@ -142,6 +142,7 @@ internal static class ViarioHatchSync
 
         AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
+        AcadDb.ObjectIdCollection created = new();
 
         // Uma HATCH por contorno externo, com os seus furos. Num unico objeto com
         // varios "externos" o AutoCAD se perde na paridade quando dois contornos se
@@ -203,7 +204,24 @@ internal static class ViarioHatchSync
 
             // Cada hachura sabe quantas o bloco tem: uma apagada a mao faz o bloco ser refeito.
             foreach ((AcadDb.Hatch hatch, int added) in made)
+            {
                 ViarioStore.SetTag(hatch, TagHatch, added.ToString(CultureInfo.InvariantCulture), tileKey, geometry, style, made.Count.ToString(CultureInfo.InvariantCulture));
+                created.Add(hatch.ObjectId);
+            }
+        }
+
+        // Hachura atras de tudo: criada por ultimo, ela cobria eixos, faces e textos (pior no SOLID).
+        if (created.Count > 0)
+        {
+            try
+            {
+                AcadDb.DrawOrderTable dot = (AcadDb.DrawOrderTable)tr.GetObject(ms.DrawOrderTableId, AcadDb.OpenMode.ForWrite);
+                dot.MoveToBottom(created);
+            }
+            catch (System.Exception ex)
+            {
+                messages?.Add("Nao consegui mandar a hachura para tras (DRAWORDER): " + ex.Message);
+            }
         }
 
         tr.Commit();
@@ -431,8 +449,12 @@ internal static class ViarioHatchSync
             ed.WriteMessage("\n  A rede esta pendente (atualizacao manual): a hachura segue os eixos atuais; \"Atualizar rede\" refaz as linhas.");
         foreach (string m in messages.Distinct().Take(12))
             ed.WriteMessage("\n  [HACHURA] " + m);
+        if (messages.Count > 12)
+            ed.WriteMessage($"\n  ... mais {messages.Distinct().Count() - 12} aviso(s) no log (C3DLOG).");
+        foreach (string m in messages.Distinct())
+            Civil3D2026Plugin.Infrastructure.PluginLog.Aviso("Viario", "Hachura: " + m);
         if (messages.Count == 0)
-            ed.WriteMessage("\n  Contornos fechados e areas conferidas: sem problemas de boundary.");
+            ed.WriteMessage("\n  Contornos fechados e areas conferidas: sem problemas de boundary. A hachura fica atras das linhas (DRAWORDER).");
     }
 
     private static void Save(AcadDb.Database db, ViarioStore.Settings settings)

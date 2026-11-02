@@ -32,8 +32,8 @@ public sealed class ViarioCommands
         {
             Editor ed = doc.Editor;
             PromptKeywordOptions options = new(
-                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/PLacas/ATRativos/COtar/HAchura/PAinel/Config] <Eixo>: ",
-                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar AUtomatico CIvil SInalizacao PLacas ATRativos COtar HAchura PAinel Config")
+                "\nOpcao [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/PLacas/ATRativos/COtar/HAchura/COPiar/PAinel/Config] <Eixo>: ",
+                "Eixo MOdelos ADicionar Secao ATribuir Raio ROtatoria ELementos DEsvincular REmover ATUalizar AUtomatico CIvil SInalizacao PLacas ATRativos COtar HAchura COPiar PAinel Config")
             {
                 AllowNone = true
             };
@@ -61,6 +61,7 @@ public sealed class ViarioCommands
                 case "ATRativos": ViarioAtrativos.Command(doc); break;
                 case "COtar": ViarioDimensions.Command(doc); break;
                 case "HAchura": ViarioHatchSync.Command(doc); break;
+                case "COPiar": ViarioTransfer.Command(doc); break;
                 case "PAinel": ViarioPanel.Command(doc); break;
                 case "Config": Configure(doc); break;
                 default: DrawAxes(doc); break;
@@ -205,6 +206,9 @@ public sealed class ViarioCommands
 
     [CommandMethod(C3DCommands.Viario.Civil, CommandFlags.Modal)]
     public void Civil() => Run(C3DCommands.Viario.Civil, CivilMenu);
+
+    [CommandMethod(C3DCommands.Viario.Copiar, CommandFlags.Modal)]
+    public void Copiar() => Run(C3DCommands.Viario.Copiar, ViarioTransfer.Command);
 
     /// <summary>Gera/refaz ou remove os alinhamentos do Civil (eixos, LD/LE, curb returns).</summary>
     private static void CivilMenu(Document doc)
@@ -500,7 +504,8 @@ public sealed class ViarioCommands
         // Recomendacoes antes/depois pedem a rede calculada: com a atualizacao manual (rede
         // grande) ficam so no painel, para o comando nao calcular a rede inteira.
         bool auto = ViarioSync.IsAuto(doc.Database);
-        bool hints = auto && command != C3DCommands.Viario.Teste && command != C3DCommands.Viario.Diag && command != C3DCommands.Viario.Painel;
+        bool hints = auto && command != C3DCommands.Viario.Teste && command != C3DCommands.Viario.Diag && command != C3DCommands.Viario.Painel &&
+                     command != C3DCommands.Viario.Copiar;
         HashSet<string> before = hints ? HintKeys(doc) : new HashSet<string>();
 
         // Saidas (Civil, sinalizacao, hachura, cotas) seguem os eixos atuais; com a rede

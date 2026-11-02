@@ -295,6 +295,8 @@ public static class CommandCatalog
                         "Importa as placas de um projeto (JSON/CSV) e insere cada uma no padrao do SinC (bloco T-xxx_SV com os atributos e linha de chamada), amarrada ao eixo mais proximo: eixo, estaca e lado; nomeia os eixos pela rota/trecho das placas."),
                     new CommandDefinition(C3DCommands.Viario.Atrativos, "Atrativos turisticos (KMZ)",
                         "Importa os pontos de um KML/KMZ (atrativos turisticos) como blocos VIARIO-ATRATIVO: circulo com hachura transparente, raio = escala do bloco, nome e categoria em atributos; lista no painel viario."),
+                    new CommandDefinition(C3DCommands.Viario.Copiar, "Copiar rede para outro desenho",
+                        "Leva eixos escolhidos (ou todos) para outro desenho aberto, com secoes, raios de esquina, faixas livres, ilhas eliminadas e configuracao; a rede e refeita la."),
                     new CommandDefinition(C3DCommands.Viario.Hachura, "Hachura do pavimento",
                         "Hachura unica so da regiao de pavimento (contorno pelas faces de meio-fio; quadras, canteiros e ilhas como furos), que acompanha a rede."),
                     new CommandDefinition(C3DCommands.Viario.Cotar, "Cotar faixas",

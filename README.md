@@ -233,14 +233,14 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Rede viaria (C3DVIARIO v0.14.1)
+## Rede viaria (C3DVIARIO v0.15.0)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
 ```text
 C3DVIARIOPAINEL      -> explorador (estilo Project Explorer): ferramentas, arvore de objetos, grafico, propriedades e recomendacoes DNIT
 C3DVIARIOSINAL       -> [Gerar/Remover/Ocultar/Mostrar/Painel] sinalizacao horizontal previa num bloco unico (VIARIO-SINALIZACAO)
-C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Blocos/Ocultar/Mostrar] hachura so do pavimento (furos: quadras, canteiros, ilhas), recortada em blocos de 500 m (Blocos); acompanha a rede refazendo so os blocos que mudam
+C3DVIARIOHACHURA     -> [Gerar/Remover/PAdrao/Escala/SOlido/Blocos/Ocultar/Mostrar] hachura so do pavimento (furos: quadras, canteiros, ilhas), recortada em blocos de 500 m (Blocos); acompanha a rede refazendo so os blocos que mudam; vai para o fundo da ordem de desenho; avisos de contorno no C3DLOG
 C3DVIARIOPLACAS      -> [Importar/ATualizar/NOmear/Listar/Remover/Painel] placas de sinalizacao vertical no padrao do SinC (bloco T-xxx_SV com os 15 atributos e linha de chamada), amarradas ao eixo mais proximo (eixo, estaca, lado); nomeia os eixos pela rota/trecho das placas
 C3DVIARIOATRATIVOS   -> [Importar/Raio/Listar/Remover/Painel] atrativos turisticos de um KML/KMZ como circulos hachurados transparentes (bloco; escala = raio; nome e categoria em atributos)
 C3DVIARIOCOTAR       -> cadeia de cotas da secao segue o cursor sobre o eixo; clique grava (faixas, canteiro, passeio e largura total); [Detalhe/Estilo/Escala/Remover]
@@ -254,10 +254,11 @@ C3DVIARIOABERTURA    -> abertura de canteiro para retorno
 C3DVIARIOLIVRE       -> faixa livre a direita com ilha triangular (Tipo III)
 C3DVIARIOELEMREMOVER -> remove um desses elementos
 C3DVIARIOCIVIL       -> [Gerar/Perfis/Remover] alinhamentos do Civil: eixos, bordos LD/LE e curb returns; Gerar [Tudo/Selecionar]; Perfis (terreno + greide no eixo, bordo do pavimento seguindo o greide)
+C3DVIARIOCOPIAR      -> copia eixos escolhidos (ou todos) para outro desenho aberto, com secoes, raios, faixas livres, ilhas eliminadas e configuracao; a rede e refeita la (hachura, sinalizacao, cotas, placas e Civil nao vao: gere de novo)
 C3DVIARIOILHA        -> elimina a ilha clicada (vira pavimento); [Restaurar/Todas] desfaz
 C3DVIARIOTESTE       -> autoteste: confere eixos, bordos e curb returns do Civil contra a rede (relatorio em %TEMP% e tests/viario/out)
 C3DVIARIODIAG        -> diagnostico (somente leitura) da API do Civil instalada
-C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/SInalizacao/PLacas/ATRativos/COtar/HAchura/PAinel/Config]
+C3DVIARIO            -> [Eixo/MOdelos/ADicionar/Secao/ATribuir/Raio/ROtatoria/ELementos/DEsvincular/REmover/ATUalizar/AUtomatico/CIvil/COPiar/SInalizacao/PLacas/ATRativos/COtar/HAchura/PAinel/Config]
 ```
 
 - secao: pista, canteiro central, sarjeta, meio-fio, calcada e raio de esquina (na face do meio-fio; demais linhas concentricas); sarjeta, meio-fio e calcada podem existir so a esquerda, so a direita ou nos dois lados (no sentido do eixo);

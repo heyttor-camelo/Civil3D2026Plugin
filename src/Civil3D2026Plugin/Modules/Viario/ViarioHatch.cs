@@ -211,7 +211,7 @@ internal static class ViarioHatch
         {
             if (!isClosed)
             {
-                plan.Warnings.Add($"Contorno do pavimento aberto perto de {segs[0].A} (linha desvinculada ou ponta sem tampa).");
+                plan.Warnings.Add($"Contorno do pavimento aberto perto de {segs[0].A} (face de meio-fio interrompida ou ponta de eixo sem tampa: confira se ha eixo solto ou folga maior que 2 m ali).");
                 continue;
             }
 

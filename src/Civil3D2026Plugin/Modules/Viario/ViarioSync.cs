@@ -965,10 +965,19 @@ internal static class ViarioSync
                 doc.Editor.WriteMessage("\n  [AVISO] Sinalizacao nao atualizada: " + ex.Message);
             }
 
-            // Hachura do pavimento acompanha a rede enquanto existir.
+            // Hachura do pavimento acompanha a rede enquanto existir. Os avisos do contorno
+            // vao para o log (antes se perdiam) e, fora do modo quieto, uma linha resume.
             try
             {
-                ViarioHatchSync.Sync(doc, axes, result, create: false);
+                List<string> hatchMessages = new();
+                int hatchLoops = ViarioHatchSync.Sync(doc, axes, result, create: false, hatchMessages);
+                if (hatchLoops >= 0 && hatchMessages.Count > 0)
+                {
+                    foreach (string m in hatchMessages.Distinct())
+                        Civil3D2026Plugin.Infrastructure.PluginLog.Aviso("Viario", "Hachura: " + m);
+                    if (!quiet)
+                        doc.Editor.WriteMessage($"\n  [HACHURA] {hatchMessages.Distinct().Count()} aviso(s) no contorno; detalhes no C3DLOG.");
+                }
             }
             catch (System.Exception ex)
             {

@@ -1,3 +1,8 @@
+## 2.90.0 - Viario v0.15.0: copiar rede para outro desenho (C3DVIARIOCOPIAR) e hachura revisada
+
+- Novo `C3DVIARIOCOPIAR` (tambem `C3DVIARIO > COPiar`): leva eixos escolhidos (ou todos) para outro desenho aberto, junto com as secoes usadas, raios de esquina, faixas livres, ilhas eliminadas e, se o destino ainda nao tem rede, a configuracao e o modo automatico. Secoes iguais sao reaproveitadas; secao com mesmo numero e medidas diferentes entra como copia (" (copiada)"). A rede e refeita no destino (ao ativar o desenho, se automatico; senao `ATUalizar`). Nao copia hachura, sinalizacao, cotas, placas nem objetos do Civil: gere de novo la.
+- Hachura revisada: a hachura nova vai para o fundo da ordem de desenho (DRAWORDER) para nao cobrir eixos, meio-fio e textos; avisos de contorno aberto gerados ao acompanhar a rede nao se perdem mais (vao para o `C3DLOG`, com resumo na linha de comando); mensagem do contorno aberto explica a causa provavel (face de meio-fio interrompida ou ponta de eixo sem tampa); protecao contra hachura com XData vazia; lista de avisos longa resumida na tela.
+
 ## 2.89.1 - Viario v0.14.1: perfil do bordo do pavimento sai dinamico de verdade
 
 - O offset dinamico e criado pelo metodo do proprio greide (`Profile.CreateOffsetProfileBySlope`), conferido na API do Civil 2026 instalado; a 2.89.0 procurava um metodo estatico que nao existe e caia sempre no perfil calculado pelo plugin.
