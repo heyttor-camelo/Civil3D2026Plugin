@@ -688,12 +688,16 @@ internal static class ViarioSync
     public static void NotifyImported(AcadDb.Database db, IEnumerable<AcadDb.ObjectId> axes)
     {
         DbState state = State(db);
+        // Estado do destino zerado: o proximo calculo varre o desenho de novo (eixos e linhas
+        // geradas que ja estavam la) e le cada eixo do zero, sem cache.
+        state.AxisCache.Clear();
+        state.Generated.Clear();
+        state.Scanned = false;
         foreach (AcadDb.ObjectId id in axes)
         {
             if (id.IsNull)
                 continue;
             state.Axes.Add(id);
-            state.AxisCache.Remove(id);
             state.Dirty.Add(id);
         }
         state.Last = null;
