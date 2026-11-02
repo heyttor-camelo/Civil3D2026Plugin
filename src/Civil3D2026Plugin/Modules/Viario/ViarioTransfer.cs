@@ -122,8 +122,8 @@ internal static class ViarioTransfer
                     string dxf = id.ObjectClass.DxfName;
                     if (dxf != "LWPOLYLINE" && dxf != "LINE" && dxf != "ARC" && dxf != "CIRCLE")
                         continue;
-                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve c && ViarioStore.ReadAxis(c, out _, out _) &&
-                        AxisSignature(c) is string sig)
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve axis && ViarioStore.ReadAxis(axis, out _, out _) &&
+                        AxisSignature(axis) is string sig)
                         existing.Add(sig);
                 }
             }
@@ -134,7 +134,7 @@ internal static class ViarioTransfer
                 AcadDb.ObjectIdCollection kept = new();
                 foreach (AcadDb.ObjectId id in ids)
                 {
-                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve c && AxisSignature(c) is string sig && existing.Contains(sig))
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve axis && AxisSignature(axis) is string sig && existing.Contains(sig))
                     {
                         skippedExisting++;
                         sectionOf.Remove(id);
