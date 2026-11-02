@@ -108,6 +108,52 @@ internal static class ViarioTransfer
             return;
         }
 
+        // Eixo que ja existe no destino com a mesma geometria nao e copiado de novo
+        // (copiar duas vezes para o mesmo desenho duplicava os eixos).
+        int skippedExisting = 0;
+        {
+            HashSet<string> existing = new(StringComparer.Ordinal);
+            using (AcadDb.Transaction tr = dest.Database.TransactionManager.StartOpenCloseTransaction())
+            {
+                AcadDb.BlockTable bt = (AcadDb.BlockTable)tr.GetObject(dest.Database.BlockTableId, AcadDb.OpenMode.ForRead);
+                AcadDb.BlockTableRecord ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+                foreach (AcadDb.ObjectId id in ms)
+                {
+                    string dxf = id.ObjectClass.DxfName;
+                    if (dxf != "LWPOLYLINE" && dxf != "LINE" && dxf != "ARC" && dxf != "CIRCLE")
+                        continue;
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve c && ViarioStore.ReadAxis(c, out _, out _) &&
+                        AxisSignature(c) is string sig)
+                        existing.Add(sig);
+                }
+            }
+
+            if (existing.Count > 0)
+            {
+                using AcadDb.Transaction tr = src.TransactionManager.StartOpenCloseTransaction();
+                AcadDb.ObjectIdCollection kept = new();
+                foreach (AcadDb.ObjectId id in ids)
+                {
+                    if (tr.GetObject(id, AcadDb.OpenMode.ForRead, false) is AcadDb.Curve c && AxisSignature(c) is string sig && existing.Contains(sig))
+                    {
+                        skippedExisting++;
+                        sectionOf.Remove(id);
+                        continue;
+                    }
+                    kept.Add(id);
+                }
+                ids = kept;
+            }
+
+            if (skippedExisting > 0)
+                ed.WriteMessage($"\n  {skippedExisting} eixo(s) ja existem em \"{Path.GetFileName(dest.Name)}\" no mesmo lugar: nao serao copiados de novo.");
+            if (ids.Count == 0)
+            {
+                ed.WriteMessage("\n  Nada a copiar: todos os eixos escolhidos ja estao la.");
+                return;
+            }
+        }
+
         // Confirmacao: mexe em outro desenho (desfazer la com U).
         PromptKeywordOptions confirm = new(
             $"\nCopiar {ids.Count} eixo(s) para \"{Path.GetFileName(dest.Name)}\" (no mesmo lugar), com secoes, raios e faixas livres? [Sim/Nao] <Sim>: ", "Sim Nao")
@@ -300,6 +346,24 @@ internal static class ViarioTransfer
             ? $"\n  Ao mudar para \"{Path.GetFileName(dest.Name)}\" a rede e refeita sozinha (atualizacao automatica); se nao, use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la."
             : $"\n  Em \"{Path.GetFileName(dest.Name)}\" a atualizacao automatica esta desligada: use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la.");
         ed.WriteMessage("\n  Nao copiados (gere la, se quiser): hachura, sinalizacao, cotas, placas e objetos do Civil. Para desfazer no destino: U naquele desenho.");
+    }
+
+    /// <summary>Assinatura da geometria do eixo (vertices e bulges arredondados ao mm), para reconhecer o mesmo eixo em outro desenho.</summary>
+    private static string? AxisSignature(AcadDb.Curve curve)
+    {
+        GPath? path = ViarioStore.ToPath(curve);
+        if (path is null || path.IsEmpty)
+            return null;
+        System.Text.StringBuilder sb = new();
+        foreach (Seg seg in path.Segs)
+        {
+            sb.Append(Math.Round(seg.A.X, 3).ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+              .Append(Math.Round(seg.A.Y, 3).ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+              .Append(Math.Round(seg.Bulge, 4).ToString("0.####", CultureInfo.InvariantCulture)).Append(';');
+        }
+        sb.Append(Math.Round(path.End.X, 3).ToString("0.###", CultureInfo.InvariantCulture)).Append(',')
+          .Append(Math.Round(path.End.Y, 3).ToString("0.###", CultureInfo.InvariantCulture));
+        return sb.ToString();
     }
 
     /// <summary>Chave de esquina "A+|B-" (handles e sentidos) reescrita com os handles do destino; null se um dos eixos nao foi copiado.</summary>

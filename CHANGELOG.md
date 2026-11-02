@@ -1,3 +1,7 @@
+## 2.90.3 - Viario v0.15.3: copiar nao duplica eixo que ja esta no destino
+
+- `C3DVIARIOCOPIAR`: eixo que ja existe no desenho de destino com a mesma geometria (mesmo lugar) e pulado, com aviso de quantos foram pulados; copiar duas vezes para o mesmo desenho duplicava os eixos e bagunçava a rede.
+
 ## 2.90.2 - Viario v0.15.2: botao "Reler o painel" e log da rede refeita
 
 - O botao do rodape do explorador chamava-se "Atualizar" e so relia o painel (confundiu com "Atualizar rede"): agora "Reler o painel".
