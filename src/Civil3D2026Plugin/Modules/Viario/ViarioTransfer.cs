@@ -261,7 +261,9 @@ internal static class ViarioTransfer
                     }
                 }
 
-                if (radiiCopied > 0)
+                // Chaves de eixos que nao existem mais no destino (copia desfeita, eixo apagado) saem.
+                int orphanRadii = radii.Keys.Where(k => !KeyAlive(dst, k)).ToList().Count(k => radii.Remove(k));
+                if (radiiCopied > 0 || orphanRadii > 0)
                     ViarioStore.SaveCornerRadii(tr, dst, radii);
 
                 Dictionary<string, SlipLane> slips = destHadNetwork ? ViarioStore.LoadSlipLanes(dst) : new Dictionary<string, SlipLane>();
@@ -275,7 +277,8 @@ internal static class ViarioTransfer
                     }
                 }
 
-                if (slipsCopied > 0)
+                int orphanSlips = slips.Keys.Where(k => !KeyAlive(dst, k)).ToList().Count(k => slips.Remove(k));
+                if (slipsCopied > 0 || orphanSlips > 0)
                     ViarioStore.SaveSlipLanes(tr, dst, slips);
 
                 // Por posicao: ilhas eliminadas, raios de ilha, linhas soltas (copiadas no mesmo lugar).
@@ -346,6 +349,26 @@ internal static class ViarioTransfer
             ? $"\n  Ao mudar para \"{Path.GetFileName(dest.Name)}\" a rede e refeita sozinha (atualizacao automatica); se nao, use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la."
             : $"\n  Em \"{Path.GetFileName(dest.Name)}\" a atualizacao automatica esta desligada: use \"Atualizar rede\" (C3DVIARIO > ATUalizar) la.");
         ed.WriteMessage("\n  Nao copiados (gere la, se quiser): hachura, sinalizacao, cotas, placas e objetos do Civil. Para desfazer no destino: U naquele desenho.");
+    }
+
+    /// <summary>Os dois eixos da chave de esquina "A+|B-" ainda existem no desenho.</summary>
+    private static bool KeyAlive(AcadDb.Database db, string key)
+    {
+        string[] parts = key.Split('|');
+        if (parts.Length != 2)
+            return false;
+        foreach (string p in parts)
+        {
+            if (p.Length < 2)
+                return false;
+            string hex = p.Substring(0, p.Length - 1);
+            if (!long.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out long h))
+                return false;
+            if (!db.TryGetObjectId(new AcadDb.Handle(h), out AcadDb.ObjectId id) || id.IsNull || id.IsErased)
+                return false;
+        }
+
+        return true;
     }
 
     /// <summary>Assinatura da geometria do eixo (vertices e bulges arredondados ao mm), para reconhecer o mesmo eixo em outro desenho.</summary>

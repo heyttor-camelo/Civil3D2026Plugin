@@ -1,3 +1,8 @@
+## 2.90.5 - Viario v0.15.5: copiar limpa raios de esquina de eixos que nao existem mais
+
+- `C3DVIARIOCOPIAR`: ao gravar raios de esquina e faixas livres no destino, chaves de eixos que nao existem mais la (copia desfeita, eixo apagado) sao descartadas; o retrato do desenho de teste tinha 3 jogos de raios para 1 jogo de eixos.
+- Diagnostico fechado da hachura "vazando" (02/11): o retrato da rede refeito fora do Civil nao gera cunha nenhuma; o vazamento veio da copia dupla (26 eixos sobrepostos), que a 2.90.3 ja impede.
+
 ## 2.90.4 - Viario v0.15.4: retrato da rede para diagnosticar a hachura fora do Civil
 
 - `C3DVIARIOHACHURA > Gerar` grava um retrato da entrada do calculo (eixos, secoes, eventos, raios, opcoes) em `%LOCALAPPDATA%\Civil3D2026Plugin\diag\viario-<desenho>.json` e, se existir, em `G:\Meu Drive\Civil3D2026Plugin\diag\` (caminho no C3DLOG). Novo harness `tests/Viario.Engine.Tests` refaz a rede e o contorno da hachura a partir desse arquivo, sem Civil (`VIARIO_DUMP=<json> dotnet test tests/Viario.Engine.Tests`), e testa a rede do `teste_rede.scr` contra cunhas (retas longas fora da grade de blocos).
