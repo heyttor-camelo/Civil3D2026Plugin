@@ -443,6 +443,9 @@ internal static class ViarioHatchSync
         System.Diagnostics.Stopwatch clock = System.Diagnostics.Stopwatch.StartNew();
         int loops = Sync(doc, axes, result, create: true, messages, rebuild: choice == "Blocos");
         int hatches = Find(db).Count;
+        // Retrato da entrada (eixos, secoes, opcoes) para refazer o calculo fora do Civil.
+        foreach (string f in ViarioDump.TryWrite(db.Filename, axes, ViarioSync.EngineSettingsFor(db), settings.HachuraBloco))
+            Civil3D2026Plugin.Infrastructure.PluginLog.Info("Viario", "Hachura: retrato da rede gravado em " + f);
         ed.WriteMessage($"\n  Hachura do pavimento {(exists ? "atualizada" : "criada")}: {hatches} hachura(s), {loops} laco(s) (contorno + furos) na layer {Layer}" +
                         $"{(settings.HachuraBloco > 0 ? $", em blocos de {settings.HachuraBloco:0.#} m" : "")}; acompanha a rede ({clock.Elapsed.TotalSeconds:0.0} s).");
         if (ViarioSync.IsPending(db))

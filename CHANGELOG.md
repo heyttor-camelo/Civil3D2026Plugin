@@ -1,3 +1,7 @@
+## 2.90.4 - Viario v0.15.4: retrato da rede para diagnosticar a hachura fora do Civil
+
+- `C3DVIARIOHACHURA > Gerar` grava um retrato da entrada do calculo (eixos, secoes, eventos, raios, opcoes) em `%LOCALAPPDATA%\Civil3D2026Plugin\diag\viario-<desenho>.json` e, se existir, em `G:\Meu Drive\Civil3D2026Plugin\diag\` (caminho no C3DLOG). Novo harness `tests/Viario.Engine.Tests` refaz a rede e o contorno da hachura a partir desse arquivo, sem Civil (`VIARIO_DUMP=<json> dotnet test tests/Viario.Engine.Tests`), e testa a rede do `teste_rede.scr` contra cunhas (retas longas fora da grade de blocos).
+
 ## 2.90.3 - Viario v0.15.3: copiar nao duplica eixo que ja esta no destino
 
 - `C3DVIARIOCOPIAR`: eixo que ja existe no desenho de destino com a mesma geometria (mesmo lugar) e pulado, com aviso de quantos foram pulados; copiar duas vezes para o mesmo desenho duplicava os eixos e bagunçava a rede.
