@@ -1,3 +1,8 @@
+## 2.90.2 - Viario v0.15.2: botao "Reler o painel" e log da rede refeita
+
+- O botao do rodape do explorador chamava-se "Atualizar" e so relia o painel (confundiu com "Atualizar rede"): agora "Reler o painel".
+- Toda rede refeita grava uma linha no `C3DLOG` (desenho, eixos, nos, linhas criadas/removidas, tempo), para diagnosticar "nao desenhou nada" em outro desenho.
+
 ## 2.90.1 - Viario v0.15.1: rede copiada era refeita so no painel, nao no desenho
 
 - `C3DVIARIOCOPIAR`: os eixos clonados nao ficavam marcados como pendentes no destino (na hora do evento de insercao a XData do clone ainda nao e legivel), entao o painel mostrava a rede certa mas as linhas em planta nao eram desenhadas. Agora os eixos sao registrados a mao e, com a atualizacao automatica ligada, a rede e refeita no destino na hora, dentro do proprio comando.

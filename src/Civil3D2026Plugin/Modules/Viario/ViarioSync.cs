@@ -1018,6 +1018,9 @@ internal static class ViarioSync
                     doc.Editor.WriteMessage("\n  [CIVIL] " + m);
             }
 
+            // Sempre no log (diagnostico de "nao desenhou nada" em outro desenho).
+            Civil3D2026Plugin.Infrastructure.PluginLog.Diag("Viario",
+                $"Rede refeita em \"{System.IO.Path.GetFileName(db.Filename)}\": {axes.Count} eixo(s), {result.Nodes.Count} no(s), {result.Lines.Count} linha(s) | criadas {created}, removidas {erased} ({clock.Elapsed.TotalSeconds:0.00} s).");
             if (!quiet)
             {
                 doc.Editor.WriteMessage(

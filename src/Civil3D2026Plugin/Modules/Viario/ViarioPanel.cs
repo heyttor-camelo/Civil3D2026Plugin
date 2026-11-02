@@ -522,7 +522,7 @@ internal sealed class ViarioPanel : SW.Window
         WC.DockPanel footer = new() { Margin = new SW.Thickness(4, 4, 4, 4) };
         WC.StackPanel leftButtons = new() { Orientation = WC.Orientation.Horizontal };
         leftButtons.Children.Add(FooterButton("Preferencias...", ShowPreferences));
-        leftButtons.Children.Add(FooterButton("Atualizar", Refresh));
+        leftButtons.Children.Add(FooterButton("Reler o painel", Refresh));
         WC.DockPanel.SetDock(leftButtons, WC.Dock.Left);
         footer.Children.Add(leftButtons);
         WC.StackPanel rightButtons = new() { Orientation = WC.Orientation.Horizontal };
