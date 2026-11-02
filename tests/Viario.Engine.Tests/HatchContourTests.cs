@@ -50,8 +50,12 @@ public class HatchContourTests
         };
     }
 
-    /// <summary>Retas longas fora da grade de blocos, por laco.</summary>
-    internal static List<string> Suspicious(ViarioHatch.Plan plan, double maxStraight = 9.0)
+    /// <summary>
+    /// Retas de laco que nao vem de lugar nenhum: nao estao sobre uma linha da rede (face de
+    /// meio-fio, ilha, canteiro), nao sao borda de bloco e sao compridas demais para tampa de
+    /// ponta ou emenda de folga. E o retrato de uma cunha de hachura vazando.
+    /// </summary>
+    internal static List<string> Suspicious(ViarioHatch.Plan plan, ViarioResult result, double maxStraight = 9.0)
     {
         List<string> issues = new();
         double tile = plan.TileSize;
@@ -59,8 +63,32 @@ public class HatchContourTests
         {
             if (tile <= 0)
                 return false;
-            bool SameLine(double u, double v) => Math.Abs(u - v) < 1e-6 && Math.Abs(u / tile - Math.Round(u / tile)) < 1e-6;
+            bool SameLine(double u, double v)
+            {
+                if (Math.Abs(u - v) > 1e-6)
+                    return false;
+                double k = (u - ViarioHatch.TileOrigin) / tile;
+                return Math.Abs(k - Math.Round(k)) < 1e-6;
+            }
+
             return SameLine(a.X, b.X) || SameLine(a.Y, b.Y);
+        }
+
+        List<Seg> network = result.Lines
+            .Where(l => l.Level is EdgeLevel.FaceMF or EdgeLevel.Ilha or EdgeLevel.Canteiro)
+            .SelectMany(l => l.Segs)
+            .ToList();
+        bool OnNetwork(Seg s)
+        {
+            // Tres pontos da reta sobre alguma linha da rede (ate 2 mm).
+            foreach (double t in new[] { 0.1, 0.5, 0.9 })
+            {
+                V2 p = s.PointAt(t);
+                if (!network.Any(n => n.Closest(p).Dist < 0.002))
+                    return false;
+            }
+
+            return true;
         }
 
         for (int i = 0; i < plan.Loops.Count; i++)
@@ -68,7 +96,7 @@ public class HatchContourTests
             ViarioHatch.Loop loop = plan.Loops[i];
             foreach (Seg s in loop.Segs)
             {
-                if (s.IsArc || s.Length <= maxStraight || OnGrid(s.A, s.B))
+                if (s.IsArc || s.Length <= maxStraight || OnGrid(s.A, s.B) || OnNetwork(s))
                     continue;
                 issues.Add($"laco {i} ({(loop.Outer ? "externo" : "furo")}, bloco {ViarioHatch.TileKey(loop.Tile)}, area {loop.Area:0.#} m2): " +
                            $"reta de {s.Length:0.##} m de {Fmt(s.A)} a {Fmt(s.B)}");
@@ -104,11 +132,11 @@ public class HatchContourTests
         List<AxisInput> axes = Network(new V2(dx, dy));
         ViarioResult result = ViarioEngine.Compute(axes, new EngineSettings());
         ViarioHatch.Plan plan = ViarioHatch.Build(axes, result, tile);
-        List<string> issues = Suspicious(plan);
+        List<string> issues = Suspicious(plan, result);
         Report($"rede de teste +({dx},{dy}) bloco {tile}", result, plan, issues);
 
         Assert.True(plan.Loops.Count(l => l.Outer) >= 1, "sem laco externo");
-        Assert.Empty(plan.Warnings.Where(w => w.Contains("aberto", StringComparison.Ordinal)));
+        Assert.DoesNotContain(plan.Warnings, w => w.Contains("aberto", StringComparison.Ordinal));
         Assert.Empty(issues);
     }
 
@@ -133,12 +161,12 @@ public class HatchContourTests
         foreach (double tile in new[] { c.TileSize, 0.0 }.Distinct())
         {
             ViarioHatch.Plan plan = ViarioHatch.Build(c.Axes, result, tile);
-            List<string> issues = Suspicious(plan);
+            List<string> issues = Suspicious(plan, result);
             Report($"retrato bloco {tile}", result, plan, issues);
         }
 
         string? expect = Environment.GetEnvironmentVariable("VIARIO_DUMP_ASSERT");
         if (expect == "1")
-            Assert.Empty(Suspicious(ViarioHatch.Build(c.Axes, result, c.TileSize)));
+            Assert.Empty(Suspicious(ViarioHatch.Build(c.Axes, result, c.TileSize), result));
     }
 }

@@ -56,7 +56,7 @@ internal static class ViarioHatch
     /// Origem da grade de blocos. Fora dos valores redondos, para que linhas de grade nao
     /// caiam exatamente sobre vertices ou faces retas desenhadas em coordenadas inteiras.
     /// </summary>
-    private const double TileOrigin = 0.3719;
+    internal const double TileOrigin = 0.3719;
 
     /// <summary>Menor bloco aceito (abaixo disso, recortar so multiplica hachuras).</summary>
     public const double MinTile = 50.0;
