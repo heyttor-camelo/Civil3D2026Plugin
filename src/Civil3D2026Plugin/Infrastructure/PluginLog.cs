@@ -193,7 +193,11 @@ internal static class PluginLog
 
     internal static string Ambiente()
     {
+#if PASSAGEM_RAMPA
+        var p = new List<string> { $"C3DPassagemRampa {C3DVersions.PassagemRampa}" };
+#else
         var p = new List<string> { $"plugin {C3DVersions.Plugin}" };
+#endif
         try
         {
             p.Add($"AutoCAD {AcApp.GetSystemVariable("ACADVER")}");
@@ -306,6 +310,8 @@ internal static class PluginLog
         if (_nomesComandos is not null)
             return _nomesComandos;
         var set = new HashSet<string>(ModulosDosComandos().Keys, StringComparer.OrdinalIgnoreCase);
+#if !PASSAGEM_RAMPA
+        // A DLL avulsa (C3DPassagemRampa) nao tem o catalogo: fica so com os [CommandMethod] dela.
         try
         {
             foreach (CommandCatalog.ModuleDefinition m in CommandCatalog.Modules)
@@ -315,6 +321,7 @@ internal static class PluginLog
         catch (Exception)
         {
         }
+#endif
         return _nomesComandos = set;
     }
 

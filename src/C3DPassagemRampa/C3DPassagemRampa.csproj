@@ -1,0 +1,166 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    DLL avulsa C3DPassagemRampa.dll: so a passagem semi-elevada (PASSAGEM*) e o rebaixo/rampa de
+    meio-fio por Corridor Transition (MFREBAIXO*). NAO tem codigo proprio dos modulos: compila os
+    MESMOS arquivos do Civil3D2026Plugin (links abaixo), entao toda correcao feita la vale aqui no
+    proximo build. Os comandos tem os mesmos nomes do plugin completo: carregue uma DLL OU a outra.
+
+    Alvo igual ao do plugin principal: 2026 (.NET 8 ou 10, conforme AcadDir) ou 2027 (-p:Acad=2027).
+  -->
+  <PropertyGroup>
+    <Acad Condition="'$(Acad)' == '' And $([System.String]::Copy('$(Configuration)').EndsWith('2027'))">2027</Acad>
+    <Acad Condition="'$(Acad)' == ''">2026</Acad>
+    <Configurations>Debug;Release;Debug2027;Release2027</Configurations>
+    <DebugSymbols Condition="'$(Configuration)' == 'Debug2027'">true</DebugSymbols>
+    <DebugType Condition="'$(Configuration)' == 'Debug2027'">portable</DebugType>
+    <Optimize Condition="'$(Configuration)' == 'Debug2027'">false</Optimize>
+    <DefineConstants Condition="'$(Configuration)' == 'Debug2027'">$(DefineConstants);DEBUG;TRACE</DefineConstants>
+    <Optimize Condition="'$(Configuration)' == 'Release2027'">true</Optimize>
+    <DefineConstants Condition="'$(Configuration)' == 'Release2027'">$(DefineConstants);TRACE</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Acad)' == '2026'">
+    <AcadDir Condition="'$(AcadDir)' == ''">$(ProgramFiles)\Autodesk\AutoCAD 2026</AcadDir>
+    <AcadRuntimeConfig>$(AcadDir)\acdbmgd.runtimeconfig.json</AcadRuntimeConfig>
+    <AcadTfm Condition="Exists('$(AcadRuntimeConfig)') And $([System.IO.File]::ReadAllText('$(AcadRuntimeConfig)').Contains('net10.0'))">net10.0-windows</AcadTfm>
+    <AcadTfm Condition="'$(AcadTfm)' == ''">net8.0-windows</AcadTfm>
+    <TargetFramework>$(AcadTfm)</TargetFramework>
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\</OutputPath>
+    <DefineConstants>$(DefineConstants);ACAD2026</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Acad)' == '2027'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AcadDir>$(ProgramFiles)\Autodesk\AutoCAD 2027</AcadDir>
+    <OutputPath>$(MSBuildProjectDirectory)\..\..\NETLOAD\2027\</OutputPath>
+    <DefineConstants>$(DefineConstants);ACAD2027</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <AssemblyName>C3DPassagemRampa</AssemblyName>
+    <RootNamespace>Civil3D2026Plugin</RootNamespace>
+    <!-- Liga os trechos "so na DLL avulsa" dos arquivos compartilhados (PluginLog). -->
+    <DefineConstants>$(DefineConstants);PASSAGEM_RAMPA</DefineConstants>
+
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Prefer32Bit>false</Prefer32Bit>
+
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <Deterministic>true</Deterministic>
+    <!-- Nao procura .cs na pasta do projeto alem dos listados (evita pegar obj de outro projeto). -->
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <MainSrc>$(MSBuildProjectDirectory)\..\Civil3D2026Plugin</MainSrc>
+  </PropertyGroup>
+
+  <!-- Codigo proprio da DLL avulsa (ponto de entrada, registro dos comandos, ajuda). -->
+  <ItemGroup>
+    <Compile Include="*.cs" />
+  </ItemGroup>
+
+  <!-- Arquivos do plugin principal usados aqui (links: nao ha copia, e o mesmo arquivo). -->
+  <ItemGroup>
+    <Compile Include="$(MainSrc)\Modules\CorridorTools\RaisedCrossing\*.cs" Link="Modules\CorridorTools\RaisedCrossing\%(Filename)%(Extension)" />
+    <Compile Include="$(MainSrc)\Modules\CorridorTools\MFRebaixo\*.cs" Link="Modules\CorridorTools\MFRebaixo\%(Filename)%(Extension)" />
+    <Compile Include="$(MainSrc)\Infrastructure\GlobalUsings.cs" Link="Infrastructure\GlobalUsings.cs" />
+    <Compile Include="$(MainSrc)\Infrastructure\CommandNames.cs" Link="Infrastructure\CommandNames.cs" />
+    <Compile Include="$(MainSrc)\Infrastructure\PluginVersions.cs" Link="Infrastructure\PluginVersions.cs" />
+    <Compile Include="$(MainSrc)\Infrastructure\PluginLog.cs" Link="Infrastructure\PluginLog.cs" />
+    <Compile Include="$(MainSrc)\UI\Common\IconArt.cs" Link="UI\Common\IconArt.cs" />
+    <Compile Include="$(MainSrc)\UI\Common\ToolIcons.cs" Link="UI\Common\ToolIcons.cs" />
+    <Compile Include="$(MainSrc)\UI\Common\ToolTheme.cs" Link="UI\Common\ToolTheme.cs" />
+    <Compile Include="$(MainSrc)\UI\Common\ToolStyles.cs" Link="UI\Common\ToolStyles.cs" />
+    <Compile Include="$(MainSrc)\UI\Common\LogView.cs" Link="UI\Common\LogView.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="accoremgd">
+      <HintPath>$(AcadDir)\accoremgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Acdbmgd">
+      <HintPath>$(AcadDir)\acdbmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="acdbmgdbrep">
+      <HintPath>$(AcadDir)\acdbmgdbrep.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Acmgd">
+      <HintPath>$(AcadDir)\acmgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AdWindows">
+      <HintPath>$(AcadDir)\AdWindows.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AecBaseMgd">
+      <HintPath>$(AcadDir)\ACA\AecBaseMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AecPropDataMgd">
+      <HintPath>$(AcadDir)\ACA\AecPropDataMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="AeccDbMgd">
+      <HintPath>$(AcadDir)\C3D\AeccDbMgd.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+  </ItemGroup>
+
+  <Target Name="CheckAcadDir" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AcadDir)\acdbmgd.dll')"
+           Text="Nao achei $(AcadDir)\acdbmgd.dll - o AutoCAD/Civil 3D $(Acad) esta instalado?" />
+    <Error Condition="Exists('$(AcadDir)\acdbmgd.dll') And !Exists('$(AcadDir)\C3D\AeccDbMgd.dll')"
+           Text="$(AcadDir) existe, mas sem C3D\AeccDbMgd.dll (Civil 3D $(Acad))." />
+  </Target>
+
+  <Target Name="ShowNetloadPath" AfterTargets="Build">
+    <Message Importance="high" Text="DLL avulsa (passagem + rampa) pronta para NETLOAD: $(TargetPath)" />
+  </Target>
+
+  <!--
+    Entrega no Google Drive, igual a do plugin principal:
+      G:\Meu Drive\Civil3D2026Plugin\atual\C3DPassagemRampa.dll (+ C3DPassagemRampa-<versao>.dll)
+      G:\Meu Drive\Civil3D2026Plugin\versoes\C3DPassagemRampa\<versao>\
+      pasta dll da FDX (tools\Copy-DllFdx.ps1 -Name C3DPassagemRampa)
+      C:\Temp\hydro-build\C3DPassagemRampa-<versao>.dll
+    A versao vem de PluginVersions.PassagemRampa.
+  -->
+  <PropertyGroup>
+    <DriveDir Condition="'$(DriveDir)' == ''">G:\Meu Drive\Civil3D2026Plugin</DriveDir>
+    <LocalBuildDir Condition="'$(LocalBuildDir)' == ''">C:\Temp\hydro-build</LocalBuildDir>
+  </PropertyGroup>
+  <Target Name="ReadPassagemRampaVersion" AfterTargets="Build">
+    <PropertyGroup>
+      <PrVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MainSrc)\Infrastructure\PluginVersions.cs')), '(?&lt;=PassagemRampa = ")[^"]+').Value)</PrVer>
+    </PropertyGroup>
+  </Target>
+  <Target Name="CopyToDrive" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('$(DriveDir)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(DriveDir)\atual\C3DPassagemRampa-$(PrVer).dll" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\versoes\C3DPassagemRampa\$(PrVer)" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(DriveDir)\atual' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+    <Message Importance="high" Text="C3DPassagemRampa $(PrVer) copiada para $(DriveDir)\atual" />
+  </Target>
+  <Target Name="CopyToFdx" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('G:\')">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\..\..\tools\Copy-DllFdx.ps1&quot; -Dll &quot;$(TargetPath)&quot; -Version $(PrVer) -Name C3DPassagemRampa" ContinueOnError="true" />
+  </Target>
+  <Target Name="CopyVersionedLocal" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('$(LocalBuildDir)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(LocalBuildDir)\C3DPassagemRampa-$(PrVer).dll" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+  </Target>
+
+</Project>

@@ -132,6 +132,9 @@ o do **Viário** (categorias, barra de comandos com ícones, vista gráfica/moni
 - **Secao** (`C3DSECAO`) — visualizador de seção em janela própria.
 - **CorridorTools** — `CORRSPLIT` (dividir corredor), passagem semi-elevada (`PASSAGEM*`), arrays e
   estais (`C3DSOLIDLIGAR*`), `C3DOCULTARPLANTA` (sólidos só no 3D), MF rebaixo.
+- **DLL avulsa `C3DPassagemRampa.dll`** (`src/C3DPassagemRampa`, versao `PluginVersions.PassagemRampa`):
+  so `PASSAGEM*` + `MFREBAIXO*`, compilando os mesmos arquivos (links no csproj). Mexeu em RaisedCrossing,
+  MFRebaixo, PluginLog ou UI/Common: suba tambem `PassagemRampa`. O build da solucao ja gera e entrega as duas.
 - **Drenagem** (DrenExcel, DrenNum), **QTO**, **Quadros** (`C3DQUADRORUAS`, xlsx), **PEDs**,
   **FeatureLines**, **Geometry**, **Surfaces**, **Utilitarios**, **LispTools** (`C3DLISP`: LISPs embutidas
   na DLL; as leves vão sendo convertidas para C# com o mesmo nome; QHPE e JPLUS ficam em LISP).

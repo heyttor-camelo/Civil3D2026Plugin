@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
@@ -77,7 +78,30 @@ public sealed class PluginApplication : IExtensionApplication
 
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is not null)
+        {
             WriteBanner(doc.Editor, includeDescriptions: false);
+            WarnIfStandaloneLoaded(doc.Editor);
+        }
+    }
+
+    /// <summary>
+    /// A DLL avulsa C3DPassagemRampa.dll tem os mesmos comandos PASSAGEM* e MFREBAIXO*: as duas juntas
+    /// na mesma sessao brigam pelos nomes. So avisa; quem decide qual carregar e o usuario.
+    /// </summary>
+    private static void WarnIfStandaloneLoaded(Editor ed)
+    {
+        try
+        {
+            if (AppDomain.CurrentDomain.GetAssemblies().Any(a => string.Equals(a.GetName().Name, "C3DPassagemRampa", StringComparison.OrdinalIgnoreCase)))
+            {
+                ed.WriteMessage("\nAVISO: a C3DPassagemRampa.dll tambem esta carregada. Os comandos PASSAGEM* e MFREBAIXO* " +
+                                "ja estao neste plugin completo; feche o Civil 3D e carregue so uma das duas DLLs.\n");
+                PluginLog.Aviso("Plugin", "C3DPassagemRampa.dll carregada junto com o plugin completo (comandos repetidos).");
+            }
+        }
+        catch (System.Exception)
+        {
+        }
     }
 
     public void Terminate()

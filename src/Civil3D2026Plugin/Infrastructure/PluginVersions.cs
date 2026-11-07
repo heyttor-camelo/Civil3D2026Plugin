@@ -6,7 +6,7 @@ namespace Civil3D2026Plugin.Infrastructure;
 /// </summary>
 public static class PluginVersions
 {
-    public const string Plugin = "2.90.5";
+    public const string Plugin = "2.91.0";
 
     public const string Hydro = "0.19.6";
     public const string DrenExcel = "5.2";
@@ -19,6 +19,9 @@ public static class PluginVersions
     public const string Viario = "0.15.5";
     public const string PlanVisibility = "1.5.0";
     public const string RaisedCrossing = "1.1.0";
+
+    /// <summary>DLL avulsa C3DPassagemRampa.dll (so PASSAGEM* e MFREBAIXO*), projeto src\C3DPassagemRampa.</summary>
+    public const string PassagemRampa = "1.0.0";
     public const string CorridorSplit = "1.6.0";
     public const string LispTools = "1.1.0";
     public const string Utilitarios = "1.7.0";

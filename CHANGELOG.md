@@ -1,3 +1,9 @@
+## 2.91.0 - PassagemRampa v1.0.0: DLL avulsa so com passagem semi-elevada e rampa de meio-fio
+
+- Nova DLL `C3DPassagemRampa.dll` (projeto `src/C3DPassagemRampa`, na mesma solucao): so os comandos `PASSAGEM*` (passagem semi-elevada) e `MFREBAIXO*` (rebaixo/rampa de meio-fio por Corridor Transition), sem Ribbon e sem os outros modulos. Usa os mesmos arquivos-fonte do plugin completo (nada duplicado). `C3DPASSAGEMRAMPA` lista os comandos.
+- Entrega igual a do plugin: `NETLOAD\C3DPassagemRampa.dll`, `G:\Meu Drive\Civil3D2026Plugin\atual\` (+ copia com a versao no nome e `versoes\C3DPassagemRampa\<versao>\`), pasta `dll` da FDX e `C:\Temp\hydro-build`. `tools\Copy-DllFdx.ps1` ganhou `-Name`.
+- Plugin completo: avisa na carga se a DLL avulsa tambem estiver carregada (comandos repetidos). Nada mudou nos comandos.
+
 ## 2.90.5 - Viario v0.15.5: copiar limpa raios de esquina de eixos que nao existem mais
 
 - `C3DVIARIOCOPIAR`: ao gravar raios de esquina e faixas livres no destino, chaves de eixos que nao existem mais la (copia desfeita, eixo apagado) sao descartadas; o retrato do desenho de teste tinha 3 jogos de raios para 1 jogo de eixos.

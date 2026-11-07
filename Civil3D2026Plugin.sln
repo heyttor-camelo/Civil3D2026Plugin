@@ -4,6 +4,8 @@ VisualStudioVersion = 17.14.37111.16
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Civil3D2026Plugin", "src\Civil3D2026Plugin\Civil3D2026Plugin.csproj", "{D59B4E53-8EF0-4FBE-9D3B-41770D77E2D6}"
 EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "C3DPassagemRampa", "src\C3DPassagemRampa\C3DPassagemRampa.csproj", "{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -20,6 +22,14 @@ Global
 		{D59B4E53-8EF0-4FBE-9D3B-41770D77E2D6}.Release|x64.Build.0 = Release|x64
 		{D59B4E53-8EF0-4FBE-9D3B-41770D77E2D6}.Release2027|x64.ActiveCfg = Release2027|x64
 		{D59B4E53-8EF0-4FBE-9D3B-41770D77E2D6}.Release2027|x64.Build.0 = Release2027|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Debug|x64.ActiveCfg = Debug|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Debug|x64.Build.0 = Debug|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Debug2027|x64.ActiveCfg = Debug2027|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Debug2027|x64.Build.0 = Debug2027|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Release|x64.ActiveCfg = Release|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Release|x64.Build.0 = Release|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Release2027|x64.ActiveCfg = Release2027|x64
+		{28F30B65-2DD8-4C20-BBFF-6DF5956B19C4}.Release2027|x64.Build.0 = Release2027|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

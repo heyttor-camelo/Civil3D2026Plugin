@@ -116,6 +116,12 @@ public static class CommandNames
         public const string PassagemHelp = "PASSAGEMHELP";
     }
 
+    /// <summary>So na DLL avulsa C3DPassagemRampa.dll (os demais comandos dela sao os de Corridor).</summary>
+    public static class PassagemRampa
+    {
+        public const string Help = "C3DPASSAGEMRAMPA";
+    }
+
     public static class Quadros
     {
         public const string Ruas = "C3DQUADRORUAS";

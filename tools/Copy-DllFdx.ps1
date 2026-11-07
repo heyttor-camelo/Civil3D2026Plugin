@@ -4,11 +4,13 @@
     - G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll           (notebook)
     - G:\.shortcut-targets-by-id\<id>\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll  (atalho compartilhado)
   O script procura sozinho; se nao achar, so avisa (nao falha o build).
-  Uso: tools\Copy-DllFdx.ps1 -Dll <caminho da dll> -Version 2.x.y
+  Uso: tools\Copy-DllFdx.ps1 -Dll <caminho da dll> -Version 2.x.y [-Name C3DPassagemRampa]
+  -Name: nome base da DLL na pasta (padrao Civil3D2026Plugin; a avulsa usa C3DPassagemRampa).
 #>
 param(
     [Parameter(Mandatory = $true)][string]$Dll,
-    [Parameter(Mandatory = $true)][string]$Version
+    [Parameter(Mandatory = $true)][string]$Version,
+    [string]$Name = 'Civil3D2026Plugin'
 )
 
 $sub = '1 FDX ENGENHARIA\2 - Arquivos de Engenharia'
@@ -30,12 +32,12 @@ if ($bases.Count -eq 0) {
 
 $dest = Join-Path $bases[0] 'dll'
 New-Item -ItemType Directory -Force $dest | Out-Null
-Copy-Item $Dll (Join-Path $dest "Civil3D2026Plugin-$Version.dll") -Force
+Copy-Item $Dll (Join-Path $dest "$Name-$Version.dll") -Force
 try {
-    Copy-Item $Dll (Join-Path $dest 'Civil3D2026Plugin.dll') -Force -ErrorAction Stop
+    Copy-Item $Dll (Join-Path $dest "$Name.dll") -Force -ErrorAction Stop
 } catch {
-    Write-Host "AVISO: Civil3D2026Plugin.dll em uso em $dest; ficou a Civil3D2026Plugin-$Version.dll."
+    Write-Host "AVISO: $Name.dll em uso em $dest; ficou a $Name-$Version.dll."
 }
 # So a versionada mais nova fica (as antigas confundem).
-Get-ChildItem $dest -Filter 'Civil3D2026Plugin-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue
-Write-Host "DLL $Version copiada para $dest"
+Get-ChildItem $dest -Filter "$Name-*.dll" | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue
+Write-Host "$Name $Version copiada para $dest"

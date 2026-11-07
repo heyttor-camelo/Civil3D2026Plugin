@@ -108,6 +108,23 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.0.0)
+
+Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
+sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
+junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
+(`G:\Meu Drive\Civil3D2026Plugin\atual\C3DPassagemRampa.dll` e na pasta `dll` da FDX).
+
+- Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
+  e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
+- Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
+- Sem Ribbon: use pela linha de comando. O log continua em `%LOCALAPPDATA%\Civil3D2026Plugin\logs`
+  (Ctrl+Shift+L no painel do MFREBAIXO).
+- **Carregue uma DLL ou a outra**, nao as duas: o plugin completo ja tem esses comandos. Se as duas
+  estiverem carregadas, as duas avisam na linha de comando.
+- Desenhos feitos com uma funcionam com a outra (mesmo Property Set `C3D_PASSAGEM`, mesmos dados).
+
 ## Passagem semi-elevada (v1.1.0)
 
 Modulo em `Modules/CorridorTools/RaisedCrossing`. A PASSAGEM gera **um unico `Solid3d`** para uma travessia sobre duas vias separadas por canteiro central.
