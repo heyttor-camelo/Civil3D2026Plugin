@@ -5,6 +5,7 @@ using System.Reflection;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
+using Civil3D2026Plugin.Infrastructure;
 
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
