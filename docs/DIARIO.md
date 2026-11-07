@@ -8,6 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-07 — nuvem (Claude) + CAMELO (build)
+
+- Pedido do Heyvid: DLL à parte só com a passagem semi-elevada e a transição de rampa (Corridor Transition) → entendido como RaisedCrossing (`PASSAGEM*`) + MFRebaixo (`MFREBAIXO*`).
+- Novo projeto `src/C3DPassagemRampa` (`C3DPassagemRampa.dll`, v1.0.0, plugin 2.91.0) na mesma solução. Não duplica código: compila por link os arquivos dos dois módulos + GlobalUsings, CommandNames, PluginVersions, PluginLog (`#if PASSAGEM_RAMPA` tira o CommandCatalog) + UI/Common (ToolTheme, ToolStyles, ToolIcons, IconArt, LogView). Ponto de entrada próprio (`PassagemRampaApplication`, comando `C3DPASSAGEMRAMPA` lista os comandos). Plugin completo e DLL avulsa avisam se carregados juntos.
+- Entrega igual à do plugin (targets no csproj): `atual\C3DPassagemRampa.dll` (+ versionada), `versoes\C3DPassagemRampa\1.0.0`, pasta `dll` da FDX (`Copy-DllFdx.ps1 -Name`), `C:\Temp\hydro-build`.
+- Build no CAMELO (Release x64, net8): faltava um `using` no projeto novo (commit a4103ab); sem avisos novos. ValidateProject OK. Todas as cópias conferidas no Drive e na FDX.
+- Pendência: Heyvid testar `NETLOAD` da `C3DPassagemRampa.dll` sozinha (sem a Civil3D2026Plugin.dll) num desenho com passagem/rebaixo.
+
 ## 2026-11-01 — nuvem (Claude) + CAMELO (build)
 
 - **Viario 0.13.0 / plugin 2.88.0** (commit `1a47d77`): revisao do `C3DVIARIOCIVIL` depois das mudancas
