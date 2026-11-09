@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.21"
+VERSION = "1.22"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -51,6 +51,7 @@ PARAMS = [
 TARGETS = [  # (nome, display, preview, ativo no preview, tipo)
     ("FLOWLINE_ELEV", "Flowline",       "-0.05", True, "elev"),
     ("TOPO_ELEV",     "Topo do meio-fio", "0.13", True, "elev"),
+    ("FLOWLINE_OFFSET", "Flowline (offset)", "0.6", False, "offset"),
     ("CALC_OFFSET",   "Calçada: borda externa (offset)", "2.5", False, "offset"),
     ("CALC_ELEV",     "Calçada: borda externa (cota)",   "0.2", False, "elev"),
 ]
@@ -59,6 +60,7 @@ OUTPUTS = [
     ("ENTERRADO",  "Altura enterrada"),
     ("H_REAL",     "Altura real"),
     ("ISA_REAL",   "Declividade real da sarjeta"),
+    ("LS_REAL",    "Largura real da sarjeta"),
     ("EMB_OK",     "Enterrado OK"),
     ("SARJETA_OK", "Sarjeta OK"),
     ("BERCO_OK",   "Berço OK (1 = MF não atravessa a base)"),
@@ -79,6 +81,9 @@ EXPR = {
     "RC": "[0.08]",
     "KK": f"[IF({T50},1.0,0.0)]",
     "SJ": '[IF(SARJETA.Value="Yes" AndAlso KK<0.5,"Yes","No")]',
+    # v1.22: largura da sarjeta = distância horizontal até o alvo de offset da flowline (se houver);
+    # sem alvo vale LS. Sem sarjeta (ou Kassel) a flowline fica na borda da pista e o alvo é ignorado.
+    "LSR": '[IF(SJ="Yes", IF(FLOWLINE_OFFSET.IsValid, Math.Max(0.01, Math.Abs(FLOWLINE_OFFSET.Offset - P1.Offset)), LS), 0)]',
     "EXP0": "[IF(TOPO_ELEV.IsValid, TOPO_ELEV.Elevation - P2.Elevation, AMF_LIVRE)]",
     # Kassel tem dimensões fixas: exposto = H - pé, sem alvo, sem altura livre, sem esticar
     "EXPN": ('[IF(KK>0.5, H-FH, IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
@@ -144,8 +149,9 @@ class Switch:
 TOP = ["Curb", "Top", "TOPO"]
 for v in ("H", "LT", "LB", "R", "FH", "RC", "KK", "SJ"): var(v)
 pt("P1", None, "0", "0", codes=["Flange"], disp="P1 - borda da pista")
-pt_slope("P2", "P1", "[iSa]", '[IF(SJ="Yes",LS,0)]', "[FLOWLINE_ELEV]", codes=["Flowline_Gutter"],
-         disp="P2 - flowline (alvo cota)")
+var("LSR")
+pt_slope("P2", "P1", "[iSa]", "[LSR]", "[FLOWLINE_ELEV]", codes=["Flowline_Gutter"],
+         disp="P2 - flowline (alvos offset e cota)")
 for v in ("EXP0", "EXPN", "DREB", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
           "DatumMF", "DatumBase", "DatumSub", "Dst"): var(v)
 # sarjeta
@@ -413,7 +419,8 @@ STEPS.extend(_BERCO)
 out("EXPOSTO", "[EXP]")
 out("ENTERRADO", "[ENT]")
 out("H_REAL", "[HR]")
-out("ISA_REAL", '[IF(SJ="Yes",(P2.Elevation-P1.Elevation)/Math.Max(LS,0.001),0)]')
+out("ISA_REAL", '[IF(SJ="Yes",(P2.Elevation-P1.Elevation)/Math.Max(LSR,0.001),0)]')
+out("LS_REAL", "[LSR]")
 out("EMB_OK", "[IF(ENT>=EMB-0.0005,1,0)]")
 out("SARJETA_OK", '[IF(SJ="No",1,IF(P2.Elevation<P1.Elevation-0.0005,1,0))]')
 

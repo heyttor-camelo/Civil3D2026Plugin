@@ -3,13 +3,20 @@
 Meio-fio SUDECAP 30/40, Kassel (guia de atracagem) e personalizado, com sarjeta
 opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
-- `MFSARJETA_v1.21.pkt`: pacote para importar no Civil 3D.
+- `MFSARJETA_v1.22.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
   Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt`
 
 Regra de versão: nunca mudar o tipo de dado de um parâmetro existente
 (o "change subassembly .pkt" do Civil 3D não converte e deixa o campo vazio);
 se precisar mudar, usar outro nome.
+
+## Alvos
+
+- `Flowline` (cota): elevação da flowline (P2).
+- `Flowline (offset)` (v1.22): largura da sarjeta = distância horizontal da borda da pista até o alvo.
+  Sem alvo vale `LS`. Sem sarjeta (ou Kassel) o alvo é ignorado. Saída `Largura real da sarjeta` (`LS_REAL`).
+- `Topo do meio-fio` (cota), `Calçada: borda externa` (offset e cota).
 
 ## Code REBAIXO (hachura em planta)
 

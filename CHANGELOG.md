@@ -1,3 +1,9 @@
+## MFSARJETA v1.22 (só o PKT; a DLL não muda): alvo de offset na flowline
+
+- `subassemblies/MFSARJETA`: novo alvo **Flowline (offset)** (`FLOWLINE_OFFSET`). Com ele a largura da sarjeta passa a ser a distância horizontal da borda da pista até o alvo; sem alvo continua valendo `LS`. Sem sarjeta (ou Kassel) o alvo é ignorado.
+- Nova saída `LS_REAL` (largura real da sarjeta); `ISA_REAL` passa a usar essa largura.
+- Nenhum parâmetro existente mudou de tipo: o "change subassembly .pkt" da v1.21 para a v1.22 mantém os valores.
+
 ## 2.91.0 - PassagemRampa v1.0.0: DLL avulsa so com passagem semi-elevada e rampa de meio-fio
 
 - Nova DLL `C3DPassagemRampa.dll` (projeto `src/C3DPassagemRampa`, na mesma solucao): so os comandos `PASSAGEM*` (passagem semi-elevada) e `MFREBAIXO*` (rebaixo/rampa de meio-fio por Corridor Transition), sem Ribbon e sem os outros modulos. Usa os mesmos arquivos-fonte do plugin completo (nada duplicado). `C3DPASSAGEMRAMPA` lista os comandos.
