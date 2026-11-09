@@ -1,3 +1,11 @@
+## 2.92.0 - MFREBAIXO v1.8.0 / PassagemRampa v1.1.0 / MFSARJETA v1.23: hachura do rebaixo desenhada pelo plugin
+
+- **Hachura em planta pelo plugin** (`MFRebaixoHatch.cs`): depois do Rebuild, o `MFREBAIXO` lê os pontos calculados do corredor entre S0 e S3 (`Flange` -> `Calcada_Ext`, ou `Back_Curb` sem calçada) e grava 3 HATCH na layer `MF-REBAIXO` (rampa de entrada, trecho rebaixado, rampa de saída), com XData do Transition Set. Não depende mais de Code Set Style.
+- Painel: Remover apaga a hachura junto; Editar reaplica e redesenha; novo botão **Redesenhar hachuras** (todos os rebaixos); aviso "Sem hachura em planta" no lugar do aviso do DESTAQUE; Configuração com layer, cor, padrões (rampas/trecho), escala, transparência e "até a calçada".
+- O comando **não cria mais as seções a +-1 mm** de S0/S3 (eram só para a hachura por code); Remover ainda as apaga em rebaixos antigos. A Transition do `DESTAQUE` continua sendo gravada (PKTs 1.13 a 1.22).
+- `subassemblies/MFSARJETA` **v1.23**: saem os links de sobreposição (L201, L211-216, L221-230, L241) que viravam cascas (BODY) na extração de sólidos do corredor (diagnóstico no DXF do Heyvid: 424 BODY em 717 peças, todos do MFSARJETA); a rampa da calçada volta a ter sempre o code `Calcada`; **Kassel com sarjeta** (mesma `LS`/alvo de offset: faces alinhadas na troca T30/T40 -> Kassel). Nenhum parâmetro mudou de tipo.
+- DLL avulsa `C3DPassagemRampa` 1.1.0 (mesmos arquivos).
+
 ## MFSARJETA v1.22 (só o PKT; a DLL não muda): alvo de offset na flowline
 
 - `subassemblies/MFSARJETA`: novo alvo **Flowline (offset)** (`FLOWLINE_OFFSET`). Com ele a largura da sarjeta passa a ser a distância horizontal da borda da pista até o alvo; sem alvo continua valendo `LS`. Sem sarjeta (ou Kassel) o alvo é ignorado.

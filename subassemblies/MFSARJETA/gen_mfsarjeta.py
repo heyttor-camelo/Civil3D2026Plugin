@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.22"
+VERSION = "1.23"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -80,7 +80,9 @@ EXPR = {
     "FH": "[0.15]",
     "RC": "[0.08]",
     "KK": f"[IF({T50},1.0,0.0)]",
-    "SJ": '[IF(SARJETA.Value="Yes" AndAlso KK<0.5,"Yes","No")]',
+    # v1.23: a sarjeta também vale para o Kassel (mesma LS/alvo de offset: as faces da sarjeta ficam
+    # alinhadas quando o MF troca de T30/T40 para Kassel). O pé do Kassel encosta na sarjeta em P2.
+    "SJ": '[IF(SARJETA.Value="Yes","Yes","No")]',
     # v1.22: largura da sarjeta = distância horizontal até o alvo de offset da flowline (se houver);
     # sem alvo vale LS. Sem sarjeta (ou Kassel) a flowline fica na borda da pista e o alvo é ignorado.
     "LSR": '[IF(SJ="Yes", IF(FLOWLINE_OFFSET.IsValid, Math.Max(0.01, Math.Abs(FLOWLINE_OFFSET.Offset - P1.Offset)), LS), 0)]',
@@ -358,10 +360,9 @@ EXPR.update({
     "XR":   "[Math.Min(WC - 0.05, Math.Max(0.05, IF(DREB <= 0.0005, 0, IF(FIT > 0.5, DREB/(IRD - SN), WC))))]",
     "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), (P102.Elevation - P7.Elevation)*XR/WC)]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
-    # no rebaixo o link da rampa perde o code Calcada: senão a hachura da calçada fica por cima da
-    # do REBAIXO (sobreposição L241). O MFREBAIXO põe seções a +-2 cm de S0 e S3 para essa troca
-    # de code acontecer num trecho de 2 cm.
-    "CalcRampCode": '[IF(Dst = "REBAIXO", "", "Calcada")]',
+    # v1.23: a rampa volta a ter sempre o code Calcada (a hachura do rebaixo em planta passou a ser
+    # desenhada pelo plugin, MFREBAIXO 1.8; não há mais links de sobreposição).
+    "CalcRampCode": '["Calcada"]',
 })
 VARTYPES.update({k: "Double" for k in ("IRD", "ICD", "W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
 VARTYPES["DatumCP"] = "String"; VARTYPES["CalcRampCode"] = "String"
@@ -395,23 +396,10 @@ with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
     out("RAMPA_OK", "[FIT]")
     out("FAIXA_LIVRE", "[Math.Max(0, WC - IF(DREB > 0.0005, XR, 0))]")
 
-# sobreposição: links só com o code do rebaixo, criados por último (desenham por cima) e sempre
-# presentes (sem code fora do rebaixo), para a faixa entre seções fechar exatamente em S0..S3.
-with Switch('[SJ]', "Sobreposição: sarjeta") as swOS:
-  with swOS.case("Yes"):
-    lk("L201", "P1", "P2", codes=["[Dst]"], disp="L201 - sobreposição: topo da sarjeta")
-with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Sobreposição: MF") as swOF:
-  with swOF.case("TRAPEZIO"):
-    chainT = ["P7", "P8", "P9", "P10", "P11", "P12", "P2"]
-    for i in range(len(chainT) - 1):
-        lk(f"L{211+i}", chainT[i], chainT[i+1], codes=["[Dst]"], disp=f"L{211+i} - sobreposição: topo do MF")
-  with swOF.case("KASSEL"):
-    chainK = ["P7", "P13", "P14", "P15", "P16", "P17", "P18", "P19", "P20", "P21", "P22"]
-    for i in range(len(chainK) - 1):
-        lk(f"L{221+i}", chainK[i], chainK[i+1], codes=["[Dst]"], disp=f"L{221+i} - sobreposição: topo do MF")
-with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Sobreposição: calçada") as swOC:
-  with swOC.case("Yes"):
-    lk("L241", "P7", "P101", codes=["[Dst]"], disp="L241 - sobreposição: rampa da calçada")
+# v1.23: saíram os links de sobreposição (L201, L211-216, L221-230, L241) que davam o code REBAIXO
+# para a hachura em planta via Code Set Style. Eles viravam cascas (BODY) na extração de sólidos do
+# corredor. A hachura do rebaixo agora é desenhada pelo plugin (MFREBAIXO 1.8+). O code [Dst] fica
+# só nos shapes (sarjeta, MF, rampa da calçada), sem geometria extra.
 
 STEPS.extend(_BERCO)
 

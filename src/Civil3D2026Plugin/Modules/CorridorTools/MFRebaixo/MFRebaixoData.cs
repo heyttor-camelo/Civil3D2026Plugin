@@ -799,7 +799,17 @@ internal static class MFRebaixoData
         if (rebuild)
             corridor.Rebuild();
         tr.Commit();
-        return $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0) e {sections} secao(oes) removida(s); os sets vazios podem ser apagados no Edit Corridor Transition";
+        int hatches = 0;
+        try
+        {
+            hatches = MFRebaixoHatch.Erase(db, r.SetName);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro("MFREBAIXO", $"Hachura de {r.SetName} nao apagada: {ex.Message}", ex);
+        }
+
+        return $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0), {sections} secao(oes) e {hatches} hachura(s) removida(s); os sets vazios podem ser apagados no Edit Corridor Transition";
     }
 
     public const string BaseComment = "REBAIXO MF";
@@ -843,11 +853,13 @@ internal static class MFRebaixoData
     // Avisos (NBR 9050 e consistencia)
     // ------------------------------------------------------------------
 
-    public static List<RebaixoWarning> Check(List<RebaixoInfo> all)
+    public static List<RebaixoWarning> Check(List<RebaixoInfo> all, HashSet<string>? setsWithHatch = null)
     {
         List<RebaixoWarning> list = new();
         foreach (RebaixoInfo r in all)
         {
+            if (setsWithHatch is not null && !setsWithHatch.Contains(r.SetName))
+                list.Add(new RebaixoWarning { Item = r, Serious = false, Text = "Sem hachura em planta.", Reference = "Use Redesenhar hachuras no painel (a hachura e desenhada pelo plugin desde o MFREBAIXO 1.8)" });
             double slope = Math.Abs(r.RampSlope ?? 0.0833);
             if (slope > 0.0834)
                 list.Add(new RebaixoWarning { Item = r, Serious = true, Text = $"Rampa do meio-fio com {slope * 100:0.##}% (acima de 8,33%).", Reference = "NBR 9050 - rampas: inclinacao maxima 8,33%" });
@@ -864,8 +876,6 @@ internal static class MFRebaixoData
             if (r.FreeWidth is double fw && fw > 0 && fw < 1.20 - 1e-6)
                 list.Add(new RebaixoWarning { Item = r, Serious = true, Text = $"Faixa livre da calcada depois da rampa: {fw:0.00} m (menos de 1,20 m).", Reference = "NBR 9050 - faixa livre minima de 1,20 m" });
 
-            if (r.HasHighlightParameter && r.HighlightSetName is null)
-                list.Add(new RebaixoWarning { Item = r, Serious = false, Text = "Sem o Transition do DESTAQUE: o code REBAIXO nao aparece na planta.", Reference = "Reaplique o rebaixo pelo painel" });
 
             if (!r.ByDepth)
                 list.Add(new RebaixoWarning { Item = r, Serious = false, Text = "Rebaixo pela altura livre (AMF_LIVRE): a calcada do MFSARJETA nao gera a rampa.", Reference = "Reaplique pelo painel com o MFSARJETA 1.14+ (parametro REB)" });

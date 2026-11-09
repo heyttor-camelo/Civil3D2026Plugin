@@ -3,7 +3,7 @@
 Meio-fio SUDECAP 30/40, Kassel (guia de atracagem) e personalizado, com sarjeta
 opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
-- `MFSARJETA_v1.22.pkt`: pacote para importar no Civil 3D.
+- `MFSARJETA_v1.23.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
   Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt`
 
@@ -15,18 +15,16 @@ se precisar mudar, usar outro nome.
 
 - `Flowline` (cota): elevação da flowline (P2).
 - `Flowline (offset)` (v1.22): largura da sarjeta = distância horizontal da borda da pista até o alvo.
-  Sem alvo vale `LS`. Sem sarjeta (ou Kassel) o alvo é ignorado. Saída `Largura real da sarjeta` (`LS_REAL`).
+  Sem alvo vale `LS`. Sem sarjeta o alvo é ignorado. Saída `Largura real da sarjeta` (`LS_REAL`).
 - `Topo do meio-fio` (cota), `Calçada: borda externa` (offset e cota).
 
-## Code REBAIXO (hachura em planta)
+## Hachura do rebaixo em planta
 
-O `MFREBAIXO` aplica a geometria (`REB`, profundidade) e o `DESTAQUE` nas mesmas
-estacas S0..S3. Com `DESTAQUE` em [1,4) o PKT põe o code `REBAIXO`:
-- em links de sobreposição, criados por último, por cima do topo da sarjeta, do topo do MF
-  e da rampa da calçada (esses links existem sempre; fora do rebaixo ficam sem code);
-- nos shapes da sarjeta, do MF e da rampa da calçada.
-Fora do rebaixo (0) e em S3 (4) não há code: a hachura vai exatamente de S0 a S3.
-No Code Set Style, dê ao code `REBAIXO` um Material Area Fill Style.
+Desde o MFREBAIXO 1.8 (plugin 2.92) a hachura é **desenhada pelo plugin** (HATCH na layer
+`MF-REBAIXO`, da borda da pista à borda da calçada ou ao fundo do MF, em S0..S3). O PKT v1.23
+não tem mais os links de sobreposição nem precisa de Code Set Style para isso. O parâmetro
+`DESTAQUE` continua existindo (o comando ainda grava a Transition dele) e dá o code `REBAIXO`
+só nos shapes da sarjeta, do MF e da rampa da calçada, para quem quiser usá-lo no estilo.
 
 ## Calçada
 
@@ -39,4 +37,6 @@ normal. Se não couber na largura, a calçada inteira fica em `iRampa` (sem alvo
 ## Kassel
 
 Dimensões fixas (H 40, pé 15 rente ao pavimento, exposto 25). Ignora o alvo de
-topo, a altura livre e o "Esticar".
+topo, a altura livre e o "Esticar". Desde a v1.23 aceita a sarjeta (`Sarjeta` = Yes), com a mesma
+largura `LS`/alvo de offset dos outros tipos: na troca T30/T40 -> Kassel as faces da sarjeta
+ficam alinhadas. O pé do Kassel encosta na sarjeta na flowline.

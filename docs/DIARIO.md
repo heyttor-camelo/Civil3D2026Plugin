@@ -8,6 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-09 — nuvem (Claude); build pendente
+
+- Heyvid pediu o último pkt do meio-fio: `subassemblies/MFSARJETA/MFSARJETA_v1.21.pkt` (16/10). Conferido também no LAPTOP-11TNS6P8 (sem versão mais nova).
+- **MFSARJETA v1.22**: alvo de offset na flowline (`FLOWLINE_OFFSET`; largura da sarjeta = distância até o alvo, senão `LS`), saída `LS_REAL`. Só o pkt, a DLL não mudou. Ele deixou claro que o comando NÃO deve usar esse alvo.
+- Ele mandou um DWG/DXF de sólidos extraídos do corredor (`PB_OFICINA_WALDYR_SOEIRO_KM_01_R00_V01`, 314 MB em `/mnt/project-files/`) reclamando das transições nos sólidos e da visualização dos rebaixos em planta. Lido com `ezdxf` (ACIS/ASM via `ezdxf.acis`): 717 peças, 293 3DSOLID e 424 BODY (cascas), todos os BODY no MFSARJETA; andam em grupos de 6 com a mesma extensão/altura do MF = os links de sobreposição da hachura por code. Mais 8 fatias de 2 mm (seções a +-1 mm de S0/S3).
+- **Plugin 2.92.0 / MFREBAIXO 1.8.0 / PassagemRampa 1.1.0** (não compilado na nuvem, sem dotnet/Autodesk): hachura do rebaixo desenhada pelo plugin (`MFRebaixoHatch.cs`, layer `MF-REBAIXO`, XData `C3D_MFREBAIXO`), painel com Redesenhar hachuras e Configuração da hachura, sem seções de +-1 mm. **MFSARJETA v1.23**: sem links de sobreposição, rampa sempre `Calcada`, Kassel com sarjeta (pedido dele: faces alinhadas na troca T30/T40 -> Kassel).
+- Pendências: compilar no PC (Release x64 net8), ValidateProject, entregar nas pastas do Drive/FDX; Heyvid testar MFREBAIXO + v1.23 num desenho (hachura, sólidos sem BODY, Kassel com sarjeta no Composer). Depois: reformular o comando de rebaixo como ele quiser (ainda não disse como).
+
 ## 2026-11-07 — nuvem (Claude) + CAMELO (build)
 
 - Pedido do Heyvid: DLL à parte só com a passagem semi-elevada e a transição de rampa (Corridor Transition) → entendido como RaisedCrossing (`PASSAGEM*`) + MFRebaixo (`MFREBAIXO*`).

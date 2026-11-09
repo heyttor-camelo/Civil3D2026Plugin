@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
@@ -27,6 +27,17 @@ internal sealed class MFRebaixoSettings
     public string PainelModo { get; set; } = "GERAL";
     // Textos da vista grafica que o usuario desligou (chaves de MFRebaixoPanel.TextOptions).
     public List<string> PainelTextosOcultos { get; set; } = new() { "ESTACAS", "BASELINE" };
+
+    // Hachura do rebaixo em planta, desenhada pelo plugin (v1.8). JSON antigo: ficam os padroes.
+    public bool HachuraAtiva { get; set; } = true;
+    public string HachuraLayer { get; set; } = MFRebaixoHatch.DefaultLayer;
+    public short HachuraCor { get; set; } = 30; // laranja
+    public string HachuraPadraoRampa { get; set; } = "ANSI31";
+    public string HachuraPadraoRebaixo { get; set; } = "ANSI37";
+    public double HachuraEscala { get; set; } = 0.5;
+    public int HachuraTransparencia { get; set; } = 40;
+    // true: da borda da pista ate a borda externa da calcada (se houver); false: so ate o fundo do MF.
+    public bool HachuraAteCalcada { get; set; } = true;
 
     public MFRebaixoPreset Garagem { get; set; } = new()
     {

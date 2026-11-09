@@ -103,8 +103,11 @@ internal sealed class MFRebaixoPanel : SW.Window
             "Muda o inicio, o fim ou a altura final do rebaixo selecionado e reaplica (Transitions e secoes refeitas).",
             new[] { "Selecione o rebaixo.", "Altere os valores na aba Propriedades.", "Aplicar." }, p => p.SelectTab("Propriedades")),
         new("REMOVER", "excluir", "Remover rebaixo", "Rebaixo",
-            "Tira os Transition Sets do rebaixo (geometria e destaque) e as secoes que o comando criou. Pede confirmacao.",
+            "Tira os Transition Sets do rebaixo (geometria e destaque), as secoes que o comando criou e a hachura em planta. Pede confirmacao.",
             new[] { "Selecione o rebaixo e clique." }, p => p.RemoveCurrent()),
+        new("HACHURAS", "hachura", "Redesenhar hachuras", "Rebaixo",
+            "Apaga e desenha de novo a hachura em planta de todos os rebaixos (layer MF-REBAIXO), lendo o corredor atual. Use depois de um Rebuild que mudou o corredor.",
+            new[] { "Sem perguntas: refaz as hachuras de todos os rebaixos listados." }, p => p.RedrawHatches()),
         new("ZOOM", "zoom", "Zoom no desenho", "Rebaixo",
             "Aproxima o desenho no rebaixo selecionado (duplo clique na lista faz o mesmo).", new[] { "Selecione o rebaixo." }, p => p.ZoomCurrent()),
         new("SECOES", "secoes", "Secoes do rebaixo", "Rebaixo",
@@ -566,7 +569,21 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         foreach (CorridorSummary c in _corridors)
             c.Rebaixos = _items.Count(r => r.CorridorId == c.Id);
-        _warnings = MFRebaixoData.Check(_items);
+        HashSet<string>? withHatch = null;
+        try
+        {
+            if (_settings.HachuraAtiva && Doc is Document hatchDoc)
+            {
+                using (hatchDoc.LockDocument())
+                    withHatch = MFRebaixoHatch.SetsWithHatch(hatchDoc.Database);
+            }
+        }
+        catch
+        {
+            // Sem leitura das hachuras: fica sem o aviso.
+        }
+
+        _warnings = MFRebaixoData.Check(_items, withHatch);
         if (MFRebaixoData.RemovedSets.Count > 0)
         {
             _warnings.Add(new RebaixoWarning
@@ -1837,8 +1854,34 @@ internal sealed class MFRebaixoPanel : SW.Window
         p.Children.Add(Label("Valores padrao do MFREBAIXO", true));
         p.Children.Add(EditRow("altura", "Altura livre final", N(_settings.UltimaAlturaFinal, "0.000"), "m"));
         p.Children.Add(EditRow("reducao", "Reducao", N(_settings.UltimaReducao, "0.000"), "m"));
+        p.Children.Add(Label("Hachura em planta (desenhada pelo plugin)", true));
+        var hatchOn = new WC.CheckBox { Content = "Desenhar a hachura ao lancar o rebaixo", IsChecked = _settings.HachuraAtiva, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
+        p.Children.Add(hatchOn);
+        var toSidewalk = new WC.CheckBox { Content = "Ate a borda externa da calcada (senao, ate o fundo do meio-fio)", IsChecked = _settings.HachuraAteCalcada, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
+        p.Children.Add(toSidewalk);
+        p.Children.Add(EditRow("hlayer", "Layer", _settings.HachuraLayer, ""));
+        p.Children.Add(EditRow("hcor", "Cor da layer (indice ACI)", _settings.HachuraCor.ToString(CultureInfo.InvariantCulture), ""));
+        p.Children.Add(EditRow("hrampa", "Padrao das rampas", _settings.HachuraPadraoRampa, ""));
+        p.Children.Add(EditRow("hreb", "Padrao do trecho rebaixado", _settings.HachuraPadraoRebaixo, ""));
+        p.Children.Add(EditRow("hescala", "Escala do padrao", N(_settings.HachuraEscala, "0.###"), ""));
+        p.Children.Add(EditRow("htransp", "Transparencia", _settings.HachuraTransparencia.ToString(CultureInfo.InvariantCulture), "%"));
+        p.Children.Add(Label("Mudou aqui: use Redesenhar hachuras para aplicar aos rebaixos que ja existem."));
         p.Children.Add(ActionButton("Salvar", () =>
         {
+            _settings.HachuraAtiva = hatchOn.IsChecked == true;
+            _settings.HachuraAteCalcada = toSidewalk.IsChecked == true;
+            if (_fields.TryGetValue("hlayer", out WC.TextBox? lb) && lb.Text.Trim().Length > 0)
+                _settings.HachuraLayer = lb.Text.Trim();
+            if (Number("hcor") is double hc && hc >= 1 && hc <= 255)
+                _settings.HachuraCor = (short)hc;
+            if (_fields.TryGetValue("hrampa", out WC.TextBox? pr) && pr.Text.Trim().Length > 0)
+                _settings.HachuraPadraoRampa = pr.Text.Trim().ToUpperInvariant();
+            if (_fields.TryGetValue("hreb", out WC.TextBox? pb) && pb.Text.Trim().Length > 0)
+                _settings.HachuraPadraoRebaixo = pb.Text.Trim().ToUpperInvariant();
+            if (Number("hescala") is double he && he > 0)
+                _settings.HachuraEscala = he;
+            if (Number("htransp") is double ht && ht >= 0 && ht <= 90)
+                _settings.HachuraTransparencia = (int)Math.Round(ht);
             if (Number("margem") is double m && m >= 0)
                 _settings.PainelMargem = Math.Min(m, 100);
             if (Number("altura") is double h && h >= 0)
@@ -2032,7 +2075,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         SW.MessageBoxResult answer = SW.MessageBox.Show(this,
-            $"Remover o rebaixo {r.Label} de {r.CorridorName}?\n\nSaem os Transition Sets ({r.SetName}{(r.HighlightSetName is null ? "" : " e " + r.HighlightSetName)}) e as secoes que o comando criou.",
+            $"Remover o rebaixo {r.Label} de {r.CorridorName}?\n\nSaem os Transition Sets ({r.SetName}{(r.HighlightSetName is null ? "" : " e " + r.HighlightSetName)}), as secoes que o comando criou e a hachura em planta.",
             "Remover rebaixo", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Warning);
         if (answer != SW.MessageBoxResult.Yes)
             return;
@@ -2041,6 +2084,27 @@ internal sealed class MFRebaixoPanel : SW.Window
         Edit($"Rebaixo {r.Label} removido.", (db, _) => summary = MFRebaixoData.Remove(db, r));
         if (summary.Length > 0)
             Say($"Rebaixo {r.Label} removido: {summary}.");
+    }
+
+    private void RedrawHatches()
+    {
+        if (_items.Count == 0)
+        {
+            Say("Nenhum rebaixo no desenho.");
+            return;
+        }
+
+        if (!_settings.HachuraAtiva)
+        {
+            Say("A hachura em planta esta desligada na Configuracao.");
+            return;
+        }
+
+        (int Rebaixos, int Hachuras) result = (0, 0);
+        List<RebaixoInfo> items = _items.ToList();
+        Edit("Hachuras redesenhadas.", (db, _) => result = MFRebaixoHatch.RedrawAll(db, items));
+        if (result.Rebaixos > 0)
+            Say($"{result.Hachuras} hachura(s) em {result.Rebaixos} rebaixo(s), layer {_settings.HachuraLayer}.");
     }
 
     private void RebuildCurrent()

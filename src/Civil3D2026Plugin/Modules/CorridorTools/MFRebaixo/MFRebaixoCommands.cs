@@ -1,4 +1,4 @@
-﻿using Autodesk.AutoCAD.DatabaseServices;
+using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
@@ -20,7 +20,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.7.2";
+    public const string Versao = "1.8.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -51,12 +51,6 @@ public sealed class MFRebaixoCommands
     // começa 0,5 mm antes de S0 para S0 já cair dentro dele.
     private const double HighlightLead =
         0.0005;
-
-    // Seções extras a +-1 mm de S0 e S3. Em planta, a faixa entre duas seções usa o estado de uma
-    // delas; com essas seções, qualquer troca de code (DESTAQUE, rampa da calçada) fica num trecho
-    // de 1 mm e a hachura começa e termina exatamente em S0 e S3.
-    private const double EdgeSectionOffset =
-        0.001;
 
     // Usado quando a subassembly não tem iRampa (8,33 %).
     private const double DefaultRampSlope =
@@ -569,6 +563,10 @@ public sealed class MFRebaixoCommands
             "\n  9. A DLL cria Corridor Sections novas em S0, S1, S2 e S3.");
 
         ed.WriteMessage(
+            $"\n  9b. Depois do Rebuild, desenha a hachura em planta: 3 HATCH na layer {MFRebaixoHatch.DefaultLayer} " +
+            "(rampa de entrada, trecho rebaixado, rampa de saída), da borda da pista à borda da calçada ou ao fundo do MF.");
+
+        ed.WriteMessage(
             "\n  10. AMF_LIVRE: S0 efetiva -> S1 final -> S2 final -> S3 efetiva.");
 
         ed.WriteMessage(
@@ -593,9 +591,8 @@ public sealed class MFRebaixoCommands
             $"\n  Rampa do MF: {RampSlopeParameterName} (sem ele: {DefaultRampSlope * 100.0:0.##}%)");
 
         ed.WriteMessage(
-            $"\n  Destaque em planta: se a subassembly tiver {HighlightParameterName}, " +
-            "um segundo Transition grava 1->4 de S0 a S3 (mesmo intervalo da geometria); " +
-            "o PKT põe o code REBAIXO no topo do MF e da sarjeta.");
+            $"\n  {HighlightParameterName}: se a subassembly tiver, um segundo Transition grava 1->4 de S0 a S3 " +
+            "(PKTs 1.13 a 1.22 põem o code REBAIXO; do 1.23 em diante a hachura é só a do plugin).");
 
         ed.WriteMessage(
             $"\n  Fallback geométrico: {FlowlinePointCode} -> {BackCurbPointCode}");
@@ -1299,30 +1296,49 @@ public sealed class MFRebaixoCommands
                 s3,
                 "REBAIXO MF - FIM RAMPA SAIDA");
 
-        foreach (var (edgeStation, edgeName) in new[]
-                 {
-                     (s0 - EdgeSectionOffset, "REBAIXO MF - ANTES DE S0"),
-                     (s0 + EdgeSectionOffset, "REBAIXO MF - DEPOIS DE S0"),
-                     (s3 - EdgeSectionOffset, "REBAIXO MF - ANTES DE S3"),
-                     (s3 + EdgeSectionOffset, "REBAIXO MF - DEPOIS DE S3")
-                 })
-        {
-            if (edgeStation < region.StartStation + StationTolerance
-                || edgeStation > region.EndStation - StationTolerance)
-            {
-                continue;
-            }
-
-            addedSections +=
-                EnsureStation(
-                    region,
-                    edgeStation,
-                    edgeName);
-        }
-
+        // v1.8: as seções a +-1 mm de S0/S3 (truque da hachura por code) não são mais criadas.
+        // A hachura em planta é desenhada pelo plugin depois do Rebuild (MFRebaixoHatch).
         corridor.Rebuild();
 
+        ObjectId corridorIdForHatch =
+            corridor.ObjectId;
+
+        string baselineKeyForHatch =
+            GetBaselineKey(baseline);
+
+        Database hatchDb =
+            corridor.Database;
+
         tr.Commit();
+
+        int hatches =
+            0;
+
+        try
+        {
+            hatches =
+                MFRebaixoHatch.Draw(
+                    hatchDb,
+                    corridorIdForHatch,
+                    baselineKeyForHatch,
+                    subassemblyId,
+                    setName,
+                    s0,
+                    s1,
+                    s2,
+                    s3);
+        }
+        catch (
+            System.Exception ex)
+        {
+            PluginLog.Erro(
+                "MFREBAIXO",
+                $"Hachura de {setName} não desenhada: {ex.Message}",
+                ex);
+
+            ed.WriteMessage(
+                $"\n[AVISO] Hachura em planta não desenhada: {ex.Message}");
+        }
 
         double reduction =
             startEffectiveHeight -
@@ -1380,7 +1396,12 @@ public sealed class MFRebaixoCommands
                 : $"\n     Transition em {ParameterName} (altura livre)");
 
         ed.WriteMessage(
-            $"\n     Corridor Sections adicionadas: {addedSections}\n");
+            $"\n     Corridor Sections adicionadas: {addedSections}");
+
+        ed.WriteMessage(
+            hatches > 0
+                ? $"\n     Hachura em planta: {hatches} HATCH na layer {MFRebaixoSettingsStore.Load().HachuraLayer}\n"
+                : "\n     Hachura em planta: não desenhada (ver C3DLOG)\n");
     }
 
     // Altura livre nominal: AMF_LIVRE_NORMAL (PKT antigo) ou o valor de
@@ -2258,7 +2279,7 @@ public sealed class MFRebaixoCommands
         return null;
     }
 
-    private static ObjectId
+    internal static ObjectId
         FindMfSubassemblyId(
             Transaction tr,
             BaselineRegion region,

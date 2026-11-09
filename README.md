@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.0.0)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.1.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -119,6 +119,11 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
   `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
+- `MFREBAIXO` (v1.8): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
+  (3 HATCH na layer `MF-REBAIXO`: rampa de entrada, trecho rebaixado, rampa de saida), sem depender do
+  Code Set Style. O painel refaz/remove a hachura com o rebaixo e tem **Redesenhar hachuras**; layer, cor,
+  padroes, escala e transparencia ficam na Configuracao do painel. Use com o `MFSARJETA_v1.23.pkt`
+  (`subassemblies/MFSARJETA`), que nao tem mais os links de sobreposicao.
 - Sem Ribbon: use pela linha de comando. O log continua em `%LOCALAPPDATA%\Civil3D2026Plugin\logs`
   (Ctrl+Shift+L no painel do MFREBAIXO).
 - **Carregue uma DLL ou a outra**, nao as duas: o plugin completo ja tem esses comandos. Se as duas
