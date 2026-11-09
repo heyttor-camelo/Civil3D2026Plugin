@@ -5,6 +5,8 @@ using Autodesk.AutoCAD.Colors;
 using Autodesk.AutoCAD.Geometry;
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
 
+using Civil3D2026Plugin.Infrastructure;
+
 namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 /// <summary>
@@ -369,7 +371,7 @@ internal static class MFRebaixoHatch
         var ltr = new AcadDb.LayerTableRecord
         {
             Name = name,
-            Color = Color.FromColorIndex(ColorMethod.ByAci, color),
+            Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(ColorMethod.ByAci, color),
             Description = "Hachura dos rebaixos de meio-fio (MFREBAIXO)"
         };
         lt.Add(ltr);

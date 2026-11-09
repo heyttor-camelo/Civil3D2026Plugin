@@ -9,6 +9,7 @@ using System.Linq;
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using CivilAssembly = Autodesk.Civil.DatabaseServices.Assembly;
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
+using Civil3D2026Plugin.Infrastructure;
 
 [assembly: CommandClass(
     typeof(

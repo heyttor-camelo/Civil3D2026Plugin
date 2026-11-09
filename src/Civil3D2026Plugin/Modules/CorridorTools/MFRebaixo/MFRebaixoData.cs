@@ -7,6 +7,8 @@ using Autodesk.AutoCAD.Runtime;
 
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
 
+using Civil3D2026Plugin.Infrastructure;
+
 namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 /// <summary>Um rebaixo lançado pelo MFREBAIXO (par de Corridor Transition Sets).</summary>
