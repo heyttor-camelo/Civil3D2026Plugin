@@ -3682,7 +3682,42 @@ internal sealed partial class LayoutPanel : SW.Window
         }
         KeyMapEstilo DoForm()
         {
-            KeyMapEstilo novo = DoForm();
+            var novo = new KeyMapEstilo
+            {
+                Rotulo = Math.Clamp(rotulo.SelectedIndex, 0, 3),
+                Titulo = titulo.IsChecked == true,
+                CorDestaque = (cor.SelectedItem as WC.ComboBoxItem)?.Tag is short c ? c : (short)1,
+                Transparencia = int.TryParse(transp.Text, out int t) ? Math.Clamp(t, 0, 90) : 50,
+                Padrao = string.IsNullOrWhiteSpace(padrao.Text) ? "SOLID" : padrao.Text.Trim().ToUpperInvariant(),
+                EscalaHachura = double.TryParse(escH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double eh) && eh > 0 ? eh : 1,
+                AnguloHachura = double.TryParse(angH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ah) ? ah : 0,
+                CorFundo = (fundo.SelectedItem as WC.ComboBoxItem)?.Tag is short cf ? cf : (short)-1,
+                FatorTexto = double.TryParse(fatorTxt.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ft) && ft > 0 ? ft : 1
+            };
+            foreach (KeyValuePair<string, Autodesk.AutoCAD.Geometry.Point2d> kv in posTexto)
+                novo.PosTexto[kv.Key] = kv.Value;
+            return novo;
+        }
+        InfoPos();
+
+        var salvos = new WC.ComboBox { Width = 170, IsEditable = true, ToolTip = "Estilos salvos neste desenho. Escolha um para carregar nos campos, ou digite um nome novo e clique Salvar estilo." };
+        foreach (string nomeSalvo in _kmCfg.Presets.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase))
+            salvos.Items.Add(nomeSalvo);
+        salvos.SelectionChanged += (_, _) =>
+        {
+            if (salvos.SelectedItem is string escolhido && _kmCfg.Presets.TryGetValue(escolhido, out KeyMapEstilo? pr))
+            {
+                Mostrar(pr);
+                Say($"Estilo \"{escolhido}\" carregado nos campos. Marque os layouts e clique Aplicar nos marcados.");
+            }
+        };
+        var spSalvos = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 8, 0) };
+        spSalvos.Children.Add(Label("Estilo salvo"));
+        spSalvos.Children.Add(salvos);
+        linhaEstilos.Children.Add(spSalvos);
+        linhaEstilos.Children.Add(ActionButton("Copiar do layout atual", () =>
+        {
+            if (Doc is not Document doc) return;
             try
             {
                 string atual = LayoutManager.Current.CurrentLayout;
@@ -3758,18 +3793,7 @@ internal sealed partial class LayoutPanel : SW.Window
         botoes.Children.Add(ActionButton("Aplicar nos marcados", () =>
         {
             if (Doc is not Document doc) return;
-            var novo = new KeyMapEstilo
-            {
-                Rotulo = Math.Clamp(rotulo.SelectedIndex, 0, 3),
-                Titulo = titulo.IsChecked == true,
-                CorDestaque = (cor.SelectedItem as WC.ComboBoxItem)?.Tag is short c ? c : (short)1,
-                Transparencia = int.TryParse(transp.Text, out int t) ? Math.Clamp(t, 0, 90) : 50,
-                Padrao = string.IsNullOrWhiteSpace(padrao.Text) ? "SOLID" : padrao.Text.Trim().ToUpperInvariant(),
-                EscalaHachura = double.TryParse(escH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double eh) && eh > 0 ? eh : 1,
-                AnguloHachura = double.TryParse(angH.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ah) ? ah : 0,
-                CorFundo = (fundo.SelectedItem as WC.ComboBoxItem)?.Tag is short cf ? cf : (short)-1,
-                FatorTexto = double.TryParse(fatorTxt.Text.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double ft) && ft > 0 ? ft : 1
-            };
+            KeyMapEstilo novo = DoForm();
             try
             {
                 KeyMapConfig cfg = LayoutKeyMap.Ler(doc.Database);
