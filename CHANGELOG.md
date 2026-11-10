@@ -1,3 +1,9 @@
+## 2.92.1 - LAYOUTS v1.16.2: malha, norte e escala nao passam mais de uma prancha para a outra
+
+- Causa da "troca" entre pranchas: ao copiar um layout (Move or Copy do AutoCAD, Ctrl+arrastar a aba ou Copiar do painel), a copia levava a malha como referencia ao **mesmo bloco** `C3D_MALHA_<viewport>` da prancha de origem, e malha/norte/escala com a marca da viewport de origem. Inserir de novo na origem redefinia esse bloco e a copia passava a mostrar as coordenadas da origem; inserir na copia nao apagava os itens herdados (ficavam dois de cada).
+- Agora a malha so redefine o bloco se nenhuma outra prancha usa ele; senao vai para um bloco novo (`C3D_MALHA_<viewport>_2`...). Inserir/remover numa viewport tambem apaga os itens herdados da copia (marca de uma viewport que nao esta no layout, pela posicao). Remover apaga o bloco de malha que ficou sem uso.
+- Depois de inserir, o painel avisa quais pranchas ainda tem malha/norte/escala copiados de outra (para marcar e inserir de novo nelas). Nada e mexido nessas pranchas sem voce pedir.
+
 ## 2.92.0 - MFREBAIXO v1.8.0 / PassagemRampa v1.1.0 / MFSARJETA v1.23: hachura do rebaixo desenhada pelo plugin
 
 - **Hachura em planta pelo plugin** (`MFRebaixoHatch.cs`): depois do Rebuild, o `MFREBAIXO` lê os pontos calculados do corredor entre S0 e S3 (`Flange` -> `Calcada_Ext`, ou `Back_Curb` sem calçada) e grava 3 HATCH na layer `MF-REBAIXO` (rampa de entrada, trecho rebaixado, rampa de saída), com XData do Transition Set. Não depende mais de Code Set Style.

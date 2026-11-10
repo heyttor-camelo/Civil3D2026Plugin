@@ -189,8 +189,24 @@ internal static class LayoutConjunto
             PluginLog.Aviso(Mod, "Malha/norte/escala: " + a);
         if (n == 0 && falhas == 0)
             return new OpResult(0, 0, "Escolha as viewports.") { Mudou = false };
+        string copiados = "";
+        try
+        {
+            List<string> outros = LayoutsComItensCopiados(db);
+            if (outros.Count > 0)
+            {
+                copiados = $" Atencao: {outros.Count} prancha(s) ainda tem malha/norte/escala copiados de outra prancha " +
+                           $"(mostram as coordenadas da prancha de origem): {string.Join(", ", outros.Take(8))}{(outros.Count > 8 ? ", ..." : "")}. " +
+                           "Marque as viewports delas e insira de novo.";
+                PluginLog.Aviso(Mod, "Malha/norte/escala copiados de outro layout em: " + string.Join(", ", outros));
+            }
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Diag(Mod, "Malha: conferencia de copias falhou: " + ex.Message);
+        }
         return new OpResult(n, falhas, $"Malha, norte e escala em {n} viewport(s)" +
-            (falhas > 0 || avisos.Count > 0 ? $"; {falhas} falha(s), {avisos.Count} aviso(s) (log: Ctrl+Shift+L)." : "."));
+            (falhas > 0 || avisos.Count > 0 ? $"; {falhas} falha(s), {avisos.Count} aviso(s) (log: Ctrl+Shift+L)." : ".") + copiados);
     }
 
     private static void InserirNaViewport(Transaction tr, Database db, Viewport vp, PadraoConjunto p, List<string> avisos)
@@ -343,8 +359,15 @@ internal static class LayoutConjunto
         if ((mx1 - mx0) / intervalo > 400 || (my1 - my0) / intervalo > 400)
             throw new InvalidOperationException("Intervalo da malha pequeno demais para esta viewport.");
 
-        string nome = "C3D_MALHA_" + vp.Handle;
+        // Nome do bloco: o da viewport, se ninguem mais usa. Um layout copiado (Move or Copy do
+        // AutoCAD ou Copiar do painel) leva junto a referencia ao MESMO bloco; redefinir o bloco
+        // aqui trocaria a malha da copia pela desta viewport. Entao, com outra referencia viva,
+        // a malha nova vai para um bloco novo (C3D_MALHA_<handle>_2, _3...).
+        string nomeBase = "C3D_MALHA_" + vp.Handle;
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        string nome = nomeBase;
+        for (int i = 2; bt.Has(nome) && TemReferenciaViva(tr, bt[nome]); i++)
+            nome = nomeBase + "_" + i.ToString(CultureInfo.InvariantCulture);
         BlockTableRecord def;
         if (bt.Has(nome))
         {
@@ -722,30 +745,141 @@ internal static class LayoutConjunto
         {
             foreach (ObjectId id in viewports.Distinct())
                 if (tr.GetObject(id, OpenMode.ForRead) is Viewport vp)
-                    n += Remover(tr, vp);
+                    n += Remover(tr, vp, apagarBloco: true);
             tr.Commit();
         }
         return new OpResult(n, 0, n == 0 ? "Nenhum item do conjunto nessas viewports." : $"{n} item(ns) removido(s).");
     }
 
-    /// <summary>Apaga os itens ligados a viewport (malha, norte e escala inseridos pelo conjunto).</summary>
-    private static int Remover(Transaction tr, Viewport vp)
+    /// <summary>
+    /// Apaga os itens ligados a viewport (malha, norte e escala inseridos pelo conjunto). Tambem os
+    /// que vieram de um layout copiado: a copia guarda o handle da viewport do layout de origem,
+    /// que nao esta neste layout; esses itens sao da viewport deste layout mais perto deles.
+    /// </summary>
+    private static int Remover(Transaction tr, Viewport vp, bool apagarBloco = false)
     {
         string handle = vp.Handle.ToString();
         var espaco = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForRead);
+        HashSet<ObjectId> papel = espaco.LayoutId.IsNull || tr.GetObject(espaco.LayoutId, OpenMode.ForRead) is not Autodesk.AutoCAD.DatabaseServices.Layout lay
+            ? new HashSet<ObjectId>()
+            : LayoutReader.ViewportsDoPapel(tr, lay, espaco);
+        var doEspaco = new List<Viewport>();
+        foreach (ObjectId id in espaco)
+            if (!papel.Contains(id) && id.ObjectClass.DxfName == "VIEWPORT" && tr.GetObject(id, OpenMode.ForRead) is Viewport v)
+                doEspaco.Add(v);
+        var handles = new HashSet<string>(doEspaco.Select(v => v.Handle.ToString()), StringComparer.OrdinalIgnoreCase);
+
         int n = 0;
         foreach (ObjectId id in espaco)
         {
-            if (tr.GetObject(id, OpenMode.ForRead) is not BlockReference br)
+            if (tr.GetObject(id, OpenMode.ForRead) is not BlockReference br || Marca(br) is not { } marca)
                 continue;
-            if (Marca(br) is { } marca && marca.Viewport == handle)
-            {
-                br.UpgradeOpen();
-                br.Erase();
-                n++;
-            }
+            bool daViewport = marca.Viewport.Equals(handle, StringComparison.OrdinalIgnoreCase) ||
+                (!handles.Contains(marca.Viewport) && DonoPelaPosicao(br, doEspaco) == vp.ObjectId);
+            if (!daViewport)
+                continue;
+            ObjectId bloco = br.BlockTableRecord;
+            br.UpgradeOpen();
+            br.Erase();
+            n++;
+            if (apagarBloco && marca.Tipo == "malha")
+                ApagarBlocoSemUso(tr, bloco);
         }
         return n;
+    }
+
+    /// <summary>Viewport (do mesmo layout) a que um item copiado pertence: a que o contem, ou a mais perto ate 50 mm.</summary>
+    private static ObjectId DonoPelaPosicao(BlockReference br, List<Viewport> vps)
+    {
+        Point3d p = br.Position;
+        try
+        {
+            // A malha e inserida na origem: vale o centro do desenho dela.
+            if (Marca(br) is { Tipo: "malha" })
+            {
+                Extents3d e = br.GeometricExtents;
+                p = new Point3d((e.MinPoint.X + e.MaxPoint.X) / 2, (e.MinPoint.Y + e.MaxPoint.Y) / 2, 0);
+            }
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return ObjectId.Null;
+        }
+        // Dentro de mais de uma (viewports sobrepostas): fica a menor.
+        Viewport? melhor = null;
+        double dist = 50, area = double.MaxValue;
+        foreach (Viewport v in vps)
+        {
+            double d = Distancia(v, p), a = v.Width * v.Height;
+            if (d < dist - 1e-9 || (Math.Abs(d - dist) <= 1e-9 && a < area))
+            {
+                dist = d;
+                area = a;
+                melhor = v;
+            }
+        }
+        return melhor?.ObjectId ?? ObjectId.Null;
+    }
+
+    /// <summary>O bloco tem alguma referencia que nao foi apagada.</summary>
+    private static bool TemReferenciaViva(Transaction tr, ObjectId bloco)
+    {
+        var btr = (BlockTableRecord)tr.GetObject(bloco, OpenMode.ForRead);
+        foreach (ObjectId r in btr.GetBlockReferenceIds(true, false))
+            if (!r.IsErased)
+                return true;
+        return false;
+    }
+
+    /// <summary>Bloco de malha que ficou sem nenhuma referencia: apagado (nao fica lixo C3D_MALHA_* no desenho).</summary>
+    private static void ApagarBlocoSemUso(Transaction tr, ObjectId bloco)
+    {
+        try
+        {
+            if (bloco.IsNull || bloco.IsErased || TemReferenciaViva(tr, bloco))
+                return;
+            var btr = (BlockTableRecord)tr.GetObject(bloco, OpenMode.ForRead);
+            if (!btr.Name.StartsWith("C3D_MALHA_", StringComparison.OrdinalIgnoreCase))
+                return;
+            btr.UpgradeOpen();
+            btr.Erase();
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Diag(Mod, $"Malha: bloco sem uso nao apagado ({ex.Message}).");
+        }
+    }
+
+    /// <summary>
+    /// Pranchas com malha/norte/escala vindos de outro layout (copia de layout): o item guarda o
+    /// handle de uma viewport que nao esta no layout dele. Usado para avisar depois de inserir.
+    /// </summary>
+    public static List<string> LayoutsComItensCopiados(Database db)
+    {
+        var nomes = new List<string>();
+        using Transaction tr = db.TransactionManager.StartOpenCloseTransaction();
+        var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        foreach (DBDictionaryEntry e in dic)
+        {
+            var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
+            if (lay.ModelType)
+                continue;
+            var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForRead);
+            var handles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var marcas = new List<string>();
+            foreach (ObjectId id in btr)
+            {
+                string dxf = id.ObjectClass.DxfName;
+                if (dxf == "VIEWPORT")
+                    handles.Add(id.Handle.ToString());
+                else if (dxf == "INSERT" && tr.GetObject(id, OpenMode.ForRead) is BlockReference br && Marca(br) is { } m)
+                    marcas.Add(m.Viewport);
+            }
+            if (marcas.Any(h => !handles.Contains(h)))
+                nomes.Add(lay.LayoutName);
+        }
+        tr.Commit();
+        return nomes;
     }
 
     private static (string Tipo, string Viewport)? Marca(BlockReference br)
