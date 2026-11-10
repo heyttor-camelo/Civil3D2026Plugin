@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.9.3";
+    public const string Versao = "1.10.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -420,6 +420,59 @@ public sealed class MFRebaixoCommands
         {
             PluginLog.Erro("MFREBAIXO", "MFREBAIXOHACHURA falhou: " + ex.Message, ex);
             ed.WriteMessage("\nErro ao redesenhar as hachuras: " + ex.Message + "\n");
+        }
+    }
+
+    /// <summary>
+    /// Apaga de vez os Transition Sets de rebaixos removidos (desligados) e, se pedido, os presos a
+    /// uma subassembly que nao existe mais. Mesmo efeito de importar um CSV sem eles no dialogo
+    /// Corridor Transition, direto pela API.
+    /// </summary>
+    [CommandMethod(
+        C3DCommands.Corridor.MfRebaixoLimpar,
+        CommandFlags.Modal)]
+    public void LimparRemovidos()
+    {
+        var doc =
+            AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+        {
+            return;
+        }
+        Editor ed =
+            doc.Editor;
+        try
+        {
+            var options =
+                new PromptKeywordOptions(
+                    "\nApagar tambem os rebaixos presos a uma peca que nao existe mais na assembly? [Sim/Nao]",
+                    "Sim Nao")
+                {
+                    AllowNone = true
+                };
+            options.Keywords.Default =
+                "Sim";
+            PromptResult answer =
+                ed.GetKeywords(options);
+            if (answer.Status == PromptStatus.Cancel)
+            {
+                return;
+            }
+            bool orphans =
+                answer.Status != PromptStatus.OK
+                || !string.Equals(answer.StringResult, "Nao", StringComparison.OrdinalIgnoreCase);
+            (int deleted, int kept, int baselines) =
+                MFRebaixoData.PurgeRemoved(doc.Database, orphans);
+            string fim =
+                $"{deleted} Transition Set(s) apagado(s) em {baselines} baseline(s)" +
+                (kept > 0 ? $"; {kept} mantido(s) por ser(em) o unico set da baseline." : ".");
+            ed.WriteMessage("\n" + fim + "\n");
+            PluginLog.Info("MFREBAIXO", "MFREBAIXOLIMPAR: " + fim);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro("MFREBAIXO", "MFREBAIXOLIMPAR falhou: " + ex.Message, ex);
+            ed.WriteMessage("\nErro ao limpar os removidos: " + ex.Message + "\n");
         }
     }
 

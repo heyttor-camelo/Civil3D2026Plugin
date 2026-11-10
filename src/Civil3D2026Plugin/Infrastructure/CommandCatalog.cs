@@ -193,6 +193,7 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoPainel, "Painel de rebaixos", "Explorador dos rebaixos: planta geral com codigo/nome, lista, edicao, nome, avisos da NBR 9050 e secoes do corredor."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixo, "Rebaixo de meio-fio", "Cria Transition Sets de rebaixo no Corridor."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoHachura, "Redesenhar hachuras dos rebaixos", "Refaz a hachura em planta de todos os rebaixos do desenho e mostra quantas sairam."),
+                    new CommandDefinition(C3DCommands.Corridor.MfRebaixoLimpar, "Limpar rebaixos removidos", "Apaga de vez os Transition Sets de rebaixos removidos ou presos a uma peca que nao existe mais."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoCfg, "Configurar rebaixo", "Configura presets do MFREBAIXO."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoHelp, "Ajuda rebaixo", "Mostra a ajuda do MFREBAIXO.")
                 }),

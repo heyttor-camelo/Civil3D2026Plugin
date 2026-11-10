@@ -1,3 +1,14 @@
+## 2.100.0 - MFREBAIXO v1.10.0 / PassagemRampa v1.3.0: avisos opcionais, limpar removidos, layer trancada, destaque fixo na tela
+
+Lista do Heyvid de 10/11/2026 (primeiro bloco; perfil, secoes e 3D interativo ficam para o proximo).
+
+- **Avisos opcionais**, desligados por padrao (`AvisosAtivos`; Configuracao > Mostrar avisos).
+- **Remover apaga de vez** o Transition Set quando ha outros na baseline (nao sobra mais set "REMOVIDO"). So continua apenas desligado quando e o unico set da baseline, porque o Civil nao deixa a lista vazia pela API.
+- Novo comando **`MFREBAIXOLIMPAR`** e botao **Limpar removidos** no painel (`MFRebaixoData.PurgeRemoved`): apaga os sets que ficaram desligados e os presos a uma subassembly que nao existe mais. E o mesmo efeito de importar um CSV sem eles no Corridor Transition, direto pela API.
+- **Layer da hachura trancada** (`HachuraTrancada`, padrao ligado): o plugin destranca para desenhar/apagar e tranca de novo.
+- **Destaque no desenho com espessura fixa na tela** (como lineweight): a largura e recalculada a cada mudanca de vista (`Document.ViewChanged`, `VIEWSIZE`).
+- **Altura final** na lista: passa a ser o exposto lido no trecho rebaixado. Antes era "altura normal da secao anterior - REB" e, como a altura normal varia ao longo do meio-fio, mostrava 11,2 cm num rebaixo de 12 cm.
+
 ## 2.99.3 - MFREBAIXO v1.9.3 / PassagemRampa v1.2.3: icone do rebaixo como rampa de calcada
 
 - O icone do rebaixo parecia uma calha (pedido do Heyvid). Agora e a rampa de calcada em planta: guia, rampa central, abas laterais e piso tatil (`tools/icones/icones.py`, `IconArt.cs` regenerado).

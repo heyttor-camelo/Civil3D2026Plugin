@@ -35,6 +35,7 @@ public sealed class PassagemRampaApplication : IExtensionApplication
         (C3DCommands.Corridor.MfRebaixo, "Rebaixo/rampa de meio-fio: cria as Corridor Transitions no corredor."),
         (C3DCommands.Corridor.MfRebaixoPainel, "Painel dos rebaixos (planta, lista, edicao, avisos NBR 9050)."),
         (C3DCommands.Corridor.MfRebaixoHachura, "Redesenhar a hachura em planta de todos os rebaixos."),
+        (C3DCommands.Corridor.MfRebaixoLimpar, "Apagar de vez os Transition Sets de rebaixos removidos."),
         (C3DCommands.Corridor.MfRebaixoCfg, "Configurar presets do MFREBAIXO."),
         (C3DCommands.Corridor.MfRebaixoHelp, "Ajuda do MFREBAIXO."),
         (C3DCommands.PassagemRampa.Help, "Mostra esta lista de novo."),

@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.2.3)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.3.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -118,10 +118,15 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
 - `MFREBAIXO` (v1.9): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
   (layer `MF-REBAIXO`, vermelho solido com 20% de transparencia, cobrindo sarjeta + meio-fio de S0 a S3),
   sem depender do Code Set Style. Layer, cor, padroes e transparencia ficam na Configuracao do painel.
+- `MFREBAIXOLIMPAR` (v1.10): apaga de vez os Transition Sets de rebaixos removidos (desligados) e os presos a
+  uma peca que nao existe mais na assembly. Desde a v1.10 o Remover do painel ja apaga o set de vez; so fica
+  desligado quando e o unico set da baseline (o Civil nao deixa a lista vazia).
+- v1.10: avisos (NBR 9050) desligados por padrao (Configuracao > Mostrar avisos); layer da hachura trancada;
+  destaque no desenho com espessura fixa na tela; altura final lida no proprio trecho rebaixado.
 - `MFREBAIXOHACHURA` (v1.9.1): refaz a hachura em planta de todos os rebaixos pela linha de comando e lista
   quantas secoes do meio-fio foram lidas em cada um.
 - `MFREBAIXOPAINEL` (v1.9.1): a planta geral mostra **todos os corredores inteiros** (pista, sarjeta, meio-fio,

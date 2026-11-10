@@ -6,7 +6,7 @@ COMANDOS = {
     "DRENNUM": ("drenagem", "numero"), "DRENNUMCLASSICO": ("drenagem", "numero"), "DRENNUMPREVIEW": ("drenagem", "previa"), "DRENNUMHELP": ("drenagem", "ajuda"),
     "QTOESTUDO": ("qto", None), "QTOGEOTESTE": ("qto", "teste"), "TESTEQTO": ("qto", "teste"), "QTOHELP": ("qto", "ajuda"),
     "CORRSPLIT": ("dividir", None),
-    "MFREBAIXOPAINEL": ("rebaixo", "painel"), "MFREBAIXO": ("rebaixo", None), "MFREBAIXOHACHURA": ("rebaixo", "atualizar"), "MFREBAIXOCFG": ("rebaixo", "config"), "MFREBAIXOHELP": ("rebaixo", "ajuda"),
+    "MFREBAIXOPAINEL": ("rebaixo", "painel"), "MFREBAIXO": ("rebaixo", None), "MFREBAIXOHACHURA": ("rebaixo", "atualizar"), "MFREBAIXOLIMPAR": ("rebaixo", "corte"), "MFREBAIXOCFG": ("rebaixo", "config"), "MFREBAIXOHELP": ("rebaixo", "ajuda"),
     "C3DSOLIDARRAY": ("solido3d", None), "C3DSOLIDCFG": ("solido3d", "config"), "C3DSOLIDATUALIZAR": ("solido3d", "atualizar"),
     "C3DSOLIDEDITAR": ("solido3d", "editar"), "C3DSOLIDITEM": ("solido3d", "editar"), "C3DSOLIDHELP": ("solido3d", "ajuda"),
     "C3DSOLIDLIGAR": ("estais", None), "C3DSOLIDLIGAREDITAR": ("estais", "editar"), "C3DSOLIDLIGARATUALIZAR": ("estais", "atualizar"),

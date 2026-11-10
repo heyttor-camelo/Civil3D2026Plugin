@@ -95,7 +95,7 @@ internal sealed class MFRebaixoPanel : SW.Window
     {
         ("REBAIXOS", "rebaixo", "Rebaixos"),
         ("CORREDORES", "corredor", "Corredores"),
-        ("AVISOS", "aviso", "Avisos (NBR 9050)"),
+        ("AVISOS", "aviso", "Avisos"),
         ("CONFIG", "config", "Configuracao")
     };
 
@@ -116,6 +116,9 @@ internal sealed class MFRebaixoPanel : SW.Window
         new("HACHURAS", "hachura", "Redesenhar hachuras", "Rebaixo",
             "Apaga e desenha de novo a hachura em planta de todos os rebaixos (layer MF-REBAIXO), lendo o corredor atual. Use depois de um Rebuild que mudou o corredor.",
             new[] { "Sem perguntas: refaz as hachuras de todos os rebaixos listados." }, p => p.RedrawHatches()),
+        new("LIMPAR", "excluir", "Limpar removidos", "Corredor",
+            "Apaga de vez do corredor os Transition Sets de rebaixos que ficaram so desligados (REMOVIDO) e os presos a uma peca que nao existe mais. Pede confirmacao.",
+            new[] { "Sem selecao: vale para todos os corredores do desenho.", "Confirme." }, p => p.PurgeRemoved()),
         new("PLANTA", "planta", "Ligar/desligar a representacao em planta", "Rebaixo",
             "Mostra ou esconde no desenho as hachuras vermelhas dos rebaixos (liga/desliga a layer das hachuras). Nada e apagado: clique de novo para voltar.",
             new[] { "Sem perguntas." }, p => p.TogglePlanHatches()),
@@ -598,15 +601,15 @@ internal sealed class MFRebaixoPanel : SW.Window
             // Sem leitura das hachuras: fica sem o aviso.
         }
 
-        _warnings = MFRebaixoData.Check(_items, withHatch);
-        if (MFRebaixoData.RemovedSets.Count > 0)
+        _warnings = _settings.AvisosAtivos ? MFRebaixoData.Check(_items, withHatch) : new List<RebaixoWarning>();
+        if (_settings.AvisosAtivos && MFRebaixoData.RemovedSets.Count > 0)
         {
             _warnings.Add(new RebaixoWarning
             {
                 Serious = false,
                 Text = $"{MFRebaixoData.RemovedSets.Count} Transition Set(s) de rebaixos removidos (desligados, sem efeito): " +
                        string.Join("; ", MFRebaixoData.RemovedSets.Take(6)) + (MFRebaixoData.RemovedSets.Count > 6 ? "; ..." : ""),
-                Reference = "A API do Civil nao apaga Transition Set. Para limpar a lista: Edit Corridor Transition > apagar os sets 'REMOVIDO'"
+                Reference = "Use o botao Limpar removidos (ou o comando MFREBAIXOLIMPAR) para apagar esses sets de vez"
             });
         }
 
@@ -654,7 +657,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             else if (r.Band.Count >= 2)
                 MFRebaixoHighlight.Show(r.Band);
             else
-                MFRebaixoHighlight.ShowLine(r.Path, false, 0.30); // sem a faixa do meio-fio: linha no eixo do rebaixo
+                MFRebaixoHighlight.ShowLine(r.Path, false); // sem a faixa do meio-fio: linha no eixo do rebaixo
             Autodesk.AutoCAD.ApplicationServices.Core.Application.UpdateScreen();
             Doc?.Editor.UpdateScreen();
         }
@@ -2044,6 +2047,10 @@ internal sealed class MFRebaixoPanel : SW.Window
         p.Children.Add(hatchOn);
         var toSidewalk = new WC.CheckBox { Content = "Ate a borda externa da calcada (senao, ate o fundo do meio-fio)", IsChecked = _settings.HachuraAteCalcada, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
         p.Children.Add(toSidewalk);
+        var locked = new WC.CheckBox { Content = "Layer da hachura trancada (a hachura nao e movida nem apagada sem querer)", IsChecked = _settings.HachuraTrancada, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
+        p.Children.Add(locked);
+        var warnOn = new WC.CheckBox { Content = "Mostrar avisos (NBR 9050, hachura faltando, sets removidos)", IsChecked = _settings.AvisosAtivos, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
+        p.Children.Add(warnOn);
         p.Children.Add(EditRow("hlayer", "Layer", _settings.HachuraLayer, ""));
         p.Children.Add(EditRow("hcor", "Cor da layer (indice ACI)", _settings.HachuraCor.ToString(CultureInfo.InvariantCulture), ""));
         p.Children.Add(EditRow("hrampa", "Padrao das rampas", _settings.HachuraPadraoRampa, ""));
@@ -2055,6 +2062,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         {
             _settings.HachuraAtiva = hatchOn.IsChecked == true;
             _settings.HachuraAteCalcada = toSidewalk.IsChecked == true;
+            _settings.HachuraTrancada = locked.IsChecked == true;
+            _settings.AvisosAtivos = warnOn.IsChecked == true;
             if (_fields.TryGetValue("hlayer", out WC.TextBox? lb) && lb.Text.Trim().Length > 0)
                 _settings.HachuraLayer = lb.Text.Trim();
             if (Number("hcor") is double hc && hc >= 1 && hc <= 255)
@@ -2144,6 +2153,12 @@ internal sealed class MFRebaixoPanel : SW.Window
             return p;
         }
 
+        if (!_settings.AvisosAtivos)
+        {
+            p.Children.Add(Label("Avisos desligados.", true));
+            p.Children.Add(Label("Para ligar: Configuracao > Mostrar avisos."));
+            return p;
+        }
         List<RebaixoWarning> mine = _warnings.Where(w => ReferenceEquals(w.Item, r)).ToList();
         p.Children.Add(Label(mine.Count == 0 ? "Nenhum aviso para este rebaixo." : $"{mine.Count} aviso(s)", true));
         foreach (RebaixoWarning w in mine)
@@ -2332,6 +2347,22 @@ internal sealed class MFRebaixoPanel : SW.Window
         Edit($"Rebaixo {r.Label} removido.", (db, _) => summary = MFRebaixoData.Remove(db, r));
         if (summary.Length > 0)
             Say($"Rebaixo {r.Label} removido: {summary}.");
+    }
+
+    private void PurgeRemoved()
+    {
+        SW.MessageBoxResult answer = SW.MessageBox.Show(this,
+            "Apagar de vez, em todos os corredores do desenho:\n\n" +
+            "  - os Transition Sets de rebaixos ja removidos (ficaram so desligados);\n" +
+            "  - os rebaixos presos a uma peca que nao existe mais na assembly (nao agem no corredor).\n\n" +
+            "Os rebaixos ativos nao sao tocados. Para desfazer: Ctrl+Z no desenho logo em seguida.",
+            "Limpar removidos", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Warning);
+        if (answer != SW.MessageBoxResult.Yes)
+            return;
+        (int Deleted, int Kept, int Baselines) result = (0, 0, 0);
+        Edit("Removidos limpos.", (db, _) => result = MFRebaixoData.PurgeRemoved(db, orphans: true));
+        Say($"{result.Deleted} Transition Set(s) apagado(s) em {result.Baselines} baseline(s)" +
+            (result.Kept > 0 ? $"; {result.Kept} ficou(aram) porque era(m) o unico set da baseline (o Civil nao deixa a lista vazia)." : "."));
     }
 
     private void RedrawHatches()

@@ -40,6 +40,10 @@ internal sealed class MFRebaixoSettings
     public bool HachuraAteCalcada { get; set; }
     // true: a hachura vai para a frente na ordem de desenho (por cima do corredor).
     public bool HachuraNaFrente { get; set; } = true;
+    // true: a layer da hachura fica trancada (ninguem move/apaga a hachura sem querer). Pedido do Heyvid em 10/11/2026.
+    public bool HachuraTrancada { get; set; } = true;
+    // Avisos (NBR 9050 etc.) no painel. Desligados por padrao a pedido do Heyvid em 10/11/2026.
+    public bool AvisosAtivos { get; set; }
     // Versao dos padroes da hachura. 2 (MFREBAIXO 1.9, pedido do Heyvid em 10/11/2026): vermelho solido,
     // 20% de transparencia, so sarjeta + meio-fio. config.json mais antigo e trazido para esses padroes uma vez.
     public int HachuraVersao { get; set; }

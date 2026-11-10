@@ -70,7 +70,9 @@ internal sealed class RebaixoInfo
     /// <summary>Altura livre do MF no trecho rebaixado.</summary>
     public double? FinalHeight =>
         ByDepth
-            ? (NormalHeight.HasValue ? Math.Max(0, NormalHeight.Value - ValueIn) : ExposedAtMiddle)
+            // O exposto lido no proprio trecho rebaixado e o valor real; a altura normal varia ao longo
+            // do meio-fio, entao "normal antes do rebaixo - REB" dava outro numero (11,2 em vez de 12 cm).
+            ? ExposedAtMiddle ?? (NormalHeight.HasValue ? Math.Max(0, NormalHeight.Value - ValueIn) : null)
             : ValueIn;
 
     public string SideLabel => Left ? "Esquerdo" : "Direito";
@@ -799,6 +801,73 @@ internal static class MFRebaixoData
                n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Apaga de vez os Transition Sets de rebaixo que ficaram so desligados ("REMOVIDO") em todos
+    /// os corredores. O Civil aceita regravar a lista da baseline sem eles, desde que ela nao fique
+    /// vazia: nesse caso um set desligado e mantido. Com <paramref name="orphans"/> saem tambem os
+    /// rebaixos presos a uma subassembly que nao existe mais na assembly (nao agem no corredor).
+    /// </summary>
+    public static (int Deleted, int Kept, int Baselines) PurgeRemoved(AcadDb.Database db, bool orphans)
+    {
+        int deleted = 0, kept = 0, baselines = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForWrite) is not CivilCorridor corridor)
+                continue;
+            foreach (CivilDb.Baseline baseline in corridor.Baselines)
+            {
+                List<CivilDb.CorridorTransitionSet> sets;
+                try
+                {
+                    sets = baseline.getTransitions();
+                }
+                catch
+                {
+                    continue;
+                }
+                HashSet<string> present = orphans ? SubassemblyNames(tr, baseline) : new HashSet<string>();
+                bool Drop(CivilDb.CorridorTransitionSet x)
+                {
+                    string name = x.Name ?? "";
+                    if (!name.StartsWith(PairPrefix, StringComparison.OrdinalIgnoreCase))
+                        return false;
+                    if (IsNeutral(x))
+                        return true;
+                    return orphans && present.Count > 0 && !string.IsNullOrWhiteSpace(x.SubassemblyName) && !present.Contains(x.SubassemblyName);
+                }
+                List<CivilDb.CorridorTransitionSet> drop = sets.Where(Drop).ToList();
+                if (drop.Count == 0)
+                    continue;
+                List<CivilDb.CorridorTransitionSet> keep = sets.Where(x => !Drop(x)).ToList();
+                int keptHere = 0;
+                if (keep.Count == 0)
+                {
+                    // A lista nao pode ficar vazia: fica um (de preferencia ja desligado).
+                    CivilDb.CorridorTransitionSet stay = drop.FirstOrDefault(IsNeutral) ?? drop[0];
+                    keep.Add(stay);
+                    keptHere = 1;
+                }
+                int expected = keep.Count;
+                if (expected == sets.Count)
+                {
+                    kept += keptHere;
+                    continue;
+                }
+                baseline.SetTransitions(keep);
+                int after = baseline.getTransitions().Count;
+                if (after != expected)
+                    throw new InvalidOperationException($"O Civil 3D nao aceitou limpar a baseline '{baseline.Name}' ({sets.Count} sets antes, {after} depois, esperado {expected}). Nada foi alterado.");
+                deleted += sets.Count - expected;
+                kept += keptHere;
+                baselines++;
+                PluginLog.Info("MFREBAIXO", $"Limpar removidos: {corridor.Name} / {baseline.Name}: {sets.Count} -> {after} sets.");
+            }
+        }
+        tr.Commit();
+        return (deleted, kept, baselines);
+    }
+
     public const string RemovedComment = "REBAIXO MF - REMOVIDO (apagar no Edit Corridor Transition)";
 
     /// <summary>Sets ja desligados (lidos no ultimo ReadAll), para avisar e limpar a mao.</summary>
@@ -892,8 +961,11 @@ internal static class MFRebaixoData
             // com valores neutros ("Subassembly is failed to find by name"). Sai da lista: o
             // SetTransitions com uma lista nao vazia apaga os sets que ficaram de fora.
             HashSet<string> present = SubassemblyNames(tr, baseline);
+            // v1.10: com outros sets na baseline, o rebaixo e apagado de vez (nao fica set "REMOVIDO").
+            // So quando ele e o unico set e que continua sendo apenas desligado.
+            bool canDelete = sets.Any(x => !IsOwnSet(x, r));
             bool Orphan(CivilDb.CorridorTransitionSet x) =>
-                present.Count > 0 && !string.IsNullOrWhiteSpace(x.SubassemblyName) && !present.Contains(x.SubassemblyName);
+                canDelete || (present.Count > 0 && !string.IsNullOrWhiteSpace(x.SubassemblyName) && !present.Contains(x.SubassemblyName));
             deleted = sets.Count(x => IsOwnSet(x, r) && Orphan(x));
             List<CivilDb.CorridorTransitionSet> updated = sets
                 .Where(x => !(IsOwnSet(x, r) && Orphan(x)))
@@ -916,7 +988,7 @@ internal static class MFRebaixoData
                     " Apague no dialogo Corridor Transition (selecione o corredor > aba do Corridor > Modify Corridor > Edit Corridor Transition).");
             }
             if (deleted > 0)
-                PluginLog.Info("MFREBAIXO", $"Remover {r.SetName}: {deleted} set(s) orfao(s) apagado(s) (subassembly '{string.Join(", ", sets.Where(x => IsOwnSet(x, r) && Orphan(x)).Select(x => x.SubassemblyName).Distinct())}' nao existe mais no corredor); {sets.Count} -> {after.Count} sets.");
+                PluginLog.Info("MFREBAIXO", $"Remover {r.SetName}: {deleted} set(s) orfao(s) apagado(s) {sets.Count} -> {after.Count} sets.");
         }
 
         int sections = 0;
@@ -963,11 +1035,11 @@ internal static class MFRebaixoData
         }
 
         string setsText = deleted == own
-            ? $"{own} Transition Set(s) apagado(s) (a subassembly dele nao existe mais no corredor)"
+            ? $"{own} Transition Set(s) apagado(s)"
             : deleted > 0
                 ? $"{deleted} Transition Set(s) apagado(s) e {own - deleted} desligado(s) (REB/DESTAQUE = 0)"
                 : $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0)";
-        string tail = own > deleted ? "; os sets desligados podem ser apagados no Edit Corridor Transition" : "";
+        string tail = own > deleted ? "; era o unico set da baseline, entao ficou so desligado (o Civil nao apaga o ultimo): use Limpar removidos depois de lancar outro rebaixo" : "";
         return $"{setsText}, {sections} secao(oes) e {hatches} hachura(s) removida(s){tail}";
     }
 

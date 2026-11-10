@@ -18,3 +18,7 @@ NETLOAD/*
 *.userosscache
 *.sln.docstates
 tests/viario/out/
+
+# Python
+__pycache__/
+*.pyc

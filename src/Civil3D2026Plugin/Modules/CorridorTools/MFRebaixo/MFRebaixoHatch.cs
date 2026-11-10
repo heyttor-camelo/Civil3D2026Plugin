@@ -70,6 +70,7 @@ internal static class MFRebaixoHatch
                 {
                     EnsureLayer(tr, db, settings.HachuraLayer, settings.HachuraCor);
                     EnsureRegApp(tr, db);
+                    SetLocked(tr, db, settings.HachuraLayer, false);
                     // Sempre no Model Space (a planta), mesmo com um layout ativo.
                     var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
                     var owner = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
@@ -98,6 +99,7 @@ internal static class MFRebaixoHatch
             }
         }
 
+        SetLocked(tr, db, settings.HachuraLayer, settings.HachuraTrancada);
         tr.Commit();
         PluginLog.Diag("MFREBAIXO", $"Hachura de {setName}: {erased} apagada(s), {drawn} desenhada(s).");
         return drawn;
@@ -458,8 +460,9 @@ internal static class MFRebaixoHatch
         int n = 0;
         foreach (AcadDb.Hatch h in OwnHatches(tr, db, setName).ToList())
         {
-            h.UpgradeOpen();
-            h.Erase();
+            // forceOpenOnLockedLayer: a layer da hachura pode estar trancada.
+            if (tr.GetObject(h.ObjectId, AcadDb.OpenMode.ForWrite, false, true) is AcadDb.Hatch w)
+                w.Erase();
             n++;
         }
 
@@ -516,6 +519,26 @@ internal static class MFRebaixoHatch
         tr.AddNewlyCreatedDBObject(ltr, true);
     }
 
+    /// <summary>Tranca ou destranca a layer da hachura (se existir).</summary>
+    private static void SetLocked(AcadDb.Transaction tr, AcadDb.Database db, string layer, bool locked)
+    {
+        try
+        {
+            var lt = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+            if (!lt.Has(layer))
+                return;
+            var ltr = (AcadDb.LayerTableRecord)tr.GetObject(lt[layer], AcadDb.OpenMode.ForRead);
+            if (ltr.IsLocked == locked)
+                return;
+            ltr.UpgradeOpen();
+            ltr.IsLocked = locked;
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("MFREBAIXO", $"Layer {layer}: nao deu para {(locked ? "trancar" : "destrancar")}: {ex.Message}");
+        }
+    }
+
     private static void EnsureRegApp(AcadDb.Transaction tr, AcadDb.Database db)
     {
         var rat = (AcadDb.RegAppTable)tr.GetObject(db.RegAppTableId, AcadDb.OpenMode.ForRead);
@@ -530,41 +553,50 @@ internal static class MFRebaixoHatch
 
 /// <summary>
 /// Destaque temporario do rebaixo no desenho (grafico transiente, nao grava nada no DWG):
-/// contorno grosso amarelo da faixa sarjeta + meio-fio de S0 a S3. O painel chama ao selecionar
-/// um rebaixo na lista ou na planta, e limpa ao trocar de rebaixo ou fechar.
+/// contorno amarelo da faixa sarjeta + meio-fio de S0 a S3. A espessura acompanha o zoom (fica
+/// sempre com o mesmo tamanho na tela, como um lineweight): e recalculada a cada mudanca de vista.
 /// </summary>
 internal static class MFRebaixoHighlight
 {
-    private static readonly List<AcadDb.Entity> Shown = new();
+    // Espessura do contorno = esta fracao da altura da vista (uns 4 px numa tela comum).
+    private const double ScreenFraction = 0.0045;
+
+    private static AcadDb.Polyline? _shown;
+    private static Autodesk.AutoCAD.ApplicationServices.Document? _doc;
 
     public static void Clear()
     {
-        if (Shown.Count == 0)
+        if (_doc is not null)
+        {
+            try
+            {
+                _doc.ViewChanged -= OnViewChanged;
+            }
+            catch
+            {
+                // Documento ja fechado.
+            }
+            _doc = null;
+        }
+        if (_shown is null)
             return;
         try
         {
-            var tm = Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager;
-            var ints = new IntegerCollection();
-            foreach (AcadDb.Entity e in Shown)
-            {
-                try
-                {
-                    tm.EraseTransient(e, ints);
-                }
-                catch
-                {
-                    // Vista ja fechada.
-                }
-
-                e.Dispose();
-            }
+            Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.EraseTransient(_shown, new IntegerCollection());
         }
         catch
         {
-            // Sem gerenciador de transientes (desenho fechando).
+            // Vista ja fechada.
         }
-
-        Shown.Clear();
+        try
+        {
+            _shown.Dispose();
+        }
+        catch
+        {
+            // Ja liberado.
+        }
+        _shown = null;
     }
 
     /// <summary>Mostra o contorno da faixa (pontos internos na ida, externos na volta).</summary>
@@ -580,11 +612,11 @@ internal static class MFRebaixoHighlight
             pts.Add(inner);
         for (int i = band.Count - 1; i >= 0; i--)
             pts.Add(band[i].Outer);
-        ShowLine(pts, true, 0.08);
+        ShowLine(pts, true);
     }
 
-    /// <summary>Mostra uma linha grossa amarela (rebaixo sem faixa lida: fica no eixo dele).</summary>
-    public static void ShowLine(IReadOnlyList<Point3d> points, bool closed, double width)
+    /// <summary>Mostra uma linha amarela (rebaixo sem faixa lida: fica no eixo dele).</summary>
+    public static void ShowLine(IReadOnlyList<Point3d> points, bool closed)
     {
         Clear();
         if (points.Count < 2)
@@ -594,18 +626,56 @@ internal static class MFRebaixoHighlight
         foreach (Point3d p in points)
             pl.AddVertexAt(n++, new Point2d(p.X, p.Y), 0, 0, 0);
         pl.Closed = closed;
-        pl.ConstantWidth = width;
+        pl.ConstantWidth = ScreenWidth();
         pl.ColorIndex = 2; // amarelo
         try
         {
             Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.AddTransient(
                 pl, Autodesk.AutoCAD.GraphicsInterface.TransientDrawingMode.DirectTopmost, 128, new IntegerCollection());
-            Shown.Add(pl);
+            _shown = pl;
+            _doc = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+            if (_doc is not null)
+                _doc.ViewChanged += OnViewChanged;
         }
         catch (System.Exception ex)
         {
             PluginLog.Aviso("MFREBAIXO", "Destaque no desenho nao mostrado: " + ex.Message);
             pl.Dispose();
+        }
+    }
+
+    /// <summary>Largura em unidades do desenho que da a mesma espessura na tela no zoom atual.</summary>
+    private static double ScreenWidth()
+    {
+        try
+        {
+            double viewSize = Convert.ToDouble(Autodesk.AutoCAD.ApplicationServices.Core.Application.GetSystemVariable("VIEWSIZE"),
+                System.Globalization.CultureInfo.InvariantCulture);
+            if (viewSize > 0)
+                return viewSize * ScreenFraction;
+        }
+        catch
+        {
+            // Sem vista ativa.
+        }
+        return 0.08;
+    }
+
+    private static void OnViewChanged(object? sender, EventArgs e)
+    {
+        try
+        {
+            if (_shown is null)
+                return;
+            double width = ScreenWidth();
+            if (Math.Abs(width - _shown.ConstantWidth) < width * 0.02)
+                return;
+            _shown.ConstantWidth = width;
+            Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.UpdateTransient(_shown, new IntegerCollection());
+        }
+        catch
+        {
+            // O destaque e so visual: nunca atrapalha o zoom.
         }
     }
 }

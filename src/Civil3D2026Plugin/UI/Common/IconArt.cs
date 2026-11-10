@@ -143,6 +143,7 @@ internal static class IconArt
         ["MFREBAIXOPAINEL"] = ("rebaixo", "painel"),
         ["MFREBAIXO"] = ("rebaixo", null),
         ["MFREBAIXOHACHURA"] = ("rebaixo", "atualizar"),
+        ["MFREBAIXOLIMPAR"] = ("rebaixo", "corte"),
         ["MFREBAIXOCFG"] = ("rebaixo", "config"),
         ["MFREBAIXOHELP"] = ("rebaixo", "ajuda"),
         ["C3DSOLIDARRAY"] = ("solido3d", null),
