@@ -153,8 +153,10 @@ public sealed class LayoutCommands
         KeyMapConfig cfg = LayoutKeyMap.Ler(doc.Database);
         cfg.CaixaMin = a;
         cfg.CaixaMax = b;
+        int proprios = cfg.Caixas.Count;
+        cfg.Caixas.Clear(); // lugar para TODAS: as pranchas com lugar proprio voltam ao geral
         LayoutKeyMap.Gravar(doc, cfg);
-        doc.Editor.WriteMessage("\nArea do mapa-chave guardada (vale para todos os layouts).");
+        doc.Editor.WriteMessage("\nLugar do mapa-chave guardado para todas as pranchas" + (proprios > 0 ? $" ({proprios} com lugar proprio voltaram ao geral)." : "."));
         return true;
     }
 

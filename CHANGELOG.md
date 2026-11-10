@@ -1,3 +1,11 @@
+## 2.98.0 - LAYOUTS v1.22.0: mapa-chave copiado "como esta", agrupado, e conserto do lugar
+
+- Conserto: trocar o lugar do mapa pelo painel (lugar geral, lugar da prancha, voltar ao geral) nao pegava nas pranchas que ja tinham mapa. O plugin via o mapa antigo no lugar antigo, achava que tinha sido movido a mao e guardava o lugar antigo de novo. Agora a base do mapa leva gravado onde foi desenhada, e so MOVE/SCALE de verdade conta como "movido a mao".
+- "Copiar do layout atual" guarda o mapa inteiro como esta no layout (bloco-molde no desenho): o que foi apagado nao volta, e o que foi movido, redimensionado, recolorido ou reescrito fica assim. A hachura do destaque continua sendo refeita em cada prancha (se foi apagada, o estilo fica sem destaque) e o numero das folhas continua automatico nos textos que nao foram reescritos. A caixinha "Usar o mapa copiado como esta" liga/desliga isso no estilo.
+- O mapa de cada prancha sai num grupo do AutoCAD (opcao "Agrupar o mapa de cada prancha", ligada por padrao): seleciona e move tudo junto.
+- Botoes de lugar com nome direto, juntos no passo 1: "Lugar do mapa em todas as pranchas..." (as pranchas com lugar proprio voltam ao geral) e "Lugar so nesta prancha...".
+- Lista: a coluna "Aparencia" (geral/propria) virou "Estilo", com o nome do estilo salvo aplicado no layout. Nova opcao "Destacar com hachura a folha da propria prancha".
+
 ## 2.97.0 - LAYOUTS v1.21.0: mapa-chave com "Copiar do layout atual" e estilos salvos
 
 - "Copiar do layout atual" le a aparencia do mapa como esta desenhado no layout aberto, depois de editado a mao: hachura do destaque (padrao, escala, angulo, cor, fundo, transparencia), tamanho dos textos, se ha titulo e os textos de folha que foram movidos. O resultado vai para os campos da aba.

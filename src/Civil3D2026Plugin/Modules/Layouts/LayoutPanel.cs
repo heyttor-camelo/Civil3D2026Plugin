@@ -1080,7 +1080,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
 
             case "MAPACHAVE":
-                headers = new[] { "Layout", "Areas", "Mapa", "Aparencia" };
+                headers = new[] { "Layout", "Areas", "Mapa", "Estilo" };
                 widths = new[] { 150.0, 45, 50, 75 };
                 comCheck = true; // a caixinha marca o layout: "Aplicar nos marcados" / "Tirar o mapa dos marcados"
                 rows = _kmResumo.Where(r => Match(r.Layout)).Select(r => new Row
@@ -1092,7 +1092,7 @@ internal sealed partial class LayoutPanel : SW.Window
                     {
                         $"{r.Ordem}  {r.Layout}", r.Regioes > 0 ? r.Regioes.ToString() : "-",
                         _kmCfg.Fora.Contains(r.Layout) ? "tirado" : r.TemMapa ? "sim" : "",
-                        _kmCfg.Estilos.ContainsKey(r.Layout) ? "propria" : r.TemMapa ? "geral" : ""
+                        r.TemMapa ? _kmCfg.Para(r.Layout).Nome : ""
                     }
                 }).ToList();
                 break;
@@ -3588,7 +3588,8 @@ internal sealed partial class LayoutPanel : SW.Window
             : "nao escolhido"));
         var passos = new WC.WrapPanel();
         passos.Children.Add(ActionButton("Escolher base no Model", () => Enviar(C3DCommands.Layouts.MapaChave + " Base")));
-        passos.Children.Add(ActionButton("Escolher lugar no layout", () => Enviar(C3DCommands.Layouts.MapaChave + " Area")));
+        passos.Children.Add(ActionButton("Lugar do mapa em todas as pranchas...", () => Enviar(C3DCommands.Layouts.MapaChave + " Area")));
+        passos.Children.Add(ActionButton("Lugar so nesta prancha...", () => Enviar(C3DCommands.Layouts.MapaChave + " Inserir")));
         p.Children.Add(passos);
 
         // ---- 2. Aparencia (do primeiro layout marcado, ou a geral)
@@ -3599,8 +3600,13 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(_kmAlvo);
         var linhaEstilos = new WC.WrapPanel(); // preenchida depois dos campos (os botoes mexem neles)
         p.Children.Add(linhaEstilos);
-        var infoPos = Label("");
-        p.Children.Add(infoPos);
+        var usarMolde = new WC.CheckBox
+        {
+            Content = "Usar o mapa copiado como esta (textos, contornos e titulo do jeito que voce editou ou apagou)",
+            Margin = new SW.Thickness(0, 4, 0, 0),
+            ToolTip = "Ligado: o mapa sai igual ao que foi copiado; so a hachura do destaque e o numero das folhas sao refeitos. Desligado: o plugin gera textos, contornos e titulo pelos campos abaixo."
+        };
+        p.Children.Add(usarMolde);
 
         var rotulo = new WC.ComboBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left };
         rotulo.Items.Add("Numero da prancha (01, 02...)");
@@ -3612,6 +3618,8 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(rotulo);
         var titulo = new WC.CheckBox { Content = "Titulo MAPA CHAVE na caixa", IsChecked = est.Titulo, Margin = new SW.Thickness(0, 6, 0, 0) };
         p.Children.Add(titulo);
+        var destaque = new WC.CheckBox { Content = "Destacar com hachura a folha da propria prancha", IsChecked = est.Destaque, Margin = new SW.Thickness(0, 4, 0, 0) };
+        p.Children.Add(destaque);
 
         var cores = new (short Aci, string Nome)[] { (1, "Vermelho"), (2, "Amarelo"), (3, "Verde"), (4, "Ciano"), (5, "Azul"), (6, "Magenta"), (8, "Cinza"), (30, "Laranja") };
         var cor = new WC.ComboBox { Width = 130 };
@@ -3653,7 +3661,18 @@ internal sealed partial class LayoutPanel : SW.Window
 
         // ---- Estilos salvos e "copiar do layout" (como o padrao de malha/norte/escala)
         var posTexto = new Dictionary<string, Autodesk.AutoCAD.Geometry.Point2d>(est.PosTexto, StringComparer.OrdinalIgnoreCase);
-        void InfoPos() => infoPos.Text = posTexto.Count > 0 ? $"Este estilo leva {posTexto.Count} texto(s) de folha movido(s) a mao." : "";
+        string moldeAtual = est.Molde, nomeAtual = est.Nome;
+        void InfoPos()
+        {
+            // Com o mapa copiado em uso, texto/titulo/tamanho vem dele: os campos ficam apagados.
+            usarMolde.Visibility = moldeAtual.Length > 0 ? SW.Visibility.Visible : SW.Visibility.Collapsed;
+            bool gerar = moldeAtual.Length == 0 || usarMolde.IsChecked != true;
+            rotulo.IsEnabled = gerar;
+            titulo.IsEnabled = gerar;
+            fatorTxt.IsEnabled = gerar;
+        }
+        usarMolde.IsChecked = moldeAtual.Length > 0;
+        usarMolde.Click += (_, _) => InfoPos();
         void SelecionarCor(WC.ComboBox combo, short aci)
         {
             WC.ComboBoxItem? it = combo.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i => (short)i.Tag! == aci);
@@ -3668,6 +3687,10 @@ internal sealed partial class LayoutPanel : SW.Window
         {
             rotulo.SelectedIndex = Math.Clamp(e.Rotulo, 0, 3);
             titulo.IsChecked = e.Titulo;
+            destaque.IsChecked = e.Destaque;
+            moldeAtual = e.Molde;
+            nomeAtual = e.Nome;
+            usarMolde.IsChecked = moldeAtual.Length > 0;
             SelecionarCor(cor, e.CorDestaque);
             transp.Text = e.Transparencia.ToString();
             padrao.Text = e.Padrao;
@@ -3686,6 +3709,9 @@ internal sealed partial class LayoutPanel : SW.Window
             {
                 Rotulo = Math.Clamp(rotulo.SelectedIndex, 0, 3),
                 Titulo = titulo.IsChecked == true,
+                Destaque = destaque.IsChecked == true,
+                Molde = usarMolde.IsChecked == true ? moldeAtual : "",
+                Nome = nomeAtual,
                 CorDestaque = (cor.SelectedItem as WC.ComboBoxItem)?.Tag is short c ? c : (short)1,
                 Transparencia = int.TryParse(transp.Text, out int t) ? Math.Clamp(t, 0, 90) : 50,
                 Padrao = string.IsNullOrWhiteSpace(padrao.Text) ? "SOLID" : padrao.Text.Trim().ToUpperInvariant(),
@@ -3724,7 +3750,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 KeyMapEstilo? lido = LayoutKeyMap.LerDoLayout(doc, atual, out string msg);
                 if (lido is not null)
                     Mostrar(lido);
-                Say(msg + (lido is not null ? " Agora: Salvar estilo (para guardar com nome) ou Aplicar nos marcados." : ""));
+                Say(msg + (lido is not null ? " Agora: de um nome e Salvar estilo, ou Aplicar nos marcados." : ""));
             }
             catch (System.Exception ex)
             {
@@ -3743,6 +3769,7 @@ internal sealed partial class LayoutPanel : SW.Window
             }
             try
             {
+                nomeAtual = nomeEstilo;
                 LayoutKeyMap.SalvarPreset(doc, nomeEstilo, DoForm());
                 _kmCfg = LayoutKeyMap.Ler(doc.Database);
                 if (!salvos.Items.Cast<string>().Any(x => x.Equals(nomeEstilo, StringComparison.OrdinalIgnoreCase)))
@@ -3782,8 +3809,10 @@ internal sealed partial class LayoutPanel : SW.Window
         var usarCarimbo = new WC.CheckBox { Content = "Numero/total vindos dos textos marcados do carimbo (senao, ordem das abas)", IsChecked = _kmCfg.UsarCarimbo, Margin = new SW.Thickness(0, 4, 0, 0) };
         var auto = new WC.CheckBox { Content = "Refazer sozinho quando viewports ou layouts mudarem", IsChecked = _kmCfg.Automatico, Margin = new SW.Thickness(0, 4, 0, 0) };
         var totalMan = new WC.TextBox { Width = 60, HorizontalAlignment = SW.HorizontalAlignment.Left, Text = _kmCfg.TotalManual > 0 ? _kmCfg.TotalManual.ToString() : "" };
+        var agrupar = new WC.CheckBox { Content = "Agrupar o mapa de cada prancha (seleciona e move tudo junto)", IsChecked = _kmCfg.Agrupar, Margin = new SW.Thickness(0, 4, 0, 0) };
         p.Children.Add(usarCarimbo);
         p.Children.Add(auto);
+        p.Children.Add(agrupar);
         p.Children.Add(Label("Total de folhas (vazio = contar sozinho)"));
         p.Children.Add(totalMan);
 
@@ -3799,6 +3828,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 KeyMapConfig cfg = LayoutKeyMap.Ler(doc.Database);
                 cfg.UsarCarimbo = usarCarimbo.IsChecked == true;
                 cfg.Automatico = auto.IsChecked == true;
+                cfg.Agrupar = agrupar.IsChecked == true;
                 cfg.TotalManual = int.TryParse(totalMan.Text, out int tm) && tm > 0 ? tm : 0;
                 LayoutKeyMap.Gravar(doc, cfg);
             }
@@ -3819,15 +3849,14 @@ internal sealed partial class LayoutPanel : SW.Window
             else
                 Executar(() => LayoutKeyMap.Remover(Doc!), "Nenhum layout marcado: apagar o mapa-chave de TODOS os layouts.");
         }));
-        botoes.Children.Add(ActionButton("Lugar proprio no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Inserir")));
         if (_kmCfg.Caixas.Count > 0)
-            botoes.Children.Add(ActionButton("Voltar marcados ao lugar geral", () => Executar(() => LayoutKeyMap.PosicaoPadrao(Doc!, Marcados()),
+            passos.Children.Add(ActionButton("Voltar marcados ao lugar geral", () => Executar(() => LayoutKeyMap.PosicaoPadrao(Doc!, Marcados()),
                 ConfLayouts("Os layouts marcados voltam a usar o lugar geral do mapa-chave (o mapa deles e refeito la)."))));
         botoes.Children.Add(ActionButton("Reler a base do Model", () => Executar(() => LayoutKeyMap.Gerar(Doc!, true),
             "Copiar de novo os objetos da base do Model (use quando eles mudaram) e refazer o mapa-chave em todos os layouts que tem mapa. As viewports nao mudam.")));
         p.Children.Add(botoes);
         p.Children.Add(Label($"Mapa em {comMapa} layout(s). Marque os layouts na lista ao lado, ajuste a aparencia e clique Aplicar. Prancha sem viewport (capa) tambem recebe o mapa se estiver marcada. " +
-                             "Para mudar o lugar em uma prancha so, use \"Lugar proprio\" ou mova a base do mapa com MOVE/SCALE."));
+                             "Para mudar o lugar em uma prancha so, use \"Lugar so nesta prancha\" ou mova o mapa com MOVE/SCALE. Editou o mapa a mao? \"Copiar do layout atual\" guarda como ficou."));
         return p;
     }
 
