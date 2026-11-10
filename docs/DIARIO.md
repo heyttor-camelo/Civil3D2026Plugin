@@ -17,7 +17,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - Build no CAMELO: 0 erros, 15 avisos antigos; DLL 2.94.1 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX. Pendência: no CAMELO a permissão não deixa apagar as DLLs antigas numeradas (sobrou também uma 2.92.2 de uma compilação paralela descartada); apagar à mão.
 - **2.94.2**: folga dos textos da malha ao norte/escala passou para 10 mm (pedido dele).
 - **2.95.0**: mapa-chave com `preVia` (caixa em qualquer lugar do layout atual, marcada no XData, fora da atualização normal), lista de pranchas na config (`KeyMapConfig.Layouts`, code 3 no Xrecord; vazia = todas), `DefinirLayouts`/`RemoverDe`/`RemoverPrevias`, menu do botão direito na viewport e botões na aba Mapa-chave. `Gerar` refatorado em `Preparar`/`Desenhar`/`Encaixe`.
-- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.0).
+- **2.95.1**: caixa própria por prancha (`KeyMapConfig.Caixas`, codes 4/12/13 no Xrecord); `Gerar` detecta MOVE/SCALE na base do mapa (`DetectarMovimento`) e guarda a nova caixa; `C3DMAPACHAVE Mover`, `MoverEm`/`PosicaoPadrao`, itens no menu da viewport e na aba.
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.1).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
