@@ -20,7 +20,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - **2.95.1**: caixa própria por prancha (`KeyMapConfig.Caixas`, codes 4/12/13 no Xrecord); `Gerar` detecta MOVE/SCALE na base do mapa (`DetectarMovimento`) e guarda a nova caixa; `C3DMAPACHAVE Mover`, `MoverEm`/`PosicaoPadrao`, itens no menu da viewport e na aba.
 - **2.95.2**: bug de origem do mapa-chave: `Adicionar` gravava XData só com o 1001 (regapp), que o AutoCAD trata como "apagar XData" → nenhum mapa tinha marca, Remover achava 0 objetos e cada Gerar podia duplicar. Agora 1000 "mapa"/"previa"; Limpar/Resumo também reconhecem pelas layers `MAPA_CHAVE_*` (LISP e versões antigas). **Lição: XData marcador precisa de pelo menos um valor além do regapp.**
 - **2.95.3**: abas do painel com `WrapPanel` no lugar dos `StackPanel` horizontais (botões/campos quebram linha em janela estreita), status com quebra, colunas da lista do mapa-chave mais curtas.
-- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.3).
+- **2.95.4**: prancha sem viewport sobre a base (capa 000) recebe o mapa-chave inteiro quando escolhida de propósito (`Gerar` só pula quem não foi escolhido); lista da aba Mapa-chave com caixinhas e menu do botão direito (previa / só em / também em / remover / mover; `DefinirLayouts(..., somar)`); `C3DMAPACHAVE Inserir` virou `InserirEm` (só o layout atual, caixa própria), antes refazia em todas.
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.4).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
