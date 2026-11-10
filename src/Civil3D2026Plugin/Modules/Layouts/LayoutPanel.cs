@@ -3532,6 +3532,13 @@ internal sealed partial class LayoutPanel : SW.Window
             Abrir(folha.Nome);
             Enviar(C3DCommands.Layouts.MapaChave + " preVia");
         }, "mapa");
+        Item("Mapa-chave: mover neste layout (clicar a nova caixa)...", () =>
+        {
+            Abrir(folha.Nome);
+            Enviar(C3DCommands.Layouts.MapaChave + " Mover");
+        }, "mover");
+        if (_kmCfg.Caixas.ContainsKey(folha.Nome))
+            Item("Mapa-chave: voltar a posicao geral neste layout", () => Executar(() => LayoutKeyMap.PosicaoPadrao(Doc!, neste)));
         Item("Mapa-chave so neste layout", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, neste),
             $"Mapa-chave so em \"{folha.Nome}\": o mapa e refeito nele e apagado dos outros layouts. As viewports nao mudam."), "mapa");
         if (marcados.Count > 0)
@@ -3557,6 +3564,8 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Prop("Base", _kmCfg.Base.Count > 0 ? $"{_kmCfg.Base.Count} objeto(s) do Model" : "nao escolhida"));
         p.Children.Add(Prop("Area", _kmCfg.TemCaixa ? $"{_kmCfg.CaixaMax!.Value.X - _kmCfg.CaixaMin!.Value.X:0.#} x {_kmCfg.CaixaMax!.Value.Y - _kmCfg.CaixaMin!.Value.Y:0.#} no papel" : "nao escolhida"));
         p.Children.Add(Prop("Folhas", $"{comArea} layout(s) com area sobre a base; mapa em {comMapa}"));
+        if (_kmCfg.Caixas.Count > 0)
+            p.Children.Add(Prop("Posicao propria", $"{_kmCfg.Caixas.Count} prancha(s) com o mapa em outro lugar: {string.Join(", ", _kmCfg.Caixas.Keys.Take(6))}{(_kmCfg.Caixas.Count > 6 ? ", ..." : "")}"));
         p.Children.Add(Prop("Pranchas", _kmCfg.Layouts.Count == 0 ? "todas as que mostram a base" : $"{_kmCfg.Layouts.Count} escolhida(s): {string.Join(", ", _kmCfg.Layouts.Take(6))}{(_kmCfg.Layouts.Count > 6 ? ", ..." : "")}"));
 
         var passos = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -3664,10 +3673,14 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(botoes);
 
         p.Children.Add(Label("Previa e pranchas escolhidas", true));
-        p.Children.Add(Label("Previa: o mapa completo em qualquer lugar do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. Pranchas: marque os layouts e escolha em quais o mapa fica (os outros perdem o mapa). O mesmo menu aparece no botao direito da viewport."));
+        p.Children.Add(Label("Previa: o mapa completo em qualquer lugar do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. Pranchas: marque os layouts e escolha em quais o mapa fica (os outros perdem o mapa). " +
+                             "Mover: cada prancha pode ter o mapa em outro lugar. Pode usar MOVE/SCALE do AutoCAD na base do mapa: na proxima atualizacao o plugin guarda essa posicao para a prancha. O mesmo menu aparece no botao direito da viewport."));
         var b2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         b2.Children.Add(ActionButton("Previa no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " preVia")));
         b2.Children.Add(ActionButton("Remover previas", () => Executar(() => LayoutKeyMap.RemoverPrevias(Doc!))));
+        b2.Children.Add(ActionButton("Mover no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Mover")));
+        b2.Children.Add(ActionButton("Posicao geral nos marcados", () => Executar(() => LayoutKeyMap.PosicaoPadrao(Doc!, Marcados()),
+            ConfLayouts("Os layouts marcados voltam a usar a posicao geral do mapa-chave (o mapa deles e refeito la)."))));
         b2.Children.Add(ActionButton("So nos layouts marcados", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, Marcados()),
             ConfLayouts("Mapa-chave so nos layouts marcados: o mapa e refeito neles e apagado dos que nao estao marcados. As viewports nao mudam.") ?? "Nenhum layout marcado: o mapa-chave volta a valer para TODAS as pranchas que mostram a base.")));
         b2.Children.Add(ActionButton("Remover dos marcados", () => Executar(() => LayoutKeyMap.RemoverDe(Doc!, Marcados()),

@@ -46,8 +46,8 @@ public sealed class LayoutCommands
             return;
         Editor ed = doc.Editor;
 
-        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Inserir/preVia/Gerar/Atualizar/Remover/Painel] <Painel>: ",
-            "Base Area Inserir preVia Gerar Atualizar Remover Painel") { AllowNone = true };
+        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Inserir/preVia/Mover/Gerar/Atualizar/Remover/Painel] <Painel>: ",
+            "Base Area Inserir preVia Mover Gerar Atualizar Remover Painel") { AllowNone = true };
         PromptResult pr = ed.GetKeywords(pko);
         if (pr.Status == PromptStatus.Cancel || pr.Status == PromptStatus.Error)
             return;
@@ -85,6 +85,12 @@ public sealed class LayoutCommands
                 if (EscolherCaixa(doc, "da previa do mapa-chave") is not (Point2d pa, Point2d pb))
                     return;
                 r = LayoutKeyMap.Previa(doc, LayoutManager.Current.CurrentLayout, pa, pb);
+                break;
+            case "Mover":
+                // Nova caixa so para o layout atual (os outros continuam na caixa geral).
+                if (EscolherCaixa(doc, "do mapa-chave nesta prancha") is not (Point2d ma, Point2d mb))
+                    return;
+                r = LayoutKeyMap.MoverEm(doc, LayoutManager.Current.CurrentLayout, ma, mb);
                 break;
             case "Gerar":
                 r = LayoutKeyMap.Gerar(doc, true);

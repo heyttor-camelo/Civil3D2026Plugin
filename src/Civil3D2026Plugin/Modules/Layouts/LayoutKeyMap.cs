@@ -46,6 +46,9 @@ internal sealed class KeyMapConfig
     /// <summary>Layouts que recebem o mapa-chave (nomes). Vazio = todos os que tem viewport sobre a base.</summary>
     public List<string> Layouts { get; } = new();
 
+    /// <summary>Caixa propria de um layout (quando o mapa foi movido/escalado so nele); os outros usam a caixa geral.</summary>
+    public Dictionary<string, (Point2d Min, Point2d Max)> Caixas { get; } = new(StringComparer.OrdinalIgnoreCase);
+
     public bool TemCaixa => CaixaMin.HasValue && CaixaMax.HasValue;
 }
 
@@ -83,10 +86,21 @@ internal static class LayoutKeyMap
         var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);
         if (nod.Contains(App) && tr.GetObject(nod.GetAt(App), OpenMode.ForRead) is Xrecord xr && xr.Data is ResultBuffer rb)
         {
+            string? caixaDe = null;
+            Point2d? caixaMin = null;
             foreach (TypedValue tv in rb)
             {
                 switch (tv.TypeCode)
                 {
+                    case 4: caixaDe = Convert.ToString(tv.Value); caixaMin = null; break;
+                    case 12: { var p = (Point3d)tv.Value; caixaMin = new Point2d(p.X, p.Y); break; }
+                    case 13:
+                    {
+                        var p = (Point3d)tv.Value;
+                        if (caixaDe is { Length: > 0 } && caixaMin is Point2d mn)
+                            cfg.Caixas[caixaDe] = (mn, new Point2d(p.X, p.Y));
+                        break;
+                    }
                     case 70: cfg.Rotulo = Convert.ToInt32(tv.Value); break;
                     case 71: cfg.Automatico = Convert.ToInt32(tv.Value) != 0; break;
                     case 62: cfg.CorDestaque = Convert.ToInt16(tv.Value); break;
@@ -162,6 +176,12 @@ internal static class LayoutKeyMap
             dados.Add(new TypedValue(330, id));
         foreach (string ln in cfg.Layouts.Distinct(StringComparer.OrdinalIgnoreCase))
             dados.Add(new TypedValue(3, ln));
+        foreach (KeyValuePair<string, (Point2d Min, Point2d Max)> kv in cfg.Caixas)
+        {
+            dados.Add(new TypedValue(4, kv.Key));
+            dados.Add(new TypedValue(12, new Point3d(kv.Value.Min.X, kv.Value.Min.Y, 0)));
+            dados.Add(new TypedValue(13, new Point3d(kv.Value.Max.X, kv.Value.Max.Y, 0)));
+        }
         xr.Data = new ResultBuffer(dados.ToArray());
         tr.Commit();
 
@@ -209,7 +229,7 @@ internal static class LayoutKeyMap
             return new OpResult(0, 0, "Escolha primeiro a area do mapa no layout (Escolher area).");
 
         using DocumentLock _ = doc.LockDocument();
-        int layouts = 0, regioesTotal = 0, foraDaLista = 0;
+        int layouts = 0, regioesTotal = 0, foraDaLista = 0, movidos = 0;
         var escolhidos = new HashSet<string>(cfg.Layouts, StringComparer.OrdinalIgnoreCase);
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -218,10 +238,19 @@ internal static class LayoutKeyMap
                 return new OpResult(0, 0, "A base do mapa-chave ficou vazia (os objetos escolhidos nao puderam ser copiados).");
 
             List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
-            var enc = Encaixe.De(cfg.CaixaMin!.Value, cfg.CaixaMax!.Value, ext.Value);
+            var encGeral = Encaixe.De(cfg.CaixaMin!.Value, cfg.CaixaMax!.Value, ext.Value);
             foreach (var folha in folhas)
             {
                 var btr = (BlockTableRecord)tr.GetObject(folha.Btr, OpenMode.ForWrite);
+                // Caixa deste layout: a propria (movido/escalado nele) ou a geral. Se o usuario moveu ou
+                // escalou a base do mapa com MOVE/SCALE, a caixa acompanha e fica guardada para o layout.
+                Encaixe enc = cfg.Caixas.TryGetValue(folha.Nome, out (Point2d Min, Point2d Max) cx) ? Encaixe.De(cx.Min, cx.Max, ext.Value) : encGeral;
+                if (DetectarMovimento(tr, btr, blocoId, enc, ext.Value) is (Point2d Min, Point2d Max) nova)
+                {
+                    cfg.Caixas[folha.Nome] = nova;
+                    enc = Encaixe.De(nova.Min, nova.Max, ext.Value);
+                    movidos++;
+                }
                 int apagados = Limpar(tr, btr, incluirPrevias: false);
                 if (folha.Regioes.Count == 0)
                     continue;
@@ -236,9 +265,11 @@ internal static class LayoutKeyMap
             }
             tr.Commit();
         }
+        if (movidos > 0)
+            Gravar(doc, cfg);
 
         AvisarMudanca();
-        string extra = escolhidos.Count > 0 ? $" (so nas {escolhidos.Count} prancha(s) escolhidas" + (foraDaLista > 0 ? $"; apagado de {foraDaLista} fora da lista)" : ")") : "";
+        string extra = (movidos > 0 ? $"; {movidos} com o mapa movido a mao (posicao guardada para a prancha)" : "") + (escolhidos.Count > 0 ? $" (so nas {escolhidos.Count} prancha(s) escolhidas" + (foraDaLista > 0 ? $"; apagado de {foraDaLista} fora da lista)" : ")") : "");
         return new OpResult(layouts, 0,
             layouts > 0
                 ? $"Mapa-chave em {layouts} layout(s) ({regioesTotal} area(s) de folha){extra}."
@@ -357,6 +388,62 @@ internal static class LayoutKeyMap
         Gravar(doc, cfg);
         AvisarMudanca();
         return new OpResult(n, 0, $"Mapa-chave tirado de {tirar.Count} layout(s) ({n} objeto(s)); eles ficam fora das proximas atualizacoes.");
+    }
+
+    /// <summary>
+    /// A base do mapa (bloco, nao previa) saiu do lugar/tamanho que a caixa manda? Entao o usuario
+    /// deu MOVE/SCALE nela: devolve a caixa equivalente (mesma proporcao de encaixe), senao null.
+    /// </summary>
+    private static (Point2d Min, Point2d Max)? DetectarMovimento(Transaction tr, BlockTableRecord btr, ObjectId blocoId, Encaixe enc, Extents3d ext)
+    {
+        foreach (ObjectId id in btr)
+        {
+            if (id.ObjectClass.DxfName != "INSERT" || tr.GetObject(id, OpenMode.ForRead) is not BlockReference br || br.BlockTableRecord != blocoId)
+                continue;
+            using ResultBuffer? rb = br.GetXDataForApplication(App);
+            if (rb is null || EhPrevia(rb))
+                continue;
+            double sNovo = Math.Abs(br.ScaleFactors.X);
+            var esperado = new Point2d(enc.CentroCaixa.X - enc.CentroBase.X * enc.S, enc.CentroCaixa.Y - enc.CentroBase.Y * enc.S);
+            var pos = new Point2d(br.Position.X, br.Position.Y);
+            if (sNovo <= 0 || (pos.GetDistanceTo(esperado) <= 1e-4 && Math.Abs(sNovo - enc.S) <= 1e-9 * Math.Max(1, enc.S)))
+                return null;
+            double k = sNovo / enc.S;
+            var centro = new Point2d(pos.X + enc.CentroBase.X * sNovo, pos.Y + enc.CentroBase.Y * sNovo);
+            double w = enc.Bw * k / 2, h = enc.Bh * k / 2;
+            return (new Point2d(centro.X - w, centro.Y - h), new Point2d(centro.X + w, centro.Y + h));
+        }
+        return null;
+    }
+
+    /// <summary>Caixa propria de um layout (mover/redimensionar o mapa so nele) e refaz.</summary>
+    public static OpResult MoverEm(Document doc, string layout, Point2d c0, Point2d c1)
+    {
+        KeyMapConfig cfg = Ler(doc.Database);
+        cfg.Caixas[layout] = (new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)));
+        if (!cfg.TemCaixa)
+        {
+            cfg.CaixaMin = cfg.Caixas[layout].Min;
+            cfg.CaixaMax = cfg.Caixas[layout].Max;
+        }
+        Gravar(doc, cfg);
+        OpResult r = Gerar(doc, false);
+        return r with { Mensagem = $"Mapa-chave de {layout} movido (posicao guardada so para essa prancha). " + r.Mensagem };
+    }
+
+    /// <summary>Layouts dados voltam a usar a caixa geral e o mapa e refeito.</summary>
+    public static OpResult PosicaoPadrao(Document doc, IEnumerable<string> layouts)
+    {
+        KeyMapConfig cfg = Ler(doc.Database);
+        int n = 0;
+        foreach (string l in layouts)
+            if (cfg.Caixas.Remove(l))
+                n++;
+        if (n == 0)
+            return new OpResult(0, 0, "Esses layouts ja usam a posicao geral do mapa-chave.") { Mudou = false };
+        Gravar(doc, cfg);
+        OpResult r = Gerar(doc, false);
+        return r with { Mensagem = $"{n} layout(s) de volta a posicao geral do mapa-chave. " + r.Mensagem };
     }
 
     /// <summary>Layers, regapp, bloco da base e extensao dela.</summary>

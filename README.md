@@ -357,7 +357,7 @@ C3DLAYOUTVP        -> explorador na categoria Viewports
 C3DLAYOUTPS        -> explorador na categoria Page setup
 C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo)
 C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
-C3DMAPACHAVE       -> [Base/Area/Inserir/preVia/Gerar/Atualizar/Remover/Painel] mapa-chave automatico (preVia = so para ver, em qualquer lugar do layout atual)
+C3DMAPACHAVE       -> [Base/Area/Inserir/preVia/Mover/Gerar/Atualizar/Remover/Painel] mapa-chave automatico (preVia = so para ver; Mover = caixa propria do layout atual; MOVE/SCALE na base tambem valem)
 C3DPRANCHAS        -> [Painel/Atualizar/PontoPerfis] pranchas planta e perfil ao longo do eixo (frames proprios)
 C3DPRANCHA         -> insere bloco de prancha (A0..A4 ou livre, com estendimentos) na origem ou no ponto clicado
 C3DNORTE           -> [Tamanho/Girar] seta do norte no layout, girada pela viewport (Girar acerta todas)

@@ -1,3 +1,8 @@
+## 2.95.1 - LAYOUTS v1.19.1: mapa-chave com posicao propria por prancha
+
+- Cada prancha pode ter o mapa-chave em outro lugar/tamanho: `C3DMAPACHAVE Mover` (ou botao direito na viewport > "Mapa-chave: mover neste layout") pede a nova caixa so para o layout atual; "voltar a posicao geral" desfaz. A caixa propria fica gravada no desenho.
+- MOVE/SCALE do AutoCAD na base do mapa tambem valem: na proxima atualizacao o plugin percebe que a base saiu do lugar, guarda a nova caixa para a prancha e redesenha ali (antes o mapa voltava para a caixa geral).
+
 ## 2.95.0 - LAYOUTS v1.19.0: mapa-chave com previa, escolha de pranchas e remocao por prancha
 
 - `C3DMAPACHAVE preVia`: desenha o mapa-chave completo em qualquer caixa do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. As previas ficam marcadas e a atualizacao normal nao as toca; "Remover previas" tira todas.
