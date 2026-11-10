@@ -1,3 +1,9 @@
+## 2.95.4 - LAYOUTS v1.19.4: mapa-chave em prancha sem viewport e escolha de pranchas pela lista
+
+- Uma prancha sem viewport sobre a base (capa, indice) recebe o mapa-chave inteiro, sem destaque, quando e escolhida de proposito (lista de pranchas, "Mapa-chave so em..." ou "Inserir no layout atual..."). Antes era pulada em silencio e parecia que "nao ia".
+- A lista da aba Mapa-chave ganhou caixinhas para marcar pranchas, e o botao direito numa linha oferece: previa, "so em...", "tambem em..." (soma as marcadas as que ja tem mapa), remover e mover.
+- "Inserir no layout atual..." (botao e palavra Inserir do C3DMAPACHAVE) agora insere so no layout atual, na caixa clicada, e guarda essa caixa so para ele; antes refazia o mapa em todas as pranchas. Se nao havia caixa geral, essa vira a geral.
+
 ## 2.95.3 - LAYOUTS v1.19.3: painel cabe em janela estreita
 
 - As linhas de botoes e de campos das abas (Renomear, Numeracao, Carimbo, Prancha, Modo leve, Mapa-chave...) quebram em mais de uma linha quando o painel e estreito, em vez de sumirem pela borda. As frases de status (acima da lista e abaixo da vista grafica) tambem quebram.

@@ -252,9 +252,12 @@ internal static class LayoutKeyMap
                     movidos++;
                 }
                 int apagados = Limpar(tr, btr, incluirPrevias: false);
-                if (folha.Regioes.Count == 0)
+                bool escolhida = escolhidos.Contains(folha.Nome);
+                // Sem viewport sobre a base so entra se foi escolhida de proposito (capa, indice):
+                // recebe a base e o contorno de todas as folhas, sem destaque.
+                if (folha.Regioes.Count == 0 && !escolhida)
                     continue;
-                if (escolhidos.Count > 0 && !escolhidos.Contains(folha.Nome))
+                if (escolhidos.Count > 0 && !escolhida)
                 {
                     if (apagados > 0)
                         foraDaLista++;
@@ -342,9 +345,26 @@ internal static class LayoutKeyMap
     /// Grava quais layouts recebem o mapa-chave e refaz (lista vazia = todos). Os que sairam da
     /// lista perdem o mapa.
     /// </summary>
-    public static OpResult DefinirLayouts(Document doc, IEnumerable<string> layouts)
+    public static OpResult DefinirLayouts(Document doc, IEnumerable<string> layouts, bool somar = false)
     {
         KeyMapConfig cfg = Ler(doc.Database);
+        if (somar && cfg.Layouts.Count == 0)
+        {
+            // "Todas" + alguns a mais: a lista passa a ser explicita (as que mostram a base + os somados).
+            var comMapa = new List<string>();
+            try
+            {
+                comMapa = Resumo(doc.Database).Where(r => r.Regioes > 0).Select(r => r.Layout).ToList();
+            }
+            catch (System.Exception)
+            {
+            }
+            layouts = comMapa.Concat(layouts);
+        }
+        else if (somar)
+        {
+            layouts = cfg.Layouts.Concat(layouts);
+        }
         cfg.Layouts.Clear();
         cfg.Layouts.AddRange(layouts.Where(l => !string.IsNullOrWhiteSpace(l)).Distinct(StringComparer.OrdinalIgnoreCase));
         Gravar(doc, cfg);
@@ -431,6 +451,31 @@ internal static class LayoutKeyMap
         Gravar(doc, cfg);
         OpResult r = Gerar(doc, false);
         return r with { Mensagem = $"Mapa-chave de {layout} movido (posicao guardada so para essa prancha). " + r.Mensagem };
+    }
+
+    /// <summary>
+    /// Insere o mapa-chave so no layout dado, na caixa clicada: a caixa fica guardada para essa
+    /// prancha, ela entra na lista de pranchas escolhidas (as que ja tinham mapa continuam) e o
+    /// mapa e refeito. Vale tambem para prancha sem viewport (capa, indice): recebe o mapa inteiro
+    /// sem destaque. Se ainda nao havia caixa geral, esta passa a ser a geral.
+    /// </summary>
+    public static OpResult InserirEm(Document doc, string layout, Point2d c0, Point2d c1)
+    {
+        if (Math.Abs(c1.X - c0.X) < 1e-6 || Math.Abs(c1.Y - c0.Y) < 1e-6)
+            return new OpResult(0, 1, "A caixa do mapa-chave precisa ter largura e altura.");
+        KeyMapConfig cfg = Ler(doc.Database);
+        if (cfg.Base.Count(i => !i.IsNull && !i.IsErased) == 0)
+            return new OpResult(0, 0, "Escolha primeiro os objetos da base no Model (Escolher base).");
+        var caixa = (new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)));
+        cfg.Caixas[layout] = caixa;
+        if (!cfg.TemCaixa)
+        {
+            cfg.CaixaMin = caixa.Item1;
+            cfg.CaixaMax = caixa.Item2;
+        }
+        Gravar(doc, cfg);
+        OpResult r = DefinirLayouts(doc, new[] { layout }, somar: true);
+        return r with { Mensagem = $"Mapa-chave inserido em {layout} (caixa guardada so para essa prancha). " + r.Mensagem };
     }
 
     /// <summary>Layouts dados voltam a usar a caixa geral e o mapa e refeito.</summary>

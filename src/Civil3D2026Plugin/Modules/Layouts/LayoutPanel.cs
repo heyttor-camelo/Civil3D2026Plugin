@@ -1082,11 +1082,12 @@ internal sealed partial class LayoutPanel : SW.Window
             case "MAPACHAVE":
                 headers = new[] { "Layout", "Areas", "Mapa-chave" };
                 widths = new[] { 170.0, 50, 75 };
-                comCheck = false;
+                comCheck = true; // a caixinha marca o layout (serve para "So nos layouts marcados" / "Remover dos marcados")
                 rows = _kmResumo.Where(r => Match(r.Layout)).Select(r => new Row
                 {
                     Icon = r.Regioes > 0 ? "mapa" : "prancha",
                     Data = _folhas.FirstOrDefault(f => f.Nome == r.Layout),
+                    Checked = _layoutsMarcados.Contains(r.Layout),
                     Cells = new[] { $"{r.Ordem}  {r.Layout}", r.Regioes > 0 ? r.Regioes.ToString() : "-", r.TemMapa ? "sim" : "" }
                 }).ToList();
                 break;
@@ -1848,6 +1849,32 @@ internal sealed partial class LayoutPanel : SW.Window
             desmarcar.Click += (_, _) => MarcarSelecionados(false);
             menu.Items.Add(marcar);
             menu.Items.Add(desmarcar);
+        }
+
+        if (_category == "MAPACHAVE")
+        {
+            List<string> nomes = _list.SelectedItems.OfType<WC.ListViewItem>().Select(i => ((i.Tag as Row)?.Data as SheetData)?.Nome).OfType<string>().ToList();
+            if (nomes.Count > 0)
+            {
+                if (menu.Items.Count > 0)
+                    menu.Items.Add(new WC.Separator());
+                void Item(string texto, Action acao)
+                {
+                    var mi = new WC.MenuItem { Header = texto };
+                    mi.Click += (_, _) => { _acaoAtual = texto; acao(); };
+                    menu.Items.Add(mi);
+                }
+                string quem = nomes.Count == 1 ? $"\"{nomes[0]}\"" : $"{nomes.Count} layouts selecionados";
+                if (nomes.Count == 1)
+                    Item($"Mapa-chave: previa em {quem} (clicar a caixa)...", () => { Abrir(nomes[0]); Enviar(C3DCommands.Layouts.MapaChave + " preVia"); });
+                Item($"Mapa-chave so em {quem}", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, nomes),
+                    $"Mapa-chave so em {quem}: o mapa e refeito ai e apagado dos outros layouts. As viewports nao mudam."));
+                Item($"Mapa-chave tambem em {quem} (somar aos escolhidos)", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, nomes, somar: true),
+                    _kmCfg.Layouts.Count == 0 ? "O mapa-chave ja vale para todas as pranchas que mostram a base; os selecionados passam a ter o mapa mesmo sem viewport sobre a base (ex.: capa/indice)." : $"Somar {quem} as pranchas do mapa-chave e refazer."));
+                Item($"Remover mapa-chave de {quem}", () => Executar(() => LayoutKeyMap.RemoverDe(Doc!, nomes)));
+                if (nomes.Count == 1)
+                    Item($"Mapa-chave: mover em {quem} (clicar a nova caixa)...", () => { Abrir(nomes[0]); Enviar(C3DCommands.Layouts.MapaChave + " Mover"); });
+            }
         }
 
         List<SheetViewport> sel = _category != "VIEWPORTS" ? new List<SheetViewport>() : _list.SelectedItems.OfType<WC.ListViewItem>()

@@ -71,12 +71,12 @@ public sealed class LayoutCommands
                     ed.WriteMessage("\nArea guardada. Agora escolha a base no Model (C3DMAPACHAVE > Base).");
                 break;
             case "Inserir":
-                // Escolhe a area no layout atual e gera na hora (base ja escolhida).
+                // So no layout atual, na caixa clicada (vale ate em prancha sem viewport, como a capa).
                 if (LayoutKeyMap.Ler(doc.Database).Base.Count == 0 && !EscolherBase(doc))
                     return;
-                if (!EscolherArea(doc))
+                if (EscolherCaixa(doc, "do mapa-chave nesta prancha") is not (Point2d ia, Point2d ib))
                     return;
-                r = LayoutKeyMap.Gerar(doc, true);
+                r = LayoutKeyMap.InserirEm(doc, LayoutManager.Current.CurrentLayout, ia, ib);
                 break;
             case "preVia":
                 // Previa em qualquer lugar do layout atual: nao grava a area nem mexe nas outras pranchas.
