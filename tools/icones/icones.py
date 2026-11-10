@@ -122,9 +122,10 @@ ICONES = {
     # ---------------- corredor / Civil ----------------
     "corredor": [("L", "M1,11 C4,8 8,6 12,2 M4,15 C8,12 12,10 15,7"),
                  ("A", "M2.5,13 C6,10 10,8 13.5,4.5")],
-    "rebaixo": [("L", "M1,5 H5 L6.5,9.5 H9.5 L11,5 H15"),
-                ("F", "M5,5 L6.5,9.5 H9.5 L11,5 L11,6.4 L10.2,10.8 H5.8 L5,6.4 Z"),
-                ("S", "M5.8,12.4 h4.4 v1.6 h-4.4 Z")],
+    # Rebaixo de calcada em planta: guia embaixo, rampa central com as abas laterais (trapezio) e piso tatil.
+    "rebaixo": [("L", "M1,13 H15 M1.5,13 L5,4.5 H11 L14.5,13 M5,4.5 V13 M11,4.5 V13"),
+                ("F", "M5.9,8.6 H10.1 V13 H5.9 Z"),
+                ("S", "M5.9,5.6 h4.2 v1.7 h-4.2 Z")],
     "secoes": [("L", "M1.5,12.5 L5,8.6 H11 L14.5,12.5"),
                ("F", "M4.6,8.2 H11.4 V6.6 H4.6 Z"),
                ("A", "M8,2.5 V5 M8,13.6 V14.5")],

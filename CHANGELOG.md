@@ -1,3 +1,8 @@
+## 2.99.3 - MFREBAIXO v1.9.3 / PassagemRampa v1.2.3: icone do rebaixo como rampa de calcada
+
+- O icone do rebaixo parecia uma calha (pedido do Heyvid). Agora e a rampa de calcada em planta: guia, rampa central, abas laterais e piso tatil (`tools/icones/icones.py`, `IconArt.cs` regenerado).
+- `MFREBAIXOHACHURA` ganhou icone; `DRENNUMCLASSICO` voltou para o `ribbon.py` (estava so no `IconArt.cs`).
+
 ## 2.99.2 - MFREBAIXO v1.9.2 / PassagemRampa v1.2.2: hachura do rebaixo com a forma certa, lista sem estacas
 
 - **Hachura**: as rampas saiam como triangulos e o trecho rebaixado com um canto cortado. O laco da hachura agora e fechado (primeiro ponto repetido) e marcado como externo; a hachura vai para a frente na ordem de desenho (`HachuraNaFrente`). O log confere a area da hachura com a area do poligono e avisa quando difere.
