@@ -1,3 +1,10 @@
+## 2.97.0 - LAYOUTS v1.21.0: mapa-chave com "Copiar do layout atual" e estilos salvos
+
+- "Copiar do layout atual" le a aparencia do mapa como esta desenhado no layout aberto, depois de editado a mao: hachura do destaque (padrao, escala, angulo, cor, fundo, transparencia), tamanho dos textos, se ha titulo e os textos de folha que foram movidos. O resultado vai para os campos da aba.
+- "Salvar estilo" guarda os campos com um nome na lista "Estilo salvo" (fica no desenho); escolher um nome da lista carrega o estilo nos campos; "Excluir estilo" tira da lista. Depois e so marcar os layouts e "Aplicar nos marcados".
+- Texto de folha movido a mao passa a ser guardado no estilo (em coordenadas do Model), entao vale nos outros layouts e nao se perde quando o mapa e refeito.
+- Para ler textos movidos, o mapa precisa ter sido refeito por esta versao (um Aplicar): os textos de mapas anteriores nao dizem de qual folha sao.
+
 ## 2.96.0 - LAYOUTS v1.20.0: aba Mapa-chave refeita, com aparencia por layouts marcados
 
 - Aba em tres passos: 1) base e lugar, 2) aparencia, 3) aplicar. Sairam os botoes "Salvar e gerar", "Atualizar", "Previa", "So nos layouts marcados", "Todas as pranchas", "Posicao geral" e os paragrafos de explicacao.

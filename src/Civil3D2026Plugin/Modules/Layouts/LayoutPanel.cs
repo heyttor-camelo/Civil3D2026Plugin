@@ -3597,6 +3597,10 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Label("2. Aparencia", true));
         _kmAlvo = new WC.TextBlock { Text = TextoAlvoMapa(), Foreground = T.Text, TextWrapping = SW.TextWrapping.Wrap, FontWeight = SW.FontWeights.SemiBold, Margin = new SW.Thickness(0, 2, 0, 4) };
         p.Children.Add(_kmAlvo);
+        var linhaEstilos = new WC.WrapPanel(); // preenchida depois dos campos (os botoes mexem neles)
+        p.Children.Add(linhaEstilos);
+        var infoPos = Label("");
+        p.Children.Add(infoPos);
 
         var rotulo = new WC.ComboBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left };
         rotulo.Items.Add("Numero da prancha (01, 02...)");
@@ -3646,6 +3650,97 @@ internal sealed partial class LayoutPanel : SW.Window
         CampoH("Angulo", angH, "Graus, somado ao giro da folha no mapa");
         CampoH("Fundo", fundo);
         p.Children.Add(lh);
+
+        // ---- Estilos salvos e "copiar do layout" (como o padrao de malha/norte/escala)
+        var posTexto = new Dictionary<string, Autodesk.AutoCAD.Geometry.Point2d>(est.PosTexto, StringComparer.OrdinalIgnoreCase);
+        void InfoPos() => infoPos.Text = posTexto.Count > 0 ? $"Este estilo leva {posTexto.Count} texto(s) de folha movido(s) a mao." : "";
+        void SelecionarCor(WC.ComboBox combo, short aci)
+        {
+            WC.ComboBoxItem? it = combo.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i => (short)i.Tag! == aci);
+            if (it is null)
+            {
+                it = new WC.ComboBoxItem { Content = $"Cor {aci}", Tag = aci };
+                combo.Items.Add(it);
+            }
+            combo.SelectedItem = it;
+        }
+        void Mostrar(KeyMapEstilo e)
+        {
+            rotulo.SelectedIndex = Math.Clamp(e.Rotulo, 0, 3);
+            titulo.IsChecked = e.Titulo;
+            SelecionarCor(cor, e.CorDestaque);
+            transp.Text = e.Transparencia.ToString();
+            padrao.Text = e.Padrao;
+            escH.Text = e.EscalaHachura.ToString("0.###", CultureInfo.InvariantCulture);
+            angH.Text = e.AnguloHachura.ToString("0.#", CultureInfo.InvariantCulture);
+            SelecionarCor(fundo, e.CorFundo);
+            fatorTxt.Text = e.FatorTexto.ToString("0.##", CultureInfo.InvariantCulture);
+            posTexto.Clear();
+            foreach (KeyValuePair<string, Autodesk.AutoCAD.Geometry.Point2d> kv in e.PosTexto)
+                posTexto[kv.Key] = kv.Value;
+            InfoPos();
+        }
+        KeyMapEstilo DoForm()
+        {
+            KeyMapEstilo novo = DoForm();
+            try
+            {
+                string atual = LayoutManager.Current.CurrentLayout;
+                KeyMapEstilo? lido = LayoutKeyMap.LerDoLayout(doc, atual, out string msg);
+                if (lido is not null)
+                    Mostrar(lido);
+                Say(msg + (lido is not null ? " Agora: Salvar estilo (para guardar com nome) ou Aplicar nos marcados." : ""));
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Erro("Layouts", "Mapa-chave: copiar do layout", ex);
+                Say("Erro ao ler o mapa do layout: " + ex.Message);
+            }
+        }));
+        linhaEstilos.Children.Add(ActionButton("Salvar estilo", () =>
+        {
+            if (Doc is not Document doc) return;
+            string nomeEstilo = (salvos.Text ?? "").Trim();
+            if (nomeEstilo.Length == 0)
+            {
+                Say("Digite um nome no campo \"Estilo salvo\" e clique Salvar estilo.");
+                return;
+            }
+            try
+            {
+                LayoutKeyMap.SalvarPreset(doc, nomeEstilo, DoForm());
+                _kmCfg = LayoutKeyMap.Ler(doc.Database);
+                if (!salvos.Items.Cast<string>().Any(x => x.Equals(nomeEstilo, StringComparison.OrdinalIgnoreCase)))
+                    salvos.Items.Add(nomeEstilo);
+                Say($"Estilo \"{nomeEstilo}\" salvo neste desenho.");
+            }
+            catch (System.Exception ex)
+            {
+                Say("Erro ao salvar o estilo: " + ex.Message);
+            }
+        }));
+        linhaEstilos.Children.Add(ActionButton("Excluir estilo", () =>
+        {
+            if (Doc is not Document doc) return;
+            string nomeEstilo = (salvos.Text ?? "").Trim();
+            try
+            {
+                if (nomeEstilo.Length == 0 || !LayoutKeyMap.ExcluirPreset(doc, nomeEstilo))
+                {
+                    Say("Escolha na lista o estilo salvo a excluir.");
+                    return;
+                }
+                _kmCfg = LayoutKeyMap.Ler(doc.Database);
+                object? item = salvos.Items.Cast<string>().FirstOrDefault(x => x.Equals(nomeEstilo, StringComparison.OrdinalIgnoreCase));
+                if (item is not null) salvos.Items.Remove(item);
+                salvos.Text = "";
+                Say($"Estilo \"{nomeEstilo}\" excluido (os layouts que ja usam essa aparencia nao mudam).");
+            }
+            catch (System.Exception ex)
+            {
+                Say("Erro ao excluir o estilo: " + ex.Message);
+            }
+        }));
 
         // ---- Opcoes do desenho inteiro
         p.Children.Add(Label("Para todas as pranchas", true));

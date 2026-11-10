@@ -24,6 +24,21 @@ internal sealed class KeyMapEstilo
     public short CorFundo { get; set; } = -1;
     public double FatorTexto { get; set; } = 1.0;
     public bool Titulo { get; set; } = true;
+
+    /// <summary>Texto de folha movido a mao: nome do layout da folha -> posicao no Model (vale em qualquer caixa).</summary>
+    public Dictionary<string, Point2d> PosTexto { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public KeyMapEstilo Copia()
+    {
+        var c = new KeyMapEstilo
+        {
+            Rotulo = Rotulo, CorDestaque = CorDestaque, Transparencia = Transparencia, Padrao = Padrao, EscalaHachura = EscalaHachura,
+            AnguloHachura = AnguloHachura, CorFundo = CorFundo, FatorTexto = FatorTexto, Titulo = Titulo
+        };
+        foreach (KeyValuePair<string, Point2d> kv in PosTexto)
+            c.PosTexto[kv.Key] = kv.Value;
+        return c;
+    }
 }
 
 /// <summary>Configuracao do mapa-chave, guardada no desenho (NOD, Xrecord C3D_MAPACHAVE).</summary>
@@ -70,16 +85,31 @@ internal sealed class KeyMapConfig
     /// <summary>Aparencia propria por layout; quem nao esta aqui usa a geral (campos desta classe).</summary>
     public Dictionary<string, KeyMapEstilo> Estilos { get; } = new(StringComparer.OrdinalIgnoreCase);
 
-    public KeyMapEstilo Geral() => new()
+    /// <summary>Estilos salvos com nome (presets), guardados no desenho.</summary>
+    public Dictionary<string, KeyMapEstilo> Presets { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Textos de folha movidos a mao na aparencia geral (ver KeyMapEstilo.PosTexto).</summary>
+    public Dictionary<string, Point2d> PosTexto { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public KeyMapEstilo Geral()
     {
-        Rotulo = Rotulo, CorDestaque = CorDestaque, Transparencia = Transparencia, Padrao = Padrao, EscalaHachura = EscalaHachura,
-        AnguloHachura = AnguloHachura, CorFundo = CorFundo, FatorTexto = FatorTexto, Titulo = Titulo
-    };
+        var g = new KeyMapEstilo
+        {
+            Rotulo = Rotulo, CorDestaque = CorDestaque, Transparencia = Transparencia, Padrao = Padrao, EscalaHachura = EscalaHachura,
+            AnguloHachura = AnguloHachura, CorFundo = CorFundo, FatorTexto = FatorTexto, Titulo = Titulo
+        };
+        foreach (KeyValuePair<string, Point2d> kv in PosTexto)
+            g.PosTexto[kv.Key] = kv.Value;
+        return g;
+    }
 
     public void DefinirGeral(KeyMapEstilo e)
     {
         Rotulo = e.Rotulo; CorDestaque = e.CorDestaque; Transparencia = e.Transparencia; Padrao = e.Padrao; EscalaHachura = e.EscalaHachura;
         AnguloHachura = e.AnguloHachura; CorFundo = e.CorFundo; FatorTexto = e.FatorTexto; Titulo = e.Titulo;
+        PosTexto.Clear();
+        foreach (KeyValuePair<string, Point2d> kv in e.PosTexto)
+            PosTexto[kv.Key] = kv.Value;
     }
 
     /// <summary>Aparencia que vale para o layout: a propria dele ou a geral.</summary>
@@ -135,7 +165,8 @@ internal static class LayoutKeyMap
         {
             string? caixaDe = null;
             Point2d? caixaMin = null;
-            KeyMapEstilo? est = null; // depois de um code 6, os codes de aparencia sao do layout
+            KeyMapEstilo? est = null; // depois de um code 6 (layout) ou 300 (estilo salvo), os codes de aparencia sao dele
+            string? posDe = null;
             foreach (TypedValue tv in rb)
             {
                 switch (tv.TypeCode)
@@ -172,6 +203,19 @@ internal static class LayoutKeyMap
                         if (Convert.ToString(tv.Value) is { Length: > 0 } en)
                             cfg.Estilos[en] = est = new KeyMapEstilo();
                         break;
+                    case 300:
+                        est = null;
+                        if (Convert.ToString(tv.Value) is { Length: > 0 } pn)
+                            cfg.Presets[pn] = est = new KeyMapEstilo();
+                        break;
+                    case 301: posDe = Convert.ToString(tv.Value); break;
+                    case 14:
+                    {
+                        var p = (Point3d)tv.Value;
+                        if (posDe is { Length: > 0 })
+                            (est?.PosTexto ?? cfg.PosTexto)[posDe] = new Point2d(p.X, p.Y);
+                        break;
+                    }
                     case 76: if (est is not null) est.Rotulo = Convert.ToInt32(tv.Value); break;
                     case 77: if (est is not null) est.Transparencia = Convert.ToInt32(tv.Value); break;
                     case 78: if (est is not null) est.Titulo = Convert.ToInt32(tv.Value) != 0; break;
@@ -264,11 +308,17 @@ internal static class LayoutKeyMap
             dados.Add(new TypedValue(12, new Point3d(kv.Value.Min.X, kv.Value.Min.Y, 0)));
             dados.Add(new TypedValue(13, new Point3d(kv.Value.Max.X, kv.Value.Max.Y, 0)));
         }
-        // Aparencia propria por layout: sempre por ultimo (o code 6 abre o bloco de cada layout).
-        foreach (KeyValuePair<string, KeyMapEstilo> kv in cfg.Estilos)
+        void Posicoes(Dictionary<string, Point2d> pos)
         {
-            KeyMapEstilo e = kv.Value;
-            dados.Add(new TypedValue(6, kv.Key));
+            foreach (KeyValuePair<string, Point2d> pt in pos)
+            {
+                dados.Add(new TypedValue(301, pt.Key));
+                dados.Add(new TypedValue(14, new Point3d(pt.Value.X, pt.Value.Y, 0)));
+            }
+        }
+        void Estilo(int abre, string nome, KeyMapEstilo e)
+        {
+            dados.Add(new TypedValue(abre, nome));
             dados.Add(new TypedValue(76, (short)e.Rotulo));
             dados.Add(new TypedValue(77, (short)e.Transparencia));
             dados.Add(new TypedValue(78, (short)(e.Titulo ? 1 : 0)));
@@ -278,7 +328,14 @@ internal static class LayoutKeyMap
             dados.Add(new TypedValue(42, e.EscalaHachura));
             dados.Add(new TypedValue(43, e.FatorTexto));
             dados.Add(new TypedValue(51, e.AnguloHachura));
+            Posicoes(e.PosTexto);
         }
+        // Ordem importa na leitura: geral primeiro; depois cada layout (code 6) e cada estilo salvo (code 300).
+        Posicoes(cfg.PosTexto);
+        foreach (KeyValuePair<string, KeyMapEstilo> le in cfg.Estilos)
+            Estilo(6, le.Key, le.Value);
+        foreach (KeyValuePair<string, KeyMapEstilo> pe in cfg.Presets)
+            Estilo(300, pe.Key, pe.Value);
         xr.Data = new ResultBuffer(dados.ToArray());
         tr.Commit();
 
@@ -480,6 +537,139 @@ internal static class LayoutKeyMap
         return layouts.Count == 0 ? r : r with { Mensagem = $"Aplicado em {layouts.Count} layout(s) marcado(s). " + r.Mensagem };
     }
 
+    /// <summary>
+    /// Le a aparencia do mapa-chave como esta desenhado no layout, depois de editado a mao: hachura
+    /// do destaque (padrao, escala, angulo, cor, fundo, transparencia), tamanho dos textos, textos
+    /// de folha movidos (guardados em coordenadas do Model) e se ha titulo. Nao muda o desenho.
+    /// </summary>
+    public static KeyMapEstilo? LerDoLayout(Document doc, string layout, out string mensagem)
+    {
+        Database db = doc.Database;
+        KeyMapConfig cfg = Ler(db);
+        KeyMapEstilo est = cfg.Para(layout).Copia();
+        est.PosTexto.Clear();
+        using Transaction tr = db.TransactionManager.StartTransaction();
+        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        Extents3d? ext = bt.Has(Bloco) ? Extensao(tr, bt[Bloco]) : null;
+        if (ext is null)
+        {
+            mensagem = "Ainda nao ha mapa-chave neste desenho.";
+            return null;
+        }
+        ObjectId blocoId = bt[Bloco];
+        List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
+        int i = folhas.FindIndex(f => f.Nome.Equals(layout, StringComparison.OrdinalIgnoreCase));
+        if (i < 0)
+        {
+            mensagem = $"Layout \"{layout}\" nao encontrado (abra o layout que tem o mapa editado).";
+            return null;
+        }
+
+        BlockReference? baseRef = null;
+        Hatch? hachura = null;
+        var textos = new List<(string Folha, MText Texto)>();
+        bool temTitulo = false;
+        int semTag = 0;
+        var btr = (BlockTableRecord)tr.GetObject(folhas[i].Btr, OpenMode.ForRead);
+        foreach (ObjectId id in btr)
+        {
+            if (tr.GetObject(id, OpenMode.ForRead) is not Entity en)
+                continue;
+            using ResultBuffer? rb = en.GetXDataForApplication(App);
+            if (rb is null || EhPrevia(rb))
+                continue;
+            string? tag = rb.AsArray().Skip(1).Select(v => v.Value as string).FirstOrDefault(t => t is not null && (t == TagTitulo || t.StartsWith(TagFolha, StringComparison.Ordinal)));
+            switch (en)
+            {
+                case BlockReference b when b.BlockTableRecord == blocoId: baseRef = b; break;
+                case Hatch h: hachura = h; break;
+                case MText mt when tag == TagTitulo: temTitulo = true; break;
+                case MText mt when tag is not null: textos.Add((tag.Substring(TagFolha.Length), mt)); break;
+                case MText: semTag++; break;
+            }
+        }
+        if (baseRef is null)
+        {
+            mensagem = $"O layout \"{layout}\" nao tem mapa-chave feito pelo plugin. Aplique o mapa nele primeiro.";
+            return null;
+        }
+
+        double s = Math.Abs(baseRef.ScaleFactors.X);
+        var o = new Point2d(baseRef.Position.X, baseRef.Position.Y);
+        Point2d Papel(Point2d p) => new(o.X + p.X * s, o.Y + p.Y * s);
+        Point2d Modelo(Point2d p) => new((p.X - o.X) / s, (p.Y - o.Y) / s);
+
+        string aviso = "";
+        if (semTag > 0 && textos.Count == 0 && !temTitulo)
+        {
+            // Mapa feito antes da 2.97.0: os textos nao dizem de qual folha sao.
+            aviso = " Os textos deste mapa sao de uma versao anterior e nao puderam ser lidos: clique Aplicar uma vez, mova os textos de novo e copie.";
+        }
+        else
+        {
+            est.Titulo = temTitulo;
+            if (textos.Count == 0)
+                est.Rotulo = 3;
+            else if (est.Rotulo == 3)
+                est.Rotulo = 0;
+            bool fatorLido = false;
+            foreach ((string nomeFolha, MText mt) in textos)
+            {
+                int k = folhas.FindIndex(f => f.Nome.Equals(nomeFolha, StringComparison.OrdinalIgnoreCase));
+                if (k < 0 || folhas[k].Regioes.Count == 0)
+                    continue;
+                Point2d[] maior = folhas[k].Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
+                var (pos, _, alt, _) = GeometriaRotulo(maior, est.Rotulo == 2);
+                if (!fatorLido && alt > 1e-9)
+                {
+                    est.FatorTexto = Math.Round(mt.TextHeight / alt, 2);
+                    fatorLido = true;
+                }
+                var loc = new Point2d(mt.Location.X, mt.Location.Y);
+                if (loc.GetDistanceTo(pos) > Math.Max(1e-6, alt * 0.05))
+                    est.PosTexto[folhas[k].Nome] = Modelo(loc);
+            }
+        }
+
+        if (hachura is not null)
+        {
+            est.Padrao = string.IsNullOrWhiteSpace(hachura.PatternName) ? "SOLID" : hachura.PatternName.ToUpperInvariant();
+            if (hachura.Color.IsByAci)
+                est.CorDestaque = hachura.Color.ColorIndex;
+            if (hachura.Transparency.IsByAlpha)
+                est.Transparencia = Math.Clamp((int)Math.Round((1 - hachura.Transparency.Alpha / 255.0) * 100), 0, 90);
+            if (est.Padrao != "SOLID" && folhas[i].Regioes.Count > 0)
+            {
+                Point2d[] ref0 = folhas[i].Regioes[0].Select(Papel).ToArray();
+                double fator = Math.Max(ref0[0].GetDistanceTo(ref0[1]) / 25.0, 0.05) * 0.25;
+                est.EscalaHachura = Math.Round(hachura.PatternScale / fator, 3);
+                est.AnguloHachura = Math.Round((hachura.PatternAngle - AnguloMaior(ref0)) * 180.0 / Math.PI, 1);
+                AcColor fundo = hachura.BackgroundColor;
+                est.CorFundo = fundo.IsNone || !fundo.IsByAci ? (short)-1 : fundo.ColorIndex;
+            }
+        }
+        tr.Commit();
+        mensagem = $"Aparencia copiada de \"{layout}\": hachura {est.Padrao}, texto x{est.FatorTexto:0.##}, {est.PosTexto.Count} texto(s) movido(s).{aviso}";
+        return est;
+    }
+
+    /// <summary>Guarda (ou troca) um estilo salvo com nome, no desenho.</summary>
+    public static void SalvarPreset(Document doc, string nome, KeyMapEstilo estilo)
+    {
+        KeyMapConfig cfg = Ler(doc.Database);
+        cfg.Presets[nome] = estilo.Copia();
+        Gravar(doc, cfg);
+    }
+
+    public static bool ExcluirPreset(Document doc, string nome)
+    {
+        KeyMapConfig cfg = Ler(doc.Database);
+        if (!cfg.Presets.Remove(nome))
+            return false;
+        Gravar(doc, cfg);
+        return true;
+    }
+
     /// <summary>Apaga o mapa dos layouts dados e deixa-os fora das proximas atualizacoes.</summary>
     public static OpResult RemoverDe(Document doc, IEnumerable<string> layouts)
     {
@@ -609,7 +799,7 @@ internal static class LayoutKeyMap
         KeyMapConfig cfg, ObjectId blocoId, Encaixe enc, bool previa)
     {
         cfg = cfg.Efetivo(folha.Nome); // aparencia propria do layout, se tiver
-        void Add(Entity e) => Adicionar(tr, btr, e, previa);
+        void Add(Entity e, string? tag = null) => Adicionar(tr, btr, e, previa, tag);
         double s = enc.S, bw = enc.Bw, bh = enc.Bh;
         Point2d c0 = enc.C0, c1 = enc.C1, centroCaixa = enc.CentroCaixa, centroBase = enc.CentroBase;
         Point2d Papel(Point2d p) => enc.Papel(p);
@@ -639,6 +829,8 @@ internal static class LayoutKeyMap
             Point2d[] maior = outra.Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
             (Point2d pos, double ang, double alt, double larg) = GeometriaRotulo(maior, cfg.Rotulo == 2);
             alt *= Math.Max(0.1, cfg.FatorTexto);
+            if (cfg.PosTexto.TryGetValue(outra.Nome, out Point2d movido))
+                pos = Papel(movido); // texto movido a mao e copiado para o estilo
             string texto = RotuloFolha(tr, dic, cfg, outra.Nome, outra.Ordem, totalFolhas);
             Add(new MText
             {
@@ -649,7 +841,7 @@ internal static class LayoutKeyMap
                 Location = new Point3d(pos.X, pos.Y, 0),
                 Rotation = ang,
                 Width = Math.Max(larg, alt * 4)
-            });
+            }, TagFolha + outra.Nome);
         }
 
         // Hachura da propria folha (so se ela mostra a base).
@@ -691,7 +883,7 @@ internal static class LayoutKeyMap
                 Location = new Point3d(centroCaixa.X, Math.Max(c0.Y, c1.Y) - tituloAlt * 0.3, 0),
                 Width = Math.Min(bw * 0.62, tituloAlt * 14)
             };
-            Add(titulo);
+            Add(titulo, TagTitulo);
             double y = Math.Max(c0.Y, c1.Y) - tituloAlt * 1.75;
             Add(new Line(new Point3d(centroCaixa.X - titulo.Width / 2, y, 0), new Point3d(centroCaixa.X + titulo.Width / 2, y, 0)) { Layer = LayerTexto });
         }
@@ -1038,15 +1230,23 @@ internal static class LayoutKeyMap
 
     private static Point2d Centroide(Point2d[] p) => new(p.Average(q => q.X), p.Average(q => q.Y));
 
-    private static void Adicionar(Transaction tr, BlockTableRecord btr, Entity ent, bool previa = false)
+    private const string TagFolha = "folha:";
+    private const string TagTitulo = "titulo";
+
+    private static void Adicionar(Transaction tr, BlockTableRecord btr, Entity ent, bool previa = false, string? tag = null)
     {
         btr.AppendEntity(ent);
         tr.AddNewlyCreatedDBObject(ent, true);
         // Sempre com um valor: XData so com o nome do regapp e o jeito do AutoCAD APAGAR o XData, entao
         // os mapas gerados ate a 2.95.1 ficaram sem marca (por isso Remover nao os achava).
-        ent.XData = new ResultBuffer(
-            new TypedValue((int)DxfCode.ExtendedDataRegAppName, App),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, previa ? MarcaPrevia : "mapa"));
+        var xd = new List<TypedValue>
+        {
+            new((int)DxfCode.ExtendedDataRegAppName, App),
+            new((int)DxfCode.ExtendedDataAsciiString, previa ? MarcaPrevia : "mapa")
+        };
+        if (tag is not null)
+            xd.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, tag)); // qual texto e (para "Copiar do layout")
+        ent.XData = new ResultBuffer(xd.ToArray());
     }
 
     private static bool EhPrevia(ResultBuffer rb) =>

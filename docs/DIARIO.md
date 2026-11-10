@@ -22,7 +22,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - **2.95.3**: abas do painel com `WrapPanel` no lugar dos `StackPanel` horizontais (botões/campos quebram linha em janela estreita), status com quebra, colunas da lista do mapa-chave mais curtas.
 - **2.95.4**: prancha sem viewport sobre a base (capa 000) recebe o mapa-chave inteiro quando escolhida de propósito (`Gerar` só pula quem não foi escolhido); lista da aba Mapa-chave com caixinhas e menu do botão direito (previa / só em / também em / remover / mover; `DefinirLayouts(..., somar)`); `C3DMAPACHAVE Inserir` virou `InserirEm` (só o layout atual, caixa própria), antes refazia em todas.
 - **2.96.0**: Heyvid achou a aba Mapa-chave uma bagunça (botões ambíguos). Refeita em três passos (base e lugar / aparência / aplicar). Aparência por layout (`KeyMapEstilo`, `KeyMapConfig.Estilos`, code 6 + 7/42/43/51/64/65/76/77/78 no Xrecord): "Aplicar nos marcados" grava só nos layouts marcados; sem marcados = geral. Lista "só nestes" (code 3) trocada por `Fora` (code 8, mapa tirado) e `Extras` (code 9, incluído mesmo sem viewport), com conversão ao ler. `Encaixe.De(..., titulo)` reserva a faixa do título (texto da folha de cima caía sobre "MAPA CHAVE"). Prévia saiu do painel (palavra `preVia` do comando continua).
-- Aguardando teste do Heyvid de tudo (2.92.1 a 2.96.0).
+- **2.97.0**: mapa-chave com `LerDoLayout` ("Copiar do layout atual": lê hachura, tamanho e posição dos textos do mapa editado à mão; textos marcados no XData com `folha:<layout>` / `titulo`), `KeyMapEstilo.PosTexto` (texto movido, em coordenadas do Model; codes 301+14) e estilos salvos no desenho (`KeyMapConfig.Presets`, code 300; `SalvarPreset`/`ExcluirPreset`).
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.97.0).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
