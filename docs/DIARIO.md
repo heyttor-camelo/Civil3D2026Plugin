@@ -8,6 +8,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.102.0 / MFREBAIXO 1.12.0
+
+- O 206cd8c (escrito na nuvem sem compilar) compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), 15 avisos antigos, nenhum novo; `ValidateProject.ps1` OK.
+- Teste numa cópia do DWG que o Heyvid salvou às 16:55 no Drive (`...\1 WALDIR SOEIRO\PB_OFICINA_WALDYR_SOEIRO_KM_01_R00_V01.dwg`, com R01 ESQ 50,147–52,613 e R02 DIR 51,878–53,905), em `C:\Temp\hydro-build\teste-rebaixo\v2`, accoreconsole + `C3DPassagemRampa.dll` com comando de teste local (`ZZTeste.cs`, guardado só em `v2\`, não commitado). Original não foi tocado.
+- OK: `ShapeCodes` vêm preenchidos (MF_T30 nas duas peças) e a ficha mostra "SUDECAP 30 (MF_T30)"; inclinações 8,33%/9,08% e 8,33%/8,38%; alturas 13,5→11,5 e 23,4→18 cm; coordenadas S0..S3 coerentes com as seções. 3D do trecho colore R01 e R02; clique num rebaixo dá a ficha, fora dá as medidas da face. `GoToSection` troca a seção e marca o Perfil. Corredor com mais de 4000 seções: o "tudo" mostra só o entorno dos rebaixos.
+- Corrigido (commit 0bd87a3, ainda 2.102.0): altura final acima das **duas** pontas (o 0,18 que o Heyvid tentou no R01 de 13,5 cm) gravava REB 0 e o rebaixo sumia do painel como "removido" — agora erro claro e o antigo volta; entre as pontas, aviso e cria. Rótulos da Seção para os lados; 3D tudo/enquadrar pela altura da vista; alturas do Perfil ao lado das linhas S0/S3.
+- Detalhe visto: o Reaplicar que falha e volta o antigo regrava com a altura medida (0,116 → 0,113), as rampas andam ~3 cm.
+- PNGs: `C:\Temp\hydro-build\teste-rebaixo\v2\*.png`; saída em `saida-vistas.txt` e `saida-reap.txt`.
+- Entregue: 2.102.0 e PassagemRampa 1.5.0 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX (hashes conferidos).
+
 ## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.101.0 / MFREBAIXO 1.11.0 (vistas)
 
 - Compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos; C3DPassagemRampa 1.4.0 também; `ValidateProject.ps1` OK.
