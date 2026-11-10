@@ -2,6 +2,7 @@
 
 - O icone do rebaixo parecia uma calha (pedido do Heyvid). Agora e a rampa de calcada em planta: guia, rampa central, abas laterais e piso tatil (`tools/icones/icones.py`, `IconArt.cs` regenerado).
 - `MFREBAIXOHACHURA` ganhou icone; `DRENNUMCLASSICO` voltou para o `ribbon.py` (estava so no `IconArt.cs`).
+- Primeira versao entregue com o conserto de **remover rebaixo antigo** e as hachuras da 2.99.2 (a 2.99.2 nao chegou a ser lancada no Drive).
 
 ## 2.99.2 - MFREBAIXO v1.9.2 / PassagemRampa v1.2.2: hachura do rebaixo com a forma certa, lista sem estacas
 
@@ -9,6 +10,8 @@
 - **Lista de rebaixos**: saiu a coluna de estacas (pedido do Heyvid); ficou Rebaixo, Corredor, Lado, Comprimento, Altura final, Rampa, Avisos.
 - **Propriedades**: nova linha "Nome no Corridor Transition" (nome do Transition Set, para achar o rebaixo no dialogo do Civil).
 - Erros das acoes do painel (remover, reaplicar, redesenhar) passam a ir para o log.
+- **Remover rebaixo antigo** (parametro `AMF_LIVRE`): falhava com "Subassembly is failed to find by name", porque o Transition Set aponta para a subassembly `MF_DIR`/`MF_ESQ`, que nao existe mais no corredor (trocada pelo `MFSARJETA`), e o plugin tentava recria-lo com valores neutros. Agora esse set orfao (que ja nao agia no corredor) e apagado de vez: o `SetTransitions` com a lista sem ele o remove. Os demais rebaixos continuam sendo desligados como antes.
+- Conferido sem abrir o Civil (accoreconsole, copia do desenho da Oficina BH): as 36 hachuras com area igual a do poligono e sem cruzamentos; remover o 1o rebaixo apagou 1 set (6 -> 5), o rebaixo saiu da lista e continuou fora depois de salvar e reabrir.
 
 ## 2.99.1 - MFREBAIXO v1.9.1 / PassagemRampa v1.2.1: rebaixo no lugar certo, hachura e destaque que nao saiam
 
