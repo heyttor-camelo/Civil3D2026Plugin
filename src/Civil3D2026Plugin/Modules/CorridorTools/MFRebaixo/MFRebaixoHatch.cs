@@ -24,12 +24,6 @@ internal static class MFRebaixoHatch
     public const string Marker = "MFREBAIXO-HACHURA";
     public const string DefaultLayer = "MF-REBAIXO";
 
-    // Codes do MFSARJETA: borda da pista (P1), flowline (P2), topo de tras do MF (P7), borda externa da calcada (P102).
-    private const string InnerCode = "Flange";
-    private const string InnerFallbackCode = "Flowline_Gutter";
-    private const string OuterCode = "Back_Curb";
-    private const string SidewalkCode = "Calcada_Ext";
-
     public enum Part
     {
         RampaEntrada,
@@ -46,7 +40,7 @@ internal static class MFRebaixoHatch
     /// transacao: chamar depois do Rebuild + Commit do corredor. Devolve quantas hachuras sairam
     /// (0 = sem pontos no trecho; nada e lancado, so avisa no log).
     /// </summary>
-    public static int Draw(AcadDb.Database db, AcadDb.ObjectId corridorId, string baselineKey, AcadDb.ObjectId subassemblyId,
+    public static int Draw(AcadDb.Database db, AcadDb.ObjectId corridorId, string baselineKey, string subassemblyName,
         string setName, double s0, double s1, double s2, double s3, MFRebaixoSettings? settings = null)
     {
         settings ??= MFRebaixoSettingsStore.Load();
@@ -70,7 +64,8 @@ internal static class MFRebaixoHatch
 
             if (baseline is not null)
             {
-                List<(double Station, Point3d Inner, Point3d Outer)> edges = Edges(baseline, subassemblyId, s0, s3, settings.HachuraAteCalcada);
+                var diag = new List<string>();
+                List<(double Station, Point3d Inner, Point3d Outer)> edges = Edges(tr, baseline, subassemblyName, s0, s3, settings.HachuraAteCalcada, diag, setName.Contains("_ESQ_", StringComparison.OrdinalIgnoreCase));
                 if (edges.Count >= 2)
                 {
                     EnsureLayer(tr, db, settings.HachuraLayer, settings.HachuraCor);
@@ -84,7 +79,7 @@ internal static class MFRebaixoHatch
                 }
                 else
                 {
-                    PluginLog.Aviso("MFREBAIXO", $"Hachura de {setName}: so {edges.Count} secao(oes) com os codes {InnerCode}/{OuterCode} entre {s0:0.000} e {s3:0.000}; nada desenhado.");
+                    PluginLog.Aviso("MFREBAIXO", $"Hachura de {setName}: so {edges.Count} secao(oes) do meio-fio '{subassemblyName}' entre {s0:0.000} e {s3:0.000}; nada desenhado. " + string.Join(" | ", diag));
                 }
             }
         }
@@ -94,6 +89,20 @@ internal static class MFRebaixoHatch
         return drawn;
     }
 
+    /// <summary>O mesmo, a partir do id da subassembly na Assembly (o comando MFREBAIXO).</summary>
+    public static int Draw(AcadDb.Database db, AcadDb.ObjectId corridorId, string baselineKey, AcadDb.ObjectId subassemblyId,
+        string setName, double s0, double s1, double s2, double s3, MFRebaixoSettings? settings = null)
+    {
+        string name = "";
+        using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            if (!subassemblyId.IsNull && tr.GetObject(subassemblyId, AcadDb.OpenMode.ForRead) is CivilDb.Subassembly sa)
+                name = sa.Name;
+            tr.Commit();
+        }
+        return Draw(db, corridorId, baselineKey, name, setName, s0, s1, s2, s3, settings);
+    }
+
     /// <summary>Redesenha a hachura de todos os rebaixos lidos (botao do painel e depois de Rebuild).</summary>
     public static (int Rebaixos, int Hachuras) RedrawAll(AcadDb.Database db, IEnumerable<RebaixoInfo> items)
     {
@@ -101,8 +110,7 @@ internal static class MFRebaixoHatch
         int n = 0, h = 0;
         foreach (RebaixoInfo r in items)
         {
-            AcadDb.ObjectId saId = FindSubassemblyId(db, r);
-            h += Draw(db, r.CorridorId, r.BaselineKey, saId, r.SetName, r.S0, r.S1, r.S2, r.S3, settings);
+            h += Draw(db, r.CorridorId, r.BaselineKey, r.SubassemblyName, r.SetName, r.S0, r.S1, r.S2, r.S3, settings);
             n++;
         }
 
@@ -238,112 +246,168 @@ internal static class MFRebaixoHatch
     }
 
     /// <summary>
-    /// Em cada secao calculada do corredor entre s0 e s3, o ponto interno (borda da pista) e o
-    /// externo (fundo do MF ou borda da calcada) da subassembly do rebaixo, em XY do desenho.
+    /// Faixa do meio-fio (borda da pista -> fundo do MF, ou borda da calcada) da subassembly de
+    /// nome <paramref name="subassemblyName"/> nas secoes calculadas entre s0 e s3, em XY do desenho.
     /// </summary>
-    internal static List<(double Station, Point3d Inner, Point3d Outer)> Edges(CivilDb.Baseline baseline, AcadDb.ObjectId subassemblyId,
-        double s0, double s3, bool toSidewalk)
+    internal static List<(double Station, Point3d Inner, Point3d Outer)> Edges(AcadDb.Transaction tr, CivilDb.Baseline baseline,
+        string subassemblyName, double s0, double s3, bool toSidewalk, List<string>? diag = null, bool? left = null)
+    {
+        var all = EdgesBySubassembly(tr, baseline, s0, s3, toSidewalk,
+            sa => sa.Name.Equals(subassemblyName, StringComparison.OrdinalIgnoreCase), diag);
+        List<(double Station, Point3d Inner, Point3d Outer)>? best = null;
+        foreach (var list in all.Values)
+        {
+            if (best is null || list.Count > best.Count)
+                best = list;
+        }
+        if (best is not null && best.Count >= 2)
+            return best;
+
+        // Nome nao bateu: qualquer MF/MFSARJETA do trecho, do lado do rebaixo quando ha mais de um.
+        all = EdgesBySubassembly(tr, baseline, s0, s3, toSidewalk, MFRebaixoCommands.IsMfSubassemblyPublic, diag);
+        best = null;
+        foreach (var list in all.Values)
+        {
+            if (list.Count < 2)
+                continue;
+            if (left is bool wantLeft && all.Count > 1 && IsLeft(list) != wantLeft)
+                continue;
+            if (best is null || list.Count > best.Count)
+                best = list;
+        }
+        diag?.Add("nome da subassembly nao encontrado; usado o MF do trecho: " + (best is null ? "nenhum" : best.Count + " secoes"));
+        return best ?? new List<(double Station, Point3d Inner, Point3d Outer)>();
+    }
+
+    /// <summary>A faixa fica a esquerda da baseline (no sentido das estacas)?</summary>
+    private static bool IsLeft(List<(double Station, Point3d Inner, Point3d Outer)> band)
+    {
+        Vector3d along = band[^1].Inner - band[0].Inner;
+        Vector3d across = band[0].Outer - band[0].Inner;
+        return (along.X * across.Y) - (along.Y * across.X) > 0;
+    }
+
+    /// <summary>
+    /// Faixas de todas as subassemblies aceitas por <paramref name="match"/>, uma lista por subassembly.
+    /// A borda interna e a origem da subassembly (P1 do MFSARJETA = borda da pista); a externa e o
+    /// ponto mais longe da origem entre os links com code Curb (sem eles: Sarjeta; sem eles: qualquer
+    /// link que nao seja de calcada). Usa os codes dos LINKS, os mesmos da planta do rebaixo do painel.
+    /// </summary>
+    internal static Dictionary<AcadDb.ObjectId, List<(double Station, Point3d Inner, Point3d Outer)>> EdgesBySubassembly(
+        AcadDb.Transaction tr, CivilDb.Baseline baseline, double s0, double s3, bool toSidewalk,
+        Func<CivilDb.Subassembly, bool> match, List<string>? diag = null)
     {
         const double eps = 0.0005;
-        List<(double, Point3d, Point3d)> list = new();
+        var raw = new Dictionary<AcadDb.ObjectId, List<(double Station, Point3d Inner, Point3d Outer)>>();
+        var matched = new Dictionary<AcadDb.ObjectId, bool>();
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        int regions = 0, sections = 0, hits = 0, noOuter = 0;
         foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
         {
             if (Math.Max(region.StartStation, region.EndStation) < s0 - eps || Math.Min(region.StartStation, region.EndStation) > s3 + eps)
                 continue;
-
+            regions++;
             foreach (CivilDb.AppliedAssembly aa in region.AppliedAssemblies)
             {
                 foreach (CivilDb.AppliedSubassembly asa in aa.GetAppliedSubassemblies())
                 {
-                    if (asa.SubassemblyId != subassemblyId)
-                        continue;
-
-                    double? st = null;
-                    Point3d? inner = null, innerFallback = null, outer = null, sidewalk = null;
-                    foreach (CivilDb.CalculatedPoint cp in asa.Points)
-                    {
-                        Point3d soe = cp.StationOffsetElevationToBaseline;
-                        st ??= soe.X;
-                        foreach (string code in cp.CorridorCodes)
-                        {
-                            if (code.Equals(InnerCode, StringComparison.OrdinalIgnoreCase)) inner = soe;
-                            else if (code.Equals(InnerFallbackCode, StringComparison.OrdinalIgnoreCase)) innerFallback = soe;
-                            else if (code.Equals(OuterCode, StringComparison.OrdinalIgnoreCase)) outer = soe;
-                            else if (code.Equals(SidewalkCode, StringComparison.OrdinalIgnoreCase)) sidewalk = soe;
-                        }
-                    }
-
-                    if (st is null || st < s0 - eps || st > s3 + eps)
-                        break;
-                    Point3d? a = inner ?? innerFallback;
-                    Point3d? b = (toSidewalk ? sidewalk : null) ?? outer;
-                    if (a is null || b is null)
-                        break;
+                    Point3d origin;
                     try
                     {
-                        Point3d pa = baseline.StationOffsetElevationToXYZ(new Point3d(st.Value, a.Value.Y, 0));
-                        Point3d pb = baseline.StationOffsetElevationToXYZ(new Point3d(st.Value, b.Value.Y, 0));
-                        list.Add((st.Value, new Point3d(pa.X, pa.Y, 0), new Point3d(pb.X, pb.Y, 0)));
+                        origin = asa.OriginStationOffsetElevationToBaseline;
+                    }
+                    catch
+                    {
+                        continue;
+                    }
+                    if (origin.X < s0 - eps || origin.X > s3 + eps)
+                        break; // secao fora do trecho
+                    AcadDb.ObjectId said = asa.SubassemblyId;
+                    if (!matched.TryGetValue(said, out bool ok))
+                    {
+                        ok = false;
+                        try
+                        {
+                            if (tr.GetObject(said, AcadDb.OpenMode.ForRead) is CivilDb.Subassembly sa)
+                            {
+                                seenNames.Add(sa.Name);
+                                ok = match(sa);
+                            }
+                        }
+                        catch
+                        {
+                            // Subassembly apagada.
+                        }
+                        matched[said] = ok;
+                    }
+                    if (!ok)
+                        continue;
+                    hits++;
+                    double o0 = origin.Y;
+                    double? curb = null, gutter = null, walk = null, any = null;
+                    foreach (CivilDb.CalculatedLink link in asa.Links)
+                    {
+                        bool isCurb = false, isGutter = false, isWalk = false;
+                        foreach (string code in link.CorridorCodes)
+                        {
+                            if (string.IsNullOrWhiteSpace(code)) continue;
+                            if (code.Equals("Curb", StringComparison.OrdinalIgnoreCase)) isCurb = true;
+                            else if (code.Equals("Sarjeta", StringComparison.OrdinalIgnoreCase)) isGutter = true;
+                            else if (code.StartsWith("Calc", StringComparison.OrdinalIgnoreCase)) isWalk = true;
+                        }
+                        foreach (CivilDb.CalculatedPoint cp in link.CalculatedPoints)
+                        {
+                            double off = cp.StationOffsetElevationToBaseline.Y;
+                            if (isWalk)
+                                walk = Farther(walk, off, o0);
+                            else
+                            {
+                                any = Farther(any, off, o0);
+                                if (isCurb) curb = Farther(curb, off, o0);
+                                if (isGutter) gutter = Farther(gutter, off, o0);
+                            }
+                        }
+                    }
+                    double? outer = (toSidewalk ? walk : null) ?? curb ?? gutter ?? any;
+                    if (outer is null || Math.Abs(outer.Value - o0) < 0.01)
+                    {
+                        noOuter++;
+                        continue;
+                    }
+                    try
+                    {
+                        Point3d pa = baseline.StationOffsetElevationToXYZ(new Point3d(origin.X, o0, origin.Z));
+                        Point3d pb = baseline.StationOffsetElevationToXYZ(new Point3d(origin.X, outer.Value, origin.Z));
+                        if (!raw.TryGetValue(said, out var list))
+                            raw[said] = list = new List<(double Station, Point3d Inner, Point3d Outer)>();
+                        list.Add((origin.X, new Point3d(pa.X, pa.Y, 0), new Point3d(pb.X, pb.Y, 0)));
+                        sections++;
                     }
                     catch
                     {
                         // Estaca fora da baseline.
                     }
-
-                    break;
                 }
             }
         }
-
-        // Mesma estaca em duas regions (limite): fica uma.
-        List<(double Station, Point3d Inner, Point3d Outer)> sorted = list.OrderBy(e => e.Item1).Select(e => (e.Item1, e.Item2, e.Item3)).ToList();
-        List<(double Station, Point3d Inner, Point3d Outer)> result = new();
-        foreach (var e in sorted)
+        // Em ordem de estaca; mesma estaca em duas regions (limite) fica uma.
+        var result = new Dictionary<AcadDb.ObjectId, List<(double Station, Point3d Inner, Point3d Outer)>>();
+        foreach (var kv in raw)
         {
-            if (result.Count == 0 || e.Station - result[^1].Station > 1e-5)
-                result.Add(e);
+            var clean = new List<(double Station, Point3d Inner, Point3d Outer)>();
+            foreach (var e in kv.Value.OrderBy(x => x.Station))
+            {
+                if (clean.Count == 0 || e.Station - clean[^1].Station > 1e-5)
+                    clean.Add(e);
+            }
+            result[kv.Key] = clean;
         }
-
+        diag?.Add($"regions no trecho: {regions}; subassemblies vistas: {string.Join(", ", seenNames)}; aplicacoes da MF: {hits}; sem borda externa: {noOuter}; secoes com faixa: {sections}");
         return result;
     }
 
-    /// <summary>Subassembly MF do rebaixo (pela region do trecho rebaixado e pelo lado).</summary>
-    private static AcadDb.ObjectId FindSubassemblyId(AcadDb.Database db, RebaixoInfo r)
-    {
-        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-        AcadDb.ObjectId found = AcadDb.ObjectId.Null;
-        if (tr.GetObject(r.CorridorId, AcadDb.OpenMode.ForRead) is CivilCorridor corridor)
-        {
-            double mid = (r.S1 + r.S2) / 2.0;
-            foreach (CivilDb.Baseline b in corridor.Baselines)
-            {
-                if (MFRebaixoCommands.GetBaselineKey(b) != r.BaselineKey)
-                    continue;
-                foreach (CivilDb.BaselineRegion region in b.BaselineRegions)
-                {
-                    if (mid < Math.Min(region.StartStation, region.EndStation) || mid > Math.Max(region.StartStation, region.EndStation))
-                        continue;
-                    try
-                    {
-                        found = MFRebaixoCommands.FindMfSubassemblyId(tr, region,
-                            r.Left ? CivilDb.SubassemblySideType.Left : CivilDb.SubassemblySideType.Right, out _);
-                    }
-                    catch
-                    {
-                        // Region sem assembly.
-                    }
-
-                    if (!found.IsNull)
-                        break;
-                }
-
-                break;
-            }
-        }
-
-        tr.Commit();
-        return found;
-    }
+    private static double? Farther(double? current, double offset, double origin) =>
+        current is null || Math.Abs(offset - origin) > Math.Abs(current.Value - origin) ? offset : current;
 
     private static int Erase(AcadDb.Transaction tr, AcadDb.Database db, string setName)
     {
@@ -462,18 +526,31 @@ internal static class MFRebaixoHighlight
     /// <summary>Mostra o contorno da faixa (pontos internos na ida, externos na volta).</summary>
     public static void Show(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band)
     {
-        Clear();
         if (band.Count < 2)
+        {
+            Clear();
             return;
+        }
+        var pts = new List<Point3d>();
+        foreach ((_, Point3d inner, _) in band)
+            pts.Add(inner);
+        for (int i = band.Count - 1; i >= 0; i--)
+            pts.Add(band[i].Outer);
+        ShowLine(pts, true, 0.08);
+    }
 
+    /// <summary>Mostra uma linha grossa amarela (rebaixo sem faixa lida: fica no eixo dele).</summary>
+    public static void ShowLine(IReadOnlyList<Point3d> points, bool closed, double width)
+    {
+        Clear();
+        if (points.Count < 2)
+            return;
         var pl = new AcadDb.Polyline();
         int n = 0;
-        foreach ((_, Point3d inner, _) in band)
-            pl.AddVertexAt(n++, new Point2d(inner.X, inner.Y), 0, 0, 0);
-        for (int i = band.Count - 1; i >= 0; i--)
-            pl.AddVertexAt(n++, new Point2d(band[i].Outer.X, band[i].Outer.Y), 0, 0, 0);
-        pl.Closed = true;
-        pl.ConstantWidth = 0.06;
+        foreach (Point3d p in points)
+            pl.AddVertexAt(n++, new Point2d(p.X, p.Y), 0, 0, 0);
+        pl.Closed = closed;
+        pl.ConstantWidth = width;
         pl.ColorIndex = 2; // amarelo
         try
         {
@@ -481,8 +558,9 @@ internal static class MFRebaixoHighlight
                 pl, Autodesk.AutoCAD.GraphicsInterface.TransientDrawingMode.DirectTopmost, 128, new IntegerCollection());
             Shown.Add(pl);
         }
-        catch
+        catch (System.Exception ex)
         {
+            PluginLog.Aviso("MFREBAIXO", "Destaque no desenho nao mostrado: " + ex.Message);
             pl.Dispose();
         }
     }

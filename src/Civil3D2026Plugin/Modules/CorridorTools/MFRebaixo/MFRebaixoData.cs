@@ -352,11 +352,7 @@ internal static class MFRebaixoData
     {
         try
         {
-            AcadDb.ObjectId saId = MFRebaixoCommands.FindMfSubassemblyId(tr, region,
-                info.Left ? CivilDb.SubassemblySideType.Left : CivilDb.SubassemblySideType.Right, out _);
-            if (saId.IsNull)
-                return;
-            List<(double Station, Point3d Inner, Point3d Outer)> band = MFRebaixoHatch.Edges(baseline, saId, info.S0, info.S3, false);
+            List<(double Station, Point3d Inner, Point3d Outer)> band = MFRebaixoHatch.Edges(tr, baseline, info.SubassemblyName, info.S0, info.S3, false, null, info.Left);
             if (band.Count < 2)
                 return;
             info.Band.AddRange(band);
@@ -397,27 +393,22 @@ internal static class MFRebaixoData
             {
                 foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
                 {
-                    foreach (CivilDb.SubassemblySideType side in new[] { CivilDb.SubassemblySideType.Left, CivilDb.SubassemblySideType.Right })
+                    try
                     {
-                        try
+                        double a = Math.Min(region.StartStation, region.EndStation), z = Math.Max(region.StartStation, region.EndStation);
+                        foreach (var band in MFRebaixoHatch.EdgesBySubassembly(tr, baseline, a, z, false, MFRebaixoCommands.IsMfSubassemblyPublic).Values)
                         {
-                            AcadDb.ObjectId saId = MFRebaixoCommands.FindMfSubassemblyId(tr, region, side, out _);
-                            if (saId.IsNull)
-                                continue;
-                            double a = Math.Min(region.StartStation, region.EndStation), z = Math.Max(region.StartStation, region.EndStation);
-                            List<(double Station, Point3d Inner, Point3d Outer)> band = MFRebaixoHatch.Edges(baseline, saId, a, z, false);
                             if (band.Count > 1)
                                 list.Add((id, band));
                         }
-                        catch
-                        {
-                            // Region sem assembly ou sem meio-fio deste lado.
-                        }
+                    }
+                    catch
+                    {
+                        // Region sem assembly ou sem meio-fio.
                     }
                 }
             }
         }
-
         tr.Commit();
         return list;
     }
@@ -667,6 +658,94 @@ internal static class MFRebaixoData
         return "depois";
     }
 
+    /// <summary>Secoes calculadas de uma Region (links com codes e pontos em XY do desenho).</summary>
+    private static List<ModelSection> ReadSections(CivilDb.Baseline baseline, CivilDb.BaselineRegion region, double from, double to, bool planOnly)
+    {
+        List<ModelSection> list = new();
+        foreach (CivilDb.AppliedAssembly aa in region.AppliedAssemblies)
+        {
+            double? station = StationOf(aa);
+            if (station is null || station < from || station > to)
+                continue;
+            var section = new ModelSection { Station = station.Value };
+            foreach (CivilDb.AppliedSubassembly asa in aa.GetAppliedSubassemblies())
+            {
+                List<ModelLink> links = new();
+                foreach (CivilDb.CalculatedLink link in asa.Links)
+                {
+                    List<string> codes = new();
+                    foreach (string code in link.CorridorCodes)
+                    {
+                        if (!string.IsNullOrWhiteSpace(code))
+                            codes.Add(code);
+                    }
+                    string[] codeArray = codes.ToArray();
+                    // Planta geral: so guarda os pontos do que aparece em planta (a ordem dos links e mantida).
+                    List<Point3d> pts = new();
+                    if (!planOnly || RebaixoStyle.Of(codeArray).Plan)
+                    {
+                        foreach (CivilDb.CalculatedPoint cp in link.CalculatedPoints)
+                        {
+                            Point3d soe = cp.StationOffsetElevationToBaseline;
+                            Point3d w = Xyz(baseline, soe.X, soe.Y, soe.Z);
+                            if (w != Point3d.Origin)
+                                pts.Add(w);
+                        }
+                    }
+                    links.Add(new ModelLink { Codes = codeArray, Points = pts.ToArray() });
+                }
+                section.Subassemblies.Add((asa.SubassemblyId.Handle.Value, links));
+            }
+            list.Add(section);
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// Planta de todos os corredores (planta geral do painel): as secoes de cada Region, em ordem
+    /// de estaca, so com os links que aparecem em planta (pista, sarjeta, meio-fio, calcada).
+    /// Acima de <paramref name="maxSections"/> secoes no total devolve lista vazia (corredor grande
+    /// demais para desenhar inteiro; o painel fica so com os meios-fios).
+    /// </summary>
+    public static List<List<ModelSection>> PlanStrips(AcadDb.Database db, int maxSections = 8000)
+    {
+        List<List<ModelSection>> list = new();
+        int total = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not CivilCorridor corridor)
+                continue;
+            foreach (CivilDb.Baseline baseline in corridor.Baselines)
+            {
+                foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
+                {
+                    try
+                    {
+                        List<ModelSection> sections = ReadSections(baseline, region, double.MinValue, double.MaxValue, true)
+                            .OrderBy(x => x.Station).ToList();
+                        if (sections.Count > 1)
+                        {
+                            list.Add(sections);
+                            total += sections.Count;
+                        }
+                    }
+                    catch
+                    {
+                        // Region sem secoes calculadas.
+                    }
+                    if (total > maxSections)
+                    {
+                        tr.Commit();
+                        return new List<List<ModelSection>>();
+                    }
+                }
+            }
+        }
+        tr.Commit();
+        return list;
+    }
+
     public static RebaixoModel Model(AcadDb.Database db, RebaixoInfo r, double margin)
     {
         double from = r.S0 - margin, to = r.S3 + margin;
@@ -692,46 +771,9 @@ internal static class MFRebaixoData
             {
                 if (Math.Max(region.StartStation, region.EndStation) < from || Math.Min(region.StartStation, region.EndStation) > to)
                     continue;
-
-                foreach (CivilDb.AppliedAssembly aa in region.AppliedAssemblies)
-                {
-                    double? station = StationOf(aa);
-                    if (station is null || station < from || station > to)
-                        continue;
-
-                    var section = new ModelSection { Station = station.Value };
-                    foreach (CivilDb.AppliedSubassembly asa in aa.GetAppliedSubassemblies())
-                    {
-                        List<ModelLink> links = new();
-                        foreach (CivilDb.CalculatedLink link in asa.Links)
-                        {
-                            List<Point3d> pts = new();
-                            foreach (CivilDb.CalculatedPoint cp in link.CalculatedPoints)
-                            {
-                                Point3d soe = cp.StationOffsetElevationToBaseline;
-                                Point3d w = Xyz(baseline, soe.X, soe.Y, soe.Z);
-                                if (w != Point3d.Origin)
-                                    pts.Add(w);
-                            }
-
-                            List<string> codes = new();
-                            foreach (string code in link.CorridorCodes)
-                            {
-                                if (!string.IsNullOrWhiteSpace(code))
-                                    codes.Add(code);
-                            }
-
-                            links.Add(new ModelLink { Codes = codes.ToArray(), Points = pts.ToArray() });
-                        }
-
-                        section.Subassemblies.Add((asa.SubassemblyId.Handle.Value, links));
-                    }
-
-                    model.Sections.Add(section);
-                }
+                model.Sections.AddRange(ReadSections(baseline, region, from, to, false));
             }
         }
-
         tr.Commit();
 
         // Mesma estaca em duas Regions (limite): fica uma só.

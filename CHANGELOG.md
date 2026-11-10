@@ -1,3 +1,11 @@
+## 2.99.1 - MFREBAIXO v1.9.1 / PassagemRampa v1.2.1: rebaixo no lugar certo, hachura e destaque que nao saiam
+
+- **Causa** (achada no log do Heyvid, "so 0 secao(oes) com os codes Flange/Back_Curb"): a leitura da faixa do meio-fio dependia do id da subassembly e dos codes dos PONTOS, e nao achava nada no corredor dele. Sem a faixa, a hachura nao era desenhada, o destaque no desenho nao aparecia e o painel deixava o rebaixo em cima da baseline.
+- **Leitura refeita** (`MFRebaixoHatch.EdgesBySubassembly`): subassembly pelo nome (como o painel ja fazia para os valores) e bordas pelos codes dos LINKS (`Curb`, `Sarjeta`), os mesmos que a planta do rebaixo ja usava; borda interna = origem da subassembly (borda da pista). Se o nome nao bater, usa o MF do trecho do lado do rebaixo. O aviso do log agora diz o que foi encontrado.
+- **Planta geral com todos os corredores inteiros** (`MFRebaixoData.PlanStrips`): pista, sarjeta, meio-fio e calcada como na planta do rebaixo, com os rebaixos coloridos em cima do meio-fio. Acima de 8000 secoes fica so com os meios-fios.
+- **Destaque no desenho sempre**: sem a faixa, mostra uma linha amarela no eixo do rebaixo; a tela e atualizada depois de mostrar.
+- Novo comando **`MFREBAIXOHACHURA`**: redesenha as hachuras de todos os rebaixos pela linha de comando e lista quantas secoes foram lidas em cada um.
+
 ## 2.99.0 - MFREBAIXO v1.9.0 / PassagemRampa v1.2.0 / MFSARJETA v1.24: painel de rebaixos refeito em cima do meio-fio
 
 - **Planta geral pelo meio-fio real**: o painel lê a faixa borda da pista -> fundo do meio-fio de cada corredor (`MFRebaixoData.Curbs`) e desenha os rebaixos em cima dela, rampas em laranja e trecho rebaixado em vermelho, selecionado com contorno amarelo. As baselines viram só referência (tracejado). Etiquetas, clique e leitura do cursor passam a seguir o meio-fio (antes ficavam na baseline, longe do rebaixo quando o meio-fio não está sobre ela). A planta do rebaixo ganha as mesmas cores.

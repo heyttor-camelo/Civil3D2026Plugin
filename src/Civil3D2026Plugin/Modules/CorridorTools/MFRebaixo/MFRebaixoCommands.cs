@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.9.0";
+    public const string Versao = "1.9.1";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -378,6 +378,49 @@ public sealed class MFRebaixoCommands
 
         MFRebaixoSettingsStore.Save(
             settings);
+    }
+
+    /// <summary>
+    /// Refaz a hachura em planta de todos os rebaixos do desenho (o mesmo do botao do painel),
+    /// pela linha de comando, e lista quantas secoes do meio-fio foram lidas em cada um.
+    /// </summary>
+    [CommandMethod(
+        C3DCommands.Corridor.MfRebaixoHachura,
+        CommandFlags.Modal)]
+    public void RedesenharHachuras()
+    {
+        var doc =
+            AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+        {
+            return;
+        }
+        Editor ed =
+            doc.Editor;
+        try
+        {
+            var items =
+                MFRebaixoData.ReadAll(doc.Database);
+            foreach (RebaixoInfo r in items)
+            {
+                string linha =
+                    $"\n  {r.SetName}: {r.Band.Count} secao(oes) do meio-fio lidas" +
+                    (r.Band.Count < 2 ? "  <-- sem faixa" : "");
+                ed.WriteMessage(linha);
+                PluginLog.Diag("MFREBAIXO", linha.Trim());
+            }
+            (int rebaixos, int hachuras) =
+                MFRebaixoHatch.RedrawAll(doc.Database, items);
+            string fim =
+                $"{rebaixos} rebaixo(s), {hachuras} hachura(s) desenhada(s) na layer {MFRebaixoSettingsStore.Load().HachuraLayer}.";
+            ed.WriteMessage("\n" + fim + "\n");
+            PluginLog.Info("MFREBAIXO", "MFREBAIXOHACHURA: " + fim);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro("MFREBAIXO", "MFREBAIXOHACHURA falhou: " + ex.Message, ex);
+            ed.WriteMessage("\nErro ao redesenhar as hachuras: " + ex.Message + "\n");
+        }
     }
 
     [CommandMethod(

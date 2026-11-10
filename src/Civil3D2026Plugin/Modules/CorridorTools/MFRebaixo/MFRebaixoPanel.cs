@@ -48,6 +48,10 @@ internal sealed class MFRebaixoPanel : SW.Window
     private List<(AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> _overview = new();
     // Meios-fios reais dos corredores (faixa borda da pista -> fundo do MF), para a planta geral.
     private List<(AcadDb.ObjectId Corridor, List<(double Station, Point3d Inner, Point3d Outer)> Band)> _curbs = new();
+
+    // Planta de todos os corredores (pista, sarjeta, meio-fio, calcada), como na planta do rebaixo.
+    private List<List<ModelSection>> _strips = new();
+    private (double MinX, double MinY, double MaxX, double MaxY)? _stripBounds;
     // Rebaixos ja vistos: um rebaixo novo (lancado pelo MFREBAIXO) e selecionado e destacado sozinho.
     private HashSet<string>? _knownSets;
 
@@ -568,6 +572,8 @@ internal sealed class MFRebaixoPanel : SW.Window
                 _corridors = MFRebaixoData.Corridors(doc.Database);
                 _overview = MFRebaixoData.Overview(doc.Database);
                 _curbs = MFRebaixoData.Curbs(doc.Database);
+                _strips = MFRebaixoData.PlanStrips(doc.Database);
+                _stripBounds = null;
             }
         }
         catch (System.Exception ex)
@@ -643,10 +649,13 @@ internal sealed class MFRebaixoPanel : SW.Window
         try
         {
             RebaixoInfo? r = _category is "CORREDORES" or "CONFIG" ? null : _current;
-            if (r is null || r.Band.Count < 2 || Doc is null)
+            if (r is null || Doc is null)
                 MFRebaixoHighlight.Clear();
-            else
+            else if (r.Band.Count >= 2)
                 MFRebaixoHighlight.Show(r.Band);
+            else
+                MFRebaixoHighlight.ShowLine(r.Path, false, 0.30); // sem a faixa do meio-fio: linha no eixo do rebaixo
+            Autodesk.AutoCAD.ApplicationServices.Core.Application.UpdateScreen();
             Doc?.Editor.UpdateScreen();
         }
         catch
@@ -1268,18 +1277,24 @@ internal sealed class MFRebaixoPanel : SW.Window
         if (w < 20 || h < 20 || !_plan.IsVisible)
             return;
 
-        // Enquadra pelos meios-fios (o que interessa); sem eles, pelas baselines.
-        List<Point3d> all = _curbs.SelectMany(c => c.Band.SelectMany(e => new[] { e.Inner, e.Outer })).Concat(_items.SelectMany(r => r.Path)).ToList();
-        if (all.Count == 0)
-            all = _overview.SelectMany(o => o.Points).ToList();
-        if (all.Count == 0)
+        // Enquadra pelos corredores inteiros; sem eles, pelos meios-fios; sem eles, pelas baselines.
+        if (_stripBounds is null)
+        {
+            List<Point3d> all = _strips.SelectMany(run => run.SelectMany(sec => sec.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points)))).ToList();
+            if (all.Count == 0)
+                all = _curbs.SelectMany(c => c.Band.SelectMany(e => new[] { e.Inner, e.Outer })).Concat(_items.SelectMany(r => r.Path)).ToList();
+            if (all.Count == 0)
+                all = _overview.SelectMany(o => o.Points).ToList();
+            if (all.Count > 0)
+                _stripBounds = (all.Min(p => p.X), all.Min(p => p.Y), all.Max(p => p.X), all.Max(p => p.Y));
+        }
+        if (_stripBounds is not { } fit)
         {
             _scale = 0;
             PlanLabel("Nenhum corredor no desenho.", 10, 10, 12);
             return;
         }
-
-        double minX = all.Min(p => p.X), maxX = all.Max(p => p.X), minY = all.Min(p => p.Y), maxY = all.Max(p => p.Y);
+        double minX = fit.MinX, maxX = fit.MaxX, minY = fit.MinY, maxY = fit.MaxY;
         _scale = 0.9 * Math.Min(w / Math.Max(maxX - minX, 1e-6), h / Math.Max(maxY - minY, 1e-6)) * _zoom;
         _cx = ((minX + maxX) / 2.0) + _panX;
         _cy = ((minY + maxY) / 2.0) + _panY;
@@ -1288,7 +1303,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         // Legenda e escala primeiro: reservam o espaco dos cantos.
         double ly = 8;
-        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("meio-fio", CurbBrush), ("rampa", RampBrush), ("rebaixado", RebaixoBrush), ("selecionado", SelectedBrush) } : Array.Empty<(string, WM.Brush)>())
+        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("rampa do rebaixo", RampBrush), ("trecho rebaixado", RebaixoBrush), ("selecionado", SelectedBrush), ("meio-fio", CurbBrush), ("sarjeta", (WM.Brush)new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color)), ("calcada", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Calcada" }).Color)), ("pista", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Top" }).Color)) } : Array.Empty<(string, WM.Brush)>())
         {
             var sw = new WS.Rectangle { Width = 14, Height = 6, Fill = b, IsHitTestVisible = false };
             WC.Canvas.SetLeft(sw, 8);
@@ -1299,7 +1314,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
 
         if (Show("LEGENDA"))
-            _labelRects.Add(new SW.Rect(0, 0, 110, ly + 4));
+            _labelRects.Add(new SW.Rect(0, 0, 130, ly + 4));
         if (Show("ESCALA"))
         {
             double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
@@ -1308,6 +1323,10 @@ internal sealed class MFRebaixoPanel : SW.Window
             PlanLabel($"{step:0.##} m", w - len - 14, h - 28, 10);
             _labelRects.Add(new SW.Rect(w - len - 20, h - 30, len + 20, 30));
         }
+
+        // Corredores inteiros em planta (mesmas faixas da planta do rebaixo).
+        if (_strips.Count > 0)
+            DrawStrips(_strips);
 
         // Baselines: so referencia (tracejado fino). O que identifica o rebaixo e o meio-fio.
         AcadDb.ObjectId? selCorridor = _current?.CorridorId;
@@ -1322,7 +1341,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         // Meios-fios reais (sarjeta + MF) de todos os corredores; os do corredor selecionado mais claros.
         WM.Brush curbDim = ToolTheme.Brush(150, 153, 160);
-        foreach ((AcadDb.ObjectId id, List<(double Station, Point3d Inner, Point3d Outer)> band) in _curbs)
+        foreach ((AcadDb.ObjectId id, List<(double Station, Point3d Inner, Point3d Outer)> band) in _curbs.Where(_ => _strips.Count == 0))
         {
             bool mine = selCorridor is AcadDb.ObjectId sid && sid == id;
             WM.Brush b = mine ? CurbBrush : curbDim;
@@ -1474,58 +1493,40 @@ internal sealed class MFRebaixoPanel : SW.Window
         }
     }
 
-    private void RenderDetail()
+    /// <summary>
+    /// Faixas do corredor em planta (pista, sarjeta, meio-fio, calcada) entre secoes vizinhas,
+    /// coloridas pelos codes dos links. Usado na planta do rebaixo e na planta geral.
+    /// </summary>
+    private void DrawStrips(IEnumerable<List<ModelSection>> runs)
     {
-        _plan.Children.Clear();
-        double w = _plan.ActualWidth, h = _plan.ActualHeight;
-        if (w < 20 || h < 20 || !_plan.IsVisible)
-            return;
-
-        RebaixoModel? model = CurrentModel();
-        if (model is null || model.Sections.Count < 2)
-        {
-            _scale = 0;
-            PlanLabel(model is null ? "Selecione um rebaixo." : "Sem secoes calculadas neste trecho (Rebuild no corredor?).", 10, 10, 12);
-            return;
-        }
-
-        List<Point3d> all = model.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points))).ToList();
-        if (all.Count == 0)
-            return;
-
-        double minX = all.Min(p => p.X), maxX = all.Max(p => p.X), minY = all.Min(p => p.Y), maxY = all.Max(p => p.Y);
-        _scale = 0.9 * Math.Min(w / Math.Max(maxX - minX, 1e-6), h / Math.Max(maxY - minY, 1e-6)) * _zoom;
-        _cx = ((minX + maxX) / 2.0) + _panX;
-        _cy = ((minY + maxY) / 2.0) + _panY;
-        _ox = w / 2.0;
-        _oy = h / 2.0;
-
-        // Faixas entre secoes vizinhas (como a hachura do Code Set), na ordem dos codes.
         List<(int Order, WM.Color Color, SW.Point[] Poly)> polys = new();
-        for (int k = 0; k + 1 < model.Sections.Count; k++)
+        foreach (List<ModelSection> sections in runs)
         {
-            ModelSection a = model.Sections[k], b = model.Sections[k + 1];
-            foreach ((long key, List<ModelLink> linksA) in a.Subassemblies)
+            for (int k = 0; k + 1 < sections.Count; k++)
             {
-                List<ModelLink>? linksB = b.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
-                if (linksB is null)
-                    continue;
-                int n = Math.Min(linksA.Count, linksB.Count);
-                for (int j = 0; j < n; j++)
+                ModelSection a = sections[k], b = sections[k + 1];
+                foreach ((long key, List<ModelLink> linksA) in a.Subassemblies)
                 {
-                    ModelLink la = linksA[j], lb = linksB[j];
-                    if (la.Points.Length < 2 || la.Points.Length != lb.Points.Length)
+                    List<ModelLink>? linksB = b.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
+                    if (linksB is null)
                         continue;
-                    RebaixoStyle.Look look = RebaixoStyle.Of(la.Codes);
-                    if (!look.Plan)
-                        continue;
-                    for (int p = 0; p + 1 < la.Points.Length; p++)
+                    int n = Math.Min(linksA.Count, linksB.Count);
+                    for (int j = 0; j < n; j++)
                     {
-                        polys.Add((look.Order, look.Color, new[]
+                        ModelLink la = linksA[j], lb = linksB[j];
+                        if (la.Points.Length < 2 || la.Points.Length != lb.Points.Length)
+                            continue;
+                        RebaixoStyle.Look look = RebaixoStyle.Of(la.Codes);
+                        if (!look.Plan)
+                            continue;
+                        for (int p = 0; p + 1 < la.Points.Length; p++)
                         {
-                            ToScreen(la.Points[p].X, la.Points[p].Y), ToScreen(la.Points[p + 1].X, la.Points[p + 1].Y),
-                            ToScreen(lb.Points[p + 1].X, lb.Points[p + 1].Y), ToScreen(lb.Points[p].X, lb.Points[p].Y)
-                        }));
+                            polys.Add((look.Order, look.Color, new[]
+                            {
+                                ToScreen(la.Points[p].X, la.Points[p].Y), ToScreen(la.Points[p + 1].X, la.Points[p + 1].Y),
+                                ToScreen(lb.Points[p + 1].X, lb.Points[p + 1].Y), ToScreen(lb.Points[p].X, lb.Points[p].Y)
+                            }));
+                        }
                     }
                 }
             }
@@ -1555,6 +1556,35 @@ internal sealed class MFRebaixoPanel : SW.Window
 
             _plan.Children.Add(new WS.Path { Data = geo, Fill = brush, Stroke = brush, StrokeThickness = 0.5, IsHitTestVisible = false });
         }
+    }
+
+    private void RenderDetail()
+    {
+        _plan.Children.Clear();
+        double w = _plan.ActualWidth, h = _plan.ActualHeight;
+        if (w < 20 || h < 20 || !_plan.IsVisible)
+            return;
+
+        RebaixoModel? model = CurrentModel();
+        if (model is null || model.Sections.Count < 2)
+        {
+            _scale = 0;
+            PlanLabel(model is null ? "Selecione um rebaixo." : "Sem secoes calculadas neste trecho (Rebuild no corredor?).", 10, 10, 12);
+            return;
+        }
+
+        List<Point3d> all = model.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points))).ToList();
+        if (all.Count == 0)
+            return;
+
+        double minX = all.Min(p => p.X), maxX = all.Max(p => p.X), minY = all.Min(p => p.Y), maxY = all.Max(p => p.Y);
+        _scale = 0.9 * Math.Min(w / Math.Max(maxX - minX, 1e-6), h / Math.Max(maxY - minY, 1e-6)) * _zoom;
+        _cx = ((minX + maxX) / 2.0) + _panX;
+        _cy = ((minY + maxY) / 2.0) + _panY;
+        _ox = w / 2.0;
+        _oy = h / 2.0;
+
+        DrawStrips(new[] { model.Sections });
 
         // Rebaixos em cima do meio-fio: rampas em laranja, trecho rebaixado em vermelho, o selecionado com contorno.
         foreach (RebaixoInfo item in _items.OrderBy(x => ReferenceEquals(x, _current)))
