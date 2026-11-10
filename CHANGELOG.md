@@ -6,6 +6,7 @@ Segundo bloco da lista do Heyvid de 10/11/2026 (`MFRebaixoPanel.Views.cs`, class
 - **Secao**: secao transversal do meio-fio numa estaca (comeca no meio do trecho rebaixado; links anterior/proxima), em escala 1:1, com a secao normal tracejada por baixo e as alturas das duas.
 - **3D interativo** (Viewport3D do WPF, sem dependencia nova): arrastar gira, botao do meio/direito move, roda aproxima, exagero de altura 1x/3x/10x. **Clique numa face**: destaca e mostra peca, codes, estaca e trecho, offsets, elevacoes, largura, desnivel, inclinacao e a altura do meio-fio na secao.
 - Modelo do trecho (`RebaixoModel`) passou a guardar estaca/offset/elevacao dos pontos (`ModelLink.Soe`), a origem de cada subassembly na secao (`ModelSection.Origins`) e os nomes das subassemblies (`Names`).
+- Ajustes depois do teste no desenho da Oficina BH: a linha d'agua do perfil/secao e o pe da face do meio-fio (ponto FLUXO_SARJETA), nao mais a borda da pista no inicio da sarjeta (a altura no trecho rebaixado dava 13,3 cm em vez dos 11,5 cm reais); o 3D abre olhando do lado da pista, um pouco antes do rebaixo (antes a camera ficava atras do meio-fio); no perfil os rotulos S0..S3 colados nao se sobrepoem e as alturas ficam dentro do grafico.
 
 ## 2.100.0 - MFREBAIXO v1.10.0 / PassagemRampa v1.3.0: avisos opcionais, limpar removidos, layer trancada, destaque fixo na tela
 

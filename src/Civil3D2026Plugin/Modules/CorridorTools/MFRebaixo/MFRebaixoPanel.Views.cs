@@ -91,6 +91,9 @@ internal sealed partial class MFRebaixoPanel
         if (links is null)
             return null;
 
+        // Linha d'agua = pe da face do meio-fio (ponto FLUXO_SARJETA / Flowline_Gutter): o ponto mais
+        // baixo do topo da peca SEM contar a sarjeta, cujo outro lado e a borda da pista (mais baixa ou
+        // mais alta conforme a inclinacao) e dava altura errada (13,3 em vez de 11,5 cm).
         double top = double.MinValue, flow = double.MaxValue;
         Point3d? first = null;
         foreach (ModelLink l in links)
@@ -99,12 +102,13 @@ internal sealed partial class MFRebaixoPanel
                 continue;
             bool curb = Has(l.Codes, "Curb");
             bool topCode = Has(l.Codes, "Top") || Has(l.Codes, "TOPO");
+            bool gutter = Has(l.Codes, "Sarjeta") || Has(l.Codes, "Gutter");
             foreach (Point3d q in l.Soe)
             {
                 first ??= q;
                 if (curb || topCode)
                     top = Math.Max(top, q.Z);
-                if (topCode)
+                if (topCode && !gutter)
                     flow = Math.Min(flow, q.Z);
             }
         }
@@ -214,20 +218,26 @@ internal sealed partial class MFRebaixoPanel
 
         // Marcos S0..S3.
         WM.Brush markBrush = ToolTheme.Brush(255, 205, 80);
+        double lastMarkX = double.MinValue;
+        bool lowRow = false;
         foreach ((string name, double st) in new[] { ("S0", r.S0), ("S1", r.S1), ("S2", r.S2), ("S3", r.S3) })
         {
             if (st < sa || st > sb)
                 continue;
             ChartLine(X(st), top - 4, X(st), h - bottom, markBrush, 0.8, dashed: true);
+            // Marcos colados (rampa curta): o rotulo seguinte desce uma linha para nao sobrepor.
+            lowRow = X(st) - lastMarkX < 26 && !lowRow;
+            lastMarkX = X(st);
             if (Show("MARCOS"))
-                PlanLabel(name, X(st) + 3, top - 6, 11, markBrush);
+                PlanLabel(name, X(st) + 3, top - 6 + (lowRow ? 13 : 0), 11, markBrush);
         }
 
-        // Altura do meio-fio (topo - linha d'agua) nos pontos que interessam.
+        // Altura do meio-fio (topo - linha d'agua) nos pontos que interessam (dentro da area do grafico).
         foreach (double st in new[] { sa, r.S0, (r.S1 + r.S2) / 2.0, r.S3, sb }.Distinct())
         {
             (double St, double Top, double Flow) n = pts.OrderBy(p => Math.Abs(p.St - st)).First();
-            PlanLabel($"{(n.Top - n.Flow) * 100:0.0} cm", X(n.St) - 16, Y(n.Top) - 18, 11);
+            double lx = Math.Clamp(X(n.St) - 16, left + 2, w - right - 48);
+            PlanLabel($"{(n.Top - n.Flow) * 100:0.0} cm", lx, Math.Max(top + 14, Y(n.Top) - 18), 11);
         }
 
         // Eixos.
@@ -624,8 +634,43 @@ internal sealed partial class MFRebaixoPanel
             ? all.Where(p => Math.Abs(p.X - _cx3) < 1.5 && Math.Abs(p.Y - _cy3) < 1.5).Select(p => p.Z).DefaultIfEmpty(_z03).Average()
             : _z03;
         _target = new W3.Point3D(0, 0, (zTarget - _z03) * ex);
-        _dist = Math.Max(5, r.TotalLength * 1.8);
+        _dist = Math.Max(6, (r.TotalLength * 2.2) + 2);
+        if (RoadSideYaw(model, r, mf) is double yaw)
+        {
+            _yaw = yaw;
+            _pitch = 32;
+        }
         UpdateCamera();
+    }
+
+    /// <summary>
+    /// Direcao da camera vinda do lado da pista e um pouco antes do rebaixo (olhando o meio-fio de
+    /// frente, em diagonal). Sem isso a camera fixa caia atras do meio-fio, com a pista tapando a vista.
+    /// </summary>
+    private static double? RoadSideYaw(RebaixoModel model, RebaixoInfo r, long? mf)
+    {
+        if (mf is not long key || model.Baseline.Count < 2)
+            return null;
+        double mid = (r.S1 + r.S2) / 2.0;
+        ModelSection? s = model.Sections.OrderBy(x => Math.Abs(x.Station - mid)).FirstOrDefault();
+        List<Point3d> curb = s?.Subassemblies.FirstOrDefault(a => a.Key == key).Links?.SelectMany(l => l.Points).ToList() ?? new List<Point3d>();
+        if (curb.Count == 0)
+            return null;
+        double cx = curb.Average(p => p.X), cy = curb.Average(p => p.Y);
+        int i = Enumerable.Range(0, model.Baseline.Count).OrderBy(k => Math.Pow(model.Baseline[k].X - cx, 2) + Math.Pow(model.Baseline[k].Y - cy, 2)).First();
+        Point3d b = model.Baseline[i];
+        Point3d a0 = model.Baseline[Math.Max(0, i - 1)], a1 = model.Baseline[Math.Min(model.Baseline.Count - 1, i + 1)];
+        double tx = a1.X - a0.X, ty = a1.Y - a0.Y, tl = Math.Sqrt((tx * tx) + (ty * ty));
+        double nx = cx - b.X, ny = cy - b.Y, nl = Math.Sqrt((nx * nx) + (ny * ny));
+        if (tl < 1e-6 || nl < 0.05)
+            return null;
+        tx /= tl;
+        ty /= tl;
+        nx /= nl;
+        ny /= nl;
+        // Do meio-fio para a pista (-n) e para tras na estaca (-t).
+        double dx = (-nx * 0.85) - (tx * 0.5), dy = (-ny * 0.85) - (ty * 0.5);
+        return Math.Atan2(dy, dx) * 180.0 / Math.PI;
     }
 
     private void ClearPick()
