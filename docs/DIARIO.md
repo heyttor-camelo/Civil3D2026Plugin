@@ -8,6 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.101.0 / MFREBAIXO 1.11.0 (vistas)
+
+- Compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos; C3DPassagemRampa 1.4.0 também; `ValidateProject.ps1` OK.
+- Teste numa cópia nova do DWG da Waldir Soeiro (sem salvar; cópia apagada depois), rebaixo criado por `ApplyFromPanel` (128,751–131,751, baseline `1_WALDIR_SOEIRO-Left`, MFSARJETA_DIR), comando de teste local não commitado. `Model(db, r, 6)`: 20 seções, `Soe` do mesmo tamanho de `Points` em todos os 1520 links, `Origins` em todas, `Names` com MFSARJETA_DIR.
+- Achado: a "linha d'água" de `CurbOf` pegava o ponto mais baixo dos links Top incluindo a sarjeta, que é a borda da pista (altura 13,3 cm no rebaixado). Corrigido para o pé da face do meio-fio (FLUXO_SARJETA): agora 11,5 cm, igual ao `FinalHeight` (11,48). O 3D abria atrás do meio-fio: câmera passou a vir do lado da pista. Rótulos S2/S3 colados no perfil se sobrepunham: agora descem uma linha.
+- Vistas renderizadas fora da tela (janela do painel em -20000, `RenderTargetBitmap`): PNGs em `C:\Temp\hydro-build\teste-rebaixo\vista-*.png`.
+- Entregue: 2.101.0 e PassagemRampa 1.4.0 no Drive (`atual`, `versoes\2.101.0`), `C:\Temp\hydro-build` e pasta dll da FDX (hash da Civil3D2026Plugin.dll da FDX = da 2.101.0).
+
 ## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.100.0 / MFREBAIXO 1.10.0
 
 - Compilou de primeira (net8 com `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos; `ValidateProject.ps1` OK.
