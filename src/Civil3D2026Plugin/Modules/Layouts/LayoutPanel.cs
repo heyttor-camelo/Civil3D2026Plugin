@@ -3607,6 +3607,13 @@ internal sealed partial class LayoutPanel : SW.Window
             ToolTip = "Ligado: o mapa sai igual ao que foi copiado; so a hachura do destaque e o numero das folhas sao refeitos. Desligado: o plugin gera textos, contornos e titulo pelos campos abaixo."
         };
         p.Children.Add(usarMolde);
+        var usarLugar = new WC.CheckBox
+        {
+            Content = "Aplicar tambem o lugar do mapa deste estilo",
+            Margin = new SW.Thickness(0, 4, 0, 0),
+            ToolTip = "Ligado: os layouts marcados recebem o mapa no lugar gravado no estilo. Desligado: cada layout mantem o lugar que ja tem."
+        };
+        p.Children.Add(usarLugar);
 
         var rotulo = new WC.ComboBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left };
         rotulo.Items.Add("Numero da prancha (01, 02...)");
@@ -3662,10 +3669,14 @@ internal sealed partial class LayoutPanel : SW.Window
         // ---- Estilos salvos e "copiar do layout" (como o padrao de malha/norte/escala)
         var posTexto = new Dictionary<string, Autodesk.AutoCAD.Geometry.Point2d>(est.PosTexto, StringComparer.OrdinalIgnoreCase);
         string moldeAtual = est.Molde, nomeAtual = est.Nome;
+        // Lugar que o estilo leva: de inicio, o lugar atual do primeiro layout marcado (ou o geral).
+        (Autodesk.AutoCAD.Geometry.Point2d Min, Autodesk.AutoCAD.Geometry.Point2d Max)? lugarAtual =
+            LayoutKeyMap.LugarDe(_kmCfg, marcadosAgora.Count > 0 ? marcadosAgora[0] : "");
         void InfoPos()
         {
             // Com o mapa copiado em uso, texto/titulo/tamanho vem dele: os campos ficam apagados.
             usarMolde.Visibility = moldeAtual.Length > 0 ? SW.Visibility.Visible : SW.Visibility.Collapsed;
+            usarLugar.Visibility = lugarAtual.HasValue ? SW.Visibility.Visible : SW.Visibility.Collapsed;
             bool gerar = moldeAtual.Length == 0 || usarMolde.IsChecked != true;
             rotulo.IsEnabled = gerar;
             titulo.IsEnabled = gerar;
@@ -3691,6 +3702,9 @@ internal sealed partial class LayoutPanel : SW.Window
             moldeAtual = e.Molde;
             nomeAtual = e.Nome;
             usarMolde.IsChecked = moldeAtual.Length > 0;
+            if (e.Caixa.HasValue)
+                lugarAtual = e.Caixa;
+            usarLugar.IsChecked = e.Caixa.HasValue; // estilo salvo/copiado leva o lugar dele
             SelecionarCor(cor, e.CorDestaque);
             transp.Text = e.Transparencia.ToString();
             padrao.Text = e.Padrao;
@@ -3712,6 +3726,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 Destaque = destaque.IsChecked == true,
                 Molde = usarMolde.IsChecked == true ? moldeAtual : "",
                 Nome = nomeAtual,
+                Caixa = usarLugar.IsChecked == true ? lugarAtual : null,
                 CorDestaque = (cor.SelectedItem as WC.ComboBoxItem)?.Tag is short c ? c : (short)1,
                 Transparencia = int.TryParse(transp.Text, out int t) ? Math.Clamp(t, 0, 90) : 50,
                 Padrao = string.IsNullOrWhiteSpace(padrao.Text) ? "SOLID" : padrao.Text.Trim().ToUpperInvariant(),
@@ -3770,11 +3785,14 @@ internal sealed partial class LayoutPanel : SW.Window
             try
             {
                 nomeAtual = nomeEstilo;
-                LayoutKeyMap.SalvarPreset(doc, nomeEstilo, DoForm());
+                KeyMapEstilo paraSalvar = DoForm();
+                paraSalvar.Caixa = lugarAtual; // estilo salvo sempre leva o lugar
+                LayoutKeyMap.SalvarPreset(doc, nomeEstilo, paraSalvar);
+                usarLugar.IsChecked = lugarAtual.HasValue;
                 _kmCfg = LayoutKeyMap.Ler(doc.Database);
                 if (!salvos.Items.Cast<string>().Any(x => x.Equals(nomeEstilo, StringComparison.OrdinalIgnoreCase)))
                     salvos.Items.Add(nomeEstilo);
-                Say($"Estilo \"{nomeEstilo}\" salvo neste desenho.");
+                Say($"Estilo \"{nomeEstilo}\" salvo neste desenho" + (lugarAtual.HasValue ? ", com o lugar do mapa." : "."));
             }
             catch (System.Exception ex)
             {
@@ -3839,7 +3857,7 @@ internal sealed partial class LayoutPanel : SW.Window
             }
             List<string> alvo = Marcados();
             Executar(() => LayoutKeyMap.Aplicar(doc, alvo, novo),
-                ConfLayouts("Aplicar esta aparencia do mapa-chave SO nos layouts marcados e refazer o mapa. Os outros layouts continuam com a aparencia que ja tem. As viewports nao mudam.")
+                ConfLayouts("Aplicar esta aparencia do mapa-chave SO nos layouts marcados e refazer o mapa. Os outros layouts continuam com a aparencia que ja tem. Com \"Aplicar tambem o lugar\" ligado, o mapa vai para o lugar gravado no estilo. As viewports nao mudam.")
                 ?? "Nenhum layout marcado: aplicar esta aparencia em TODAS as pranchas e refazer o mapa. Aparencias proprias de prancha, se houver, sao substituidas por esta. As viewports nao mudam.");
         }));
         botoes.Children.Add(ActionButton("Tirar o mapa dos marcados", () =>

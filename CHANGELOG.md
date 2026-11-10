@@ -1,3 +1,8 @@
+## 2.98.1 - LAYOUTS v1.22.1: estilo do mapa-chave leva o proprio lugar
+
+- O estilo salvo guarda tambem o lugar do mapa no papel. "Copiar do layout atual" pega o lugar onde o mapa esta naquele layout (mesmo movido a mao) e "Salvar estilo" grava junto.
+- Ao escolher um estilo salvo, a caixinha "Aplicar tambem o lugar do mapa deste estilo" vem ligada: "Aplicar nos marcados" poe o mapa nesse lugar em cada layout marcado (sem marcados, vira o lugar geral). Desligada, cada layout mantem o lugar que ja tem.
+
 ## 2.98.0 - LAYOUTS v1.22.0: mapa-chave copiado "como esta", agrupado, e conserto do lugar
 
 - Conserto: trocar o lugar do mapa pelo painel (lugar geral, lugar da prancha, voltar ao geral) nao pegava nas pranchas que ja tinham mapa. O plugin via o mapa antigo no lugar antigo, achava que tinha sido movido a mao e guardava o lugar antigo de novo. Agora a base do mapa leva gravado onde foi desenhada, e so MOVE/SCALE de verdade conta como "movido a mao".

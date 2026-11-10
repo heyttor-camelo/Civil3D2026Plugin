@@ -38,6 +38,9 @@ internal sealed class KeyMapEstilo
     /// <summary>Nome do estilo salvo de onde esta aparencia veio (so para mostrar na lista).</summary>
     public string Nome { get; set; } = "";
 
+    /// <summary>Lugar do mapa no papel que vai junto com o estilo (null = nao mexe no lugar ao aplicar).</summary>
+    public (Point2d Min, Point2d Max)? Caixa { get; set; }
+
     /// <summary>Texto de folha movido a mao: nome do layout da folha -> posicao no Model (vale em qualquer caixa).</summary>
     public Dictionary<string, Point2d> PosTexto { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -47,7 +50,7 @@ internal sealed class KeyMapEstilo
         {
             Rotulo = Rotulo, CorDestaque = CorDestaque, Transparencia = Transparencia, Padrao = Padrao, EscalaHachura = EscalaHachura,
             AnguloHachura = AnguloHachura, CorFundo = CorFundo, FatorTexto = FatorTexto, Titulo = Titulo,
-            Destaque = Destaque, Molde = Molde, Nome = Nome
+            Destaque = Destaque, Molde = Molde, Nome = Nome, Caixa = Caixa
         };
         foreach (KeyValuePair<string, Point2d> kv in PosTexto)
             c.PosTexto[kv.Key] = kv.Value;
@@ -191,6 +194,7 @@ internal static class LayoutKeyMap
             Point2d? caixaMin = null;
             KeyMapEstilo? est = null; // depois de um code 6 (layout) ou 300 (estilo salvo), os codes de aparencia sao dele
             string? posDe = null;
+            Point2d? estMin = null;
             foreach (TypedValue tv in rb)
             {
                 switch (tv.TypeCode)
@@ -237,6 +241,15 @@ internal static class LayoutKeyMap
                             cfg.Presets[pn] = est = new KeyMapEstilo();
                         break;
                     case 301: posDe = Convert.ToString(tv.Value); break;
+                    case 15: { var p = (Point3d)tv.Value; estMin = new Point2d(p.X, p.Y); break; }
+                    case 16:
+                    {
+                        var p = (Point3d)tv.Value;
+                        if (est is not null && estMin is Point2d em)
+                            est.Caixa = (em, new Point2d(p.X, p.Y));
+                        estMin = null;
+                        break;
+                    }
                     case 14:
                     {
                         var p = (Point3d)tv.Value;
@@ -363,6 +376,11 @@ internal static class LayoutKeyMap
             dados.Add(new TypedValue(79, (short)(e.Destaque ? 1 : 0)));
             dados.Add(new TypedValue(305, e.Molde));
             dados.Add(new TypedValue(302, e.Nome));
+            if (e.Caixa is (Point2d Min, Point2d Max) cxE)
+            {
+                dados.Add(new TypedValue(15, new Point3d(cxE.Min.X, cxE.Min.Y, 0)));
+                dados.Add(new TypedValue(16, new Point3d(cxE.Max.X, cxE.Max.Y, 0)));
+            }
             Posicoes(e.PosTexto);
         }
         // Ordem importa na leitura: geral primeiro; depois cada layout (code 6) e cada estilo salvo (code 300).
@@ -550,6 +568,13 @@ internal static class LayoutKeyMap
             {
                 cfg.DefinirGeral(estilo);
                 cfg.Estilos.Clear();
+                if (estilo.Caixa is (Point2d Min, Point2d Max) cxG)
+                {
+                    // O estilo leva o lugar: vira o lugar geral e ninguem fica com lugar proprio.
+                    cfg.CaixaMin = cxG.Min;
+                    cfg.CaixaMax = cxG.Max;
+                    cfg.Caixas.Clear();
+                }
             }
         }
         else
@@ -559,7 +584,18 @@ internal static class LayoutKeyMap
                 cfg.Fora.Remove(l);
                 cfg.Extras.Add(l);
                 if (estilo is not null)
+                {
                     cfg.Estilos[l] = estilo;
+                    if (estilo.Caixa is (Point2d Min, Point2d Max) cxL)
+                    {
+                        cfg.Caixas[l] = cxL; // o lugar do estilo vale para esta prancha
+                        if (!cfg.TemCaixa)
+                        {
+                            cfg.CaixaMin = cxL.Min;
+                            cfg.CaixaMax = cxL.Max;
+                        }
+                    }
+                }
             }
         }
         Gravar(doc, cfg);
@@ -696,6 +732,8 @@ internal static class LayoutKeyMap
         }
         est.Molde = nomeMolde;
         est.Titulo = temTitulo;
+        // Lugar do mapa neste layout, como esta agora (movido a mao ou nao): vai junto no estilo.
+        est.Caixa = DetectarMovimento(tr, btr, blocoId) ?? LugarDe(cfg, layout);
 
         est.Destaque = hachura is not null || folhas[i].Regioes.Count == 0;
         if (hachura is not null)
@@ -718,7 +756,7 @@ internal static class LayoutKeyMap
         tr.Commit();
         mensagem = $"Mapa de \"{layout}\" copiado como esta: {copiados} objeto(s), {textos} texto(s)" +
                    (textosFixos > 0 ? $" ({textosFixos} com texto fixo, sem numeracao automatica)" : "") +
-                   (est.Destaque ? $", destaque {est.Padrao}." : ", sem destaque (hachura apagada).");
+                   (est.Destaque ? $", destaque {est.Padrao}" : ", sem destaque (hachura apagada)") + ", com o lugar do mapa.";
         return est;
     }
 
@@ -774,6 +812,16 @@ internal static class LayoutKeyMap
         Gravar(doc, cfg);
         AvisarMudanca();
         return new OpResult(n, 0, $"Mapa-chave tirado de {tirar.Count} layout(s) ({n} objeto(s)); eles ficam sem mapa ate voce aplicar neles de novo.");
+    }
+
+    /// <summary>Lugar do mapa que vale hoje para o layout: o proprio dele ou o geral.</summary>
+    public static (Point2d Min, Point2d Max)? LugarDe(KeyMapConfig cfg, string layout)
+    {
+        if (cfg.Caixas.TryGetValue(layout, out (Point2d Min, Point2d Max) cx))
+            return cx;
+        if (cfg.CaixaMin is Point2d mn && cfg.CaixaMax is Point2d mx)
+            return (mn, mx);
+        return null;
     }
 
     /// <summary>Marca, no XData da base, de onde ela foi desenhada (posicao, escala e caixa).</summary>
