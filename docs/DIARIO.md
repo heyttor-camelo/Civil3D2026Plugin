@@ -21,7 +21,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - **2.95.2**: bug de origem do mapa-chave: `Adicionar` gravava XData só com o 1001 (regapp), que o AutoCAD trata como "apagar XData" → nenhum mapa tinha marca, Remover achava 0 objetos e cada Gerar podia duplicar. Agora 1000 "mapa"/"previa"; Limpar/Resumo também reconhecem pelas layers `MAPA_CHAVE_*` (LISP e versões antigas). **Lição: XData marcador precisa de pelo menos um valor além do regapp.**
 - **2.95.3**: abas do painel com `WrapPanel` no lugar dos `StackPanel` horizontais (botões/campos quebram linha em janela estreita), status com quebra, colunas da lista do mapa-chave mais curtas.
 - **2.95.4**: prancha sem viewport sobre a base (capa 000) recebe o mapa-chave inteiro quando escolhida de propósito (`Gerar` só pula quem não foi escolhido); lista da aba Mapa-chave com caixinhas e menu do botão direito (previa / só em / também em / remover / mover; `DefinirLayouts(..., somar)`); `C3DMAPACHAVE Inserir` virou `InserirEm` (só o layout atual, caixa própria), antes refazia em todas.
-- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.4).
+- **2.96.0**: Heyvid achou a aba Mapa-chave uma bagunça (botões ambíguos). Refeita em três passos (base e lugar / aparência / aplicar). Aparência por layout (`KeyMapEstilo`, `KeyMapConfig.Estilos`, code 6 + 7/42/43/51/64/65/76/77/78 no Xrecord): "Aplicar nos marcados" grava só nos layouts marcados; sem marcados = geral. Lista "só nestes" (code 3) trocada por `Fora` (code 8, mapa tirado) e `Extras` (code 9, incluído mesmo sem viewport), com conversão ao ler. `Encaixe.De(..., titulo)` reserva a faixa do título (texto da folha de cima caía sobre "MAPA CHAVE"). Prévia saiu do painel (palavra `preVia` do comando continua).
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.96.0).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
