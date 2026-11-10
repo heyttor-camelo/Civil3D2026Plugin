@@ -8,6 +8,15 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-10 — nuvem (Claude) + build no CAMELO (Remote Control)
+
+- **Bug da "troca de viewports" entre pranchas (Layouts)**: era a malha. Copiar um layout leva junto a referência ao mesmo bloco `C3D_MALHA_<handle>` e os itens marcados com a viewport de origem; inserir de novo na origem redefinia o bloco e a cópia passava a mostrar as coordenadas da outra prancha. **2.92.1** (`LayoutConjunto.cs`): bloco só é redefinido se nenhuma outra referência viva o usa (senão `_2`, `_3`...); inserir/remover apaga os itens herdados da cópia (handle de viewport que não está no layout, dono pela posição); aviso no fim listando pranchas que ainda têm itens copiados.
+- **2.93.0**: norte e escala entram antes da malha e os textos E=/N= desviam deles; os três ficam num grupo `C3D_MNE_<handle>` (opção "Agrupar", padrão ligado); malha vai para trás (DrawOrderTable.MoveToBottom).
+- **2.94.0**: `C3DORDEMDESENHO` pergunta a origem `[Arquivo/Model/Layout]`; painel Geral ganhou "Ordem de desenho do Model ou de outro layout" para os layouts marcados (`DrawOrderCommands.CopiarDoDesenho`).
+- **2.94.1**: Renomear em lote com Base vazia + numerar = só prefixo+número+sufixo (antes repetia o nome antigo); título/prévia da aba acompanham a marcação.
+- Build no CAMELO: 0 erros, 15 avisos antigos; DLL 2.94.1 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX. Pendência: no CAMELO a permissão não deixa apagar as DLLs antigas numeradas (sobrou também uma 2.92.2 de uma compilação paralela descartada); apagar à mão.
+- Aguardando teste do Heyvid das quatro mudanças.
+
 ## 2026-11-09 — nuvem (Claude); build pendente
 
 - Heyvid pediu o último pkt do meio-fio: `subassemblies/MFSARJETA/MFSARJETA_v1.21.pkt` (16/10). Conferido também no LAPTOP-11TNS6P8 (sem versão mais nova).
