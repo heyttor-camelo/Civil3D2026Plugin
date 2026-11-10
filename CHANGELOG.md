@@ -1,3 +1,8 @@
+## 2.94.1 - LAYOUTS v1.18.1: Renomear em lote so numera, sem repetir o nome antigo
+
+- Renomear em lote com "Numerar em sequencia" e Base vazia: o nome vira so prefixo + numero + sufixo (antes o nome antigo ficava no meio: "001 (2)" -> "001 (2)001"). Sem numerar, Base vazia continua mantendo o nome atual.
+- O titulo e a previa da aba Renomear acompanham a marcacao atual (contavam os layouts do momento em que a aba foi aberta), e a confirmacao mostra os nomes na ordem das abas, a mesma usada para renomear.
+
 ## 2.94.0 - UTILITARIOS v1.8.0 / LAYOUTS v1.18.0: ordem de desenho do Model ou de outro layout do proprio desenho
 
 - `C3DORDEMDESENHO` pergunta antes a origem: `[Arquivo/Model/Layout]`. Arquivo e o de sempre (outro DWG/DWT). Model ou Layout pegam a ordem das layers do proprio desenho e aplicam no layout atual, em todos os layouts ou (origem layout) no Model.

@@ -2116,8 +2116,8 @@ internal sealed partial class LayoutPanel : SW.Window
     private SW.UIElement BuildRename()
     {
         WC.StackPanel p = Form();
-        List<string> marcados = Marcados();
-        p.Children.Add(Label($"Renomear {marcados.Count} layout(s) marcado(s), na ordem das abas", true));
+        WC.TextBlock titulo = Label($"Renomear {Marcados().Count} layout(s) marcado(s), na ordem das abas", true);
+        p.Children.Add(titulo);
 
         var prefixo = new WC.TextBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left };
         var baseNome = new WC.TextBox { Width = 200, HorizontalAlignment = SW.HorizontalAlignment.Left };
@@ -2129,7 +2129,7 @@ internal sealed partial class LayoutPanel : SW.Window
 
         p.Children.Add(Label("Prefixo"));
         p.Children.Add(prefixo);
-        p.Children.Add(Label("Base (vazio = mantem o nome atual)"));
+        p.Children.Add(Label("Base (vazio: numerando, o nome vira so prefixo + numero + sufixo; sem numerar, mantem o nome atual)"));
         p.Children.Add(baseNome);
         p.Children.Add(numerar);
         var linha = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -2154,19 +2154,24 @@ internal sealed partial class LayoutPanel : SW.Window
         void Previa()
         {
             RenameRule r = Regra();
-            previa.Text = marcados.Count == 0
+            List<string> agora = Marcados();
+            titulo.Text = $"Renomear {agora.Count} layout(s) marcado(s), na ordem das abas";
+            previa.Text = agora.Count == 0
                 ? "Marque os layouts na lista."
-                : "Previa (na ordem das abas): " + string.Join(", ", OrdemAbas(marcados).Take(4).Select((n, i) => $"{n} -> {r.Nome(i, n)}")) + (marcados.Count > 4 ? ", ..." : "");
+                : $"Previa ({agora.Count} layout(s), na ordem das abas): " + string.Join(", ", OrdemAbas(agora).Take(4).Select((n, i) => $"{n} -> {r.Nome(i, n)}")) + (agora.Count > 4 ? ", ..." : "");
         }
         foreach (WC.TextBox tb in new[] { prefixo, baseNome, sufixo, inicio, digitos })
             tb.TextChanged += (_, _) => Previa();
         numerar.Click += (_, _) => Previa();
+        // A marcacao muda sem a aba ser refeita: a previa e o titulo se atualizam ao entrar com o mouse.
+        p.MouseEnter += (_, _) => Previa();
         Previa();
 
         p.Children.Add(ActionButton("Renomear", () =>
         {
             RenameRule regra = Regra();
-            List<string> nomes = Marcados();
+            // Mesma ordem que o Renomear usa (abas), para a confirmacao mostrar o que vai acontecer de fato.
+            List<string> nomes = OrdemAbas(Marcados());
             Executar(() =>
             {
                 OpResult r = LayoutOps.Renomear(Doc!, nomes, regra);

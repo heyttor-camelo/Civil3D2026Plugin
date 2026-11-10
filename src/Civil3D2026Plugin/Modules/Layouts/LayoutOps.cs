@@ -22,10 +22,13 @@ internal sealed record OpResult(int Ok, int Falhas, string Mensagem)
 /// <summary>Regra de renomeacao em lote.</summary>
 internal sealed record RenameRule(string Prefixo, string Base, string Sufixo, int Inicio, int Digitos, bool Numerar)
 {
-    /// <summary>Nome gerado para a posicao i (0-based) com o nome atual como base quando Base e vazia.</summary>
+    /// <summary>
+    /// Nome gerado para a posicao i (0-based). Base vazia: numerando, o nome e so prefixo + numero +
+    /// sufixo (o nome antigo sai inteiro); sem numerar, o nome atual fica no meio.
+    /// </summary>
     public string Nome(int i, string atual)
     {
-        string meio = Base.Length > 0 ? Base : atual;
+        string meio = Base.Length > 0 ? Base : Numerar ? "" : atual;
         string numero = Numerar ? (Inicio + i).ToString().PadLeft(Math.Max(1, Digitos), '0') : "";
         return (Prefixo + meio + numero + Sufixo).Trim();
     }
