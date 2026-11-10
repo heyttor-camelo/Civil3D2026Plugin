@@ -8,6 +8,13 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.100.0 / MFREBAIXO 1.10.0
+
+- Compilou de primeira (net8 com `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos; `ValidateProject.ps1` OK.
+- O DWG da Waldir Soeiro (versão salva às 12:07) **não tem mais nenhum Transition Set**. Teste numa cópia (`C:\Temp\hydro-build\teste-rebaixo\base.dwg`, sem salvar) com rebaixos criados por `ApplyFromPanel` na region `TRECHO - ST - 190` (baseline `1_WALDIR_SOEIRO-Right`, MFSARJETA_DIR), comandos de teste locais não commitados.
+- Resultados: `MFREBAIXOHACHURA` 2x com a layer trancada = "3 apagada(s), 3 desenhada(s)" por rebaixo, sem erro, layer termina trancada, áreas iguais. Remover com outro rebaixo na baseline apaga os 2 sets (4 -> 2); sendo o único da baseline, fica desligado (REMOVIDO). `MFREBAIXOLIMPAR`: com removido + ativo apaga o removido (4 -> 2); só removidos mantém 1 set. `FinalHeight == ExposedAtMiddle` em todos. `MFRebaixoHighlight.ShowLine/Clear` sem exceção no console.
+- Entregue: 2.100.0 e PassagemRampa 1.3.0 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX.
+
 ## 2026-11-10 — nuvem (Claude), rebaixo de meio-fio; build por Remote Control no LAPTOP-11TNS6P8
 
 - Heyvid achou o painel de rebaixos ruim (representação por baseline não ajuda: o meio-fio muitas vezes não está em cima de uma baseline) e mostrou sólidos do corredor com buracos nas transições altura normal -> rebaixada.
