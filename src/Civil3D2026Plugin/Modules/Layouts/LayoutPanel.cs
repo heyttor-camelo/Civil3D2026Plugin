@@ -434,12 +434,12 @@ internal sealed partial class LayoutPanel : SW.Window
         _categoryBar = new WC.StackPanel { Margin = new SW.Thickness(0, 2, 0, 4) };
         _categoryHeader = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(8, 6, 8, 2) };
         _graphic = new WC.Canvas { Background = ToolTheme.GraphicBack, ClipToBounds = true };
-        _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0) };
+        _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), TextWrapping = SW.TextWrapping.Wrap };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text, AlternationCount = 2 };
         _find = new WC.TextBox { Width = 160, Background = T.Input, Foreground = T.Text, BorderBrush = T.Line, CaretBrush = T.Text, VerticalContentAlignment = SW.VerticalAlignment.Center };
         _tabStrip = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         _tabContent = new WC.ContentControl();
-        _status = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(6, 0, 6, 0) };
+        _status = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(6, 0, 6, 0), TextWrapping = SW.TextWrapping.Wrap };
 
         WC.Grid root = new();
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
@@ -1080,8 +1080,8 @@ internal sealed partial class LayoutPanel : SW.Window
                 break;
 
             case "MAPACHAVE":
-                headers = new[] { "Layout", "Areas de folha", "Mapa-chave" };
-                widths = new[] { 200.0, 100, 100 };
+                headers = new[] { "Layout", "Areas", "Mapa-chave" };
+                widths = new[] { 170.0, 50, 75 };
                 comCheck = false;
                 rows = _kmResumo.Where(r => Match(r.Layout)).Select(r => new Row
                 {
@@ -2094,7 +2094,7 @@ internal sealed partial class LayoutPanel : SW.Window
                 p.Children.Add(Prop("Altura", tx.Altura.ToString("0.###", CultureInfo.InvariantCulture)));
                 p.Children.Add(Prop("Caracteres", tx.Caracteres.ToString()));
                 p.Children.Add(Prop("Papel na numeracao", tx.Papel.Length > 0 ? tx.Papel : "(nenhum)"));
-                var acoesTx = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+                var acoesTx = new WC.WrapPanel();
                 acoesTx.Children.Add(ActionButton("Marcar como numero", () => MarcarTextos("Numero", new[] { tx.Id })));
                 acoesTx.Children.Add(ActionButton("Marcar como total", () => MarcarTextos("Total", new[] { tx.Id })));
                 if (tx.Papel.Length > 0)
@@ -2135,7 +2135,7 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Label("Base (vazio: numerando, o nome vira so prefixo + numero + sufixo; sem numerar, mantem o nome atual)"));
         p.Children.Add(baseNome);
         p.Children.Add(numerar);
-        var linha = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var linha = new WC.WrapPanel();
         var c1 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
         c1.Children.Add(Label("Inicio"));
         c1.Children.Add(inicio);
@@ -2474,7 +2474,7 @@ internal sealed partial class LayoutPanel : SW.Window
         var carMin = new WC.TextBox { Width = 50, Text = _filtro.CaracteresMin?.ToString() ?? "" };
         var carMax = new WC.TextBox { Width = 50, Text = _filtro.CaracteresMax?.ToString() ?? "" };
         var numericos = new WC.CheckBox { Content = "So textos com cara de numero (01, 12/30, 3 de 10)", IsChecked = _filtro.SoNumericos, Margin = new SW.Thickness(0, 6, 0, 0) };
-        var tipos = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 6, 0, 0) };
+        var tipos = new WC.WrapPanel { Margin = new SW.Thickness(0, 6, 0, 0) };
         var cbT = new WC.CheckBox { Content = "TEXT", IsChecked = _filtro.Textos, Margin = new SW.Thickness(0, 0, 12, 0) };
         var cbM = new WC.CheckBox { Content = "MTEXT", IsChecked = _filtro.MTextos, Margin = new SW.Thickness(0, 0, 12, 0) };
         var cbA = new WC.CheckBox { Content = "Atributos", IsChecked = _filtro.Atributos, Margin = new SW.Thickness(0, 0, 12, 0) };
@@ -2504,7 +2504,7 @@ internal sealed partial class LayoutPanel : SW.Window
             }
         }
 
-        var l1 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var l1 = new WC.WrapPanel();
         void Campo(WC.Panel pai, string rotulo, SW.UIElement c)
         {
             var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
@@ -2513,16 +2513,16 @@ internal sealed partial class LayoutPanel : SW.Window
             pai.Children.Add(sp);
         }
         Campo(l1, "Layer (curinga)", layer);
-        var contemSp = new WC.StackPanel { Orientation = WC.Orientation.Horizontal }; contemSp.Children.Add(contem); contemSp.Children.Add(regex);
+        var contemSp = new WC.WrapPanel(); contemSp.Children.Add(contem); contemSp.Children.Add(regex);
         Campo(l1, "Contem", contemSp);
         p.Children.Add(l1);
-        var l2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var l2 = new WC.WrapPanel();
         Campo(l2, "Altura min", altMin); Campo(l2, "Altura max", altMax); Campo(l2, "Caracteres min", carMin); Campo(l2, "Caracteres max", carMax);
         p.Children.Add(l2);
         p.Children.Add(numericos);
         p.Children.Add(tipos);
 
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var botoes = new WC.WrapPanel();
         botoes.Children.Add(ActionButton("Buscar", Buscar));
         botoes.Children.Add(ActionButton("Limpar filtros", () =>
         {
@@ -2574,7 +2574,7 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Label(tx.Tipo == "Atributo" ? $"Atributo {tx.Tag} do bloco {tx.Bloco} em {tx.Layout}" : $"{tx.Tipo} em {tx.Layout}", true));
         var caixa = new WC.TextBox { Text = tx.Texto, AcceptsReturn = tx.Tipo == "MTexto", TextWrapping = SW.TextWrapping.Wrap, MinHeight = 60, Margin = new SW.Thickness(0, 4, 0, 0) };
         p.Children.Add(caixa);
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var botoes = new WC.WrapPanel();
         botoes.Children.Add(ActionButton("Salvar texto", () => Executar(() => LayoutNumbering.EditarTexto(Doc!, tx.Id, caixa.Text))));
         botoes.Children.Add(ActionButton("Aplicar nos layouts marcados", () =>
         {
@@ -2686,7 +2686,7 @@ internal sealed partial class LayoutPanel : SW.Window
         var py = new WC.TextBox { Width = 80, Text = LayoutSettings.Get("prancha_y", "0") };
         px.TextChanged += (_, _) => LayoutSettings.Set("prancha_x", px.Text);
         py.TextChanged += (_, _) => LayoutSettings.Set("prancha_y", py.Text);
-        var l3 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var l3 = new WC.WrapPanel();
         Campo(l3, "Ponto de insercao X (mm)", px); Campo(l3, "Y (mm)", py);
         p.Children.Add(l3);
 
@@ -2823,7 +2823,7 @@ internal sealed partial class LayoutPanel : SW.Window
         tbLayers.ToolTip = "Nomes separados por virgula; aceita * e ? (ex.: F-VT-NOTAVEL, C-TOPO-*).";
         chLayers.Click += (_, _) => LayoutViewportPower.CongelarLayers = chLayers.IsChecked == true;
         tbLayers.TextChanged += (_, _) => LayoutViewportPower.Layers = tbLayers.Text;
-        var linhaLayers = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 4, 0, 0) };
+        var linhaLayers = new WC.WrapPanel { Margin = new SW.Thickness(0, 4, 0, 0) };
         linhaLayers.Children.Add(chLayers);
         linhaLayers.Children.Add(tbLayers);
         p.Children.Add(linhaLayers);
@@ -2946,7 +2946,7 @@ internal sealed partial class LayoutPanel : SW.Window
         }
         p.Children.Add(grid);
 
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var botoes = new WC.WrapPanel();
         botoes.Children.Add(ActionButton("Aplicar nos marcados", AplicarCarimbo));
         botoes.Children.Add(ActionButton("Limpar campos", () =>
         {
@@ -3568,7 +3568,7 @@ internal sealed partial class LayoutPanel : SW.Window
             p.Children.Add(Prop("Posicao propria", $"{_kmCfg.Caixas.Count} prancha(s) com o mapa em outro lugar: {string.Join(", ", _kmCfg.Caixas.Keys.Take(6))}{(_kmCfg.Caixas.Count > 6 ? ", ..." : "")}"));
         p.Children.Add(Prop("Pranchas", _kmCfg.Layouts.Count == 0 ? "todas as que mostram a base" : $"{_kmCfg.Layouts.Count} escolhida(s): {string.Join(", ", _kmCfg.Layouts.Take(6))}{(_kmCfg.Layouts.Count > 6 ? ", ..." : "")}"));
 
-        var passos = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var passos = new WC.WrapPanel();
         passos.Children.Add(ActionButton("1. Escolher base no Model", () => Enviar(C3DCommands.Layouts.MapaChave + " Base")));
         passos.Children.Add(ActionButton("2. Escolher area no layout", () => Enviar(C3DCommands.Layouts.MapaChave + " Area")));
         p.Children.Add(passos);
@@ -3607,7 +3607,7 @@ internal sealed partial class LayoutPanel : SW.Window
         fundo.Items.Add(new WC.ComboBoxItem { Content = "Branco (7)", Tag = (short)7 });
         fundo.Items.Add(new WC.ComboBoxItem { Content = "Cinza claro (254)", Tag = (short)254 });
         fundo.SelectedItem = fundo.Items.Cast<WC.ComboBoxItem>().FirstOrDefault(i => (short)i.Tag! == _kmCfg.CorFundo) ?? fundo.Items[0];
-        var lh = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var lh = new WC.WrapPanel();
         void CampoH(string rotulo, SW.UIElement c)
         {
             var sp = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) };
@@ -3623,7 +3623,7 @@ internal sealed partial class LayoutPanel : SW.Window
         var totalMan = new WC.TextBox { Width = 60, Text = _kmCfg.TotalManual > 0 ? _kmCfg.TotalManual.ToString() : "", ToolTip = "Vazio = quantidade de layouts com folha sobre a base" };
         var usarCarimbo = new WC.CheckBox { Content = "Numero/total dos textos marcados do carimbo (senao ordem das abas)", IsChecked = _kmCfg.UsarCarimbo, Margin = new SW.Thickness(0, 6, 0, 0) };
         var titulo = new WC.CheckBox { Content = "Titulo MAPA CHAVE na caixa", IsChecked = _kmCfg.Titulo, Margin = new SW.Thickness(0, 4, 0, 0) };
-        var lt = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var lt = new WC.WrapPanel();
         var sp1 = new WC.StackPanel { Margin = new SW.Thickness(0, 0, 12, 0) }; sp1.Children.Add(Label("Fator da altura do texto (1 = como a LISP)")); sp1.Children.Add(fatorTxt);
         var sp2 = new WC.StackPanel(); sp2.Children.Add(Label("Total de folhas (vazio = contar)")); sp2.Children.Add(totalMan);
         lt.Children.Add(sp1); lt.Children.Add(sp2);
@@ -3639,7 +3639,7 @@ internal sealed partial class LayoutPanel : SW.Window
         };
         p.Children.Add(auto);
 
-        var botoes = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var botoes = new WC.WrapPanel();
         botoes.Children.Add(ActionButton("Salvar e gerar", () =>
         {
             if (Doc is not Document doc) return;
@@ -3675,7 +3675,7 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Label("Previa e pranchas escolhidas", true));
         p.Children.Add(Label("Previa: o mapa completo em qualquer lugar do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. Pranchas: marque os layouts e escolha em quais o mapa fica (os outros perdem o mapa). " +
                              "Mover: cada prancha pode ter o mapa em outro lugar. Pode usar MOVE/SCALE do AutoCAD na base do mapa: na proxima atualizacao o plugin guarda essa posicao para a prancha. O mesmo menu aparece no botao direito da viewport."));
-        var b2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        var b2 = new WC.WrapPanel();
         b2.Children.Add(ActionButton("Previa no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " preVia")));
         b2.Children.Add(ActionButton("Remover previas", () => Executar(() => LayoutKeyMap.RemoverPrevias(Doc!))));
         b2.Children.Add(ActionButton("Mover no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Mover")));

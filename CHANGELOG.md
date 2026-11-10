@@ -1,3 +1,8 @@
+## 2.95.3 - LAYOUTS v1.19.3: painel cabe em janela estreita
+
+- As linhas de botoes e de campos das abas (Renomear, Numeracao, Carimbo, Prancha, Modo leve, Mapa-chave...) quebram em mais de uma linha quando o painel e estreito, em vez de sumirem pela borda. As frases de status (acima da lista e abaixo da vista grafica) tambem quebram.
+- Lista do Mapa-chave: colunas "Areas" e "Mapa-chave" mais estreitas (o sim/nao ficava escondido atras da rolagem).
+
 ## 2.95.2 - LAYOUTS v1.19.2: Remover do mapa-chave tambem apaga mapas antigos (LISP / versoes anteriores)
 
 - Remover (de um layout, dos marcados ou de todos) e a regeneracao agora apagam tambem o que esta nas layers `MAPA_CHAVE_*` sem a marca do plugin: mapas feitos pela LISP MAPACHAVE ou inseridos por versoes antigas. Antes so saia o que a versao atual tinha criado, e o mapa antigo ficava na prancha.
