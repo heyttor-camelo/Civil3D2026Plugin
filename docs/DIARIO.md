@@ -18,7 +18,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - **2.94.2**: folga dos textos da malha ao norte/escala passou para 10 mm (pedido dele).
 - **2.95.0**: mapa-chave com `preVia` (caixa em qualquer lugar do layout atual, marcada no XData, fora da atualização normal), lista de pranchas na config (`KeyMapConfig.Layouts`, code 3 no Xrecord; vazia = todas), `DefinirLayouts`/`RemoverDe`/`RemoverPrevias`, menu do botão direito na viewport e botões na aba Mapa-chave. `Gerar` refatorado em `Preparar`/`Desenhar`/`Encaixe`.
 - **2.95.1**: caixa própria por prancha (`KeyMapConfig.Caixas`, codes 4/12/13 no Xrecord); `Gerar` detecta MOVE/SCALE na base do mapa (`DetectarMovimento`) e guarda a nova caixa; `C3DMAPACHAVE Mover`, `MoverEm`/`PosicaoPadrao`, itens no menu da viewport e na aba.
-- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.1).
+- **2.95.2**: bug de origem do mapa-chave: `Adicionar` gravava XData só com o 1001 (regapp), que o AutoCAD trata como "apagar XData" → nenhum mapa tinha marca, Remover achava 0 objetos e cada Gerar podia duplicar. Agora 1000 "mapa"/"previa"; Limpar/Resumo também reconhecem pelas layers `MAPA_CHAVE_*` (LISP e versões antigas). **Lição: XData marcador precisa de pelo menos um valor além do regapp.**
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.2).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
