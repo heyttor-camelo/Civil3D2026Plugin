@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.3.0)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.4.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -127,6 +127,11 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   desligado quando e o unico set da baseline (o Civil nao deixa a lista vazia).
 - v1.10: avisos (NBR 9050) desligados por padrao (Configuracao > Mostrar avisos); layer da hachura trancada;
   destaque no desenho com espessura fixa na tela; altura final lida no proprio trecho rebaixado.
+- v1.11: o painel ganhou tres vistas do rebaixo selecionado, ao lado de Planta geral e Planta do rebaixo:
+  **Perfil** (topo do meio-fio e linha d'agua da sarjeta ao longo do trecho, rampas e trecho rebaixado em cores,
+  altura do meio-fio em cm), **Secao** (secao transversal numa estaca, com a secao normal tracejada por baixo;
+  links anterior/proxima) e **3D** (arraste para girar, botao do meio para mover, roda para aproximar, exagero
+  de altura 1x/3x/10x; clique numa face mostra peca, codes, estaca, offsets, elevacoes, largura e inclinacao).
 - `MFREBAIXOHACHURA` (v1.9.1): refaz a hachura em planta de todos os rebaixos pela linha de comando e lista
   quantas secoes do meio-fio foram lidas em cada um.
 - `MFREBAIXOPAINEL` (v1.9.1): a planta geral mostra **todos os corredores inteiros** (pista, sarjeta, meio-fio,

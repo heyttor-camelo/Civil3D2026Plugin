@@ -129,12 +129,18 @@ internal sealed class ModelLink
 {
     public string[] Codes { get; init; } = Array.Empty<string>();
     public Point3d[] Points { get; init; } = Array.Empty<Point3d>();
+
+    /// <summary>Os mesmos pontos em estaca (X), offset (Y) e elevacao (Z) na baseline (perfil, secao e 3D).</summary>
+    public Point3d[] Soe { get; init; } = Array.Empty<Point3d>();
 }
 
 internal sealed class ModelSection
 {
     public double Station { get; init; }
     public List<(long Key, List<ModelLink> Links)> Subassemblies { get; } = new();
+
+    /// <summary>Origem de cada subassembly na secao, em estaca (X), offset (Y) e elevacao (Z).</summary>
+    public Dictionary<long, Point3d> Origins { get; } = new();
 }
 
 /// <summary>Trecho do corredor em volta de um rebaixo (planta e 3D).</summary>
@@ -144,6 +150,9 @@ internal sealed class RebaixoModel
     public List<Point3d> Baseline { get; } = new();
     public Point3d[] Marks { get; init; } = Array.Empty<Point3d>();
     public string[] MarkNames { get; init; } = Array.Empty<string>();
+
+    /// <summary>Nome de cada subassembly do trecho, pela chave usada em ModelSection.Subassemblies.</summary>
+    public Dictionary<long, string> Names { get; } = new();
 }
 
 /// <summary>Leitura e remoção dos rebaixos do desenho (para o painel MFREBAIXOPAINEL).</summary>
@@ -684,6 +693,7 @@ internal static class MFRebaixoData
                     string[] codeArray = codes.ToArray();
                     // Planta geral: so guarda os pontos do que aparece em planta (a ordem dos links e mantida).
                     List<Point3d> pts = new();
+                    List<Point3d> soes = new();
                     if (!planOnly || RebaixoStyle.Of(codeArray).Plan)
                     {
                         foreach (CivilDb.CalculatedPoint cp in link.CalculatedPoints)
@@ -691,12 +701,24 @@ internal static class MFRebaixoData
                             Point3d soe = cp.StationOffsetElevationToBaseline;
                             Point3d w = Xyz(baseline, soe.X, soe.Y, soe.Z);
                             if (w != Point3d.Origin)
+                            {
                                 pts.Add(w);
+                                if (!planOnly)
+                                    soes.Add(soe);
+                            }
                         }
                     }
-                    links.Add(new ModelLink { Codes = codeArray, Points = pts.ToArray() });
+                    links.Add(new ModelLink { Codes = codeArray, Points = pts.ToArray(), Soe = soes.ToArray() });
                 }
                 section.Subassemblies.Add((asa.SubassemblyId.Handle.Value, links));
+                try
+                {
+                    section.Origins[asa.SubassemblyId.Handle.Value] = asa.OriginStationOffsetElevationToBaseline;
+                }
+                catch
+                {
+                    // Sem origem: as vistas usam o primeiro ponto.
+                }
             }
             list.Add(section);
         }
@@ -774,6 +796,23 @@ internal static class MFRebaixoData
                 if (Math.Max(region.StartStation, region.EndStation) < from || Math.Min(region.StartStation, region.EndStation) > to)
                     continue;
                 model.Sections.AddRange(ReadSections(baseline, region, from, to, false));
+            }
+
+            // Nomes das subassemblies (para achar o meio-fio do rebaixo e para o clique no 3D).
+            foreach (long key in model.Sections.SelectMany(x => x.Subassemblies.Select(a => a.Key)).Distinct())
+            {
+                try
+                {
+                    if (db.TryGetObjectId(new AcadDb.Handle(key), out AcadDb.ObjectId said) &&
+                        tr.GetObject(said, AcadDb.OpenMode.ForRead) is CivilDb.Subassembly sa)
+                    {
+                        model.Names[key] = sa.Name;
+                    }
+                }
+                catch
+                {
+                    // Subassembly apagada.
+                }
             }
         }
         tr.Commit();

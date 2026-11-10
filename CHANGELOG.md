@@ -1,3 +1,12 @@
+## 2.101.0 - MFREBAIXO v1.11.0 / PassagemRampa v1.4.0: vistas em perfil, secao e 3D interativo no painel
+
+Segundo bloco da lista do Heyvid de 10/11/2026 (`MFRebaixoPanel.Views.cs`, classe parcial do painel).
+
+- **Perfil**: topo do meio-fio e linha d'agua da sarjeta ao longo do trecho, faixa entre eles colorida (rampas em laranja, rebaixado em vermelho), marcos S0..S3, altura do meio-fio em cm, exagero vertical automatico (ate 30x).
+- **Secao**: secao transversal do meio-fio numa estaca (comeca no meio do trecho rebaixado; links anterior/proxima), em escala 1:1, com a secao normal tracejada por baixo e as alturas das duas.
+- **3D interativo** (Viewport3D do WPF, sem dependencia nova): arrastar gira, botao do meio/direito move, roda aproxima, exagero de altura 1x/3x/10x. **Clique numa face**: destaca e mostra peca, codes, estaca e trecho, offsets, elevacoes, largura, desnivel, inclinacao e a altura do meio-fio na secao.
+- Modelo do trecho (`RebaixoModel`) passou a guardar estaca/offset/elevacao dos pontos (`ModelLink.Soe`), a origem de cada subassembly na secao (`ModelSection.Origins`) e os nomes das subassemblies (`Names`).
+
 ## 2.100.0 - MFREBAIXO v1.10.0 / PassagemRampa v1.3.0: avisos opcionais, limpar removidos, layer trancada, destaque fixo na tela
 
 Lista do Heyvid de 10/11/2026 (primeiro bloco; perfil, secoes e 3D interativo ficam para o proximo).

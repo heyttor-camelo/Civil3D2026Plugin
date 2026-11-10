@@ -23,7 +23,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 /// detalhe (propriedades editaveis, nome, secoes, avisos).
 /// Segue o tema claro/escuro do painel viario.
 /// </summary>
-internal sealed class MFRebaixoPanel : SW.Window
+internal sealed partial class MFRebaixoPanel : SW.Window
 {
     private static MFRebaixoPanel? _instance;
 
@@ -58,7 +58,7 @@ internal sealed class MFRebaixoPanel : SW.Window
     // Rotulos ja colocados na planta (para nao sobrepor textos).
     private readonly List<SW.Rect> _labelRects = new();
 
-    private string Mode => _settings.PainelModo is "PLANTA" or "3D" ? "PLANTA" : "GERAL";
+    private string Mode => _settings.PainelModo is "PLANTA" or "PERFIL" or "SECAO" or "3D" ? _settings.PainelModo : "GERAL";
     private string? _modelKey;
     private bool _refreshQueued;
     private Document? _watched;
@@ -257,6 +257,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         _plan = new WC.Canvas { Background = ToolTheme.GraphicBack, ClipToBounds = true };
         _graphicHost = new WC.Grid();
         _graphicHost.Children.Add(_plan);
+        _graphicHost.Children.Add(Build3DHost());
         _graphicInfo = new WC.TextBlock { Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), TextTrimming = SW.TextTrimming.CharacterEllipsis };
         _coords = new WC.TextBlock { Foreground = T.Text, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(8, 0, 8, 0), MaxWidth = 520, TextTrimming = SW.TextTrimming.CharacterEllipsis };
         _list = new WC.ListView { BorderBrush = T.Line, Background = T.Pane, Foreground = T.Text };
@@ -928,8 +929,34 @@ internal sealed class MFRebaixoPanel : SW.Window
         _viewToggles.Children.Clear();
         _viewToggles.Children.Add(ModeButton("GERAL", "mapa", "Planta geral", "Todos os corredores e rebaixos do desenho; clique num rebaixo para selecionar, duplo clique para abrir"));
         _viewToggles.Children.Add(ModeButton("PLANTA", "planta", "Planta do rebaixo", "Trecho do corredor do rebaixo selecionado, colorido pelos codes"));
+        _viewToggles.Children.Add(ModeButton("PERFIL", "corte", "Perfil", "Perfil ao longo do meio-fio: topo do meio-fio e sarjeta, com as rampas e o trecho rebaixado"));
+        _viewToggles.Children.Add(ModeButton("SECAO", "secoes", "Secao", "Secao transversal do meio-fio numa estaca do rebaixo, comparada com a secao normal"));
+        _viewToggles.Children.Add(ModeButton("3D", "solido3d", "3D", "Trecho em 3D: arraste para girar, roda do mouse para aproximar, clique numa face para ver as medidas"));
 
-        if (Mode == "PLANTA")
+        if (Mode == "SECAO")
+        {
+            _viewToggles.Children.Add(Sep());
+            _viewToggles.Children.Add(Link("\u25C0 anterior", () => StepSection(-1), "Secao anterior do corredor"));
+            _viewToggles.Children.Add(Link("proxima \u25B6", () => StepSection(+1), "Proxima secao do corredor"));
+        }
+
+        if (Mode == "3D")
+        {
+            _viewToggles.Children.Add(Sep());
+            foreach (double ex in new[] { 1.0, 3.0, 10.0 })
+            {
+                double exx = ex;
+                _viewToggles.Children.Add(Link($"altura {ex:0}x", () =>
+                {
+                    _exagero3D = exx;
+                    _key3D = null;
+                    BuildViewToggles();
+                    RenderGraphic();
+                }, "Exagero vertical do 3D", Math.Abs(_exagero3D - ex) < 1e-6));
+            }
+        }
+
+        if (Mode != "GERAL")
         {
             _viewToggles.Children.Add(Sep());
             foreach (double m in new[] { 3.0, 6.0, 15.0 })
@@ -1069,7 +1096,9 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void ShowView()
     {
-        _plan.Visibility = SW.Visibility.Visible;
+        bool is3D = Mode == "3D";
+        _plan.Visibility = is3D ? SW.Visibility.Collapsed : SW.Visibility.Visible;
+        _host3D.Visibility = is3D ? SW.Visibility.Visible : SW.Visibility.Collapsed;
         _coords.Text = "";
     }
 
@@ -1100,6 +1129,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             using (doc.LockDocument())
                 _model = MFRebaixoData.Model(doc.Database, r, _settings.PainelMargem);
             _modelKey = key;
+            _key3D = null; // modelo novo: o 3D e refeito
         }
         catch (System.Exception ex)
         {
@@ -1131,10 +1161,24 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void RenderPlan()
     {
-        if (Mode == "GERAL")
-            RenderOverview();
-        else
-            RenderDetail();
+        switch (Mode)
+        {
+            case "GERAL":
+                RenderOverview();
+                break;
+            case "PERFIL":
+                RenderProfile();
+                break;
+            case "SECAO":
+                RenderCross();
+                break;
+            case "3D":
+                Render3D();
+                break;
+            default:
+                RenderDetail();
+                break;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -1679,8 +1723,15 @@ internal sealed class MFRebaixoPanel : SW.Window
 
     private void OnPlanMove(object sender, WI.MouseEventArgs e)
     {
+        if (Mode is "PERFIL" or "SECAO")
+        {
+            _coords.Text = Show("CURSOR") ? UnderCursorChart(e.GetPosition(_plan)) : "";
+            return;
+        }
+
         if (_scale <= 0)
             return;
+
         SW.Point p = e.GetPosition(_plan);
         (double x, double y) = ToWorld(p);
         _coords.Text = !Show("CURSOR") ? "" : Mode == "GERAL" ? UnderCursorOverview(p) : UnderCursorDetail(x, y);
