@@ -110,6 +110,23 @@ internal static class LayoutConjuntoJanela
             Foreground = t.Muted
         });
 
+        var agrupar = new WC.CheckBox
+        {
+            Content = "Agrupar malha, norte e escala de cada viewport (selecionar um seleciona os tres)",
+            IsChecked = p.Agrupar,
+            Foreground = t.Text,
+            Margin = new SW.Thickness(0, 8, 0, 0),
+            ToolTip = "Grupo C3D_MNE_<viewport>. Para mexer em um so: Ctrl+Shift+A (PICKSTYLE) liga/desliga a selecao de grupos."
+        };
+        raiz.Children.Add(agrupar);
+        raiz.Children.Add(new WC.TextBlock
+        {
+            Text = "A malha vai sempre para tras do desenho, e os textos E= / N= desviam do norte e da escala grafica.",
+            TextWrapping = SW.TextWrapping.Wrap,
+            Foreground = t.Muted,
+            Margin = new SW.Thickness(0, 4, 0, 0)
+        });
+
         WC.Grid gm = Grupo("Malha de coordenadas", out WC.CheckBox mAtivo, p.Malha);
         WC.TextBox mM = Auto(p.MalhaM);
         WC.TextBox mMm = Num(p.MalhaMm, "0.#");
@@ -168,6 +185,7 @@ internal static class LayoutConjuntoJanela
             mMm.Text = d.MalhaMm.ToString("0.#", Br);
             mTxt.Text = d.MalhaTexto.ToString("0.##", Br);
             mCruz.IsChecked = d.MalhaCruzes;
+            agrupar.IsChecked = d.Agrupar;
             mTr.Text = d.MalhaTransp.ToString("0", Br);
             mLay.Text = d.MalhaLayer;
             nTam.Text = d.NorteTamanho.ToString("0.#", Br);
@@ -206,6 +224,7 @@ internal static class LayoutConjuntoJanela
                 MalhaMm = Ler(mMm, "distancia da malha no papel"),
                 MalhaTexto = Ler(mTxt, "texto da malha"),
                 MalhaCruzes = mCruz.IsChecked == true,
+                Agrupar = agrupar.IsChecked == true,
                 MalhaTransp = Math.Min(90, Ler(mTr, "transparencia da malha", positivo: false)),
                 MalhaLayer = NomeLayer(mLay.Text, PadraoConjunto.LayerMalha),
                 Norte = nAtivo.IsChecked == true,
@@ -250,6 +269,7 @@ internal static class LayoutConjuntoJanela
         para.MalhaMm = de.MalhaMm;
         para.MalhaTexto = de.MalhaTexto;
         para.MalhaCruzes = de.MalhaCruzes;
+        para.Agrupar = de.Agrupar;
         para.MalhaTransp = de.MalhaTransp;
         para.MalhaLayer = de.MalhaLayer;
         para.Norte = de.Norte;

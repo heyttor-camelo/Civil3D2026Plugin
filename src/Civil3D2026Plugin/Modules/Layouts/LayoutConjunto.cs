@@ -42,6 +42,8 @@ internal sealed class PadraoConjunto
     /// <summary>Transparencia das linhas da malha (0 a 90%); os textos ficam opacos.</summary>
     public double MalhaTransp { get; set; } = 50;
     public string MalhaLayer { get; set; } = LayerMalha;
+    /// <summary>Malha, norte e escala de cada viewport ficam num grupo (selecionar um seleciona os tres).</summary>
+    public bool Agrupar { get; set; } = true;
     /// <summary>Intervalo da malha em metros; 0 = automatico pela distancia no papel.</summary>
     public double MalhaM { get; set; }
 
@@ -71,6 +73,7 @@ internal sealed class PadraoConjunto
         p.MalhaTransp = LayoutSettings.GetDouble("mne_malha_transp", p.MalhaTransp);
         p.MalhaLayer = LerLayer("mne_malha_layer", LayerMalha);
         p.MalhaM = LayoutSettings.GetDouble("mne_malha_m", p.MalhaM);
+        p.Agrupar = LayoutSettings.GetBool("mne_agrupar", p.Agrupar);
         return p;
     }
 
@@ -93,6 +96,7 @@ internal sealed class PadraoConjunto
         LayoutSettings.Set("mne_malha_transp", MalhaTransp);
         LayoutSettings.Set("mne_malha_layer", MalhaLayer);
         LayoutSettings.Set("mne_malha_m", MalhaM);
+        LayoutSettings.Set("mne_agrupar", Agrupar);
     }
 
     /// <summary>Layer salva; vazia (padrao antigo = layer atual) volta para a layer padrao do item.</summary>
@@ -123,7 +127,8 @@ internal sealed class PadraoConjunto
         var partes = new List<string>();
         partes.Add(Malha ? $"malha {(MalhaCruzes ? "em cruzes" : "em linhas")} a cada {(MalhaM > 0 ? MalhaM.ToString("0.##", Inv) + " m" : "~" + MalhaMm.ToString("0.#", Inv) + " mm")}, texto {MalhaTexto.ToString("0.##", Inv)} mm, layer {MalhaLayer}" : "sem malha");
         partes.Add(Norte ? $"norte {NorteTamanho.ToString("0.#", Inv)} mm no canto {NomeCanto(NortePos.Canto)}, layer {NorteLayer}" : "sem norte");
-        partes.Add(Escala ? $"escala grafica {(EscalaM > 0 ? EscalaM.ToString("0.##", Inv) + " m" : "~" + EscalaMm.ToString("0.#", Inv) + " mm")}, texto {EscalaTexto.ToString("0.##", Inv)} mm, canto {NomeCanto(EscalaPos.Canto)}, layer {EscalaLayer}" : "sem escala grafica");
+        partes.Add(Agrupar ? "agrupados" : "sem grupo");
+        partes.Insert(partes.Count - 1, Escala ? $"escala grafica {(EscalaM > 0 ? EscalaM.ToString("0.##", Inv) + " m" : "~" + EscalaMm.ToString("0.#", Inv) + " mm")}, texto {EscalaTexto.ToString("0.##", Inv)} mm, canto {NomeCanto(EscalaPos.Canto)}, layer {EscalaLayer}" : "sem escala grafica");
         return string.Join("; ", partes);
     }
 
@@ -214,13 +219,29 @@ internal static class LayoutConjunto
         string handle = vp.Handle.ToString();
         double mmPorM = LayoutEscalaGrafica.MmPorMetro(db, vp);
         var espaco = (BlockTableRecord)tr.GetObject(vp.OwnerId, OpenMode.ForWrite, false, true);
+        var criados = new ObjectIdCollection();
+        // Retangulos (no papel) do norte e da escala: os textos E= / N= da malha nao entram neles.
+        var evitar = new List<Point3d[]>();
 
-        if (p.Malha)
+        void Evitar(Entity e)
         {
-            // A malha ja sai com a marca (e os parametros) no XData.
-            InserirMalha(tr, db, vp, espaco, p, mmPorM);
+            try
+            {
+                Extents3d x = e.GeometricExtents;
+                double m = 1.0; // 1 mm de folga em volta
+                evitar.Add(new[]
+                {
+                    new Point3d(x.MinPoint.X - m, x.MinPoint.Y - m, 0), new Point3d(x.MaxPoint.X + m, x.MinPoint.Y - m, 0),
+                    new Point3d(x.MaxPoint.X + m, x.MaxPoint.Y + m, 0), new Point3d(x.MinPoint.X - m, x.MaxPoint.Y + m, 0)
+                });
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception)
+            {
+                // Sem extensao legivel: a malha so nao desvia dele.
+            }
         }
 
+        // Norte e escala antes da malha, para a malha saber onde eles estao.
         if (p.Norte)
         {
             ObjectId def = LayoutNorte.GarantirBloco(tr, db);
@@ -233,6 +254,8 @@ internal static class LayoutConjunto
             ObjectId id = espaco.AppendEntity(br);
             tr.AddNewlyCreatedDBObject(br, true);
             Marcar(tr, db, id, "norte", handle);
+            Evitar(br);
+            criados.Add(id);
         }
 
         if (p.Escala)
@@ -245,10 +268,78 @@ internal static class LayoutConjunto
             }
             else
             {
-                Layer(tr, db, (Entity)tr.GetObject(esc, OpenMode.ForWrite), p.EscalaLayer);
+                var e = (Entity)tr.GetObject(esc, OpenMode.ForWrite);
+                Layer(tr, db, e, p.EscalaLayer);
                 Marcar(tr, db, esc, "escala", handle);
+                Evitar(e);
+                criados.Add(esc);
             }
         }
+
+        if (p.Malha)
+        {
+            // A malha ja sai com a marca (e os parametros) no XData.
+            ObjectId malha = InserirMalha(tr, db, vp, espaco, p, mmPorM, evitar);
+            criados.Add(malha);
+            // Malha sempre para tras do desenho (DRAWORDER > Send to Back) no layout.
+            try
+            {
+                var ordem = (DrawOrderTable)tr.GetObject(espaco.DrawOrderTableId, OpenMode.ForWrite);
+                ordem.MoveToBottom(new ObjectIdCollection { malha });
+            }
+            catch (System.Exception ex)
+            {
+                avisos.Add("malha nao foi para tras do desenho: " + ex.Message);
+            }
+        }
+
+        if (p.Agrupar && criados.Count > 1)
+            Agrupar(tr, db, criados, handle);
+    }
+
+    /// <summary>Grupo nomeado C3D_MNE_&lt;viewport&gt; (ou _2, _3... se o nome ja tem dono) com os itens da viewport.</summary>
+    private static void Agrupar(Transaction tr, Database db, ObjectIdCollection ids, string handle)
+    {
+        try
+        {
+            var gd = (DBDictionary)tr.GetObject(db.GroupDictionaryId, OpenMode.ForRead);
+            string nomeBase = "C3D_MNE_" + handle, nome = nomeBase;
+            for (int i = 2; gd.Contains(nome); i++)
+            {
+                if (tr.GetObject(gd.GetAt(nome), OpenMode.ForRead) is Group velho && Vazio(velho))
+                {
+                    // Grupo antigo sem nada vivo: sai, e o nome volta a ficar livre.
+                    gd.UpgradeOpen();
+                    gd.Remove(nome);
+                    velho.UpgradeOpen();
+                    velho.Erase();
+                    break;
+                }
+                nome = nomeBase + "_" + i.ToString(CultureInfo.InvariantCulture);
+            }
+            var g = new Group("Malha, norte e escala da viewport " + handle + " (Civil3D2026Plugin)", true);
+            gd.UpgradeOpen();
+            gd.SetAt(nome, g);
+            tr.AddNewlyCreatedDBObject(g, true);
+            g.Append(ids);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso(Mod, $"Malha/norte/escala da viewport {handle}: nao agrupados ({ex.Message}).");
+        }
+    }
+
+    private static bool Vazio(Group g) => g.GetAllEntityIds().All(i => i.IsNull || i.IsErased);
+
+    /// <summary>Grupos de que a entidade faz parte.</summary>
+    private static IEnumerable<ObjectId> GruposDe(Entity e)
+    {
+        ObjectIdCollection? reatores = e.GetPersistentReactorIds();
+        if (reatores is null)
+            yield break;
+        foreach (ObjectId r in reatores)
+            if (!r.IsNull && !r.IsErased && r.ObjectClass.DxfName == "GROUP")
+                yield return r;
     }
 
     /// <summary>Ponto no papel: canto da viewport + deslocamento.</summary>
@@ -343,7 +434,7 @@ internal static class LayoutConjunto
     /// com traco na borda) a cada intervalo redondo do Model, cortadas no retangulo da viewport, e as
     /// coordenadas E= / N= nas bordas, ao longo das linhas.
     /// </summary>
-    private static ObjectId InserirMalha(Transaction tr, Database db, Viewport vp, BlockTableRecord espaco, PadraoConjunto p, double mmPorM)
+    private static ObjectId InserirMalha(Transaction tr, Database db, Viewport vp, BlockTableRecord espaco, PadraoConjunto p, double mmPorM, IEnumerable<Point3d[]> evitar)
     {
         double unidadesPorM = 1000.0 / LayoutReader.FatorUnidade(db);
         double intervalo = (p.MalhaM > 0 ? p.MalhaM : IntervaloRedondo(p.MalhaMm / mmPorM)) * unidadesPorM;
@@ -397,7 +488,8 @@ internal static class LayoutConjunto
         }
 
         // Caixas (no papel) dos rotulos ja colocados, para um nao cair em cima do outro.
-        var ocupadas = new List<Point3d[]>();
+        // Ja comeca com o norte e a escala grafica: nenhum rotulo cai em cima deles.
+        var ocupadas = new List<Point3d[]>(evitar);
         double folga = th * 0.4;
 
         DBText NovoTexto(string texto)
@@ -770,6 +862,7 @@ internal static class LayoutConjunto
         var handles = new HashSet<string>(doEspaco.Select(v => v.Handle.ToString()), StringComparer.OrdinalIgnoreCase);
 
         int n = 0;
+        var grupos = new HashSet<ObjectId>();
         foreach (ObjectId id in espaco)
         {
             if (tr.GetObject(id, OpenMode.ForRead) is not BlockReference br || Marca(br) is not { } marca)
@@ -779,11 +872,21 @@ internal static class LayoutConjunto
             if (!daViewport)
                 continue;
             ObjectId bloco = br.BlockTableRecord;
+            foreach (ObjectId g in GruposDe(br))
+                grupos.Add(g);
             br.UpgradeOpen();
             br.Erase();
             n++;
             if (apagarBloco && marca.Tipo == "malha")
                 ApagarBlocoSemUso(tr, bloco);
+        }
+        // Grupo que ficou vazio sai junto.
+        foreach (ObjectId gid in grupos)
+        {
+            if (gid.IsErased || tr.GetObject(gid, OpenMode.ForRead) is not Group g || !Vazio(g))
+                continue;
+            g.UpgradeOpen();
+            g.Erase();
         }
         return n;
     }

@@ -1,3 +1,9 @@
+## 2.93.0 - LAYOUTS v1.17.0: malha, norte e escala sem sobreposicao, agrupados e malha para tras
+
+- Malha, norte e escala (padrao): o norte e a escala grafica sao inseridos antes, e os textos E= / N= da malha desviam do retangulo deles (com 1 mm de folga).
+- Os tres itens de cada viewport ficam num **grupo** (`C3D_MNE_<viewport>`), ligado por padrao; nova opcao "Agrupar" na janela de configuracao. Remover/inserir de novo apaga o grupo que ficou vazio.
+- A malha vai sempre **para tras** do desenho do layout (draw order).
+
 ## 2.92.1 - LAYOUTS v1.16.2: malha, norte e escala nao passam mais de uma prancha para a outra
 
 - Causa da "troca" entre pranchas: ao copiar um layout (Move or Copy do AutoCAD, Ctrl+arrastar a aba ou Copiar do painel), a copia levava a malha como referencia ao **mesmo bloco** `C3D_MALHA_<viewport>` da prancha de origem, e malha/norte/escala com a marca da viewport de origem. Inserir de novo na origem redefinia esse bloco e a copia passava a mostrar as coordenadas da origem; inserir na copia nao apagava os itens herdados (ficavam dois de cada).
