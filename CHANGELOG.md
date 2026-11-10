@@ -1,3 +1,13 @@
+## 2.96.0 - LAYOUTS v1.20.0: aba Mapa-chave refeita, com aparencia por layouts marcados
+
+- Aba em tres passos: 1) base e lugar, 2) aparencia, 3) aplicar. Sairam os botoes "Salvar e gerar", "Atualizar", "Previa", "So nos layouts marcados", "Todas as pranchas", "Posicao geral" e os paragrafos de explicacao.
+- A aparencia (texto das folhas, titulo, tamanho do texto, cor, transparencia e hachura do destaque) vale para os layouts marcados na lista: "Aplicar nos marcados" grava so neles e os outros ficam como estao. Sem nenhum marcado, vale para todas. Uma frase na aba diz sempre para quem vai valer. Nova opcao de texto "Sem texto".
+- "Tirar o mapa dos marcados" apaga o mapa desses layouts e eles ficam sem mapa ate aplicar de novo. Prancha sem viewport (capa) recebe o mapa quando marcada e aplicada.
+- "Lugar proprio no layout atual..." substitui Inserir/Mover; "Reler a base do Model" refaz a base quando os objetos mudaram.
+- Lista: colunas "Mapa" (sim / tirado) e "Aparencia" (geral / propria). Botao direito na linha ou na viewport: por, tirar, lugar proprio, voltar ao lugar geral.
+- Com titulo, a base do mapa fica abaixo da faixa do titulo: o texto da folha de cima nao cai mais sobre "MAPA CHAVE".
+- Desenhos com a lista antiga "so nestes layouts" sao convertidos sozinhos.
+
 ## 2.95.4 - LAYOUTS v1.19.4: mapa-chave em prancha sem viewport e escolha de pranchas pela lista
 
 - Uma prancha sem viewport sobre a base (capa, indice) recebe o mapa-chave inteiro, sem destaque, quando e escolhida de proposito (lista de pranchas, "Mapa-chave so em..." ou "Inserir no layout atual..."). Antes era pulada em silencio e parecia que "nao ia".

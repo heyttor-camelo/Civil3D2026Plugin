@@ -90,7 +90,7 @@ public sealed class LayoutCommands
                 // Nova caixa so para o layout atual (os outros continuam na caixa geral).
                 if (EscolherCaixa(doc, "do mapa-chave nesta prancha") is not (Point2d ma, Point2d mb))
                     return;
-                r = LayoutKeyMap.MoverEm(doc, LayoutManager.Current.CurrentLayout, ma, mb);
+                r = LayoutKeyMap.InserirEm(doc, LayoutManager.Current.CurrentLayout, ma, mb);
                 break;
             case "Gerar":
                 r = LayoutKeyMap.Gerar(doc, true);

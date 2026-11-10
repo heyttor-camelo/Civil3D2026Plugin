@@ -11,6 +11,21 @@ using AcColorMethod = Autodesk.AutoCAD.Colors.ColorMethod;
 
 namespace Civil3D2026Plugin.Modules.Layouts;
 
+/// <summary>Aparencia do mapa-chave (pode ser propria de um layout).</summary>
+internal sealed class KeyMapEstilo
+{
+    /// <summary>0 = numero da prancha, 1 = nome do layout, 2 = os dois, 3 = sem texto nas folhas.</summary>
+    public int Rotulo { get; set; }
+    public short CorDestaque { get; set; } = 1;
+    public int Transparencia { get; set; } = 50;
+    public string Padrao { get; set; } = "SOLID";
+    public double EscalaHachura { get; set; } = 1.0;
+    public double AnguloHachura { get; set; }
+    public short CorFundo { get; set; } = -1;
+    public double FatorTexto { get; set; } = 1.0;
+    public bool Titulo { get; set; } = true;
+}
+
 /// <summary>Configuracao do mapa-chave, guardada no desenho (NOD, Xrecord C3D_MAPACHAVE).</summary>
 internal sealed class KeyMapConfig
 {
@@ -43,8 +58,40 @@ internal sealed class KeyMapConfig
     public int TotalManual { get; set; }
     public bool Titulo { get; set; } = true;
 
-    /// <summary>Layouts que recebem o mapa-chave (nomes). Vazio = todos os que tem viewport sobre a base.</summary>
+    /// <summary>Formato antigo (ate 2.95.4): lista "so nestes layouts". Convertida em Fora/Extras ao ler.</summary>
     public List<string> Layouts { get; } = new();
+
+    /// <summary>Layouts de onde o mapa foi tirado de proposito (ficam fora das atualizacoes).</summary>
+    public HashSet<string> Fora { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Layouts que recebem o mapa mesmo sem viewport sobre a base (capa, indice).</summary>
+    public HashSet<string> Extras { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Aparencia propria por layout; quem nao esta aqui usa a geral (campos desta classe).</summary>
+    public Dictionary<string, KeyMapEstilo> Estilos { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public KeyMapEstilo Geral() => new()
+    {
+        Rotulo = Rotulo, CorDestaque = CorDestaque, Transparencia = Transparencia, Padrao = Padrao, EscalaHachura = EscalaHachura,
+        AnguloHachura = AnguloHachura, CorFundo = CorFundo, FatorTexto = FatorTexto, Titulo = Titulo
+    };
+
+    public void DefinirGeral(KeyMapEstilo e)
+    {
+        Rotulo = e.Rotulo; CorDestaque = e.CorDestaque; Transparencia = e.Transparencia; Padrao = e.Padrao; EscalaHachura = e.EscalaHachura;
+        AnguloHachura = e.AnguloHachura; CorFundo = e.CorFundo; FatorTexto = e.FatorTexto; Titulo = e.Titulo;
+    }
+
+    /// <summary>Aparencia que vale para o layout: a propria dele ou a geral.</summary>
+    public KeyMapEstilo Para(string layout) => Estilos.TryGetValue(layout, out KeyMapEstilo? e) ? e : Geral();
+
+    /// <summary>Copia so com o que o desenho do mapa usa, ja com a aparencia do layout.</summary>
+    public KeyMapConfig Efetivo(string layout)
+    {
+        var c = new KeyMapConfig { UsarCarimbo = UsarCarimbo, TotalManual = TotalManual, Automatico = Automatico };
+        c.DefinirGeral(Para(layout));
+        return c;
+    }
 
     /// <summary>Caixa propria de um layout (quando o mapa foi movido/escalado so nele); os outros usam a caixa geral.</summary>
     public Dictionary<string, (Point2d Min, Point2d Max)> Caixas { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -88,6 +135,7 @@ internal static class LayoutKeyMap
         {
             string? caixaDe = null;
             Point2d? caixaMin = null;
+            KeyMapEstilo? est = null; // depois de um code 6, os codes de aparencia sao do layout
             foreach (TypedValue tv in rb)
             {
                 switch (tv.TypeCode)
@@ -117,8 +165,40 @@ internal static class LayoutKeyMap
                     case 11: { var p = (Point3d)tv.Value; cfg.CaixaMax = new Point2d(p.X, p.Y); break; }
                     case 330: cfg.Base.Add((ObjectId)tv.Value); break;
                     case 3: if (Convert.ToString(tv.Value) is { Length: > 0 } ln) cfg.Layouts.Add(ln); break;
+                    case 8: if (Convert.ToString(tv.Value) is { Length: > 0 } fo) cfg.Fora.Add(fo); break;
+                    case 9: if (Convert.ToString(tv.Value) is { Length: > 0 } ex) cfg.Extras.Add(ex); break;
+                    case 6:
+                        est = null;
+                        if (Convert.ToString(tv.Value) is { Length: > 0 } en)
+                            cfg.Estilos[en] = est = new KeyMapEstilo();
+                        break;
+                    case 76: if (est is not null) est.Rotulo = Convert.ToInt32(tv.Value); break;
+                    case 77: if (est is not null) est.Transparencia = Convert.ToInt32(tv.Value); break;
+                    case 78: if (est is not null) est.Titulo = Convert.ToInt32(tv.Value) != 0; break;
+                    case 64: if (est is not null) est.CorDestaque = Convert.ToInt16(tv.Value); break;
+                    case 65: if (est is not null) est.CorFundo = Convert.ToInt16(tv.Value); break;
+                    case 7: if (est is not null) est.Padrao = Convert.ToString(tv.Value) ?? "SOLID"; break;
+                    case 42: if (est is not null) est.EscalaHachura = Convert.ToDouble(tv.Value); break;
+                    case 43: if (est is not null) est.FatorTexto = Convert.ToDouble(tv.Value); break;
+                    case 51: if (est is not null) est.AnguloHachura = Convert.ToDouble(tv.Value); break;
                 }
             }
+        }
+        if (cfg.Layouts.Count > 0)
+        {
+            // Formato antigo "so nestes layouts": os outros viram "fora" e os da lista entram mesmo sem viewport.
+            var dicL = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+            foreach (DBDictionaryEntry e in dicL)
+            {
+                var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
+                if (lay.ModelType)
+                    continue;
+                if (cfg.Layouts.Contains(lay.LayoutName, StringComparer.OrdinalIgnoreCase))
+                    cfg.Extras.Add(lay.LayoutName);
+                else
+                    cfg.Fora.Add(lay.LayoutName);
+            }
+            cfg.Layouts.Clear();
         }
         tr.Commit();
         return cfg;
@@ -174,13 +254,30 @@ internal static class LayoutKeyMap
         }
         foreach (ObjectId id in cfg.Base.Where(i => !i.IsNull && !i.IsErased))
             dados.Add(new TypedValue(330, id));
-        foreach (string ln in cfg.Layouts.Distinct(StringComparer.OrdinalIgnoreCase))
-            dados.Add(new TypedValue(3, ln));
+        foreach (string fo in cfg.Fora)
+            dados.Add(new TypedValue(8, fo));
+        foreach (string ex in cfg.Extras)
+            dados.Add(new TypedValue(9, ex));
         foreach (KeyValuePair<string, (Point2d Min, Point2d Max)> kv in cfg.Caixas)
         {
             dados.Add(new TypedValue(4, kv.Key));
             dados.Add(new TypedValue(12, new Point3d(kv.Value.Min.X, kv.Value.Min.Y, 0)));
             dados.Add(new TypedValue(13, new Point3d(kv.Value.Max.X, kv.Value.Max.Y, 0)));
+        }
+        // Aparencia propria por layout: sempre por ultimo (o code 6 abre o bloco de cada layout).
+        foreach (KeyValuePair<string, KeyMapEstilo> kv in cfg.Estilos)
+        {
+            KeyMapEstilo e = kv.Value;
+            dados.Add(new TypedValue(6, kv.Key));
+            dados.Add(new TypedValue(76, (short)e.Rotulo));
+            dados.Add(new TypedValue(77, (short)e.Transparencia));
+            dados.Add(new TypedValue(78, (short)(e.Titulo ? 1 : 0)));
+            dados.Add(new TypedValue(64, e.CorDestaque));
+            dados.Add(new TypedValue(65, e.CorFundo));
+            dados.Add(new TypedValue(7, e.Padrao));
+            dados.Add(new TypedValue(42, e.EscalaHachura));
+            dados.Add(new TypedValue(43, e.FatorTexto));
+            dados.Add(new TypedValue(51, e.AnguloHachura));
         }
         xr.Data = new ResultBuffer(dados.ToArray());
         tr.Commit();
@@ -202,22 +299,29 @@ internal static class LayoutKeyMap
         public double Bh => Math.Abs(C1.Y - C0.Y);
         public Point2d Papel(Point2d p) => new(CentroCaixa.X + (p.X - CentroBase.X) * S, CentroCaixa.Y + (p.Y - CentroBase.Y) * S);
 
-        public static Encaixe De(Point2d c0, Point2d c1, Extents3d ext)
+        /// <summary>Com titulo, a base fica abaixo da faixa do titulo (12% do alto da caixa).</summary>
+        public bool Titulo { get; init; }
+
+        /// <summary>Quanto o centro da base fica abaixo do centro da caixa (negativo com titulo).</summary>
+        public double Dy => CentroCaixa.Y - (C0.Y + C1.Y) / 2;
+
+        public static Encaixe De(Point2d c0, Point2d c1, Extents3d ext, bool titulo = false)
         {
             double bw = Math.Abs(c1.X - c0.X), bh = Math.Abs(c1.Y - c0.Y);
             double ew = Math.Max(1e-9, ext.MaxPoint.X - ext.MinPoint.X);
             double eh = Math.Max(1e-9, ext.MaxPoint.Y - ext.MinPoint.Y);
-            double s = Math.Min(bw / ew, bh / eh) * 0.96;
+            double util = titulo ? bh * 0.88 : bh;
+            double s = Math.Min(bw / ew, util / eh) * 0.96;
             return new Encaixe(c0, c1, s,
-                new Point2d((c0.X + c1.X) / 2, (c0.Y + c1.Y) / 2),
-                new Point2d((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2));
+                new Point2d((c0.X + c1.X) / 2, (c0.Y + c1.Y) / 2 - (titulo ? bh * 0.06 : 0)),
+                new Point2d((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2)) { Titulo = titulo };
         }
     }
 
     /// <summary>
-    /// Refaz o mapa-chave nos layouts escolhidos na configuracao (lista vazia = todos os que tem
-    /// folha sobre a base). Layouts fora da lista perdem o mapa. reconstruirBase = refaz o bloco a
-    /// partir dos objetos do Model. As previas nao sao tocadas.
+    /// Refaz o mapa-chave em todos os layouts que mostram a base (mais os incluidos de proposito,
+    /// como a capa), menos os que tiveram o mapa tirado. Cada layout usa a aparencia propria, se
+    /// tiver, ou a geral. reconstruirBase = refaz o bloco a partir dos objetos do Model.
     /// </summary>
     public static OpResult Gerar(Document doc, bool reconstruirBase)
     {
@@ -226,11 +330,10 @@ internal static class LayoutKeyMap
         if (cfg.Base.Count(i => !i.IsNull && !i.IsErased) == 0)
             return new OpResult(0, 0, "Escolha primeiro os objetos da base no Model (Escolher base).");
         if (!cfg.TemCaixa)
-            return new OpResult(0, 0, "Escolha primeiro a area do mapa no layout (Escolher area).");
+            return new OpResult(0, 0, "Escolha primeiro o lugar do mapa no layout (Escolher lugar).");
 
         using DocumentLock _ = doc.LockDocument();
-        int layouts = 0, regioesTotal = 0, foraDaLista = 0, movidos = 0;
-        var escolhidos = new HashSet<string>(cfg.Layouts, StringComparer.OrdinalIgnoreCase);
+        int layouts = 0, regioesTotal = 0, fora = 0, movidos = 0;
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             (ObjectId blocoId, Extents3d? ext, DBDictionary dic) = Preparar(tr, db, cfg, reconstruirBase);
@@ -238,31 +341,31 @@ internal static class LayoutKeyMap
                 return new OpResult(0, 0, "A base do mapa-chave ficou vazia (os objetos escolhidos nao puderam ser copiados).");
 
             List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
-            var encGeral = Encaixe.De(cfg.CaixaMin!.Value, cfg.CaixaMax!.Value, ext.Value);
             foreach (var folha in folhas)
             {
                 var btr = (BlockTableRecord)tr.GetObject(folha.Btr, OpenMode.ForWrite);
                 // Caixa deste layout: a propria (movido/escalado nele) ou a geral. Se o usuario moveu ou
                 // escalou a base do mapa com MOVE/SCALE, a caixa acompanha e fica guardada para o layout.
-                Encaixe enc = cfg.Caixas.TryGetValue(folha.Nome, out (Point2d Min, Point2d Max) cx) ? Encaixe.De(cx.Min, cx.Max, ext.Value) : encGeral;
+                bool titulo = cfg.Para(folha.Nome).Titulo;
+                Encaixe enc = cfg.Caixas.TryGetValue(folha.Nome, out (Point2d Min, Point2d Max) cx)
+                    ? Encaixe.De(cx.Min, cx.Max, ext.Value, titulo)
+                    : Encaixe.De(cfg.CaixaMin!.Value, cfg.CaixaMax!.Value, ext.Value, titulo);
                 if (DetectarMovimento(tr, btr, blocoId, enc, ext.Value) is (Point2d Min, Point2d Max) nova)
                 {
                     cfg.Caixas[folha.Nome] = nova;
-                    enc = Encaixe.De(nova.Min, nova.Max, ext.Value);
+                    enc = Encaixe.De(nova.Min, nova.Max, ext.Value, titulo);
                     movidos++;
                 }
-                int apagados = Limpar(tr, btr, incluirPrevias: false);
-                bool escolhida = escolhidos.Contains(folha.Nome);
-                // Sem viewport sobre a base so entra se foi escolhida de proposito (capa, indice):
-                // recebe a base e o contorno de todas as folhas, sem destaque.
-                if (folha.Regioes.Count == 0 && !escolhida)
-                    continue;
-                if (escolhidos.Count > 0 && !escolhida)
+                Limpar(tr, btr, incluirPrevias: false);
+                if (cfg.Fora.Contains(folha.Nome))
                 {
-                    if (apagados > 0)
-                        foraDaLista++;
+                    fora++;
                     continue;
                 }
+                // Sem viewport sobre a base so entra se foi incluida de proposito (capa, indice):
+                // recebe a base e o contorno de todas as folhas, sem destaque.
+                if (folha.Regioes.Count == 0 && !cfg.Extras.Contains(folha.Nome))
+                    continue;
                 regioesTotal += Desenhar(tr, dic, btr, folha, folhas, cfg, blocoId, enc, previa: false);
                 layouts++;
             }
@@ -272,13 +375,13 @@ internal static class LayoutKeyMap
             Gravar(doc, cfg);
 
         AvisarMudanca();
-        string extra = (movidos > 0 ? $"; {movidos} com o mapa movido a mao (posicao guardada para a prancha)" : "") + (escolhidos.Count > 0 ? $" (so nas {escolhidos.Count} prancha(s) escolhidas" + (foraDaLista > 0 ? $"; apagado de {foraDaLista} fora da lista)" : ")") : "");
+        string extra = (movidos > 0 ? $"; {movidos} com o mapa movido a mao (lugar guardado para a prancha)" : "") +
+                       (fora > 0 ? $"; {fora} layout(s) sem mapa por escolha sua" : "") +
+                       (cfg.Estilos.Count > 0 ? $"; {cfg.Estilos.Count} com aparencia propria" : "");
         return new OpResult(layouts, 0,
             layouts > 0
                 ? $"Mapa-chave em {layouts} layout(s) ({regioesTotal} area(s) de folha){extra}."
-                : escolhidos.Count > 0
-                    ? "Nenhuma das pranchas escolhidas mostra a base: confira a lista de pranchas do mapa-chave."
-                    : "Nenhuma viewport mostra a base: confira a base escolhida e as viewports das folhas.");
+                : "Nenhuma viewport mostra a base: confira a base escolhida e as viewports das folhas.");
     }
 
     /// <summary>
@@ -307,7 +410,7 @@ internal static class LayoutKeyMap
             if (i < 0)
                 return new OpResult(0, 1, $"Layout \"{layout}\" nao encontrado.");
             var btr = (BlockTableRecord)tr.GetObject(folhas[i].Btr, OpenMode.ForWrite);
-            var enc = Encaixe.De(new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)), ext.Value);
+            var enc = Encaixe.De(new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)), ext.Value, cfg.Para(layout).Titulo);
             regioes = Desenhar(tr, dic, btr, folhas[i], folhas, cfg, blocoId, enc, previa: true);
             tr.Commit();
         }
@@ -342,39 +445,42 @@ internal static class LayoutKeyMap
     }
 
     /// <summary>
-    /// Grava quais layouts recebem o mapa-chave e refaz (lista vazia = todos). Os que sairam da
-    /// lista perdem o mapa.
+    /// Poe (ou refaz) o mapa-chave nos layouts dados, com a aparencia dada so para eles; os outros
+    /// layouts ficam como estao. Sem layouts: a aparencia vira a geral, de todas as pranchas, e as
+    /// proprias sao apagadas. estilo null = nao mexe na aparencia (so inclui os layouts de volta).
     /// </summary>
-    public static OpResult DefinirLayouts(Document doc, IEnumerable<string> layouts, bool somar = false)
+    public static OpResult Aplicar(Document doc, IReadOnlyCollection<string> layouts, KeyMapEstilo? estilo)
     {
         KeyMapConfig cfg = Ler(doc.Database);
-        if (somar && cfg.Layouts.Count == 0)
+        if (layouts.Count == 0)
         {
-            // "Todas" + alguns a mais: a lista passa a ser explicita (as que mostram a base + os somados).
-            var comMapa = new List<string>();
-            try
+            if (estilo is not null)
             {
-                comMapa = Resumo(doc.Database).Where(r => r.Regioes > 0).Select(r => r.Layout).ToList();
+                cfg.DefinirGeral(estilo);
+                cfg.Estilos.Clear();
             }
-            catch (System.Exception)
-            {
-            }
-            layouts = comMapa.Concat(layouts);
         }
-        else if (somar)
+        else
         {
-            layouts = cfg.Layouts.Concat(layouts);
+            foreach (string l in layouts.Where(x => !string.IsNullOrWhiteSpace(x)))
+            {
+                cfg.Fora.Remove(l);
+                cfg.Extras.Add(l);
+                if (estilo is not null)
+                    cfg.Estilos[l] = estilo;
+            }
         }
-        cfg.Layouts.Clear();
-        cfg.Layouts.AddRange(layouts.Where(l => !string.IsNullOrWhiteSpace(l)).Distinct(StringComparer.OrdinalIgnoreCase));
         Gravar(doc, cfg);
         if (!cfg.TemCaixa || cfg.Base.Count == 0)
-            return new OpResult(0, 0, (cfg.Layouts.Count == 0 ? "Mapa-chave em todas as pranchas" : $"Mapa-chave em {cfg.Layouts.Count} prancha(s)") +
-                                      " (gravado). Falta escolher a base no Model e a area no layout para gerar.") { Mudou = false };
-        return Gerar(doc, false);
+        {
+            AvisarMudanca();
+            return new OpResult(0, 0, "Configuracao gravada. Falta escolher a base no Model e o lugar do mapa no layout para gerar.") { Mudou = false };
+        }
+        OpResult r = Gerar(doc, false);
+        return layouts.Count == 0 ? r : r with { Mensagem = $"Aplicado em {layouts.Count} layout(s) marcado(s). " + r.Mensagem };
     }
 
-    /// <summary>Tira um layout da lista do mapa-chave e apaga o mapa dele (as previas ficam).</summary>
+    /// <summary>Apaga o mapa dos layouts dados e deixa-os fora das proximas atualizacoes.</summary>
     public static OpResult RemoverDe(Document doc, IEnumerable<string> layouts)
     {
         var tirar = new HashSet<string>(layouts, StringComparer.OrdinalIgnoreCase);
@@ -387,29 +493,26 @@ internal static class LayoutKeyMap
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-            var todos = new List<string>();
             foreach (DBDictionaryEntry e in dic)
             {
                 var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
-                if (lay.ModelType)
-                    continue;
-                todos.Add(lay.LayoutName);
-                if (!tirar.Contains(lay.LayoutName))
+                if (lay.ModelType || !tirar.Contains(lay.LayoutName))
                     continue;
                 var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);
-                int k = Limpar(tr, btr, incluirPrevias: false);
+                int k = Limpar(tr, btr, incluirPrevias: true);
                 Civil3D2026Plugin.Infrastructure.PluginLog.Info("Layouts", $"Mapa-chave: removido de {lay.LayoutName} ({k} objeto(s)).");
                 n += k;
             }
-            // Lista vazia significa "todos": vira a lista de todos menos os tirados.
-            if (cfg.Layouts.Count == 0)
-                cfg.Layouts.AddRange(todos);
-            cfg.Layouts.RemoveAll(tirar.Contains);
             tr.Commit();
+        }
+        foreach (string l in tirar)
+        {
+            cfg.Fora.Add(l);
+            cfg.Extras.Remove(l);
         }
         Gravar(doc, cfg);
         AvisarMudanca();
-        return new OpResult(n, 0, $"Mapa-chave tirado de {tirar.Count} layout(s) ({n} objeto(s)); eles ficam fora das proximas atualizacoes.");
+        return new OpResult(n, 0, $"Mapa-chave tirado de {tirar.Count} layout(s) ({n} objeto(s)); eles ficam sem mapa ate voce aplicar neles de novo.");
     }
 
     /// <summary>
@@ -426,31 +529,21 @@ internal static class LayoutKeyMap
             if (rb is not null && EhPrevia(rb))
                 continue; // sem XData = mapa de versao antiga: conta como mapa normal
             double sNovo = Math.Abs(br.ScaleFactors.X);
-            var esperado = new Point2d(enc.CentroCaixa.X - enc.CentroBase.X * enc.S, enc.CentroCaixa.Y - enc.CentroBase.Y * enc.S);
             var pos = new Point2d(br.Position.X, br.Position.Y);
-            if (sNovo <= 0 || (pos.GetDistanceTo(esperado) <= 1e-4 && Math.Abs(sNovo - enc.S) <= 1e-9 * Math.Max(1, enc.S)))
+            bool Bate(Encaixe e)
+            {
+                var esp = new Point2d(e.CentroCaixa.X - e.CentroBase.X * e.S, e.CentroCaixa.Y - e.CentroBase.Y * e.S);
+                return pos.GetDistanceTo(esp) <= 1e-4 && Math.Abs(sNovo - e.S) <= 1e-9 * Math.Max(1, e.S);
+            }
+            // Tambem vale o encaixe com/sem faixa de titulo (mapa de versao antiga ou titulo ligado/desligado).
+            if (sNovo <= 0 || Bate(enc) || Bate(Encaixe.De(enc.C0, enc.C1, ext, !enc.Titulo)))
                 return null;
             double k = sNovo / enc.S;
-            var centro = new Point2d(pos.X + enc.CentroBase.X * sNovo, pos.Y + enc.CentroBase.Y * sNovo);
+            var centro = new Point2d(pos.X + enc.CentroBase.X * sNovo, pos.Y + enc.CentroBase.Y * sNovo - enc.Dy * k);
             double w = enc.Bw * k / 2, h = enc.Bh * k / 2;
             return (new Point2d(centro.X - w, centro.Y - h), new Point2d(centro.X + w, centro.Y + h));
         }
         return null;
-    }
-
-    /// <summary>Caixa propria de um layout (mover/redimensionar o mapa so nele) e refaz.</summary>
-    public static OpResult MoverEm(Document doc, string layout, Point2d c0, Point2d c1)
-    {
-        KeyMapConfig cfg = Ler(doc.Database);
-        cfg.Caixas[layout] = (new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)));
-        if (!cfg.TemCaixa)
-        {
-            cfg.CaixaMin = cfg.Caixas[layout].Min;
-            cfg.CaixaMax = cfg.Caixas[layout].Max;
-        }
-        Gravar(doc, cfg);
-        OpResult r = Gerar(doc, false);
-        return r with { Mensagem = $"Mapa-chave de {layout} movido (posicao guardada so para essa prancha). " + r.Mensagem };
     }
 
     /// <summary>
@@ -473,9 +566,11 @@ internal static class LayoutKeyMap
             cfg.CaixaMin = caixa.Item1;
             cfg.CaixaMax = caixa.Item2;
         }
+        cfg.Fora.Remove(layout);
+        cfg.Extras.Add(layout);
         Gravar(doc, cfg);
-        OpResult r = DefinirLayouts(doc, new[] { layout }, somar: true);
-        return r with { Mensagem = $"Mapa-chave inserido em {layout} (caixa guardada so para essa prancha). " + r.Mensagem };
+        OpResult r = Gerar(doc, false);
+        return r with { Mensagem = $"Mapa-chave de {layout} no lugar clicado (guardado so para essa prancha). " + r.Mensagem };
     }
 
     /// <summary>Layouts dados voltam a usar a caixa geral e o mapa e refeito.</summary>
@@ -513,6 +608,7 @@ internal static class LayoutKeyMap
         List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas,
         KeyMapConfig cfg, ObjectId blocoId, Encaixe enc, bool previa)
     {
+        cfg = cfg.Efetivo(folha.Nome); // aparencia propria do layout, se tiver
         void Add(Entity e) => Adicionar(tr, btr, e, previa);
         double s = enc.S, bw = enc.Bw, bh = enc.Bh;
         Point2d c0 = enc.C0, c1 = enc.C1, centroCaixa = enc.CentroCaixa, centroBase = enc.CentroBase;
@@ -538,6 +634,8 @@ internal static class LayoutKeyMap
                 Add(pl);
             }
 
+            if (cfg.Rotulo == 3)
+                continue; // sem texto nas folhas
             Point2d[] maior = outra.Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
             (Point2d pos, double ang, double alt, double larg) = GeometriaRotulo(maior, cfg.Rotulo == 2);
             alt *= Math.Max(0.1, cfg.FatorTexto);
