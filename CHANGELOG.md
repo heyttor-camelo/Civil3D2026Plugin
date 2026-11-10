@@ -1,3 +1,7 @@
+## 2.94.2 - LAYOUTS v1.18.2: 10 mm de folga entre os textos da malha e o norte/escala
+
+- Os textos E= / N= da malha ficam a pelo menos 10 mm (papel) do norte e da escala grafica (era 1 mm).
+
 ## 2.94.1 - LAYOUTS v1.18.1: Renomear em lote so numera, sem repetir o nome antigo
 
 - Renomear em lote com "Numerar em sequencia" e Base vazia: o nome vira so prefixo + numero + sufixo (antes o nome antigo ficava no meio: "001 (2)" -> "001 (2)001"). Sem numerar, Base vazia continua mantendo o nome atual.
@@ -11,7 +15,7 @@
 
 ## 2.93.0 - LAYOUTS v1.17.0: malha, norte e escala sem sobreposicao, agrupados e malha para tras
 
-- Malha, norte e escala (padrao): o norte e a escala grafica sao inseridos antes, e os textos E= / N= da malha desviam do retangulo deles (com 1 mm de folga).
+- Malha, norte e escala (padrao): o norte e a escala grafica sao inseridos antes, e os textos E= / N= da malha desviam do retangulo deles (com 10 mm de folga).
 - Os tres itens de cada viewport ficam num **grupo** (`C3D_MNE_<viewport>`), ligado por padrao; nova opcao "Agrupar" na janela de configuracao. Remover/inserir de novo apaga o grupo que ficou vazio.
 - A malha vai sempre **para tras** do desenho do layout (draw order).
 

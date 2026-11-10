@@ -228,7 +228,7 @@ internal static class LayoutConjunto
             try
             {
                 Extents3d x = e.GeometricExtents;
-                double m = 1.0; // 1 mm de folga em volta
+                double m = 10.0; // 10 mm de folga em volta (pedido do Heyvid, 10/11/2026)
                 evitar.Add(new[]
                 {
                     new Point3d(x.MinPoint.X - m, x.MinPoint.Y - m, 0), new Point3d(x.MaxPoint.X + m, x.MinPoint.Y - m, 0),
