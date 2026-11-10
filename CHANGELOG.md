@@ -1,6 +1,7 @@
 ## 2.95.2 - LAYOUTS v1.19.2: Remover do mapa-chave tambem apaga mapas antigos (LISP / versoes anteriores)
 
 - Remover (de um layout, dos marcados ou de todos) e a regeneracao agora apagam tambem o que esta nas layers `MAPA_CHAVE_*` sem a marca do plugin: mapas feitos pela LISP MAPACHAVE ou inseridos por versoes antigas. Antes so saia o que a versao atual tinha criado, e o mapa antigo ficava na prancha.
+- Causa de fundo: o XData que o plugin gravava nos objetos do mapa so tinha o nome do regapp, e o AutoCAD trata isso como "apagar o XData"; por isso nenhum mapa gerado ate a 2.95.1 tinha marca e o Remover achava 0 objetos. Agora a marca leva um valor ("mapa" ou "previa").
 - A coluna "Mapa-chave" da lista passa a reconhecer esses mapas antigos. O log registra quantos objetos sairam de cada layout.
 
 ## 2.95.1 - LAYOUTS v1.19.1: mapa-chave com posicao propria por prancha

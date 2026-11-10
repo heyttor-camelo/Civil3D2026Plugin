@@ -403,8 +403,8 @@ internal static class LayoutKeyMap
             if (id.ObjectClass.DxfName != "INSERT" || tr.GetObject(id, OpenMode.ForRead) is not BlockReference br || br.BlockTableRecord != blocoId)
                 continue;
             using ResultBuffer? rb = br.GetXDataForApplication(App);
-            if (rb is null || EhPrevia(rb))
-                continue;
+            if (rb is not null && EhPrevia(rb))
+                continue; // sem XData = mapa de versao antiga: conta como mapa normal
             double sNovo = Math.Abs(br.ScaleFactors.X);
             var esperado = new Point2d(enc.CentroCaixa.X - enc.CentroBase.X * enc.S, enc.CentroCaixa.Y - enc.CentroBase.Y * enc.S);
             var pos = new Point2d(br.Position.X, br.Position.Y);
@@ -899,9 +899,11 @@ internal static class LayoutKeyMap
     {
         btr.AppendEntity(ent);
         tr.AddNewlyCreatedDBObject(ent, true);
-        ent.XData = previa
-            ? new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App), new TypedValue((int)DxfCode.ExtendedDataAsciiString, MarcaPrevia))
-            : new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App));
+        // Sempre com um valor: XData so com o nome do regapp e o jeito do AutoCAD APAGAR o XData, entao
+        // os mapas gerados ate a 2.95.1 ficaram sem marca (por isso Remover nao os achava).
+        ent.XData = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, App),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, previa ? MarcaPrevia : "mapa"));
     }
 
     private static bool EhPrevia(ResultBuffer rb) =>
