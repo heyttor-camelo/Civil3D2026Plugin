@@ -38,6 +38,8 @@ internal sealed class MFRebaixoSettings
     public int HachuraTransparencia { get; set; } = 20;
     // true: da borda da pista ate a borda externa da calcada (se houver); false: so sarjeta + meio-fio.
     public bool HachuraAteCalcada { get; set; }
+    // true: a hachura vai para a frente na ordem de desenho (por cima do corredor).
+    public bool HachuraNaFrente { get; set; } = true;
     // Versao dos padroes da hachura. 2 (MFREBAIXO 1.9, pedido do Heyvid em 10/11/2026): vermelho solido,
     // 20% de transparencia, so sarjeta + meio-fio. config.json mais antigo e trazido para esses padroes uma vez.
     public int HachuraVersao { get; set; }

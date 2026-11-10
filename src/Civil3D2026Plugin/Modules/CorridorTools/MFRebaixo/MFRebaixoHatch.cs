@@ -73,9 +73,23 @@ internal static class MFRebaixoHatch
                     // Sempre no Model Space (a planta), mesmo com um layout ativo.
                     var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
                     var owner = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
-                    drawn += DrawPart(tr, db, owner, edges, s0, s1, Part.RampaEntrada, setName, settings);
-                    drawn += DrawPart(tr, db, owner, edges, s1, s2, Part.Rebaixado, setName, settings);
-                    drawn += DrawPart(tr, db, owner, edges, s2, s3, Part.RampaSaida, setName, settings);
+                    var created = new AcadDb.ObjectIdCollection();
+                    drawn += DrawPart(tr, db, owner, edges, s0, s1, Part.RampaEntrada, setName, settings, created);
+                    drawn += DrawPart(tr, db, owner, edges, s1, s2, Part.Rebaixado, setName, settings, created);
+                    drawn += DrawPart(tr, db, owner, edges, s2, s3, Part.RampaSaida, setName, settings, created);
+                    // Por cima do corredor (a hachura e um destaque com transparencia).
+                    if (created.Count > 0 && settings.HachuraNaFrente)
+                    {
+                        try
+                        {
+                            var order = (AcadDb.DrawOrderTable)tr.GetObject(owner.DrawOrderTableId, AcadDb.OpenMode.ForWrite);
+                            order.MoveToTop(created);
+                        }
+                        catch (System.Exception ex)
+                        {
+                            PluginLog.Aviso("MFREBAIXO", $"Hachura de {setName}: ordem de desenho nao alterada: {ex.Message}");
+                        }
+                    }
                 }
                 else
                 {
@@ -177,7 +191,7 @@ internal static class MFRebaixoHatch
     // ------------------------------------------------------------------
 
     private static int DrawPart(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord owner,
-        List<(double Station, Point3d Inner, Point3d Outer)> edges, double from, double to, Part part, string setName, MFRebaixoSettings settings)
+        List<(double Station, Point3d Inner, Point3d Outer)> edges, double from, double to, Part part, string setName, MFRebaixoSettings settings, AcadDb.ObjectIdCollection created)
     {
         const double eps = 0.0005;
         List<(double Station, Point3d Inner, Point3d Outer)> inside = edges.Where(e => e.Station >= from - eps && e.Station <= to + eps).ToList();
@@ -218,8 +232,25 @@ internal static class MFRebaixoHatch
         }
 
         hatch.Associative = false;
-        hatch.AppendLoop(AcadDb.HatchLoopTypes.Polyline, loop, bulges);
+        // Laco fechado (primeiro ponto repetido no fim) e marcado como externo.
+        double wanted = PolygonArea(loop);
+        loop.Add(loop[0]);
+        bulges.Add(0.0);
+        hatch.AppendLoop(AcadDb.HatchLoopTypes.External | AcadDb.HatchLoopTypes.Polyline, loop, bulges);
         hatch.EvaluateHatch(true);
+        try
+        {
+            double got = hatch.Area;
+            string line = $"Hachura de {setName} / {part}: {loop.Count - 1} vertices, area do poligono {wanted:0.000} m2, area da hachura {got:0.000} m2";
+            if (Math.Abs(got - wanted) > Math.Max(0.01, wanted * 0.02))
+                PluginLog.Aviso("MFREBAIXO", line + "  <-- DIFERENTE");
+            else
+                PluginLog.Diag("MFREBAIXO", line);
+        }
+        catch
+        {
+            // Area nao calculada: segue.
+        }
         if (settings.HachuraTransparencia > 0)
         {
             int pct = Math.Clamp(settings.HachuraTransparencia, 0, 90);
@@ -233,7 +264,20 @@ internal static class MFRebaixoHatch
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, part.ToString()),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, from),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, to));
+        created.Add(hatch.ObjectId);
         return 1;
+    }
+
+    /// <summary>Area do poligono (formula do cadarco), para conferir com a area da hachura.</summary>
+    private static double PolygonArea(Point2dCollection loop)
+    {
+        double sum = 0;
+        for (int i = 0; i < loop.Count; i++)
+        {
+            Point2d a = loop[i], b = loop[(i + 1) % loop.Count];
+            sum += (a.X * b.Y) - (b.X * a.Y);
+        }
+        return Math.Abs(sum) / 2.0;
     }
 
     private static void Add(Point2dCollection loop, DoubleCollection bulges, Point3d p)

@@ -1,3 +1,10 @@
+## 2.99.2 - MFREBAIXO v1.9.2 / PassagemRampa v1.2.2: hachura do rebaixo com a forma certa, lista sem estacas
+
+- **Hachura**: as rampas saiam como triangulos e o trecho rebaixado com um canto cortado. O laco da hachura agora e fechado (primeiro ponto repetido) e marcado como externo; a hachura vai para a frente na ordem de desenho (`HachuraNaFrente`). O log confere a area da hachura com a area do poligono e avisa quando difere.
+- **Lista de rebaixos**: saiu a coluna de estacas (pedido do Heyvid); ficou Rebaixo, Corredor, Lado, Comprimento, Altura final, Rampa, Avisos.
+- **Propriedades**: nova linha "Nome no Corridor Transition" (nome do Transition Set, para achar o rebaixo no dialogo do Civil).
+- Erros das acoes do painel (remover, reaplicar, redesenhar) passam a ir para o log.
+
 ## 2.99.1 - MFREBAIXO v1.9.1 / PassagemRampa v1.2.1: rebaixo no lugar certo, hachura e destaque que nao saiam
 
 - **Causa** (achada no log do Heyvid, "so 0 secao(oes) com os codes Flange/Back_Curb"): a leitura da faixa do meio-fio dependia do id da subassembly e dos codes dos PONTOS, e nao achava nada no corredor dele. Sem a faixa, a hachura nao era desenhada, o destaque no desenho nao aparecia e o painel deixava o rebaixo em cima da baseline.

@@ -805,8 +805,8 @@ internal sealed class MFRebaixoPanel : SW.Window
                 break;
 
             default:
-                headers = new[] { "Rebaixo", "Estacas (S1 - S2)", "Corredor", "Lado", "Rebaixado", "Altura final", "Rampa", "Avisos" };
-                widths = new[] { 160.0, 115, 140, 65, 70, 75, 55, 50 };
+                headers = new[] { "Rebaixo", "Corredor", "Lado", "Comprimento", "Altura final", "Rampa", "Avisos" };
+                widths = new[] { 160.0, 150, 70, 85, 80, 60, 50 };
                 rows = _items.Where(r => Match(r.Label, r.Stations, r.CorridorName, r.BaselineName, r.RegionName)).Select(r =>
                 {
                     int w = _warnings.Count(x => ReferenceEquals(x.Item, r));
@@ -817,7 +817,7 @@ internal sealed class MFRebaixoPanel : SW.Window
                         Data = r,
                         Cells = new[]
                         {
-                            r.Label, r.Stations, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m",
+                            r.Label, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m",
                             Cm(r.FinalHeight), Pct(r.RampSlope), w == 0 ? "" : w.ToString()
                         }
                     };
@@ -1940,6 +1940,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         nameRow.Children.Add(saveName);
         p.Children.Add(nameRow);
         p.Children.Add(Prop("Codigo / estacas", $"{r.Code} / {r.Stations}"));
+        p.Children.Add(Prop("Nome no Corridor Transition", r.SetName + (r.HighlightSetName is null ? "" : "  e  " + r.HighlightSetName)));
         p.Children.Add(Prop("Corredor / baseline / region", $"{r.CorridorName} / {r.BaselineName} / {r.RegionName}"));
         p.Children.Add(Prop("Lado / subassembly", $"{r.SideLabel} / {r.SubassemblyName}"));
         p.Children.Add(Prop("Rampa de entrada", $"{N(r.S0)} -> {N(r.S1)}  ({N(r.EntryLength, "0.00")} m)"));
@@ -2185,6 +2186,7 @@ internal sealed class MFRebaixoPanel : SW.Window
         {
             _modelKey = null;
             Refresh();
+            Civil3D2026Plugin.Infrastructure.PluginLog.Erro("MFREBAIXO", "Painel: " + ex.Message, ex);
             Say("Erro: " + ex.Message);
             doc.Editor.WriteMessage($"\n[{C3DCommands.Corridor.MfRebaixoPainel}] {ex.Message}\n");
         }
