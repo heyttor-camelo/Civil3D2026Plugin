@@ -261,6 +261,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("ORDEMDES", "ordenar", "Ordem de desenho de outro DWG", "Geral",
             "Copia a ordem de desenho (draw order) de outro DWG/DWT para este desenho, por layer ou por objeto (comando C3DORDEMDESENHO).",
             new[] { "Escolha o arquivo.", "Modo [Layers/Objetos] e espacos [Model/Layouts/Todos] na linha de comando." }, p => p.Enviar(C3DCommands.Utilitarios.OrdemDesenho)),
+        new("ORDEMINT", "ordenar", "Ordem de desenho do Model ou de outro layout", "Geral",
+            "Leva a ordem de desenho (por layer) do Model ou de um layout deste desenho para os layouts marcados. Objetos em layers que nao aparecem na origem ficam onde estao.",
+            new[] { "Marque os layouts que recebem.", "Escolha a origem (Model ou um layout)." }, p => p.OrdemDoProprioDesenho()),
         new("CARIMBO", "bloco", "Aplicar carimbo", "Carimbo",
             "Escreve os valores preenchidos nas tags do bloco de carimbo, nos layouts marcados.",
             new[] { "Escolha o bloco na lista.", "Preencha as tags na aba Carimbo.", "Marque os layouts e aplique." }, p => p.AplicarCarimbo()),
@@ -3394,6 +3397,37 @@ internal sealed partial class LayoutPanel : SW.Window
     }
 
     /// <summary>Importar layer state de uma viewport de outro DWG para as viewports dadas.</summary>
+    /// <summary>Ordem de desenho do Model ou de um layout deste desenho nos layouts marcados.</summary>
+    private void OrdemDoProprioDesenho()
+    {
+        if (Doc is not Document doc)
+            return;
+        List<string> destinos = Marcados();
+        if (destinos.Count == 0)
+        {
+            Say("Marque os layouts que recebem a ordem de desenho.");
+            return;
+        }
+        var opcoes = new List<string> { "Model" };
+        opcoes.AddRange(Civil3D2026Plugin.Modules.Utilitarios.DrawOrderCommands.NomesDosLayouts(doc.Database));
+        string? origem = EscolherDaLista("Ordem de desenho: origem", "De onde vem a ordem das layers (Model ou um layout deste desenho):", opcoes);
+        if (origem is null)
+            return;
+        List<string> alvo = destinos.Where(d => !d.Equals(origem, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (alvo.Count == 0)
+        {
+            Say("O unico layout marcado e a propria origem.");
+            return;
+        }
+        Executar(() =>
+        {
+            using DocumentLock _ = doc.LockDocument();
+            string msg = Civil3D2026Plugin.Modules.Utilitarios.DrawOrderCommands.CopiarDoDesenho(doc.Database, origem, alvo, out int movidos);
+            doc.Editor.Regen();
+            return new OpResult(movidos, 0, msg) { Mudou = movidos > 0 };
+        }, ConfLayouts($"Levar a ordem de desenho de \"{origem}\" (por layer) para os layouts marcados. So muda o que fica na frente/atras; nada e apagado nem movido de lugar. Ctrl+Z do Civil desfaz."));
+    }
+
     private void ImportarCamadas(IReadOnlyList<ObjectId> destinos)
     {
         if (Doc is not Document doc)

@@ -1,3 +1,9 @@
+## 2.94.0 - UTILITARIOS v1.8.0 / LAYOUTS v1.18.0: ordem de desenho do Model ou de outro layout do proprio desenho
+
+- `C3DORDEMDESENHO` pergunta antes a origem: `[Arquivo/Model/Layout]`. Arquivo e o de sempre (outro DWG/DWT). Model ou Layout pegam a ordem das layers do proprio desenho e aplicam no layout atual, em todos os layouts ou (origem layout) no Model.
+- Painel de layouts, grupo Geral: nova acao **Ordem de desenho do Model ou de outro layout**, que leva a ordem para os layouts marcados (com confirmacao).
+- Por layer: cada objeto vai para a posicao da sua layer na origem; layers que nao existem na origem ficam onde estao.
+
 ## 2.93.0 - LAYOUTS v1.17.0: malha, norte e escala sem sobreposicao, agrupados e malha para tras
 
 - Malha, norte e escala (padrao): o norte e a escala grafica sao inseridos antes, e os textos E= / N= da malha desviam do retangulo deles (com 1 mm de folga).
