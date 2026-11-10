@@ -285,7 +285,8 @@ internal sealed partial class MFRebaixoPanel
         foreach (double st in new[] { sa, r.S0, (r.S1 + r.S2) / 2.0, r.S3, sb }.Distinct())
         {
             (double St, double Top, double Flow) n = pts.OrderBy(p => Math.Abs(p.St - st)).First();
-            double lx = Math.Clamp(X(n.St) - 16, left + 2, w - right - 48);
+            // Ao lado da linha do marco (centrado, o tracejado de S0/S3 cortava o numero).
+            double lx = Math.Clamp(X(n.St) + 4, left + 2, w - right - 48);
             PlanLabel($"{(n.Top - n.Flow) * 100:0.0} cm", lx, Math.Max(top + 14, Y(n.Top) - 18), 11);
         }
 
@@ -518,8 +519,12 @@ internal sealed partial class MFRebaixoPanel
         // Elevacoes dos pontos do meio-fio (pedido do Heyvid em 10/11/2026).
         if (Show("ELEVACOES") && CurbMarks(cur, key) is { } marks)
         {
+            // Rotulos para os lados (topo e linha d'agua para o lado da pista, fundo para o lado da
+            // calcada): centrados em cima do ponto, topo e fundo (7 cm um do outro) se empilhavam e a
+            // linha d'agua caia em cima das linhas do meio-fio (teste de 10/11/2026).
+            double road = P(c.Origin.Y - c.Origin.Y, 0).X >= P(marks.Top.Y - c.Origin.Y, 0).X ? 1 : -1;
             List<SW.Rect> used = new();
-            void Mark(Point3d q, string name, bool above)
+            void Mark(Point3d q, string name, bool above, double dir)
             {
                 SW.Point sp = P(q.Y - c.Origin.Y, q.Z - c.Origin.Z);
                 var dot = new WS.Ellipse { Width = 6, Height = 6, Fill = ToolTheme.Brush(90, 200, 255), IsHitTestVisible = false };
@@ -528,22 +533,23 @@ internal sealed partial class MFRebaixoPanel
                 _plan.Children.Add(dot);
                 string text = $"{name}  {N(q.Z)}";
                 double tw = (text.Length * 6.2) + 6;
-                double x = Math.Clamp(sp.X - (tw / 2.0), 4, Math.Max(4, w - tw - 4));
-                double y = above ? sp.Y - 22 : sp.Y + 8;
+                double x = Math.Clamp(dir > 0 ? sp.X + 8 : sp.X - tw - 8, 4, Math.Max(4, w - tw - 4));
+                double y = above ? sp.Y - 26 : sp.Y + 6;
                 for (int k = 0; k < 6 && used.Any(u => u.IntersectsWith(new SW.Rect(x, y, tw, 14))); k++)
                     y += above ? -15 : 15;
                 y = Math.Clamp(y, 42, h - 18);
                 used.Add(new SW.Rect(x, y, tw, 14));
-                ChartLine(sp.X, sp.Y, x + (tw / 2.0), above ? y + 14 : y, ToolTheme.Brush(90, 200, 255, 140), 0.8);
+                ChartLine(sp.X, sp.Y, dir > 0 ? x : x + tw, above ? y + 14 : y, ToolTheme.Brush(90, 200, 255, 140), 0.8);
                 PlanLabel(text, x, y, 11, ToolTheme.Brush(150, 220, 255));
             }
 
-            Mark(marks.Top, "topo do meio-fio", true);
+            Mark(marks.Top, "topo do meio-fio", true, road);
             if (Math.Abs(marks.Back.Y - marks.Top.Y) > 0.02)
-                Mark(marks.Back, "fundo do meio-fio", true);
-            Mark(marks.Flow, "linha d'agua", false);
+                Mark(marks.Back, "fundo do meio-fio", true, -road);
+            // Linha d'agua acima da sarjeta (embaixo ficam as camadas do pavimento).
+            Mark(marks.Flow, "linha d'agua", true, road);
             if (Math.Abs(c.Origin.Y - marks.Flow.Y) > 0.02)
-                Mark(c.Origin, "borda da pista", false);
+                Mark(c.Origin, "borda da pista", false, road);
         }
 
         if (Show("ESCALA"))
@@ -591,6 +597,7 @@ internal sealed partial class MFRebaixoPanel
     // Para cada modelo mostrado: os rebaixos dele e a chave do meio-fio de cada um.
     private List<List<(RebaixoInfo R, long Key)>> _owners3D = new();
     private W3.Point3D _min3, _max3;
+    private List<W3.Point3D> _fit3D = new();
 
     private void Set3DAll(bool all)
     {
@@ -779,6 +786,10 @@ internal sealed partial class MFRebaixoPanel
         _z03 = minZ;
         _min3 = Loc(new Point3d(minX, minY, minZ));
         _max3 = Loc(new Point3d(maxX, maxY, maxZ));
+        // Pontos para enquadrar (as pontas de cada link, no maximo ~6000).
+        List<Point3d> ends = models.SelectMany(m => m.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.Where(l => l.Points.Length > 0).SelectMany(l => new[] { l.Points[0], l.Points[^1] })))).ToList();
+        int stride = Math.Max(1, ends.Count / 6000);
+        _fit3D = ends.Where((_, i) => i % stride == 0).Select(Loc).ToList();
 
         // Rebaixos de cada modelo (todos, nao so o selecionado) e o meio-fio de cada um.
         _owners3D = new List<List<(RebaixoInfo R, long Key)>>();
@@ -889,9 +900,27 @@ internal sealed partial class MFRebaixoPanel
         if (_shown3D.Count == 0)
             return;
         _target = new W3.Point3D((_min3.X + _max3.X) / 2.0, (_min3.Y + _max3.Y) / 2.0, (_min3.Z + _max3.Z) / 2.0);
-        double size = Math.Max(_max3.X - _min3.X, _max3.Y - _min3.Y);
-        _dist = Math.Max(8, (size * 1.25) + 4);
         _pitch = 40;
+        // Distancia em que todos os pontos cabem na tela, nos dois sentidos: o FieldOfView da camera
+        // e o horizontal e a vista e larga e baixa; so pela largura a parte de perto ficava fora da
+        // tela (teste de 10/11/2026).
+        double aspect = _host3D.ActualWidth > 1 && _host3D.ActualHeight > 1 ? _host3D.ActualHeight / _host3D.ActualWidth : 0.4;
+        double tanH = Math.Tan(20.0 * Math.PI / 180.0), tanV = tanH * aspect;
+        double yaw = _yaw * Math.PI / 180.0, pitch = _pitch * Math.PI / 180.0;
+        var dir = new W3.Vector3D(Math.Cos(pitch) * Math.Cos(yaw), Math.Cos(pitch) * Math.Sin(yaw), Math.Sin(pitch));
+        W3.Vector3D right = W3.Vector3D.CrossProduct(-dir, new W3.Vector3D(0, 0, 1));
+        right.Normalize();
+        W3.Vector3D up = W3.Vector3D.CrossProduct(right, -dir);
+        double need = 0;
+        foreach (W3.Point3D q in _fit3D)
+        {
+            W3.Vector3D c = q - _target;
+            double depth = W3.Vector3D.DotProduct(c, dir);
+            need = Math.Max(need, depth + (Math.Abs(W3.Vector3D.DotProduct(c, right)) / tanH));
+            need = Math.Max(need, depth + (Math.Abs(W3.Vector3D.DotProduct(c, up)) / tanV));
+        }
+
+        _dist = Math.Max(8, need * 1.08);
         UpdateCamera();
     }
 

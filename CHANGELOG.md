@@ -6,7 +6,12 @@ Pedidos do Heyvid de 10/11/2026 (fim da tarde), testando o 2.101.0.
 - **Clique num rebaixo no 3D = ficha do rebaixo** (para a federacao do modelo BIM), no lugar das medidas da face: identificacao, corredor/baseline/lado, peca, **tipo do meio-fio** (code da shape `MF_T30`/`MF_T40`/`MF_KASSEL`/`MF_PERS`), comprimento e inclinacao real de cada rampa, trecho rebaixado, altura normal e rebaixada, e as **coordenadas X, Y e elevacao** do topo do meio-fio em S0, S1, S2 e S3. Clique fora de um rebaixo continua mostrando as medidas da face.
 - **Aba Secoes ligada a vista Secao**: clicar numa linha da tabela mostra aquela secao (e marca a estaca no Perfil); duplo clique abre a vista Secao; andar com anterior/proxima marca a linha na tabela.
 - **Elevacoes na vista Secao**: topo do meio-fio, fundo do meio-fio, linha d'agua e borda da pista, com ponto e chamada (liga/desliga em Textos > Elevacoes na secao).
-- **Altura final "invalida" ao editar**: o painel removia o rebaixo antigo sem Rebuild e o comando lia a altura normal ainda dentro da rampa antiga (0,135 em vez de 0,23), recusando 0,18. Agora o Reaplicar faz Rebuild antes de ler. Alem disso, altura final maior que a das pontas deixou de ser erro: vira aviso (linha de comando e C3DLOG) e o rebaixo e criado.
+- **Altura final "invalida" ao editar**: o painel removia o rebaixo antigo sem Rebuild e o comando lia a altura normal ainda dentro da rampa antiga (0,135 em vez de 0,23), recusando 0,18. Agora o Reaplicar faz Rebuild antes de ler. Alem disso, altura final maior que a de uma das pontas deixou de ser erro: vira aviso (linha de comando e C3DLOG) e o rebaixo e criado.
+- Ajustes do teste no LAPTOP-11TNS6P8 (copia do DWG da Waldir Soeiro, painel renderizado fora da tela):
+  - Altura final maior que a do meio-fio nas **duas** pontas (ex. 0,18 num meio-fio de 13,5 cm) continua recusada, agora com mensagem clara ("nao ha o que rebaixar"): o REB ficava 0 dos dois lados, o set nao fazia nada no corredor e o rebaixo sumia da lista do painel (tratado como removido; o Limpar removidos o apagaria). Entre as duas pontas: aviso e cria.
+  - Vista Secao: rotulos das elevacoes para os lados (topo e linha d'agua para o lado da pista, fundo para o lado da calcada); antes topo e fundo se empilhavam e a linha d'agua caia em cima das linhas do meio-fio.
+  - 3D **tudo**/**enquadrar**: enquadra pelos pontos vistos da camera, na altura e na largura da vista (antes so pela largura, e a parte de perto ficava fora da tela).
+  - Perfil: alturas em cm ao lado da linha do marco (o tracejado de S0/S3 cortava o numero).
 
 ## 2.101.0 - MFREBAIXO v1.11.0 / PassagemRampa v1.4.0: vistas em perfil, secao e 3D interativo no painel
 

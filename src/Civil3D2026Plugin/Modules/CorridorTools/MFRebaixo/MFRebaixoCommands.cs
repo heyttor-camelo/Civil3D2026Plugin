@@ -1148,6 +1148,17 @@ public sealed class MFRebaixoCommands
 
         // Altura final acima da altura lida nas pontas: o rebaixo sai mesmo assim (pedido do
         // Heyvid em 10/11/2026); só fica o aviso, porque nesse lado o meio-fio não desce.
+        // Acima das DUAS pontas não há o que rebaixar: a profundidade (REB) fica 0 dos dois lados,
+        // o set não faz nada no corredor e o painel o tratava como removido (o rebaixo sumia da
+        // lista e o Limpar removidos o apagava). Achado no teste de 10/11/2026.
+        if (finalHeight > Math.Max(startEffectiveHeight, endEffectiveHeight) + StationTolerance)
+        {
+            throw new InvalidOperationException(
+                $"Altura final {finalHeight:0.###} m é maior que a altura do meio-fio nas duas pontas " +
+                $"(antes={startEffectiveHeight:0.###} m; depois={endEffectiveHeight:0.###} m): " +
+                "não há o que rebaixar. Use uma altura menor que a do meio-fio.");
+        }
+
         if (finalHeight > maximumFinalHeight + StationTolerance)
         {
             string aviso =
