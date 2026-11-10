@@ -220,6 +220,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             name.Contains("CORRIDOR", StringComparison.OrdinalIgnoreCase))
         {
             _modelKey = null;
+            _modelsKey3D = null;
             QueueRefresh();
         }
     }
@@ -885,6 +886,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         switch (SelectedData)
         {
             case RebaixoInfo r:
+                if (!ReferenceEquals(_current, r))
+                    _secMark = null;
                 _current = r;
                 break;
             case RebaixoWarning { Item: not null } w:
@@ -943,6 +946,11 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         if (Mode == "3D")
         {
             _viewToggles.Children.Add(Sep());
+            _viewToggles.Children.Add(Link("so o trecho", () => Set3DAll(false), "3D so do trecho em volta do rebaixo selecionado (os outros rebaixos do trecho tambem aparecem coloridos)", !_tudo3D));
+            _viewToggles.Children.Add(Link("tudo", () => Set3DAll(true), "3D de todos os corredores com todos os rebaixos; clicar num rebaixo da lista leva a vista ate ele", _tudo3D));
+            if (_tudo3D)
+                _viewToggles.Children.Add(Link("enquadrar", FitAll3D, "Mostrar todos os corredores na vista 3D"));
+            _viewToggles.Children.Add(Sep());
             foreach (double ex in new[] { 1.0, 3.0, 10.0 })
             {
                 double exx = ex;
@@ -967,6 +975,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                     _settings.PainelMargem = mm;
                     SaveSettings();
                     _modelKey = null;
+                    _modelsKey3D = null;
                     BuildViewToggles();
                     RenderGraphic();
                 }, "Trecho mostrado antes e depois do rebaixo", Math.Abs(_settings.PainelMargem - m) < 1e-6));
@@ -1011,6 +1020,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         ("MARCOS", "Planta", "Marcos S0-S3", "Inicio/fim das rampas e do trecho rebaixado (planta do rebaixo)"),
         ("LEGENDA", "Planta", "Legenda", "Cores da vista"),
         ("ESCALA", "Planta", "Escala grafica", "Barra de escala no canto"),
+        ("ELEVACOES", "Planta", "Elevacoes na secao", "Elevacao do topo do meio-fio, da linha d'agua, da borda da pista e do fundo do meio-fio (vista Secao)"),
         ("RESUMO", "Barra de baixo", "Resumo", "Quantidade de rebaixos / dados do rebaixo selecionado"),
         ("CURSOR", "Barra de baixo", "O que esta sob o cursor", "Rebaixo, corredor ou secao sob o mouse")
     };
@@ -1135,6 +1145,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         {
             _model = null;
             _modelKey = null;
+            _modelsKey3D = null;
             Say("Erro ao ler o corredor: " + ex.Message);
         }
 
@@ -2135,6 +2146,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 _settings.UltimaReducao = d;
             SaveSettings();
             _modelKey = null;
+            _modelsKey3D = null;
             BuildViewToggles();
             FillList();
             RenderGraphic();
@@ -2182,10 +2194,25 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             lv.Items.Add(new WC.ListViewItem { Content = new RowView(row, IconOf("secoes")), Tag = row });
         }
 
+        // Clique numa linha: a vista Secao (e a marca no Perfil) vai para aquela estaca.
+        // Duplo clique: abre a vista Secao naquela estaca.
+        _sectionsList = lv;
+        lv.SelectionChanged += (_, _) =>
+        {
+            if (_syncingSections || (lv.SelectedItem as WC.ListViewItem)?.Tag is not Row { Data: RebaixoSection sec })
+                return;
+            GoToSection(sec.Station, false);
+        };
+        lv.MouseDoubleClick += (_, _) =>
+        {
+            if ((lv.SelectedItem as WC.ListViewItem)?.Tag is Row { Data: RebaixoSection sec })
+                GoToSection(sec.Station, true);
+        };
+
         WC.StackPanel p = new();
         p.Children.Add(new WC.TextBlock
         {
-            Text = $"{sections.Count} secao(oes) do corredor de {N(r.S0 - 1)} a {N(r.S3 + 1)}. DESTAQUE em [1,4) da o code REBAIXO; REB e a profundidade do rebaixo.",
+            Text = $"{sections.Count} secao(oes) do corredor de {N(r.S0 - 1)} a {N(r.S3 + 1)}. Clique numa linha para ver essa secao na vista Secao (duplo clique abre a vista). DESTAQUE em [1,4) da o code REBAIXO; REB e a profundidade do rebaixo.",
             Foreground = T.Muted,
             TextWrapping = SW.TextWrapping.Wrap,
             Margin = new SW.Thickness(8, 6, 8, 2)
@@ -2245,12 +2272,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             doc.Editor.UpdateScreen();
             AcApp.UpdateScreen();
             _modelKey = null;
+            _modelsKey3D = null;
             Refresh();
             Say(done);
         }
         catch (System.Exception ex)
         {
             _modelKey = null;
+            _modelsKey3D = null;
             Refresh();
             Civil3D2026Plugin.Infrastructure.PluginLog.Erro("MFREBAIXO", "Painel: " + ex.Message, ex);
             Say("Erro: " + ex.Message);
@@ -2357,7 +2386,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         _pending = (r.CorridorId, r.BaselineKey, newS1);
         Edit($"Rebaixo reaplicado: {N(newS1)} - {N(newS2)}, altura final {Cm(newH)}.", (db, ed) =>
         {
-            MFRebaixoData.Remove(db, r, rebuild: false);
+            // Com Rebuild: sem ele a altura normal do meio-fio era lida ainda com o rebaixo antigo
+            // (rampa) e o comando recusava a altura nova ("deve ser <= a menor altura das extremidades").
+            MFRebaixoData.Remove(db, r, rebuild: true);
             try
             {
                 MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, newS1, newS2, newH, MFRebaixoData.CommentFor(r.CustomName));

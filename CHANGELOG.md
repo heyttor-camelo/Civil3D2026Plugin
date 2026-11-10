@@ -1,3 +1,13 @@
+## 2.102.0 - MFREBAIXO v1.12.0 / PassagemRampa v1.5.0: 3D com todos os rebaixos, ficha do rebaixo no clique, elevacoes na secao
+
+Pedidos do Heyvid de 10/11/2026 (fim da tarde), testando o 2.101.0.
+
+- **3D com todos os rebaixos**: no 3D do trecho, os outros rebaixos que caem no trecho tambem saem coloridos (antes so o selecionado). Opcao nova **tudo**: 3D de todos os corredores com todos os rebaixos (`MFRebaixoData.ModelsAll`; acima de 4000 secoes fica so o entorno dos rebaixos); escolher um rebaixo na lista leva a camera ate ele, e **enquadrar** volta a mostrar tudo.
+- **Clique num rebaixo no 3D = ficha do rebaixo** (para a federacao do modelo BIM), no lugar das medidas da face: identificacao, corredor/baseline/lado, peca, **tipo do meio-fio** (code da shape `MF_T30`/`MF_T40`/`MF_KASSEL`/`MF_PERS`), comprimento e inclinacao real de cada rampa, trecho rebaixado, altura normal e rebaixada, e as **coordenadas X, Y e elevacao** do topo do meio-fio em S0, S1, S2 e S3. Clique fora de um rebaixo continua mostrando as medidas da face.
+- **Aba Secoes ligada a vista Secao**: clicar numa linha da tabela mostra aquela secao (e marca a estaca no Perfil); duplo clique abre a vista Secao; andar com anterior/proxima marca a linha na tabela.
+- **Elevacoes na vista Secao**: topo do meio-fio, fundo do meio-fio, linha d'agua e borda da pista, com ponto e chamada (liga/desliga em Textos > Elevacoes na secao).
+- **Altura final "invalida" ao editar**: o painel removia o rebaixo antigo sem Rebuild e o comando lia a altura normal ainda dentro da rampa antiga (0,135 em vez de 0,23), recusando 0,18. Agora o Reaplicar faz Rebuild antes de ler. Alem disso, altura final maior que a das pontas deixou de ser erro: vira aviso (linha de comando e C3DLOG) e o rebaixo e criado.
+
 ## 2.101.0 - MFREBAIXO v1.11.0 / PassagemRampa v1.4.0: vistas em perfil, secao e 3D interativo no painel
 
 Segundo bloco da lista do Heyvid de 10/11/2026 (`MFRebaixoPanel.Views.cs`, classe parcial do painel).

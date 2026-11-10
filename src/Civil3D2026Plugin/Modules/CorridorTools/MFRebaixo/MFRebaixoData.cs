@@ -141,6 +141,9 @@ internal sealed class ModelSection
 
     /// <summary>Origem de cada subassembly na secao, em estaca (X), offset (Y) e elevacao (Z).</summary>
     public Dictionary<long, Point3d> Origins { get; } = new();
+
+    /// <summary>Codes das shapes de cada subassembly na secao (ex. MF_T30: tipo do meio-fio do MFSARJETA).</summary>
+    public Dictionary<long, string[]> ShapeCodes { get; } = new();
 }
 
 /// <summary>Trecho do corredor em volta de um rebaixo (planta e 3D).</summary>
@@ -153,6 +156,10 @@ internal sealed class RebaixoModel
 
     /// <summary>Nome de cada subassembly do trecho, pela chave usada em ModelSection.Subassemblies.</summary>
     public Dictionary<long, string> Names { get; } = new();
+
+    /// <summary>Corredor e baseline das secoes (para achar os rebaixos que caem neste modelo).</summary>
+    public AcadDb.ObjectId CorridorId { get; init; }
+    public string BaselineKey { get; init; } = "";
 }
 
 /// <summary>Leitura e remoção dos rebaixos do desenho (para o painel MFREBAIXOPAINEL).</summary>
@@ -719,6 +726,28 @@ internal static class MFRebaixoData
                 {
                     // Sem origem: as vistas usam o primeiro ponto.
                 }
+
+                if (!planOnly)
+                {
+                    try
+                    {
+                        List<string> shapeCodes = new();
+                        foreach (CivilDb.CalculatedShape shape in asa.Shapes)
+                        {
+                            foreach (string code in shape.CorridorCodes)
+                            {
+                                if (!string.IsNullOrWhiteSpace(code) && !shapeCodes.Contains(code))
+                                    shapeCodes.Add(code);
+                            }
+                        }
+
+                        section.ShapeCodes[asa.SubassemblyId.Handle.Value] = shapeCodes.ToArray();
+                    }
+                    catch
+                    {
+                        // Sem shapes: o tipo do meio-fio fica pelo nome da peca.
+                    }
+                }
             }
             list.Add(section);
         }
@@ -776,7 +805,9 @@ internal static class MFRebaixoData
         var model = new RebaixoModel
         {
             Marks = new[] { r.P0, r.P1, r.P2, r.P3 },
-            MarkNames = new[] { "S0", "S1", "S2", "S3" }
+            MarkNames = new[] { "S0", "S1", "S2", "S3" },
+            CorridorId = r.CorridorId,
+            BaselineKey = r.BaselineKey
         };
 
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
@@ -798,26 +829,17 @@ internal static class MFRebaixoData
                 model.Sections.AddRange(ReadSections(baseline, region, from, to, false));
             }
 
-            // Nomes das subassemblies (para achar o meio-fio do rebaixo e para o clique no 3D).
-            foreach (long key in model.Sections.SelectMany(x => x.Subassemblies.Select(a => a.Key)).Distinct())
-            {
-                try
-                {
-                    if (db.TryGetObjectId(new AcadDb.Handle(key), out AcadDb.ObjectId said) &&
-                        tr.GetObject(said, AcadDb.OpenMode.ForRead) is CivilDb.Subassembly sa)
-                    {
-                        model.Names[key] = sa.Name;
-                    }
-                }
-                catch
-                {
-                    // Subassembly apagada.
-                }
-            }
+            FillNames(db, tr, model);
         }
         tr.Commit();
 
-        // Mesma estaca em duas Regions (limite): fica uma só.
+        SortSections(model);
+        return model;
+    }
+
+    /// <summary>Mesma estaca em duas Regions (limite): fica uma só.</summary>
+    private static void SortSections(RebaixoModel model)
+    {
         List<ModelSection> sorted = model.Sections.OrderBy(s => s.Station).ToList();
         model.Sections.Clear();
         foreach (ModelSection s in sorted)
@@ -825,8 +847,96 @@ internal static class MFRebaixoData
             if (model.Sections.Count == 0 || s.Station - model.Sections[^1].Station > 1e-5)
                 model.Sections.Add(s);
         }
+    }
 
-        return model;
+    /// <summary>Nomes das subassemblies (para achar o meio-fio do rebaixo e para o clique no 3D).</summary>
+    private static void FillNames(AcadDb.Database db, AcadDb.Transaction tr, RebaixoModel model)
+    {
+        foreach (long key in model.Sections.SelectMany(x => x.Subassemblies.Select(a => a.Key)).Distinct())
+        {
+            try
+            {
+                if (db.TryGetObjectId(new AcadDb.Handle(key), out AcadDb.ObjectId said) &&
+                    tr.GetObject(said, AcadDb.OpenMode.ForRead) is CivilDb.Subassembly sa)
+                {
+                    model.Names[key] = sa.Name;
+                }
+            }
+            catch
+            {
+                // Subassembly apagada.
+            }
+        }
+    }
+
+    /// <summary>
+    /// Todos os corredores para o 3D geral: um modelo por baseline, com as secoes inteiras. Passando de
+    /// <paramref name="maxSections"/> secoes no total (corredor grande), fica so o entorno dos rebaixos
+    /// (<paramref name="margin"/> metros antes e depois de cada um).
+    /// </summary>
+    public static List<RebaixoModel> ModelsAll(AcadDb.Database db, IReadOnlyList<RebaixoInfo> items, double margin, out bool onlyNear, int maxSections = 4000)
+    {
+        onlyNear = false;
+        List<RebaixoModel>? list = ReadAllModels(db, items, margin, false, maxSections);
+        if (list is null)
+        {
+            onlyNear = true;
+            list = ReadAllModels(db, items, margin, true, int.MaxValue) ?? new List<RebaixoModel>();
+        }
+
+        return list;
+    }
+
+    private static List<RebaixoModel>? ReadAllModels(AcadDb.Database db, IReadOnlyList<RebaixoInfo> items, double margin, bool onlyNear, int maxSections)
+    {
+        List<RebaixoModel> list = new();
+        int total = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not CivilCorridor corridor)
+                continue;
+            foreach (CivilDb.Baseline baseline in corridor.Baselines)
+            {
+                string key = MFRebaixoCommands.GetBaselineKey(baseline);
+                List<RebaixoInfo> mine = items.Where(r => r.CorridorId == id && r.BaselineKey == key).ToList();
+                if (onlyNear && mine.Count == 0)
+                    continue;
+                var model = new RebaixoModel { CorridorId = id, BaselineKey = key };
+                foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
+                {
+                    try
+                    {
+                        double from = onlyNear ? mine.Min(r => r.S0) - margin : double.MinValue;
+                        double to = onlyNear ? mine.Max(r => r.S3) + margin : double.MaxValue;
+                        IEnumerable<ModelSection> sections = ReadSections(baseline, region, from, to, false);
+                        if (onlyNear)
+                            sections = sections.Where(s => mine.Any(r => s.Station >= r.S0 - margin && s.Station <= r.S3 + margin));
+                        model.Sections.AddRange(sections);
+                    }
+                    catch
+                    {
+                        // Region sem secoes calculadas.
+                    }
+                }
+
+                total += model.Sections.Count;
+                if (total > maxSections)
+                {
+                    tr.Commit();
+                    return null;
+                }
+
+                if (model.Sections.Count < 2)
+                    continue;
+                SortSections(model);
+                FillNames(db, tr, model);
+                list.Add(model);
+            }
+        }
+
+        tr.Commit();
+        return list;
     }
 
     // ------------------------------------------------------------------

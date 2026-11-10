@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.Geometry;
 using Civil3D2026Plugin.UI.Common;
 
@@ -122,6 +123,46 @@ internal sealed partial class MFRebaixoPanel
         return (top, flow, origin);
     }
 
+    /// <summary>
+    /// Pontos do meio-fio numa secao, em estaca (X), offset (Y) e elevacao (Z): quina do topo do lado
+    /// da pista, pe da face (linha d'agua) e quina do topo do lado da calcada (fundo).
+    /// </summary>
+    private static (Point3d Top, Point3d Flow, Point3d Back)? CurbMarks(ModelSection s, long key)
+    {
+        List<ModelLink>? links = s.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
+        if (links is null || CurbOf(s, key) is not { } c)
+            return null;
+
+        List<Point3d> tops = new(), flows = new(), curbs = new();
+        foreach (ModelLink l in links)
+        {
+            if (IsWalk(l.Codes))
+                continue;
+            bool curb = Has(l.Codes, "Curb");
+            bool topCode = Has(l.Codes, "Top") || Has(l.Codes, "TOPO");
+            bool gutter = Has(l.Codes, "Sarjeta") || Has(l.Codes, "Gutter");
+            foreach (Point3d q in l.Soe)
+            {
+                if (curb || topCode)
+                    tops.Add(q);
+                if (topCode && !gutter)
+                    flows.Add(q);
+                if (curb)
+                    curbs.Add(q);
+            }
+        }
+
+        if (tops.Count == 0)
+            return null;
+        double side(Point3d q) => Math.Abs(q.Y - c.Origin.Y);
+        Point3d top = tops.Where(q => q.Z > c.Top - 0.002).OrderBy(side).First();
+        Point3d flow = flows.Count == 0 ? c.Origin : flows.Where(q => q.Z < c.Flow + 0.002).OrderBy(q => Math.Abs(q.Y - top.Y)).First();
+        List<Point3d> pool = curbs.Count > 0 ? curbs : tops;
+        double far = pool.Max(side);
+        Point3d back = pool.Where(q => side(q) > far - 0.002).OrderByDescending(q => q.Z).First();
+        return (top, flow, back);
+    }
+
     private void ChartMessage(string text)
     {
         _scale = 0;
@@ -232,6 +273,14 @@ internal sealed partial class MFRebaixoPanel
                 PlanLabel(name, X(st) + 3, top - 6 + (lowRow ? 13 : 0), 11, markBrush);
         }
 
+        // Secao escolhida na aba Secoes / mostrada na vista Secao.
+        if (_secMark is double sm && sm >= sa && sm <= sb)
+        {
+            WM.Brush secBrush = ToolTheme.Brush(90, 200, 255);
+            ChartLine(X(sm), top + 12, X(sm), h - bottom, secBrush, 1.2);
+            PlanLabel("secao " + N(sm, "0.00"), X(sm) + 3, h - bottom - 16, 10, secBrush);
+        }
+
         // Altura do meio-fio (topo - linha d'agua) nos pontos que interessam (dentro da area do grafico).
         foreach (double st in new[] { sa, r.S0, (r.S1 + r.S2) / 2.0, r.S3, sb }.Distinct())
         {
@@ -286,10 +335,61 @@ internal sealed partial class MFRebaixoPanel
     private int? _secIndex;
     private string? _secKey;
 
+    // Estaca pedida pela aba Secoes (consumida no proximo desenho) e a estaca mostrada (marca no perfil).
+    private double? _secWanted;
+    private double? _secMark;
+    private WC.ListView? _sectionsList;
+    private bool _syncingSections;
+
     private void StepSection(int delta)
     {
         _secIndex = (_secIndex ?? 0) + delta;
         RenderGraphic();
+    }
+
+    /// <summary>Aba Secoes: leva a vista Secao (e a marca do Perfil) para a estaca da linha clicada.</summary>
+    private void GoToSection(double station, bool open)
+    {
+        _secWanted = station;
+        _secMark = station;
+        if (open && Mode != "SECAO")
+        {
+            SetMode("SECAO");
+            return;
+        }
+
+        if (Mode is "SECAO" or "PERFIL")
+            RenderGraphic();
+    }
+
+    /// <summary>Vista Secao andou (anterior/proxima): marca a mesma estaca na tabela da aba Secoes.</summary>
+    private void SelectSectionRow(double station)
+    {
+        WC.ListView? lv = _sectionsList;
+        if (lv is null || _syncingSections)
+            return;
+        try
+        {
+            foreach (object o in lv.Items)
+            {
+                if (o is not WC.ListViewItem { Tag: Row { Data: RebaixoSection sec } } item || Math.Abs(sec.Station - station) > 0.002)
+                    continue;
+                if (ReferenceEquals(lv.SelectedItem, item))
+                    return;
+                _syncingSections = true;
+                lv.SelectedItem = item;
+                lv.ScrollIntoView(item);
+                return;
+            }
+        }
+        catch
+        {
+            // Tabela ja descartada (outra aba): nada a marcar.
+        }
+        finally
+        {
+            _syncingSections = false;
+        }
     }
 
     private void RenderCross()
@@ -329,12 +429,20 @@ internal sealed partial class MFRebaixoPanel
             _secIndex = null;
         }
 
+        if (_secWanted is double want)
+        {
+            _secIndex = secs.Select((s, i) => (s, i)).OrderBy(x => Math.Abs(x.s.Station - want)).First().i;
+            _secWanted = null;
+        }
+
         double mid = (r.S1 + r.S2) / 2.0;
         int idx = _secIndex ?? secs.Select((s, i) => (s, i)).OrderBy(x => Math.Abs(x.s.Station - mid)).First().i;
         idx = Math.Clamp(idx, 0, secs.Count - 1);
         _secIndex = idx;
 
         ModelSection cur = secs[idx];
+        _secMark = cur.Station;
+        SelectSectionRow(cur.Station);
         ModelSection? normal = secs.LastOrDefault(s => s.Station < r.S0 - 1e-4) ?? secs.FirstOrDefault(s => s.Station > r.S3 + 1e-4);
         (double Top, double Flow, Point3d Origin) c = CurbOf(cur, key)!.Value;
         (double Top, double Flow, Point3d Origin)? n = normal is null ? null : CurbOf(normal, key);
@@ -407,6 +515,37 @@ internal sealed partial class MFRebaixoPanel
         PlanLabel($"Secao na estaca {N(cur.Station)}   |   {ZoneName(r, cur.Station)}   |   {idx + 1} de {secs.Count}", 10, 6, 12);
         string normalText = n is { } n3 && normal is not null ? $"   (secao normal, estaca {N(normal.Station)}: {(n3.Top - n3.Flow) * 100:0.0} cm, tracejada)" : "";
         PlanLabel($"Altura do meio-fio: {(c.Top - c.Flow) * 100:0.0} cm{normalText}", 10, 24, 11);
+        // Elevacoes dos pontos do meio-fio (pedido do Heyvid em 10/11/2026).
+        if (Show("ELEVACOES") && CurbMarks(cur, key) is { } marks)
+        {
+            List<SW.Rect> used = new();
+            void Mark(Point3d q, string name, bool above)
+            {
+                SW.Point sp = P(q.Y - c.Origin.Y, q.Z - c.Origin.Z);
+                var dot = new WS.Ellipse { Width = 6, Height = 6, Fill = ToolTheme.Brush(90, 200, 255), IsHitTestVisible = false };
+                WC.Canvas.SetLeft(dot, sp.X - 3);
+                WC.Canvas.SetTop(dot, sp.Y - 3);
+                _plan.Children.Add(dot);
+                string text = $"{name}  {N(q.Z)}";
+                double tw = (text.Length * 6.2) + 6;
+                double x = Math.Clamp(sp.X - (tw / 2.0), 4, Math.Max(4, w - tw - 4));
+                double y = above ? sp.Y - 22 : sp.Y + 8;
+                for (int k = 0; k < 6 && used.Any(u => u.IntersectsWith(new SW.Rect(x, y, tw, 14))); k++)
+                    y += above ? -15 : 15;
+                y = Math.Clamp(y, 42, h - 18);
+                used.Add(new SW.Rect(x, y, tw, 14));
+                ChartLine(sp.X, sp.Y, x + (tw / 2.0), above ? y + 14 : y, ToolTheme.Brush(90, 200, 255, 140), 0.8);
+                PlanLabel(text, x, y, 11, ToolTheme.Brush(150, 220, 255));
+            }
+
+            Mark(marks.Top, "topo do meio-fio", true);
+            if (Math.Abs(marks.Back.Y - marks.Top.Y) > 0.02)
+                Mark(marks.Back, "fundo do meio-fio", true);
+            Mark(marks.Flow, "linha d'agua", false);
+            if (Math.Abs(c.Origin.Y - marks.Flow.Y) > 0.02)
+                Mark(c.Origin, "borda da pista", false);
+        }
+
         if (Show("ESCALA"))
         {
             double step = NiceStep(w / scale / 8.0);
@@ -426,7 +565,7 @@ internal sealed partial class MFRebaixoPanel
     // 3D interativo
     // ------------------------------------------------------------------
 
-    private sealed record Face3D(long Key, int Link, int Zone, string[] Codes);
+    private sealed record Face3D(int Model, long Key, int Link, int Zone, string[] Codes);
 
     private readonly WC.Grid _host3D = new() { Visibility = SW.Visibility.Collapsed };
     private readonly WC.Viewport3D _viewport = new() { ClipToBounds = true };
@@ -442,10 +581,33 @@ internal sealed partial class MFRebaixoPanel
     private W3.GeometryModel3D? _picked;
     private W3.Material? _pickedMaterial;
 
+    // 3D geral: todos os corredores com todos os rebaixos (senao, so o trecho do rebaixo selecionado).
+    private bool _tudo3D;
+    private List<RebaixoModel>? _models3D;
+    private string? _modelsKey3D;
+    private bool _near3D;
+    private string? _focus3D;
+    private List<RebaixoModel> _shown3D = new();
+    // Para cada modelo mostrado: os rebaixos dele e a chave do meio-fio de cada um.
+    private List<List<(RebaixoInfo R, long Key)>> _owners3D = new();
+    private W3.Point3D _min3, _max3;
+
+    private void Set3DAll(bool all)
+    {
+        _tudo3D = all;
+        _key3D = null;
+        BuildViewToggles();
+        RenderGraphic();
+    }
+
+    private static string FocusKey(RebaixoInfo r) => $"{r.CorridorId.Handle.Value}|{r.SetName}";
+
+    private W3.Point3D Loc(Point3d p) => new(p.X - _cx3, p.Y - _cy3, (p.Z - _z03) * _exagero3D);
+
     private SW.UIElement Build3DHost()
     {
         _host3D.Background = ToolTheme.GraphicBack;
-        _viewport.Camera = new W3.PerspectiveCamera { FieldOfView = 40, NearPlaneDistance = 0.05, FarPlaneDistance = 10000 };
+        _viewport.Camera = new W3.PerspectiveCamera { FieldOfView = 40, NearPlaneDistance = 0.05, FarPlaneDistance = 100000 };
         _host3D.Children.Add(_viewport);
 
         _info3D.Foreground = ToolTheme.GraphicText;
@@ -461,7 +623,7 @@ internal sealed partial class MFRebaixoPanel
 
         _host3D.Children.Add(new WC.TextBlock
         {
-            Text = "arraste: girar   |   botao do meio: mover   |   roda: aproximar   |   clique numa face: medidas",
+            Text = "arraste: girar   |   botao do meio: mover   |   roda: aproximar   |   clique num rebaixo: ficha dele   |   clique em outra face: medidas",
             Foreground = ToolTheme.GraphicLine,
             FontSize = 10.5,
             Margin = new SW.Thickness(8, 0, 0, 6),
@@ -516,7 +678,7 @@ internal sealed partial class MFRebaixoPanel
         };
         _host3D.MouseWheel += (_, e) =>
         {
-            _dist = Math.Clamp(_dist * (e.Delta > 0 ? 0.85 : 1.18), 0.4, 5000);
+            _dist = Math.Clamp(_dist * (e.Delta > 0 ? 0.85 : 1.18), 0.4, 50000);
             UpdateCamera();
         };
         return _host3D;
@@ -533,80 +695,156 @@ internal sealed partial class MFRebaixoPanel
         cam.UpDirection = new W3.Vector3D(0, 0, 1);
     }
 
+    /// <summary>Modelos do 3D: so o trecho do rebaixo selecionado, ou todos os corredores ("tudo").</summary>
+    private List<RebaixoModel> Models3D()
+    {
+        if (!_tudo3D)
+        {
+            RebaixoModel? one = CurrentModel();
+            return one is null ? new List<RebaixoModel>() : new List<RebaixoModel> { one };
+        }
+
+        if (Doc is not Document doc)
+            return new List<RebaixoModel>();
+        string key = "ALL|" + string.Join(";", _items.Select(i => $"{FocusKey(i)}|{N(i.S0)}|{N(i.S3)}"));
+        if (_models3D is not null && key == _modelsKey3D)
+            return _models3D;
+        try
+        {
+            using (doc.LockDocument())
+                _models3D = MFRebaixoData.ModelsAll(doc.Database, _items, Math.Max(15.0, _settings.PainelMargem), out _near3D);
+            _modelsKey3D = key;
+            _key3D = null;
+            if (_near3D)
+                Say("Corredores grandes: o 3D geral mostra so o entorno dos rebaixos.");
+        }
+        catch (System.Exception ex)
+        {
+            _models3D = null;
+            _modelsKey3D = null;
+            Say("Erro ao ler os corredores: " + ex.Message);
+            return new List<RebaixoModel>();
+        }
+
+        return _models3D;
+    }
+
     private void Render3D()
     {
         RebaixoInfo? r = _current;
-        RebaixoModel? model = CurrentModel();
-        if (r is null || model is null || model.Sections.Count < 2)
+        List<RebaixoModel> models = Models3D().Where(m => m.Sections.Count >= 2).ToList();
+        if (models.Count == 0)
         {
             _viewport.Children.Clear();
             _faces.Clear();
             _picked = null;
             _key3D = null;
-            _info3D.Text = r is null ? "Selecione um rebaixo." : "Sem secoes calculadas neste trecho (Rebuild no corredor?).";
+            _shown3D = new List<RebaixoModel>();
+            _info3D.Text = !_tudo3D && r is null ? "Selecione um rebaixo (ou use \"tudo\" para ver todos os corredores)." : "Sem secoes calculadas (Rebuild no corredor?).";
             _info3D.Visibility = SW.Visibility.Visible;
             return;
         }
 
-        string key3D = $"{_modelKey}|{_exagero3D:0.##}";
+        string key3D = $"{(_tudo3D ? _modelsKey3D : _modelKey)}|{_items.Count}|{_exagero3D:0.##}";
         if (key3D == _key3D)
+        {
+            // 3D geral: escolher outro rebaixo na lista leva a camera ate ele, sem refazer a cena.
+            if (_tudo3D && r is not null && FocusKey(r) != _focus3D)
+                Focus3D(r);
             return;
-        _key3D = key3D;
+        }
 
+        _key3D = key3D;
         _viewport.Children.Clear();
         _faces.Clear();
         _picked = null;
         _info3D.Visibility = SW.Visibility.Collapsed;
+        _shown3D = models;
 
-        List<Point3d> all = model.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points))).ToList();
-        if (all.Count == 0)
-            return;
-        Point3d center = r.Path.Count > 0 ? r.Path[r.Path.Count / 2] : all[all.Count / 2];
-        _cx3 = center.X;
-        _cy3 = center.Y;
-        _z03 = all.Min(p => p.Z);
-        double ex = _exagero3D;
-        W3.Point3D L(Point3d p) => new(p.X - _cx3, p.Y - _cy3, (p.Z - _z03) * ex);
-
-        long? mf = MfKey(model, r);
-        var meshes = new Dictionary<(long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)>();
-        for (int k = 0; k + 1 < model.Sections.Count; k++)
+        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
+        foreach (Point3d p in models.SelectMany(m => m.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points)))))
         {
-            ModelSection a = model.Sections[k], b = model.Sections[k + 1];
-            double midStation = (a.Station + b.Station) / 2.0;
-            foreach ((long key, List<ModelLink> linksA) in a.Subassemblies)
-            {
-                List<ModelLink>? linksB = b.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
-                if (linksB is null)
-                    continue;
-                int n = Math.Min(linksA.Count, linksB.Count);
-                for (int j = 0; j < n; j++)
-                {
-                    ModelLink la = linksA[j], lb = linksB[j];
-                    if (la.Points.Length < 2 || la.Points.Length != lb.Points.Length)
-                        continue;
-                    int zone = 0;
-                    if (mf == key && !IsWalk(la.Codes) && (Has(la.Codes, "Curb") || Has(la.Codes, "Top") || Has(la.Codes, "TOPO") || Has(la.Codes, "Sarjeta")))
-                        zone = ZoneOf(r, midStation);
-                    if (!meshes.TryGetValue((key, j, zone), out (W3.MeshGeometry3D Mesh, string[] Codes) entry))
-                    {
-                        entry = (new W3.MeshGeometry3D(), la.Codes);
-                        meshes[(key, j, zone)] = entry;
-                    }
+            minX = Math.Min(minX, p.X);
+            minY = Math.Min(minY, p.Y);
+            minZ = Math.Min(minZ, p.Z);
+            maxX = Math.Max(maxX, p.X);
+            maxY = Math.Max(maxY, p.Y);
+            maxZ = Math.Max(maxZ, p.Z);
+        }
 
-                    for (int p = 0; p + 1 < la.Points.Length; p++)
+        if (minX == double.MaxValue)
+            return;
+        _cx3 = (minX + maxX) / 2.0;
+        _cy3 = (minY + maxY) / 2.0;
+        _z03 = minZ;
+        _min3 = Loc(new Point3d(minX, minY, minZ));
+        _max3 = Loc(new Point3d(maxX, maxY, maxZ));
+
+        // Rebaixos de cada modelo (todos, nao so o selecionado) e o meio-fio de cada um.
+        _owners3D = new List<List<(RebaixoInfo R, long Key)>>();
+        foreach (RebaixoModel m in models)
+        {
+            List<(RebaixoInfo R, long Key)> owners = new();
+            IEnumerable<RebaixoInfo> pool = r is not null && !_items.Contains(r) ? _items.Append(r) : _items;
+            foreach (RebaixoInfo i in pool)
+            {
+                if (i.CorridorId == m.CorridorId && i.BaselineKey == m.BaselineKey && MfKey(m, i) is long k)
+                    owners.Add((i, k));
+            }
+
+            _owners3D.Add(owners);
+        }
+
+        var meshes = new Dictionary<(int Model, long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)>();
+        for (int mi = 0; mi < models.Count; mi++)
+        {
+            RebaixoModel model = models[mi];
+            List<(RebaixoInfo R, long Key)> owners = _owners3D[mi];
+            for (int k = 0; k + 1 < model.Sections.Count; k++)
+            {
+                ModelSection a = model.Sections[k], b = model.Sections[k + 1];
+                double midStation = (a.Station + b.Station) / 2.0;
+                foreach ((long key, List<ModelLink> linksA) in a.Subassemblies)
+                {
+                    List<ModelLink>? linksB = b.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
+                    if (linksB is null)
+                        continue;
+                    int n = Math.Min(linksA.Count, linksB.Count);
+                    for (int j = 0; j < n; j++)
                     {
-                        int i0 = entry.Mesh.Positions.Count;
-                        entry.Mesh.Positions.Add(L(la.Points[p]));
-                        entry.Mesh.Positions.Add(L(la.Points[p + 1]));
-                        entry.Mesh.Positions.Add(L(lb.Points[p + 1]));
-                        entry.Mesh.Positions.Add(L(lb.Points[p]));
-                        entry.Mesh.TriangleIndices.Add(i0);
-                        entry.Mesh.TriangleIndices.Add(i0 + 1);
-                        entry.Mesh.TriangleIndices.Add(i0 + 2);
-                        entry.Mesh.TriangleIndices.Add(i0);
-                        entry.Mesh.TriangleIndices.Add(i0 + 2);
-                        entry.Mesh.TriangleIndices.Add(i0 + 3);
+                        ModelLink la = linksA[j], lb = linksB[j];
+                        if (la.Points.Length < 2 || la.Points.Length != lb.Points.Length)
+                            continue;
+                        int zone = 0;
+                        if (!IsWalk(la.Codes) && (Has(la.Codes, "Curb") || Has(la.Codes, "Top") || Has(la.Codes, "TOPO") || Has(la.Codes, "Sarjeta")))
+                        {
+                            foreach ((RebaixoInfo o, long ok) in owners)
+                            {
+                                if (ok == key)
+                                    zone = Math.Max(zone, ZoneOf(o, midStation));
+                            }
+                        }
+
+                        if (!meshes.TryGetValue((mi, key, j, zone), out (W3.MeshGeometry3D Mesh, string[] Codes) entry))
+                        {
+                            entry = (new W3.MeshGeometry3D(), la.Codes);
+                            meshes[(mi, key, j, zone)] = entry;
+                        }
+
+                        for (int p = 0; p + 1 < la.Points.Length; p++)
+                        {
+                            int i0 = entry.Mesh.Positions.Count;
+                            entry.Mesh.Positions.Add(Loc(la.Points[p]));
+                            entry.Mesh.Positions.Add(Loc(la.Points[p + 1]));
+                            entry.Mesh.Positions.Add(Loc(lb.Points[p + 1]));
+                            entry.Mesh.Positions.Add(Loc(lb.Points[p]));
+                            entry.Mesh.TriangleIndices.Add(i0);
+                            entry.Mesh.TriangleIndices.Add(i0 + 1);
+                            entry.Mesh.TriangleIndices.Add(i0 + 2);
+                            entry.Mesh.TriangleIndices.Add(i0);
+                            entry.Mesh.TriangleIndices.Add(i0 + 2);
+                            entry.Mesh.TriangleIndices.Add(i0 + 3);
+                        }
                     }
                 }
             }
@@ -616,7 +854,7 @@ internal sealed partial class MFRebaixoPanel
         group.Children.Add(new W3.AmbientLight(WM.Color.FromRgb(125, 125, 125)));
         group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(190, 190, 190), new W3.Vector3D(-0.45, -0.3, -1)));
         group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(70, 70, 70), new W3.Vector3D(0.5, 0.6, -0.3)));
-        foreach (KeyValuePair<(long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)> kv in meshes)
+        foreach (KeyValuePair<(int Model, long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)> kv in meshes)
         {
             RebaixoStyle.Look look = RebaixoStyle.Of(kv.Value.Codes);
             WM.Color color = kv.Key.Zone == 2 ? WM.Color.FromRgb(225, 45, 60)
@@ -625,52 +863,187 @@ internal sealed partial class MFRebaixoPanel
             var material = new W3.DiffuseMaterial(new WM.SolidColorBrush(color));
             var gm = new W3.GeometryModel3D(kv.Value.Mesh, material) { BackMaterial = material };
             group.Children.Add(gm);
-            _faces[gm] = new Face3D(kv.Key.Key, kv.Key.Link, kv.Key.Zone, kv.Value.Codes);
+            _faces[gm] = new Face3D(kv.Key.Model, kv.Key.Key, kv.Key.Link, kv.Key.Zone, kv.Value.Codes);
         }
 
         _viewport.Children.Add(new W3.ModelVisual3D { Content = group });
 
-        double zTarget = r.Band.Count > 0 || r.Path.Count > 0
-            ? all.Where(p => Math.Abs(p.X - _cx3) < 1.5 && Math.Abs(p.Y - _cy3) < 1.5).Select(p => p.Z).DefaultIfEmpty(_z03).Average()
-            : _z03;
-        _target = new W3.Point3D(0, 0, (zTarget - _z03) * ex);
-        _dist = Math.Max(6, (r.TotalLength * 2.2) + 2);
-        if (RoadSideYaw(model, r, mf) is double yaw)
+        if (_tudo3D)
         {
-            _yaw = yaw;
-            _pitch = 32;
+            _focus3D = r is null ? null : FocusKey(r);
+            FitAll3D();
         }
+        else if (r is not null)
+        {
+            Focus3D(r);
+        }
+        else
+        {
+            FitAll3D();
+        }
+    }
+
+    /// <summary>Enquadra tudo o que esta no 3D.</summary>
+    private void FitAll3D()
+    {
+        if (_shown3D.Count == 0)
+            return;
+        _target = new W3.Point3D((_min3.X + _max3.X) / 2.0, (_min3.Y + _max3.Y) / 2.0, (_min3.Z + _max3.Z) / 2.0);
+        double size = Math.Max(_max3.X - _min3.X, _max3.Y - _min3.Y);
+        _dist = Math.Max(8, (size * 1.25) + 4);
+        _pitch = 40;
+        UpdateCamera();
+    }
+
+    /// <summary>Leva a camera ate um rebaixo, do lado da pista.</summary>
+    private void Focus3D(RebaixoInfo r)
+    {
+        _focus3D = FocusKey(r);
+        double mid = (r.S1 + r.S2) / 2.0;
+        for (int mi = 0; mi < _shown3D.Count && mi < _owners3D.Count; mi++)
+        {
+            RebaixoModel model = _shown3D[mi];
+            if (model.CorridorId != r.CorridorId || model.BaselineKey != r.BaselineKey || MfKey(model, r) is not long key)
+                continue;
+            ModelSection? s = model.Sections.OrderBy(x => Math.Abs(x.Station - mid)).FirstOrDefault();
+            List<Point3d> curb = s?.Subassemblies.FirstOrDefault(a => a.Key == key).Links?.SelectMany(l => l.Points).ToList() ?? new List<Point3d>();
+            if (curb.Count == 0)
+                continue;
+            _target = Loc(new Point3d(curb.Average(p => p.X), curb.Average(p => p.Y), curb.Average(p => p.Z)));
+            _dist = Math.Max(6, (r.TotalLength * 2.2) + 2);
+            if (RoadSideYaw(model, r, key) is double yaw)
+            {
+                _yaw = yaw;
+                _pitch = 32;
+            }
+
+            UpdateCamera();
+            return;
+        }
+
+        if (r.Path.Count > 0)
+        {
+            _target = Loc(r.Path[r.Path.Count / 2]);
+            _dist = Math.Max(6, (r.TotalLength * 2.2) + 2);
+        }
+
         UpdateCamera();
     }
 
     /// <summary>
     /// Direcao da camera vinda do lado da pista e um pouco antes do rebaixo (olhando o meio-fio de
     /// frente, em diagonal). Sem isso a camera fixa caia atras do meio-fio, com a pista tapando a vista.
+    /// O sentido das estacas vem de duas secoes vizinhas; o lado, do proprio rebaixo.
     /// </summary>
-    private static double? RoadSideYaw(RebaixoModel model, RebaixoInfo r, long? mf)
+    private static double? RoadSideYaw(RebaixoModel model, RebaixoInfo r, long key)
     {
-        if (mf is not long key || model.Baseline.Count < 2)
-            return null;
         double mid = (r.S1 + r.S2) / 2.0;
-        ModelSection? s = model.Sections.OrderBy(x => Math.Abs(x.Station - mid)).FirstOrDefault();
-        List<Point3d> curb = s?.Subassemblies.FirstOrDefault(a => a.Key == key).Links?.SelectMany(l => l.Points).ToList() ?? new List<Point3d>();
-        if (curb.Count == 0)
+        List<(double St, double X, double Y)> c = new();
+        foreach (ModelSection s in model.Sections)
+        {
+            List<Point3d> pts = s.Subassemblies.FirstOrDefault(a => a.Key == key).Links?.SelectMany(l => l.Points).ToList() ?? new List<Point3d>();
+            if (pts.Count > 0)
+                c.Add((s.Station, pts.Average(p => p.X), pts.Average(p => p.Y)));
+        }
+
+        if (c.Count < 2)
             return null;
-        double cx = curb.Average(p => p.X), cy = curb.Average(p => p.Y);
-        int i = Enumerable.Range(0, model.Baseline.Count).OrderBy(k => Math.Pow(model.Baseline[k].X - cx, 2) + Math.Pow(model.Baseline[k].Y - cy, 2)).First();
-        Point3d b = model.Baseline[i];
-        Point3d a0 = model.Baseline[Math.Max(0, i - 1)], a1 = model.Baseline[Math.Min(model.Baseline.Count - 1, i + 1)];
+        int i = Enumerable.Range(0, c.Count).OrderBy(k => Math.Abs(c[k].St - mid)).First();
+        (double St, double X, double Y) a0 = c[Math.Max(0, i - 1)], a1 = c[Math.Min(c.Count - 1, i + 1)];
         double tx = a1.X - a0.X, ty = a1.Y - a0.Y, tl = Math.Sqrt((tx * tx) + (ty * ty));
-        double nx = cx - b.X, ny = cy - b.Y, nl = Math.Sqrt((nx * nx) + (ny * ny));
-        if (tl < 1e-6 || nl < 0.05)
+        if (tl < 1e-6)
             return null;
         tx /= tl;
         ty /= tl;
-        nx /= nl;
-        ny /= nl;
+        // Da baseline para o meio-fio: a esquerda do sentido das estacas e (-ty, tx).
+        double nx = r.Left ? -ty : ty, ny = r.Left ? tx : -tx;
         // Do meio-fio para a pista (-n) e para tras na estaca (-t).
         double dx = (-nx * 0.85) - (tx * 0.5), dy = (-ny * 0.85) - (ty * 0.5);
         return Math.Atan2(dy, dx) * 180.0 / Math.PI;
+    }
+
+    /// <summary>Topo do meio-fio numa secao, em coordenadas do desenho (X, Y, elevacao).</summary>
+    private static Point3d? CurbTopWorld(ModelSection s, long key)
+    {
+        List<ModelLink>? links = s.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
+        if (links is null)
+            return null;
+        Point3d? top = null;
+        foreach (ModelLink l in links)
+        {
+            if (IsWalk(l.Codes) || !(Has(l.Codes, "Curb") || Has(l.Codes, "Top") || Has(l.Codes, "TOPO")))
+                continue;
+            foreach (Point3d q in l.Points)
+            {
+                if (top is null || q.Z > top.Value.Z + 1e-6)
+                    top = q;
+            }
+        }
+
+        return top;
+    }
+
+    private static string CurbTypeName(string code) => code.ToUpperInvariant() switch
+    {
+        "MF_T30" => "SUDECAP 30",
+        "MF_T40" => "SUDECAP 40",
+        "MF_KASSEL" => "Kassel (guia de atracagem)",
+        "MF_PERS" => "Personalizado",
+        "MF_MOLDADO" => "Moldado no local",
+        _ => code
+    };
+
+    /// <summary>
+    /// Ficha do rebaixo para o clique no 3D: identificacao, tipo do meio-fio, comprimento e inclinacao
+    /// das rampas, alturas e coordenadas dos quatro marcos (topo do meio-fio). Pedido do Heyvid em
+    /// 10/11/2026, pensando na federacao do modelo BIM.
+    /// </summary>
+    private static List<string> RebaixoCard(RebaixoModel model, RebaixoInfo r, long key)
+    {
+        ModelSection? At(double st) => model.Sections.Where(s => CurbOf(s, key) is not null).OrderBy(s => Math.Abs(s.Station - st)).FirstOrDefault();
+        double? Height(double st) => At(st) is ModelSection s && Math.Abs(s.Station - st) < 0.05 && CurbOf(s, key) is { } c ? c.Top - c.Flow : null;
+
+        double? h0 = Height(r.S0), h1 = Height(r.S1), h2 = Height(r.S2), h3 = Height(r.S3);
+        ModelSection? before = model.Sections.LastOrDefault(s => s.Station < r.S0 - 1e-4 && CurbOf(s, key) is not null);
+        double? normal = h0 ?? (before is not null && CurbOf(before, key) is { } cb ? cb.Top - cb.Flow : r.NormalHeight);
+        double? final = h1 is double a1 && h2 is double a2 ? (a1 + a2) / 2.0 : r.FinalHeight;
+
+        string type = "";
+        ModelSection? mid = At((r.S1 + r.S2) / 2.0);
+        if (mid is not null && mid.ShapeCodes.TryGetValue(key, out string[]? shapeCodes))
+            type = shapeCodes.FirstOrDefault(c => c.StartsWith("MF_", StringComparison.OrdinalIgnoreCase)) ?? "";
+        string typeText = type.Length > 0 ? $"{CurbTypeName(type)}  ({type})" : "(nao informado pela peca)";
+
+        string Slope(double? from, double? to, double length) =>
+            from is double f && to is double t && length > 1e-4 ? $"{Math.Abs(f - t) / length * 100:0.00}%" : "-";
+
+        var lines = new List<string>
+        {
+            "REBAIXO " + r.Label,
+            $"Corredor: {r.CorridorName}",
+            $"Baseline: {r.BaselineName}   lado {r.SideLabel.ToLowerInvariant()}",
+            $"Peca: {r.SubassemblyName}",
+            "Tipo de meio-fio: " + typeText,
+            "",
+            $"Rampa de entrada: {N(r.EntryLength)} m   inclinacao {Slope(h0, h1, r.EntryLength)}",
+            $"Trecho rebaixado: {N(r.LoweredLength)} m",
+            $"Rampa de saida: {N(r.ExitLength)} m   inclinacao {Slope(h3, h2, r.ExitLength)}",
+            $"Comprimento total: {N(r.TotalLength)} m",
+            "",
+            $"Altura do meio-fio: normal {Cm(normal)}   rebaixado {Cm(final)}" +
+                (normal is double nn && final is double ff ? $"   (desce {Cm(nn - ff)})" : ""),
+            "",
+            "Coordenadas do topo do meio-fio (X, Y, elevacao):"
+        };
+        foreach ((string name, double st) in new[] { ("S0 inicio da rampa", r.S0), ("S1 inicio do rebaixo", r.S1), ("S2 fim do rebaixo", r.S2), ("S3 fim da rampa", r.S3) })
+        {
+            Point3d? w = At(st) is ModelSection s && Math.Abs(s.Station - st) < 0.05 ? CurbTopWorld(s, key) : null;
+            lines.Add(w is Point3d q
+                ? $"  {name}: {q.X:0.000}  {q.Y:0.000}  {q.Z:0.000}   (estaca {N(st)})"
+                : $"  {name}: estaca {N(st)} (sem secao calculada)");
+        }
+
+        return lines;
     }
 
     private void ClearPick()
@@ -690,17 +1063,17 @@ internal sealed partial class MFRebaixoPanel
     {
         try
         {
-            RebaixoInfo? r = _current;
-            RebaixoModel? model = _model;
             ClearPick();
-            if (r is null || model is null ||
-                WM.VisualTreeHelper.HitTest(_viewport, p) is not W3.RayMeshGeometry3DHitTestResult hit ||
-                hit.ModelHit is not W3.GeometryModel3D gm || !_faces.TryGetValue(gm, out Face3D? face))
+            if (WM.VisualTreeHelper.HitTest(_viewport, p) is not W3.RayMeshGeometry3DHitTestResult hit ||
+                hit.ModelHit is not W3.GeometryModel3D gm || !_faces.TryGetValue(gm, out Face3D? face) ||
+                face.Model >= _shown3D.Count)
             {
                 _info3D.Visibility = SW.Visibility.Collapsed;
                 return;
             }
 
+            RebaixoModel model = _shown3D[face.Model];
+            List<(RebaixoInfo R, long Key)> owners = face.Model < _owners3D.Count ? _owners3D[face.Model] : new List<(RebaixoInfo R, long Key)>();
             _picked = gm;
             _pickedMaterial = gm.Material;
             var yellow = new W3.DiffuseMaterial(new WM.SolidColorBrush(WM.Color.FromRgb(255, 215, 60)));
@@ -730,6 +1103,20 @@ internal sealed partial class MFRebaixoPanel
                 }
             }
 
+            // Clique num rebaixo: a ficha do rebaixo (o que interessa para o modelo BIM), nao a da face.
+            RebaixoInfo? hitOwner = best is null ? null
+                : owners.Where(o => o.Key == face.Key && ZoneOf(o.R, best.Station) > 0).Select(o => o.R).FirstOrDefault();
+            if (hitOwner is not null)
+            {
+                List<string> card = RebaixoCard(model, hitOwner, face.Key);
+                card.Add("");
+                card.Add($"Ponto clicado: estaca {N(best!.Station)} ({ZoneName(hitOwner, best.Station)})");
+                card.Add($"   X {x:0.000}   Y {y:0.000}   elevacao {z:0.000}");
+                _info3D.Text = string.Join("\n", card);
+                _info3D.Visibility = SW.Visibility.Visible;
+                return;
+            }
+
             var lines = new List<string>
             {
                 "Peca: " + (model.Names.TryGetValue(face.Key, out string? name) ? name : "?"),
@@ -737,18 +1124,22 @@ internal sealed partial class MFRebaixoPanel
             };
             if (best is not null && link is not null && link.Soe.Length > 1)
             {
+                // Rebaixo dono da face: o do mesmo meio-fio cuja faixa S0-S3 pega a estaca.
+                RebaixoInfo? owner = owners.Where(o => o.Key == face.Key && ZoneOf(o.R, best.Station) > 0).Select(o => o.R).FirstOrDefault();
                 Point3d a = link.Soe[0], b = link.Soe[^1];
                 double width = Math.Abs(b.Y - a.Y), dz = b.Z - a.Z;
                 double length = 0;
                 for (int i = 1; i < link.Soe.Length; i++)
                     length += Math.Sqrt(Math.Pow(link.Soe[i].Y - link.Soe[i - 1].Y, 2) + Math.Pow(link.Soe[i].Z - link.Soe[i - 1].Z, 2));
-                lines.Add($"Secao: estaca {N(best.Station)}  ({ZoneName(r, best.Station)})");
+                if (owner is not null)
+                    lines.Insert(0, "Rebaixo: " + owner.Label);
+                lines.Add(owner is null ? $"Secao: estaca {N(best.Station)}" : $"Secao: estaca {N(best.Station)}  ({ZoneName(owner, best.Station)})");
                 lines.Add($"Offset: {N(a.Y)} a {N(b.Y)}   largura {width:0.000} m");
                 lines.Add($"Elevacao: {N(a.Z)} a {N(b.Z)}   desnivel {dz * 100:0.0} cm");
                 lines.Add(width > 1e-4 ? $"Inclinacao: {Math.Abs(dz) / width * 100:0.00}%" : "Inclinacao: vertical");
                 lines.Add($"Comprimento do link: {length:0.000} m");
-                if (face.Key == MfKey(model, r) && CurbOf(best, face.Key) is { } c)
-                    lines.Add($"Altura do meio-fio nesta secao: {(c.Top - c.Flow) * 100:0.0} cm");
+                if (owners.Any(o => o.Key == face.Key) && CurbOf(best, face.Key) is { } c)
+                    lines.Add($"Altura do meio-fio nesta secao: {(c.Top - c.Flow) * 100:0.0} cm   topo {N(c.Top)}");
             }
 
             lines.Add($"Ponto: X {x:0.000}  Y {y:0.000}  elevacao {z:0.000}");

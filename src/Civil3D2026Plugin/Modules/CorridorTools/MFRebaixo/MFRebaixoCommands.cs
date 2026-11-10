@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.11.0";
+    public const string Versao = "1.12.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -1140,16 +1140,31 @@ public sealed class MFRebaixoCommands
                 startEffectiveHeight,
                 endEffectiveHeight);
 
-        if (
-            finalHeight < -StationTolerance
-            ||
-            finalHeight > maximumFinalHeight + StationTolerance)
+        if (finalHeight < -StationTolerance)
         {
             throw new InvalidOperationException(
-                $"Altura livre final inválida ({finalHeight:0.###} m). " +
-                $"Ela deve ser <= à menor altura efetiva das extremidades " +
-                $"(S0={startEffectiveHeight:0.###} m; " +
-                $"S3={endEffectiveHeight:0.###} m).");
+                $"Altura livre final inválida ({finalHeight:0.###} m): não pode ser negativa.");
+        }
+
+        // Altura final acima da altura lida nas pontas: o rebaixo sai mesmo assim (pedido do
+        // Heyvid em 10/11/2026); só fica o aviso, porque nesse lado o meio-fio não desce.
+        if (finalHeight > maximumFinalHeight + StationTolerance)
+        {
+            string aviso =
+                $"Altura final {finalHeight:0.###} m é maior que a altura do meio-fio lida nas pontas " +
+                $"(antes={startEffectiveHeight:0.###} m; depois={endEffectiveHeight:0.###} m). " +
+                "Rebaixo criado mesmo assim; confira o resultado na seção.";
+
+            PluginLog.Aviso("MFREBAIXO", aviso);
+
+            try
+            {
+                ed.WriteMessage("\n[MFREBAIXO] Aviso: " + aviso);
+            }
+            catch
+            {
+                // Sem linha de comando (console): fica só no log.
+            }
         }
 
         double entryRampLength =
