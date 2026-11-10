@@ -1749,6 +1749,9 @@ internal sealed partial class LayoutPanel : SW.Window
         Item("Configurar malha, norte e escala...", ConfigurarConjunto);
         Item("Remover malha, norte e escala desta viewport", () => Executar(() => LayoutConjunto.Remover(Doc!, so)));
         menu.Items.Add(new WC.Separator());
+        foreach (WC.MenuItem mi in ItensMapaChave(folha))
+            menu.Items.Add(mi);
+        menu.Items.Add(new WC.Separator());
         if (vp.Planta)
         {
             Item("Plan & Profile: viewport de PLANTA do layout base", () => DefinirModelo(folha, vp, planta: true), "prancha");
@@ -3502,6 +3505,48 @@ internal sealed partial class LayoutPanel : SW.Window
     // Mapa-chave
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// Menu do mapa-chave (botao direito na viewport), no molde do de malha/norte/escala: previa
+    /// em qualquer lugar deste layout, mapa so nos layouts marcados, remover deste/dos marcados,
+    /// remover previas.
+    /// </summary>
+    private List<WC.MenuItem> ItensMapaChave(SheetData folha)
+    {
+        var itens = new List<WC.MenuItem>();
+        void Item(string texto, Action acao, string? icone = null)
+        {
+            var mi = new WC.MenuItem { Header = texto };
+            if (icone is not null)
+                mi.Icon = new WC.Image { Source = IconOf(icone), Width = 16, Height = 16 };
+            mi.Click += (_, _) =>
+            {
+                _acaoAtual = texto;
+                acao();
+            };
+            itens.Add(mi);
+        }
+        List<string> marcados = Marcados();
+        var neste = new[] { folha.Nome };
+        Item("Mapa-chave: previa neste layout (clicar a caixa)...", () =>
+        {
+            Abrir(folha.Nome);
+            Enviar(C3DCommands.Layouts.MapaChave + " preVia");
+        }, "mapa");
+        Item("Mapa-chave so neste layout", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, neste),
+            $"Mapa-chave so em \"{folha.Nome}\": o mapa e refeito nele e apagado dos outros layouts. As viewports nao mudam."), "mapa");
+        if (marcados.Count > 0)
+            Item($"Mapa-chave so nos {marcados.Count} layout(s) marcado(s)", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, Marcados()),
+                ConfLayouts("Mapa-chave so nos layouts marcados: o mapa e refeito neles e apagado dos que nao estao marcados. As viewports nao mudam.")), "mapa");
+        Item("Mapa-chave em todas as pranchas (voltar ao padrao)", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, Array.Empty<string>()),
+            "Mapa-chave em TODAS as pranchas que mostram a base (o mapa de cada uma e refeito). As viewports nao mudam."));
+        Item("Remover mapa-chave deste layout", () => Executar(() => LayoutKeyMap.RemoverDe(Doc!, neste)));
+        if (marcados.Count > 0)
+            Item($"Remover mapa-chave dos {marcados.Count} layout(s) marcado(s)", () => Executar(() => LayoutKeyMap.RemoverDe(Doc!, Marcados()),
+                ConfLayouts("Apagar o mapa-chave dos layouts marcados; eles ficam fora das proximas atualizacoes.")));
+        Item("Remover previas do mapa-chave", () => Executar(() => LayoutKeyMap.RemoverPrevias(Doc!)));
+        return itens;
+    }
+
     private SW.UIElement BuildKeyMap()
     {
         WC.StackPanel p = Form();
@@ -3512,6 +3557,7 @@ internal sealed partial class LayoutPanel : SW.Window
         p.Children.Add(Prop("Base", _kmCfg.Base.Count > 0 ? $"{_kmCfg.Base.Count} objeto(s) do Model" : "nao escolhida"));
         p.Children.Add(Prop("Area", _kmCfg.TemCaixa ? $"{_kmCfg.CaixaMax!.Value.X - _kmCfg.CaixaMin!.Value.X:0.#} x {_kmCfg.CaixaMax!.Value.Y - _kmCfg.CaixaMin!.Value.Y:0.#} no papel" : "nao escolhida"));
         p.Children.Add(Prop("Folhas", $"{comArea} layout(s) com area sobre a base; mapa em {comMapa}"));
+        p.Children.Add(Prop("Pranchas", _kmCfg.Layouts.Count == 0 ? "todas as que mostram a base" : $"{_kmCfg.Layouts.Count} escolhida(s): {string.Join(", ", _kmCfg.Layouts.Take(6))}{(_kmCfg.Layouts.Count > 6 ? ", ..." : "")}"));
 
         var passos = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
         passos.Children.Add(ActionButton("1. Escolher base no Model", () => Enviar(C3DCommands.Layouts.MapaChave + " Base")));
@@ -3616,6 +3662,19 @@ internal sealed partial class LayoutPanel : SW.Window
         botoes.Children.Add(ActionButton("Remover", () => Executar(() => LayoutKeyMap.Remover(Doc!), "Apagar o mapa-chave de TODOS os layouts.")));
         botoes.Children.Add(ActionButton("Inserir no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " Inserir")));
         p.Children.Add(botoes);
+
+        p.Children.Add(Label("Previa e pranchas escolhidas", true));
+        p.Children.Add(Label("Previa: o mapa completo em qualquer lugar do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. Pranchas: marque os layouts e escolha em quais o mapa fica (os outros perdem o mapa). O mesmo menu aparece no botao direito da viewport."));
+        var b2 = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        b2.Children.Add(ActionButton("Previa no layout atual...", () => Enviar(C3DCommands.Layouts.MapaChave + " preVia")));
+        b2.Children.Add(ActionButton("Remover previas", () => Executar(() => LayoutKeyMap.RemoverPrevias(Doc!))));
+        b2.Children.Add(ActionButton("So nos layouts marcados", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, Marcados()),
+            ConfLayouts("Mapa-chave so nos layouts marcados: o mapa e refeito neles e apagado dos que nao estao marcados. As viewports nao mudam.") ?? "Nenhum layout marcado: o mapa-chave volta a valer para TODAS as pranchas que mostram a base.")));
+        b2.Children.Add(ActionButton("Remover dos marcados", () => Executar(() => LayoutKeyMap.RemoverDe(Doc!, Marcados()),
+            ConfLayouts("Apagar o mapa-chave dos layouts marcados; eles ficam fora das proximas atualizacoes."))));
+        b2.Children.Add(ActionButton("Todas as pranchas", () => Executar(() => LayoutKeyMap.DefinirLayouts(Doc!, Array.Empty<string>()),
+            "Mapa-chave em TODAS as pranchas que mostram a base (o mapa de cada uma e refeito). As viewports nao mudam.")));
+        p.Children.Add(b2);
         p.Children.Add(Label("Tudo o que o mapa-chave cria fica nas layers MAPA_CHAVE_* e e refeito a cada atualizacao; nao edite esses objetos a mao. A base fica no bloco C3D_MAPACHAVE: \"Salvar e gerar\" refaz o bloco a partir dos objetos do Model."));
         return p;
     }

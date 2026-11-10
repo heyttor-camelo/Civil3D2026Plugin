@@ -46,8 +46,8 @@ public sealed class LayoutCommands
             return;
         Editor ed = doc.Editor;
 
-        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Inserir/Gerar/Atualizar/Remover/Painel] <Painel>: ",
-            "Base Area Inserir Gerar Atualizar Remover Painel") { AllowNone = true };
+        var pko = new PromptKeywordOptions("\nMapa-chave [Base/Area/Inserir/preVia/Gerar/Atualizar/Remover/Painel] <Painel>: ",
+            "Base Area Inserir preVia Gerar Atualizar Remover Painel") { AllowNone = true };
         PromptResult pr = ed.GetKeywords(pko);
         if (pr.Status == PromptStatus.Cancel || pr.Status == PromptStatus.Error)
             return;
@@ -77,6 +77,14 @@ public sealed class LayoutCommands
                 if (!EscolherArea(doc))
                     return;
                 r = LayoutKeyMap.Gerar(doc, true);
+                break;
+            case "preVia":
+                // Previa em qualquer lugar do layout atual: nao grava a area nem mexe nas outras pranchas.
+                if (LayoutKeyMap.Ler(doc.Database).Base.Count == 0 && !EscolherBase(doc))
+                    return;
+                if (EscolherCaixa(doc, "da previa do mapa-chave") is not (Point2d pa, Point2d pb))
+                    return;
+                r = LayoutKeyMap.Previa(doc, LayoutManager.Current.CurrentLayout, pa, pb);
                 break;
             case "Gerar":
                 r = LayoutKeyMap.Gerar(doc, true);
@@ -134,6 +142,19 @@ public sealed class LayoutCommands
 
     private static bool EscolherArea(Document doc)
     {
+        if (EscolherCaixa(doc, "do mapa-chave") is not (Point2d a, Point2d b))
+            return false;
+        KeyMapConfig cfg = LayoutKeyMap.Ler(doc.Database);
+        cfg.CaixaMin = a;
+        cfg.CaixaMax = b;
+        LayoutKeyMap.Gravar(doc, cfg);
+        doc.Editor.WriteMessage("\nArea do mapa-chave guardada (vale para todos os layouts).");
+        return true;
+    }
+
+    /// <summary>Dois cantos no papel do layout atual (vai para um layout se estiver no Model). Retorna (min, max).</summary>
+    private static (Point2d Min, Point2d Max)? EscolherCaixa(Document doc, string oQue)
+    {
         Editor ed = doc.Editor;
         if (Convert.ToInt16(AcApp.GetSystemVariable("TILEMODE")) == 1)
         {
@@ -141,28 +162,23 @@ public sealed class LayoutCommands
             if (primeiro is null)
             {
                 ed.WriteMessage("\nO desenho nao tem layouts.");
-                return false;
+                return null;
             }
             LayoutManager.Current.CurrentLayout = primeiro;
         }
         if (Convert.ToInt16(AcApp.GetSystemVariable("CVPORT")) != 1)
             ed.SwitchToPaperSpace();
 
-        PromptPointResult p1 = ed.GetPoint("\nPrimeiro canto da area do mapa-chave (no papel): ");
+        PromptPointResult p1 = ed.GetPoint($"\nPrimeiro canto da area {oQue} (no papel): ");
         if (p1.Status != PromptStatus.OK)
-            return false;
+            return null;
         PromptPointResult p2 = ed.GetCorner("\nCanto oposto: ", p1.Value);
         if (p2.Status != PromptStatus.OK)
-            return false;
+            return null;
 
         Matrix3d ucs = ed.CurrentUserCoordinateSystem;
         Point3d a = p1.Value.TransformBy(ucs), b = p2.Value.TransformBy(ucs);
-        KeyMapConfig cfg = LayoutKeyMap.Ler(doc.Database);
-        cfg.CaixaMin = new Point2d(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y));
-        cfg.CaixaMax = new Point2d(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y));
-        LayoutKeyMap.Gravar(doc, cfg);
-        ed.WriteMessage("\nArea do mapa-chave guardada (vale para todos os layouts).");
-        return true;
+        return (new Point2d(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y)), new Point2d(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y)));
     }
 
     /// <summary>

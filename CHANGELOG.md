@@ -1,3 +1,9 @@
+## 2.95.0 - LAYOUTS v1.19.0: mapa-chave com previa, escolha de pranchas e remocao por prancha
+
+- `C3DMAPACHAVE preVia`: desenha o mapa-chave completo em qualquer caixa do layout atual, so para ver; nao grava a area nem mexe nas outras pranchas. As previas ficam marcadas e a atualizacao normal nao as toca; "Remover previas" tira todas.
+- O mapa-chave passa a ter a lista de pranchas em que fica (gravada no desenho; vazia = todas as que mostram a base). Pranchas fora da lista perdem o mapa na proxima geracao/atualizacao.
+- Botao direito na viewport (abaixo de malha/norte/escala) e aba Mapa-chave: Previa neste layout, Mapa-chave so neste layout / so nos marcados / em todas, Remover deste layout / dos marcados, Remover previas. Acoes em lote pedem confirmacao e geram ponto de restauracao.
+
 ## 2.94.2 - LAYOUTS v1.18.2: 10 mm de folga entre os textos da malha e o norte/escala
 
 - Os textos E= / N= da malha ficam a pelo menos 10 mm (papel) do norte e da escala grafica (era 1 mm).

@@ -43,6 +43,9 @@ internal sealed class KeyMapConfig
     public int TotalManual { get; set; }
     public bool Titulo { get; set; } = true;
 
+    /// <summary>Layouts que recebem o mapa-chave (nomes). Vazio = todos os que tem viewport sobre a base.</summary>
+    public List<string> Layouts { get; } = new();
+
     public bool TemCaixa => CaixaMin.HasValue && CaixaMax.HasValue;
 }
 
@@ -99,6 +102,7 @@ internal static class LayoutKeyMap
                     case 10: { var p = (Point3d)tv.Value; cfg.CaixaMin = new Point2d(p.X, p.Y); break; }
                     case 11: { var p = (Point3d)tv.Value; cfg.CaixaMax = new Point2d(p.X, p.Y); break; }
                     case 330: cfg.Base.Add((ObjectId)tv.Value); break;
+                    case 3: if (Convert.ToString(tv.Value) is { Length: > 0 } ln) cfg.Layouts.Add(ln); break;
                 }
             }
         }
@@ -156,6 +160,8 @@ internal static class LayoutKeyMap
         }
         foreach (ObjectId id in cfg.Base.Where(i => !i.IsNull && !i.IsErased))
             dados.Add(new TypedValue(330, id));
+        foreach (string ln in cfg.Layouts.Distinct(StringComparer.OrdinalIgnoreCase))
+            dados.Add(new TypedValue(3, ln));
         xr.Data = new ResultBuffer(dados.ToArray());
         tr.Commit();
 
@@ -166,9 +172,32 @@ internal static class LayoutKeyMap
     // Gerar / remover
     // ------------------------------------------------------------------
 
+    /// <summary>Valor no XData que marca uma previa (fica de fora da atualizacao normal).</summary>
+    private const string MarcaPrevia = "previa";
+
+    /// <summary>Caixa (papel) e escala/centro para levar a base ao papel.</summary>
+    private sealed record Encaixe(Point2d C0, Point2d C1, double S, Point2d CentroCaixa, Point2d CentroBase)
+    {
+        public double Bw => Math.Abs(C1.X - C0.X);
+        public double Bh => Math.Abs(C1.Y - C0.Y);
+        public Point2d Papel(Point2d p) => new(CentroCaixa.X + (p.X - CentroBase.X) * S, CentroCaixa.Y + (p.Y - CentroBase.Y) * S);
+
+        public static Encaixe De(Point2d c0, Point2d c1, Extents3d ext)
+        {
+            double bw = Math.Abs(c1.X - c0.X), bh = Math.Abs(c1.Y - c0.Y);
+            double ew = Math.Max(1e-9, ext.MaxPoint.X - ext.MinPoint.X);
+            double eh = Math.Max(1e-9, ext.MaxPoint.Y - ext.MinPoint.Y);
+            double s = Math.Min(bw / ew, bh / eh) * 0.96;
+            return new Encaixe(c0, c1, s,
+                new Point2d((c0.X + c1.X) / 2, (c0.Y + c1.Y) / 2),
+                new Point2d((ext.MinPoint.X + ext.MaxPoint.X) / 2, (ext.MinPoint.Y + ext.MaxPoint.Y) / 2));
+        }
+    }
+
     /// <summary>
-    /// Refaz o mapa-chave em todos os layouts que tem folha sobre a base.
-    /// reconstruirBase = refaz o bloco a partir dos objetos do Model.
+    /// Refaz o mapa-chave nos layouts escolhidos na configuracao (lista vazia = todos os que tem
+    /// folha sobre a base). Layouts fora da lista perdem o mapa. reconstruirBase = refaz o bloco a
+    /// partir dos objetos do Model. As previas nao sao tocadas.
     /// </summary>
     public static OpResult Gerar(Document doc, bool reconstruirBase)
     {
@@ -180,133 +209,261 @@ internal static class LayoutKeyMap
             return new OpResult(0, 0, "Escolha primeiro a area do mapa no layout (Escolher area).");
 
         using DocumentLock _ = doc.LockDocument();
-        int layouts = 0, regioesTotal = 0;
+        int layouts = 0, regioesTotal = 0, foraDaLista = 0;
+        var escolhidos = new HashSet<string>(cfg.Layouts, StringComparer.OrdinalIgnoreCase);
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
-            GarantirApp(tr, db);
-            foreach (string l in new[] { LayerBase, LayerFolhas, LayerTexto, LayerDestaque })
-                GarantirLayer(tr, db, l, l == LayerDestaque ? cfg.CorDestaque : l == LayerTexto ? (short)7 : (short)8);
-
-            var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-            ObjectId blocoId = bt.Has(Bloco) ? bt[Bloco] : ObjectId.Null;
-            if (blocoId.IsNull || reconstruirBase)
-                blocoId = MontarBloco(tr, db, cfg);
-
-            Extents3d? ext = Extensao(tr, blocoId);
+            (ObjectId blocoId, Extents3d? ext, DBDictionary dic) = Preparar(tr, db, cfg, reconstruirBase);
             if (ext is null)
                 return new OpResult(0, 0, "A base do mapa-chave ficou vazia (os objetos escolhidos nao puderam ser copiados).");
 
-            // Regioes (area do Model mostrada) de cada folha, na ordem das abas.
             List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
-            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
-
-            Point2d c0 = cfg.CaixaMin!.Value, c1 = cfg.CaixaMax!.Value;
-            double bw = Math.Abs(c1.X - c0.X), bh = Math.Abs(c1.Y - c0.Y);
-            double ew = Math.Max(1e-9, ext.Value.MaxPoint.X - ext.Value.MinPoint.X);
-            double eh = Math.Max(1e-9, ext.Value.MaxPoint.Y - ext.Value.MinPoint.Y);
-            double s = Math.Min(bw / ew, bh / eh) * 0.96;
-            var centroCaixa = new Point2d((c0.X + c1.X) / 2, (c0.Y + c1.Y) / 2);
-            var centroBase = new Point2d((ext.Value.MinPoint.X + ext.Value.MaxPoint.X) / 2, (ext.Value.MinPoint.Y + ext.Value.MaxPoint.Y) / 2);
-            Point2d Papel(Point2d p) => new(centroCaixa.X + (p.X - centroBase.X) * s, centroCaixa.Y + (p.Y - centroBase.Y) * s);
-
+            var enc = Encaixe.De(cfg.CaixaMin!.Value, cfg.CaixaMax!.Value, ext.Value);
             foreach (var folha in folhas)
             {
                 var btr = (BlockTableRecord)tr.GetObject(folha.Btr, OpenMode.ForWrite);
-                Limpar(tr, btr);
+                int apagados = Limpar(tr, btr, incluirPrevias: false);
                 if (folha.Regioes.Count == 0)
                     continue;
-
-                // Base.
-                var br = new BlockReference(new Point3d(centroCaixa.X - centroBase.X * s, centroCaixa.Y - centroBase.Y * s, 0), blocoId)
+                if (escolhidos.Count > 0 && !escolhidos.Contains(folha.Nome))
                 {
-                    ScaleFactors = new Scale3d(s),
-                    Layer = LayerBase
-                };
-                Adicionar(tr, btr, br);
-
-                // Contorno e rotulo de todas as folhas (rotulo como na LISP: MTEXT acima da aresta
-                // superior da viewport, centralizado e girado com a folha).
-                int totalFolhas = cfg.TotalManual > 0 ? cfg.TotalManual : folhas.Count(f => f.Regioes.Count > 0);
-                foreach (var outra in folhas.Where(f => f.Regioes.Count > 0))
-                {
-                    foreach (Point2d[] reg in outra.Regioes)
-                    {
-                        var pl = new Polyline { Layer = LayerFolhas, Closed = true };
-                        for (int i = 0; i < reg.Length; i++)
-                            pl.AddVertexAt(i, Papel(reg[i]), 0, 0, 0);
-                        Adicionar(tr, btr, pl);
-                    }
-
-                    Point2d[] maior = outra.Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
-                    (Point2d pos, double ang, double alt, double larg) = GeometriaRotulo(maior, cfg.Rotulo == 2);
-                    alt *= Math.Max(0.1, cfg.FatorTexto);
-                    string texto = RotuloFolha(tr, dic, cfg, outra.Nome, outra.Ordem, totalFolhas);
-                    var mt = new MText
-                    {
-                        Contents = texto,
-                        TextHeight = alt,
-                        Layer = LayerTexto,
-                        Attachment = AttachmentPoint.BottomCenter,
-                        Location = new Point3d(pos.X, pos.Y, 0),
-                        Rotation = ang,
-                        Width = Math.Max(larg, alt * 4)
-                    };
-                    Adicionar(tr, btr, mt);
+                    if (apagados > 0)
+                        foraDaLista++;
+                    continue;
                 }
-
-                // Hachura da propria folha.
-                var h = new Hatch { Layer = LayerDestaque };
-                Adicionar(tr, btr, h);
-                bool solida = string.Equals(cfg.Padrao, "SOLID", StringComparison.OrdinalIgnoreCase);
-                h.SetHatchPattern(HatchPatternType.PreDefined, solida ? "SOLID" : cfg.Padrao.ToUpperInvariant());
-                h.Associative = false;
-                h.Color = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorDestaque);
-                if (!solida)
-                {
-                    Point2d[] ref0 = folha.Regioes[0].Select(Papel).ToArray();
-                    h.PatternScale = Math.Max(0.001, cfg.EscalaHachura * Math.Max(ref0[0].GetDistanceTo(ref0[1]) / 25.0, 0.05) * 0.25);
-                    h.PatternAngle = AnguloMaior(ref0) + cfg.AnguloHachura * Math.PI / 180.0;
-                    if (cfg.CorFundo >= 0)
-                        h.BackgroundColor = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorFundo);
-                }
-                h.Transparency = new Autodesk.AutoCAD.Colors.Transparency((byte)Math.Round(255 * (1 - Math.Clamp(cfg.Transparencia, 0, 90) / 100.0)));
-                foreach (Point2d[] reg in folha.Regioes)
-                {
-                    var pts = new Point2dCollection(reg.Select(Papel).Append(Papel(reg[0])).ToArray());
-                    var bulges = new DoubleCollection(Enumerable.Repeat(0.0, pts.Count).ToArray());
-                    h.AppendLoop(HatchLoopTypes.Default, pts, bulges);
-                }
-                h.EvaluateHatch(true);
-
-                if (cfg.Titulo)
-                {
-                    double tituloAlt = Math.Min(bw, bh) * 0.05;
-                    var titulo = new MText
-                    {
-                        Contents = "MAPA CHAVE",
-                        TextHeight = tituloAlt,
-                        Layer = LayerTexto,
-                        Attachment = AttachmentPoint.TopCenter,
-                        Location = new Point3d(centroCaixa.X, Math.Max(c0.Y, c1.Y) - tituloAlt * 0.3, 0),
-                        Width = Math.Min(bw * 0.62, tituloAlt * 14)
-                    };
-                    Adicionar(tr, btr, titulo);
-                    double y = Math.Max(c0.Y, c1.Y) - tituloAlt * 1.75;
-                    Adicionar(tr, btr, new Line(new Point3d(centroCaixa.X - titulo.Width / 2, y, 0), new Point3d(centroCaixa.X + titulo.Width / 2, y, 0)) { Layer = LayerTexto });
-                }
-
+                regioesTotal += Desenhar(tr, dic, btr, folha, folhas, cfg, blocoId, enc, previa: false);
                 layouts++;
-                regioesTotal += folha.Regioes.Count;
             }
-
             tr.Commit();
         }
 
         AvisarMudanca();
+        string extra = escolhidos.Count > 0 ? $" (so nas {escolhidos.Count} prancha(s) escolhidas" + (foraDaLista > 0 ? $"; apagado de {foraDaLista} fora da lista)" : ")") : "";
         return new OpResult(layouts, 0,
             layouts > 0
-                ? $"Mapa-chave em {layouts} layout(s) ({regioesTotal} area(s) de folha)."
-                : "Nenhuma viewport mostra a base: confira a base escolhida e as viewports das folhas.");
+                ? $"Mapa-chave em {layouts} layout(s) ({regioesTotal} area(s) de folha){extra}."
+                : escolhidos.Count > 0
+                    ? "Nenhuma das pranchas escolhidas mostra a base: confira a lista de pranchas do mapa-chave."
+                    : "Nenhuma viewport mostra a base: confira a base escolhida e as viewports das folhas.");
+    }
+
+    /// <summary>
+    /// Previa: o mapa-chave completo (base, todas as folhas e a hachura da folha deste layout, se
+    /// houver) desenhado na caixa dada, no layout dado, sem mexer na configuracao. Fica marcado
+    /// como previa: a atualizacao normal nao apaga nem refaz; "Remover previas" tira.
+    /// </summary>
+    public static OpResult Previa(Document doc, string layout, Point2d c0, Point2d c1)
+    {
+        Database db = doc.Database;
+        KeyMapConfig cfg = Ler(db);
+        if (cfg.Base.Count(i => !i.IsNull && !i.IsErased) == 0)
+            return new OpResult(0, 0, "Escolha primeiro os objetos da base no Model (Escolher base).");
+        if (Math.Abs(c1.X - c0.X) < 1e-6 || Math.Abs(c1.Y - c0.Y) < 1e-6)
+            return new OpResult(0, 1, "A caixa da previa precisa ter largura e altura.");
+
+        using DocumentLock _ = doc.LockDocument();
+        int regioes;
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            (ObjectId blocoId, Extents3d? ext, DBDictionary dic) = Preparar(tr, db, cfg, reconstruirBase: false);
+            if (ext is null)
+                return new OpResult(0, 0, "A base do mapa-chave ficou vazia (os objetos escolhidos nao puderam ser copiados).");
+            List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas = Folhas(tr, db, ext.Value);
+            int i = folhas.FindIndex(f => f.Nome.Equals(layout, StringComparison.OrdinalIgnoreCase));
+            if (i < 0)
+                return new OpResult(0, 1, $"Layout \"{layout}\" nao encontrado.");
+            var btr = (BlockTableRecord)tr.GetObject(folhas[i].Btr, OpenMode.ForWrite);
+            var enc = Encaixe.De(new Point2d(Math.Min(c0.X, c1.X), Math.Min(c0.Y, c1.Y)), new Point2d(Math.Max(c0.X, c1.X), Math.Max(c0.Y, c1.Y)), ext.Value);
+            regioes = Desenhar(tr, dic, btr, folhas[i], folhas, cfg, blocoId, enc, previa: true);
+            tr.Commit();
+        }
+        AvisarMudanca();
+        return new OpResult(1, 0, $"Previa do mapa-chave em {layout} ({Destaque(regioes)}). Para tirar: Mapa-chave > Remover previas. " +
+                                  "Gostou do lugar? Use \"Escolher area\" na mesma caixa para valer em todas as pranchas.");
+
+        static string Destaque(int r) => r > 0 ? $"{r} area(s) desta folha em destaque" : "esta prancha nao mostra a base: sem destaque";
+    }
+
+    /// <summary>Apaga so as previas (de todos os layouts).</summary>
+    public static OpResult RemoverPrevias(Document doc)
+    {
+        int n = 0;
+        using DocumentLock _ = doc.LockDocument();
+        Database db = doc.Database;
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+            foreach (DBDictionaryEntry e in dic)
+            {
+                var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
+                if (lay.ModelType)
+                    continue;
+                var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);
+                n += Limpar(tr, btr, incluirPrevias: true, soPrevias: true);
+            }
+            tr.Commit();
+        }
+        AvisarMudanca();
+        return new OpResult(n, 0, n == 0 ? "Nenhuma previa do mapa-chave no desenho." : $"{n} objeto(s) de previa removido(s).");
+    }
+
+    /// <summary>
+    /// Grava quais layouts recebem o mapa-chave e refaz (lista vazia = todos). Os que sairam da
+    /// lista perdem o mapa.
+    /// </summary>
+    public static OpResult DefinirLayouts(Document doc, IEnumerable<string> layouts)
+    {
+        KeyMapConfig cfg = Ler(doc.Database);
+        cfg.Layouts.Clear();
+        cfg.Layouts.AddRange(layouts.Where(l => !string.IsNullOrWhiteSpace(l)).Distinct(StringComparer.OrdinalIgnoreCase));
+        Gravar(doc, cfg);
+        if (!cfg.TemCaixa || cfg.Base.Count == 0)
+            return new OpResult(0, 0, (cfg.Layouts.Count == 0 ? "Mapa-chave em todas as pranchas" : $"Mapa-chave em {cfg.Layouts.Count} prancha(s)") +
+                                      " (gravado). Falta escolher a base no Model e a area no layout para gerar.") { Mudou = false };
+        return Gerar(doc, false);
+    }
+
+    /// <summary>Tira um layout da lista do mapa-chave e apaga o mapa dele (as previas ficam).</summary>
+    public static OpResult RemoverDe(Document doc, IEnumerable<string> layouts)
+    {
+        var tirar = new HashSet<string>(layouts, StringComparer.OrdinalIgnoreCase);
+        if (tirar.Count == 0)
+            return new OpResult(0, 0, "Marque os layouts de onde tirar o mapa-chave.") { Mudou = false };
+        Database db = doc.Database;
+        KeyMapConfig cfg = Ler(db);
+        int n = 0;
+        using (doc.LockDocument())
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+            var todos = new List<string>();
+            foreach (DBDictionaryEntry e in dic)
+            {
+                var lay = (Autodesk.AutoCAD.DatabaseServices.Layout)tr.GetObject(e.Value, OpenMode.ForRead);
+                if (lay.ModelType)
+                    continue;
+                todos.Add(lay.LayoutName);
+                if (!tirar.Contains(lay.LayoutName))
+                    continue;
+                var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);
+                n += Limpar(tr, btr, incluirPrevias: false);
+            }
+            // Lista vazia significa "todos": vira a lista de todos menos os tirados.
+            if (cfg.Layouts.Count == 0)
+                cfg.Layouts.AddRange(todos);
+            cfg.Layouts.RemoveAll(tirar.Contains);
+            tr.Commit();
+        }
+        Gravar(doc, cfg);
+        AvisarMudanca();
+        return new OpResult(n, 0, $"Mapa-chave tirado de {tirar.Count} layout(s) ({n} objeto(s)); eles ficam fora das proximas atualizacoes.");
+    }
+
+    /// <summary>Layers, regapp, bloco da base e extensao dela.</summary>
+    private static (ObjectId Bloco, Extents3d? Ext, DBDictionary Dic) Preparar(Transaction tr, Database db, KeyMapConfig cfg, bool reconstruirBase)
+    {
+        GarantirApp(tr, db);
+        foreach (string l in new[] { LayerBase, LayerFolhas, LayerTexto, LayerDestaque })
+            GarantirLayer(tr, db, l, l == LayerDestaque ? cfg.CorDestaque : l == LayerTexto ? (short)7 : (short)8);
+        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        ObjectId blocoId = bt.Has(Bloco) ? bt[Bloco] : ObjectId.Null;
+        if (blocoId.IsNull || reconstruirBase)
+            blocoId = MontarBloco(tr, db, cfg);
+        var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
+        return (blocoId, Extensao(tr, blocoId), dic);
+    }
+
+    /// <summary>Desenha o mapa-chave de uma folha no layout dela, na caixa dada. Retorna as areas da folha.</summary>
+    private static int Desenhar(Transaction tr, DBDictionary dic, BlockTableRecord btr,
+        (string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes) folha,
+        List<(string Nome, int Ordem, ObjectId Btr, List<Point2d[]> Regioes)> folhas,
+        KeyMapConfig cfg, ObjectId blocoId, Encaixe enc, bool previa)
+    {
+        void Add(Entity e) => Adicionar(tr, btr, e, previa);
+        double s = enc.S, bw = enc.Bw, bh = enc.Bh;
+        Point2d c0 = enc.C0, c1 = enc.C1, centroCaixa = enc.CentroCaixa, centroBase = enc.CentroBase;
+        Point2d Papel(Point2d p) => enc.Papel(p);
+
+        // Base.
+        Add(new BlockReference(new Point3d(centroCaixa.X - centroBase.X * s, centroCaixa.Y - centroBase.Y * s, 0), blocoId)
+        {
+            ScaleFactors = new Scale3d(s),
+            Layer = LayerBase
+        });
+
+        // Contorno e rotulo de todas as folhas (rotulo como na LISP: MTEXT acima da aresta
+        // superior da viewport, centralizado e girado com a folha).
+        int totalFolhas = cfg.TotalManual > 0 ? cfg.TotalManual : folhas.Count(f => f.Regioes.Count > 0);
+        foreach (var outra in folhas.Where(f => f.Regioes.Count > 0))
+        {
+            foreach (Point2d[] reg in outra.Regioes)
+            {
+                var pl = new Polyline { Layer = LayerFolhas, Closed = true };
+                for (int i = 0; i < reg.Length; i++)
+                    pl.AddVertexAt(i, Papel(reg[i]), 0, 0, 0);
+                Add(pl);
+            }
+
+            Point2d[] maior = outra.Regioes.OrderByDescending(Area).First().Select(Papel).ToArray();
+            (Point2d pos, double ang, double alt, double larg) = GeometriaRotulo(maior, cfg.Rotulo == 2);
+            alt *= Math.Max(0.1, cfg.FatorTexto);
+            string texto = RotuloFolha(tr, dic, cfg, outra.Nome, outra.Ordem, totalFolhas);
+            Add(new MText
+            {
+                Contents = texto,
+                TextHeight = alt,
+                Layer = LayerTexto,
+                Attachment = AttachmentPoint.BottomCenter,
+                Location = new Point3d(pos.X, pos.Y, 0),
+                Rotation = ang,
+                Width = Math.Max(larg, alt * 4)
+            });
+        }
+
+        // Hachura da propria folha (so se ela mostra a base).
+        if (folha.Regioes.Count > 0)
+        {
+            var h = new Hatch { Layer = LayerDestaque };
+            Add(h);
+            bool solida = string.Equals(cfg.Padrao, "SOLID", StringComparison.OrdinalIgnoreCase);
+            h.SetHatchPattern(HatchPatternType.PreDefined, solida ? "SOLID" : cfg.Padrao.ToUpperInvariant());
+            h.Associative = false;
+            h.Color = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorDestaque);
+            if (!solida)
+            {
+                Point2d[] ref0 = folha.Regioes[0].Select(Papel).ToArray();
+                h.PatternScale = Math.Max(0.001, cfg.EscalaHachura * Math.Max(ref0[0].GetDistanceTo(ref0[1]) / 25.0, 0.05) * 0.25);
+                h.PatternAngle = AnguloMaior(ref0) + cfg.AnguloHachura * Math.PI / 180.0;
+                if (cfg.CorFundo >= 0)
+                    h.BackgroundColor = AcColor.FromColorIndex(AcColorMethod.ByAci, cfg.CorFundo);
+            }
+            h.Transparency = new Autodesk.AutoCAD.Colors.Transparency((byte)Math.Round(255 * (1 - Math.Clamp(cfg.Transparencia, 0, 90) / 100.0)));
+            foreach (Point2d[] reg in folha.Regioes)
+            {
+                var pts = new Point2dCollection(reg.Select(Papel).Append(Papel(reg[0])).ToArray());
+                var bulges = new DoubleCollection(Enumerable.Repeat(0.0, pts.Count).ToArray());
+                h.AppendLoop(HatchLoopTypes.Default, pts, bulges);
+            }
+            h.EvaluateHatch(true);
+        }
+
+        if (cfg.Titulo)
+        {
+            double tituloAlt = Math.Min(bw, bh) * 0.05;
+            var titulo = new MText
+            {
+                Contents = previa ? "MAPA CHAVE (PREVIA)" : "MAPA CHAVE",
+                TextHeight = tituloAlt,
+                Layer = LayerTexto,
+                Attachment = AttachmentPoint.TopCenter,
+                Location = new Point3d(centroCaixa.X, Math.Max(c0.Y, c1.Y) - tituloAlt * 0.3, 0),
+                Width = Math.Min(bw * 0.62, tituloAlt * 14)
+            };
+            Add(titulo);
+            double y = Math.Max(c0.Y, c1.Y) - tituloAlt * 1.75;
+            Add(new Line(new Point3d(centroCaixa.X - titulo.Width / 2, y, 0), new Point3d(centroCaixa.X + titulo.Width / 2, y, 0)) { Layer = LayerTexto });
+        }
+        return folha.Regioes.Count;
     }
 
     /// <summary>Apaga o mapa-chave de todos os layouts (a configuracao fica guardada).</summary>
@@ -324,7 +481,7 @@ internal static class LayoutKeyMap
                 if (lay.ModelType)
                     continue;
                 var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);
-                n += Limpar(tr, btr);
+                n += Limpar(tr, btr, incluirPrevias: true);
             }
             tr.Commit();
         }
@@ -647,15 +804,20 @@ internal static class LayoutKeyMap
 
     private static Point2d Centroide(Point2d[] p) => new(p.Average(q => q.X), p.Average(q => q.Y));
 
-    private static void Adicionar(Transaction tr, BlockTableRecord btr, Entity ent)
+    private static void Adicionar(Transaction tr, BlockTableRecord btr, Entity ent, bool previa = false)
     {
         btr.AppendEntity(ent);
         tr.AddNewlyCreatedDBObject(ent, true);
-        ent.XData = new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App));
+        ent.XData = previa
+            ? new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App), new TypedValue((int)DxfCode.ExtendedDataAsciiString, MarcaPrevia))
+            : new ResultBuffer(new TypedValue((int)DxfCode.ExtendedDataRegAppName, App));
     }
 
-    /// <summary>Apaga o que o plugin criou no layout. Retorna quantos objetos.</summary>
-    private static int Limpar(Transaction tr, BlockTableRecord btr)
+    private static bool EhPrevia(ResultBuffer rb) =>
+        rb.AsArray().Skip(1).Any(v => v.Value is string t && t == MarcaPrevia);
+
+    /// <summary>Apaga o que o plugin criou no layout (previas so se pedido). Retorna quantos objetos.</summary>
+    private static int Limpar(Transaction tr, BlockTableRecord btr, bool incluirPrevias = false, bool soPrevias = false)
     {
         int n = 0;
         foreach (ObjectId id in btr)
@@ -664,6 +826,9 @@ internal static class LayoutKeyMap
                 continue;
             using ResultBuffer? rb = e.GetXDataForApplication(App);
             if (rb is null)
+                continue;
+            bool previa = EhPrevia(rb);
+            if ((previa && !incluirPrevias) || (!previa && soPrevias))
                 continue;
             tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
             n++;
