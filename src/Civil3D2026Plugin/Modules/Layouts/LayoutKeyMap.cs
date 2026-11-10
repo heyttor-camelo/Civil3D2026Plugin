@@ -377,7 +377,9 @@ internal static class LayoutKeyMap
                 if (!tirar.Contains(lay.LayoutName))
                     continue;
                 var btr = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);
-                n += Limpar(tr, btr, incluirPrevias: false);
+                int k = Limpar(tr, btr, incluirPrevias: false);
+                Civil3D2026Plugin.Infrastructure.PluginLog.Info("Layouts", $"Mapa-chave: removido de {lay.LayoutName} ({k} objeto(s)).");
+                n += k;
             }
             // Lista vazia significa "todos": vira a lista de todos menos os tirados.
             if (cfg.Layouts.Count == 0)
@@ -596,9 +598,11 @@ internal static class LayoutKeyMap
             bool tem = false;
             foreach (ObjectId id in btr)
             {
-                if (tr.GetObject(id, OpenMode.ForRead) is Entity en && en.GetXDataForApplication(App) is ResultBuffer rb)
+                if (tr.GetObject(id, OpenMode.ForRead) is not Entity en)
+                    continue;
+                using ResultBuffer? rb = en.GetXDataForApplication(App);
+                if (rb is not null || en.Layer.StartsWith(PrefixoLayer, StringComparison.OrdinalIgnoreCase))
                 {
-                    rb.Dispose();
                     tem = true;
                     break;
                 }
@@ -903,23 +907,44 @@ internal static class LayoutKeyMap
     private static bool EhPrevia(ResultBuffer rb) =>
         rb.AsArray().Skip(1).Any(v => v.Value is string t && t == MarcaPrevia);
 
-    /// <summary>Apaga o que o plugin criou no layout (previas so se pedido). Retorna quantos objetos.</summary>
+    /// <summary>Prefixo das layers do mapa-chave (plugin e LISP MAPACHAVE: BASE, VIEWPORT, TEXTO, HATCH, FOLHAS, DESTAQUE).</summary>
+    private const string PrefixoLayer = "MAPA_CHAVE_";
+
+    /// <summary>
+    /// Apaga o mapa-chave do layout: o que o plugin criou (XData) e tambem o que esta nas layers
+    /// MAPA_CHAVE_* sem XData (mapas da LISP MAPACHAVE ou de versoes antigas). Previas so se
+    /// pedido. Retorna quantos objetos.
+    /// </summary>
     private static int Limpar(Transaction tr, BlockTableRecord btr, bool incluirPrevias = false, bool soPrevias = false)
     {
-        int n = 0;
+        int n = 0, semMarca = 0;
         foreach (ObjectId id in btr)
         {
             if (tr.GetObject(id, OpenMode.ForRead) is not Entity e)
                 continue;
-            using ResultBuffer? rb = e.GetXDataForApplication(App);
-            if (rb is null)
-                continue;
-            bool previa = EhPrevia(rb);
-            if ((previa && !incluirPrevias) || (!previa && soPrevias))
+            bool apagar;
+            using (ResultBuffer? rb = e.GetXDataForApplication(App))
+            {
+                if (rb is not null)
+                {
+                    bool previa = EhPrevia(rb);
+                    apagar = !((previa && !incluirPrevias) || (!previa && soPrevias));
+                }
+                else
+                {
+                    // Mapa feito pela LISP ou por versao antiga: reconhecido pela layer.
+                    apagar = !soPrevias && e.Layer.StartsWith(PrefixoLayer, StringComparison.OrdinalIgnoreCase);
+                    if (apagar)
+                        semMarca++;
+                }
+            }
+            if (!apagar)
                 continue;
             tr.GetObject(id, OpenMode.ForWrite, false, true).Erase();
             n++;
         }
+        if (semMarca > 0)
+            Civil3D2026Plugin.Infrastructure.PluginLog.Diag("Layouts", $"Mapa-chave: {btr.Name}: {semMarca} objeto(s) nas layers MAPA_CHAVE_* sem marca do plugin (LISP/versao antiga) apagado(s).");
         return n;
     }
 

@@ -1,3 +1,8 @@
+## 2.95.2 - LAYOUTS v1.19.2: Remover do mapa-chave tambem apaga mapas antigos (LISP / versoes anteriores)
+
+- Remover (de um layout, dos marcados ou de todos) e a regeneracao agora apagam tambem o que esta nas layers `MAPA_CHAVE_*` sem a marca do plugin: mapas feitos pela LISP MAPACHAVE ou inseridos por versoes antigas. Antes so saia o que a versao atual tinha criado, e o mapa antigo ficava na prancha.
+- A coluna "Mapa-chave" da lista passa a reconhecer esses mapas antigos. O log registra quantos objetos sairam de cada layout.
+
 ## 2.95.1 - LAYOUTS v1.19.1: mapa-chave com posicao propria por prancha
 
 - Cada prancha pode ter o mapa-chave em outro lugar/tamanho: `C3DMAPACHAVE Mover` (ou botao direito na viewport > "Mapa-chave: mover neste layout") pede a nova caixa so para o layout atual; "voltar a posicao geral" desfaz. A caixa propria fica gravada no desenho.
