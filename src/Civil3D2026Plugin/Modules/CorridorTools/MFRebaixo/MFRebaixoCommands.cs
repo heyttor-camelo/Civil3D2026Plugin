@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.8.0";
+    public const string Versao = "1.9.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -2237,6 +2237,48 @@ public sealed class MFRebaixoCommands
 
     // Identidade da Baseline que não depende de alinhamento
     // (baselines de feature line não têm AlignmentId).
+    /// <summary>Estaca da baseline (pela chave) no ponto clicado. Usado pelo painel para reposicionar um rebaixo.</summary>
+    internal static bool TryStationAt(
+        Database db,
+        ObjectId corridorId,
+        string baselineKey,
+        Point3d point,
+        out double station)
+    {
+        station =
+            0.0;
+
+        using var tr =
+            db.TransactionManager
+              .StartTransaction();
+
+        bool found =
+            false;
+
+        if (tr.GetObject(corridorId, OpenMode.ForRead) is CivilCorridor corridor)
+        {
+            foreach (Baseline candidate in corridor.Baselines)
+            {
+                if (GetBaselineKey(candidate) != baselineKey)
+                    continue;
+
+                found =
+                    TryGetBaselineStationOffset(
+                        tr,
+                        candidate,
+                        point,
+                        out station,
+                        out _);
+
+                break;
+            }
+        }
+
+        tr.Commit();
+
+        return found;
+    }
+
     internal static string
         GetBaselineKey(
             Baseline baseline)

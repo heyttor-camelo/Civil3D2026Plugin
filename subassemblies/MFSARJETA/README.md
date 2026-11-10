@@ -3,7 +3,7 @@
 Meio-fio SUDECAP 30/40, Kassel (guia de atracagem) e personalizado, com sarjeta
 opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
-- `MFSARJETA_v1.23.pkt`: pacote para importar no Civil 3D.
+- `MFSARJETA_v1.24.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
   Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt`
 
@@ -23,8 +23,16 @@ se precisar mudar, usar outro nome.
 Desde o MFREBAIXO 1.8 (plugin 2.92) a hachura é **desenhada pelo plugin** (HATCH na layer
 `MF-REBAIXO`, da borda da pista à borda da calçada ou ao fundo do MF, em S0..S3). O PKT v1.23
 não tem mais os links de sobreposição nem precisa de Code Set Style para isso. O parâmetro
-`DESTAQUE` continua existindo (o comando ainda grava a Transition dele) e dá o code `REBAIXO`
-só nos shapes da sarjeta, do MF e da rampa da calçada, para quem quiser usá-lo no estilo.
+`DESTAQUE` continua existindo (o comando ainda grava a Transition dele), mas desde a v1.24 não
+dá mais code nenhum.
+
+## Sólidos do corredor (v1.24)
+
+Os codes dos **shapes** são fixos ao longo do corredor (sarjeta: `Sarjeta`, `SARJETA`; meio-fio:
+`Curb` + tipo; rampa da calçada: `Calcada`, `CALCADA`). Até a v1.23 o shape do meio-fio levava
+`MF_NORMAL`/`MF_REBAIXADO` e `REBAIXO`; como a extração de sólidos só liga shapes com os mesmos
+codes entre duas seções, o sólido ficava com um buraco em cada rampa do rebaixo. O estado
+`MF_NORMAL`/`MF_REBAIXADO` continua no ponto `Back_Curb`.
 
 ## Calçada
 

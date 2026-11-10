@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.23"
+VERSION = "1.24"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -164,7 +164,11 @@ with Switch('[SJ]', "Sarjeta?") as swSJ:
     pt("P4", "P1", "0", "[-ESar]", disp="P4 - fundo sarjeta na borda da pista")
     lk("L3", "P3", "P4", codes=["Sarjeta", "[DatumMF]"], disp="L3 - fundo da sarjeta")
     lk("L4", "P4", "P1", codes=["Sarjeta"], disp="L4 - lado da sarjeta (pista)")
-    sh("S1", ["L1", "L2", "L3", "L4"], codes=["Sarjeta", "SARJETA", "[Dst]"], disp="S1 - SARJETA")
+    # v1.24: os codes dos SHAPES não podem mudar ao longo do corredor. Na extração de sólidos o Civil 3D
+    # só liga, entre duas seções, shapes com os mesmos codes: com [Dst] (REBAIXO) e [MFStatusCode]
+    # (MF_NORMAL/MF_REBAIXADO) no shape, o sólido do meio-fio ficava com um buraco em cada rampa
+    # (S0-S1 e S2-S3). Esses codes saíram dos shapes; MF_NORMAL/MF_REBAIXADO continua no ponto Back_Curb.
+    sh("S1", ["L1", "L2", "L3", "L4"], codes=["Sarjeta", "SARJETA"], disp="S1 - SARJETA")
 # meio-fio: parte comum (pé da face, fundo, face de trás)
 pt("P5", "P2", "[-M*ENT]", "[-ENT]", disp="P5 - pé da face (fundo da frente)")
 pt("P6", "P5", "[LB]", "0", link="L6", lcodes=["Curb", "[DatumMF]"], disp="P6&L6 - fundo de trás")
@@ -183,7 +187,7 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
         prev = n
     lk("L13", "P12", "P2", codes=TOP, disp="L13 - face exposta")
     sh("S2", ["L5", "L6", "L7", "L8", "L9", "L10", "L11", "L12", "L13"],
-       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]", "[Dst]"], disp="S2 - MEIO-FIO (trapézio)")
+       codes=["Curb", "[MFTipoCode]"], disp="S2 - MEIO-FIO (trapézio)")
   with swF.case("KASSEL"):
     pt("P13", "P7", "[-(LT-TT)]", "0", codes=["Top_Curb"], link="L14", lcodes=TOP,
        disp="P13&L14 - início do arco do topo (Top_Curb)")
@@ -203,7 +207,7 @@ with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
        disp="P22&L23 - topo do pé")
     lk("L24", "P22", "P5", codes=["Curb"], disp="L24 - frente do pé")
     sh("S3", ["L6", "L7", "L14", "L15", "L16", "L17", "L18", "L19", "L20", "L21", "L22", "L23", "L24"],
-       codes=["Curb", "[MFTipoCode]", "[MFStatusCode]", "[Dst]"], disp="S3 - MEIO-FIO (Kassel)")
+       codes=["Curb", "[MFTipoCode]"], disp="S3 - MEIO-FIO (Kassel)")
 
 # O berço muda a QUANTIDADE de links conforme o MF desce (camada DENTRO/ABAIXO). Em planta o Civil 3D
 # liga os links de uma seção à seguinte pela ordem; se o berço vier antes, os links de depois (calçada e
@@ -384,7 +388,7 @@ with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
     lk("L105", "P104", "P101", codes=["Calcada"], disp="L105 - divisa rampa/calçada")
     lk("L106", "P104", "P105", codes=["Calcada_Fundo", "[DatumCP]"], disp="L106 - fundo do piso (rampa)")
     lk("L107", "P105", "P7", codes=["Calcada"], disp="L107 - encosto no MF")
-    sh("S31", ["L101", "L105", "L106", "L107"], codes=["Calcada", "CALCADA", "[Dst]"], disp="S31 - CALÇADA (rampa)")
+    sh("S31", ["L101", "L105", "L106", "L107"], codes=["Calcada", "CALCADA"], disp="S31 - CALÇADA (rampa)")
     sh("S32", ["L102", "L103", "L104", "L105"], codes=["Calcada", "CALCADA"], disp="S32 - CALÇADA")
     with Switch('[IF(E_CALC_BASE > 0.0005, "Yes", "No")]', "Base da calçada?") as swCB:
       with swCB.case("Yes"):
@@ -398,7 +402,7 @@ with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
 
 # v1.23: saíram os links de sobreposição (L201, L211-216, L221-230, L241) que davam o code REBAIXO
 # para a hachura em planta via Code Set Style. Eles viravam cascas (BODY) na extração de sólidos do
-# corredor. A hachura do rebaixo agora é desenhada pelo plugin (MFREBAIXO 1.8+). O code [Dst] fica
+# corredor. A hachura do rebaixo agora é desenhada pelo plugin (MFREBAIXO 1.8+). O code [Dst] ficou
 # só nos shapes (sarjeta, MF, rampa da calçada), sem geometria extra.
 
 STEPS.extend(_BERCO)

@@ -118,6 +118,36 @@ internal static class MFRebaixoHatch
         return n;
     }
 
+    /// <summary>A layer das hachuras existe e esta ligada? (null = a layer nao existe)</summary>
+    public static bool? IsLayerOn(AcadDb.Database db, string layer)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var lt = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+        bool? on = null;
+        if (lt.Has(layer) && tr.GetObject(lt[layer], AcadDb.OpenMode.ForRead) is AcadDb.LayerTableRecord ltr)
+            on = !ltr.IsOff && !ltr.IsFrozen;
+        tr.Commit();
+        return on;
+    }
+
+    /// <summary>Liga ou desliga a layer das hachuras (o botao "representacao em planta" do painel).</summary>
+    public static bool SetLayerOn(AcadDb.Database db, string layer, bool on)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var lt = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+        bool done = false;
+        if (lt.Has(layer) && tr.GetObject(lt[layer], AcadDb.OpenMode.ForWrite) is AcadDb.LayerTableRecord ltr)
+        {
+            ltr.IsOff = !on;
+            if (on && ltr.IsFrozen && db.Clayer != ltr.ObjectId)
+                ltr.IsFrozen = false;
+            done = true;
+        }
+
+        tr.Commit();
+        return done;
+    }
+
     /// <summary>Nomes dos Transition Sets que tem hachura no desenho (para o aviso "sem hachura").</summary>
     public static HashSet<string> SetsWithHatch(AcadDb.Database db)
     {
@@ -211,7 +241,7 @@ internal static class MFRebaixoHatch
     /// Em cada secao calculada do corredor entre s0 e s3, o ponto interno (borda da pista) e o
     /// externo (fundo do MF ou borda da calcada) da subassembly do rebaixo, em XY do desenho.
     /// </summary>
-    private static List<(double Station, Point3d Inner, Point3d Outer)> Edges(CivilDb.Baseline baseline, AcadDb.ObjectId subassemblyId,
+    internal static List<(double Station, Point3d Inner, Point3d Outer)> Edges(CivilDb.Baseline baseline, AcadDb.ObjectId subassemblyId,
         double s0, double s3, bool toSidewalk)
     {
         const double eps = 0.0005;
@@ -387,5 +417,73 @@ internal static class MFRebaixoHatch
         var r = new AcadDb.RegAppTableRecord { Name = RegApp };
         rat.Add(r);
         tr.AddNewlyCreatedDBObject(r, true);
+    }
+}
+
+/// <summary>
+/// Destaque temporario do rebaixo no desenho (grafico transiente, nao grava nada no DWG):
+/// contorno grosso amarelo da faixa sarjeta + meio-fio de S0 a S3. O painel chama ao selecionar
+/// um rebaixo na lista ou na planta, e limpa ao trocar de rebaixo ou fechar.
+/// </summary>
+internal static class MFRebaixoHighlight
+{
+    private static readonly List<AcadDb.Entity> Shown = new();
+
+    public static void Clear()
+    {
+        if (Shown.Count == 0)
+            return;
+        try
+        {
+            var tm = Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager;
+            var ints = new IntegerCollection();
+            foreach (AcadDb.Entity e in Shown)
+            {
+                try
+                {
+                    tm.EraseTransient(e, ints);
+                }
+                catch
+                {
+                    // Vista ja fechada.
+                }
+
+                e.Dispose();
+            }
+        }
+        catch
+        {
+            // Sem gerenciador de transientes (desenho fechando).
+        }
+
+        Shown.Clear();
+    }
+
+    /// <summary>Mostra o contorno da faixa (pontos internos na ida, externos na volta).</summary>
+    public static void Show(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band)
+    {
+        Clear();
+        if (band.Count < 2)
+            return;
+
+        var pl = new AcadDb.Polyline();
+        int n = 0;
+        foreach ((_, Point3d inner, _) in band)
+            pl.AddVertexAt(n++, new Point2d(inner.X, inner.Y), 0, 0, 0);
+        for (int i = band.Count - 1; i >= 0; i--)
+            pl.AddVertexAt(n++, new Point2d(band[i].Outer.X, band[i].Outer.Y), 0, 0, 0);
+        pl.Closed = true;
+        pl.ConstantWidth = 0.06;
+        pl.ColorIndex = 2; // amarelo
+        try
+        {
+            Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.AddTransient(
+                pl, Autodesk.AutoCAD.GraphicsInterface.TransientDrawingMode.DirectTopmost, 128, new IntegerCollection());
+            Shown.Add(pl);
+        }
+        catch
+        {
+            pl.Dispose();
+        }
     }
 }

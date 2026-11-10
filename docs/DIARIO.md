@@ -8,6 +8,13 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-10 — nuvem (Claude), rebaixo de meio-fio; build por Remote Control no LAPTOP-11TNS6P8
+
+- Heyvid achou o painel de rebaixos ruim (representação por baseline não ajuda: o meio-fio muitas vezes não está em cima de uma baseline) e mostrou sólidos do corredor com buracos nas transições altura normal -> rebaixada.
+- **2.99.0 / MFREBAIXO 1.9.0 / PassagemRampa 1.2.0**: painel refeito em cima do meio-fio real (`MFRebaixoData.Curbs`, faixa borda da pista -> fundo do MF), rampas laranja e trecho rebaixado vermelho; destaque amarelo transiente no desenho ao selecionar (`MFRebaixoHighlight`); campos início/comprimento/fim e rebaixo/altura livre ligados; "Reposicionar no desenho" (`MFRebaixoCommands.TryStationAt`); hachura padrão vermelha sólida 20% só em sarjeta + MF (`HachuraVersao` migra config antigo uma vez); botão que liga/desliga a layer `MF-REBAIXO`. Rebaixos antigos: usar "Redesenhar hachuras".
+- **MFSARJETA v1.24**: códigos de shape (S1, S2, S3, S31) deixaram de mudar ao longo da rampa (`Dst` e `MFStatusCode` saíram dos shapes; `MFStatusCode` continua no ponto P7). Hipótese para os buracos: o Civil só liga sólidos entre seções com o mesmo código de shape. **Não confirmado no Civil**: depende de ele reimportar o pkt e reextrair os sólidos.
+- Pendência: teste único do Heyvid (painel, hachura, reposicionar, sólidos com v1.24, Kassel com sarjeta).
+
 ## 2026-11-10 — nuvem (Claude) + build no CAMELO (Remote Control)
 
 - **Bug da "troca de viewports" entre pranchas (Layouts)**: era a malha. Copiar um layout leva junto a referência ao mesmo bloco `C3D_MALHA_<handle>` e os itens marcados com a viewport de origem; inserir de novo na origem redefinia o bloco e a cópia passava a mostrar as coordenadas da outra prancha. **2.92.1** (`LayoutConjunto.cs`): bloco só é redefinido se nenhuma outra referência viva o usa (senão `_2`, `_3`...); inserir/remover apaga os itens herdados da cópia (handle de viewport que não está no layout, dono pela posição); aviso no fim listando pranchas que ainda têm itens copiados.

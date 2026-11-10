@@ -31,13 +31,30 @@ internal sealed class MFRebaixoSettings
     // Hachura do rebaixo em planta, desenhada pelo plugin (v1.8). JSON antigo: ficam os padroes.
     public bool HachuraAtiva { get; set; } = true;
     public string HachuraLayer { get; set; } = MFRebaixoHatch.DefaultLayer;
-    public short HachuraCor { get; set; } = 30; // laranja
-    public string HachuraPadraoRampa { get; set; } = "ANSI31";
-    public string HachuraPadraoRebaixo { get; set; } = "ANSI37";
+    public short HachuraCor { get; set; } = 1; // vermelho
+    public string HachuraPadraoRampa { get; set; } = "SOLID";
+    public string HachuraPadraoRebaixo { get; set; } = "SOLID";
     public double HachuraEscala { get; set; } = 0.5;
-    public int HachuraTransparencia { get; set; } = 40;
-    // true: da borda da pista ate a borda externa da calcada (se houver); false: so ate o fundo do MF.
-    public bool HachuraAteCalcada { get; set; } = true;
+    public int HachuraTransparencia { get; set; } = 20;
+    // true: da borda da pista ate a borda externa da calcada (se houver); false: so sarjeta + meio-fio.
+    public bool HachuraAteCalcada { get; set; }
+    // Versao dos padroes da hachura. 2 (MFREBAIXO 1.9, pedido do Heyvid em 10/11/2026): vermelho solido,
+    // 20% de transparencia, so sarjeta + meio-fio. config.json mais antigo e trazido para esses padroes uma vez.
+    public int HachuraVersao { get; set; }
+
+    public const int HachuraVersaoAtual = 2;
+
+    public void MigrarHachura()
+    {
+        if (HachuraVersao >= HachuraVersaoAtual)
+            return;
+        HachuraCor = 1;
+        HachuraPadraoRampa = "SOLID";
+        HachuraPadraoRebaixo = "SOLID";
+        HachuraTransparencia = 20;
+        HachuraAteCalcada = false;
+        HachuraVersao = HachuraVersaoAtual;
+    }
 
     public MFRebaixoPreset Garagem { get; set; } = new()
     {
@@ -93,18 +110,25 @@ internal static class MFRebaixoSettingsStore
         try
         {
             if (!File.Exists(FilePath))
-                return new MFRebaixoSettings();
+                return Novo();
 
             string json = File.ReadAllText(FilePath);
 
-            return JsonSerializer.Deserialize<MFRebaixoSettings>(json)
+            MFRebaixoSettings lido = JsonSerializer.Deserialize<MFRebaixoSettings>(json)
                 ?? new MFRebaixoSettings();
+
+            lido.MigrarHachura();
+
+            return lido;
         }
         catch
         {
-            return new MFRebaixoSettings();
+            return Novo();
         }
     }
+
+    private static MFRebaixoSettings Novo() =>
+        new() { HachuraVersao = MFRebaixoSettings.HachuraVersaoAtual };
 
     public static void Save(MFRebaixoSettings settings)
     {

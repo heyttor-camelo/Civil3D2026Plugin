@@ -1,3 +1,11 @@
+## 2.99.0 - MFREBAIXO v1.9.0 / PassagemRampa v1.2.0 / MFSARJETA v1.24: painel de rebaixos refeito em cima do meio-fio
+
+- **Planta geral pelo meio-fio real**: o painel lê a faixa borda da pista -> fundo do meio-fio de cada corredor (`MFRebaixoData.Curbs`) e desenha os rebaixos em cima dela, rampas em laranja e trecho rebaixado em vermelho, selecionado com contorno amarelo. As baselines viram só referência (tracejado). Etiquetas, clique e leitura do cursor passam a seguir o meio-fio (antes ficavam na baseline, longe do rebaixo quando o meio-fio não está sobre ela). A planta do rebaixo ganha as mesmas cores.
+- **Destaque no desenho**: selecionar um rebaixo na lista ou na planta mostra um contorno amarelo temporário no desenho (gráfico transiente, não grava nada). Rebaixo novo lançado com o painel aberto é selecionado e destacado sozinho.
+- **Editar**: início, comprimento e fim ligados entre si; rebaixo (quanto desce) e altura livre final ligados; botão **Reposicionar no desenho** (clique o novo início, comprimento e altura mantidos).
+- **Hachura em planta**: novos padrões a pedido do Heyvid - vermelho sólido, 20% de transparência, cobrindo só sarjeta + meio-fio. `config.json` antigo é trazido para esses padrões uma vez (`HachuraVersao`). Botão **Ligar/desligar a representação em planta** (liga/desliga a layer; nada é apagado).
+- `subassemblies/MFSARJETA` **v1.24**: os codes dos shapes ficam fixos (saem `MF_NORMAL`/`MF_REBAIXADO` e `REBAIXO` dos shapes da sarjeta, do meio-fio e da rampa da calçada). Era a causa provável dos buracos no sólido do meio-fio nas rampas do rebaixo: a extração de sólidos só liga shapes com os mesmos codes entre seções. Nenhum parâmetro mudou.
+
 ## 2.98.1 - LAYOUTS v1.22.1: estilo do mapa-chave leva o proprio lugar
 
 - O estilo salvo guarda tambem o lugar do mapa no papel. "Copiar do layout atual" pega o lugar onde o mapa esta naquele layout (mesmo movido a mao) e "Salvar estilo" grava junto.

@@ -46,6 +46,10 @@ internal sealed class MFRebaixoPanel : SW.Window
     private CorridorSummary? _currentCorridor;
     private RebaixoModel? _model;
     private List<(AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> _overview = new();
+    // Meios-fios reais dos corredores (faixa borda da pista -> fundo do MF), para a planta geral.
+    private List<(AcadDb.ObjectId Corridor, List<(double Station, Point3d Inner, Point3d Outer)> Band)> _curbs = new();
+    // Rebaixos ja vistos: um rebaixo novo (lancado pelo MFREBAIXO) e selecionado e destacado sozinho.
+    private HashSet<string>? _knownSets;
 
     // Rotulos ja colocados na planta (para nao sobrepor textos).
     private readonly List<SW.Rect> _labelRects = new();
@@ -108,6 +112,9 @@ internal sealed class MFRebaixoPanel : SW.Window
         new("HACHURAS", "hachura", "Redesenhar hachuras", "Rebaixo",
             "Apaga e desenha de novo a hachura em planta de todos os rebaixos (layer MF-REBAIXO), lendo o corredor atual. Use depois de um Rebuild que mudou o corredor.",
             new[] { "Sem perguntas: refaz as hachuras de todos os rebaixos listados." }, p => p.RedrawHatches()),
+        new("PLANTA", "planta", "Ligar/desligar a representacao em planta", "Rebaixo",
+            "Mostra ou esconde no desenho as hachuras vermelhas dos rebaixos (liga/desliga a layer das hachuras). Nada e apagado: clique de novo para voltar.",
+            new[] { "Sem perguntas." }, p => p.TogglePlanHatches()),
         new("ZOOM", "zoom", "Zoom no desenho", "Rebaixo",
             "Aproxima o desenho no rebaixo selecionado (duplo clique na lista faz o mesmo).", new[] { "Selecione o rebaixo." }, p => p.ZoomCurrent()),
         new("SECOES", "secoes", "Secoes do rebaixo", "Rebaixo",
@@ -138,6 +145,7 @@ internal sealed class MFRebaixoPanel : SW.Window
             {
                 _instance?.Unwatch();
                 _instance = null;
+                MFRebaixoHighlight.Clear();
                 AcApp.DocumentManager.DocumentActivated -= OnDocumentActivated;
             };
             AcApp.DocumentManager.DocumentActivated += OnDocumentActivated;
@@ -559,6 +567,7 @@ internal sealed class MFRebaixoPanel : SW.Window
                 _items = MFRebaixoData.ReadAll(doc.Database);
                 _corridors = MFRebaixoData.Corridors(doc.Database);
                 _overview = MFRebaixoData.Overview(doc.Database);
+                _curbs = MFRebaixoData.Curbs(doc.Database);
             }
         }
         catch (System.Exception ex)
@@ -601,6 +610,17 @@ internal sealed class MFRebaixoPanel : SW.Window
             _pending = null;
         }
 
+        // Rebaixo novo (lancado pelo MFREBAIXO com o painel aberto): seleciona e destaca sozinho.
+        static string SetKey(RebaixoInfo r) => r.CorridorId.Handle.Value + "|" + r.SetName;
+        if (_knownSets is not null && _knownSets.Count > 0)
+        {
+            RebaixoInfo? novo = _items.LastOrDefault(r => !_knownSets.Contains(SetKey(r)));
+            if (novo is not null)
+                _current = novo;
+        }
+
+        _knownSets = new HashSet<string>(_items.Select(SetKey));
+
         if (_current is not null)
             _current = _items.FirstOrDefault(r => r.CorridorId == _current.CorridorId && r.SetName == _current.SetName)
                        ?? _items.FirstOrDefault(r => r.CorridorId == _current.CorridorId && r.BaselineKey == _current.BaselineKey && Math.Abs(r.S1 - _current.S1) < 0.01);
@@ -613,7 +633,26 @@ internal sealed class MFRebaixoPanel : SW.Window
         FillList();
         BuildTabs();
         RenderGraphic();
+        HighlightCurrent();
         Say($"{_items.Count} rebaixo(s) em {_corridors.Count} corredor(es); {_warnings.Count(w => w.Serious)} aviso(s) importante(s).");
+    }
+
+    /// <summary>Destaca no desenho (contorno amarelo temporario) o rebaixo selecionado no painel.</summary>
+    private void HighlightCurrent()
+    {
+        try
+        {
+            RebaixoInfo? r = _category is "CORREDORES" or "CONFIG" ? null : _current;
+            if (r is null || r.Band.Count < 2 || Doc is null)
+                MFRebaixoHighlight.Clear();
+            else
+                MFRebaixoHighlight.Show(r.Band);
+            Doc?.Editor.UpdateScreen();
+        }
+        catch
+        {
+            // Destaque e so visual: nao atrapalha o painel.
+        }
     }
 
     private int CountFor(string category) => category switch
@@ -845,6 +884,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         BuildTabs();
         RenderGraphic();
+        HighlightCurrent();
     }
 
     // ------------------------------------------------------------------
@@ -1066,7 +1106,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         RebaixoInfo? r = _current;
         _graphicInfo.Text = !Show("RESUMO") ? "" : Mode == "GERAL"
-            ? $"{_items.Count} rebaixo(s) em {_overview.Count} baseline(s)" + (r is null ? "" : $"   |   selecionado: {r.Label}")
+            ? $"{_items.Count} rebaixo(s) em {_curbs.Count} trecho(s) de meio-fio" + (r is null ? "" : $"   |   selecionado: {r.Label}")
             : r is null
                 ? "Nenhum rebaixo selecionado."
                 : $"{r.Label}   {r.CorridorName} / {r.BaselineName}   lado {r.SideLabel.ToLowerInvariant()}   rampa {N(r.S0, "0.00")}-{N(r.S1, "0.00")}   rebaixado {N(r.S1, "0.00")}-{N(r.S2, "0.00")}   rampa {N(r.S2, "0.00")}-{N(r.S3, "0.00")}" +
@@ -1092,6 +1132,8 @@ internal sealed class MFRebaixoPanel : SW.Window
     private static readonly WM.Brush HaloBrush = ToolTheme.Brush(40, 42, 46, 215);
     private static readonly WM.Brush RebaixoBrush = ToolTheme.Brush(225, 45, 60);
     private static readonly WM.Brush WarnBrush = ToolTheme.Brush(240, 150, 30);
+    private static readonly WM.Brush RampBrush = ToolTheme.Brush(245, 160, 40);
+    private static readonly WM.Brush CurbBrush = ToolTheme.Brush(196, 198, 204);
     private static readonly WM.Brush SelectedBrush = ToolTheme.Brush(255, 205, 60);
     private static readonly WM.Brush DarkText = ToolTheme.Brush(25, 25, 25);
 
@@ -1226,7 +1268,10 @@ internal sealed class MFRebaixoPanel : SW.Window
         if (w < 20 || h < 20 || !_plan.IsVisible)
             return;
 
-        List<Point3d> all = _overview.SelectMany(o => o.Points).Concat(_items.SelectMany(r => r.Path)).ToList();
+        // Enquadra pelos meios-fios (o que interessa); sem eles, pelas baselines.
+        List<Point3d> all = _curbs.SelectMany(c => c.Band.SelectMany(e => new[] { e.Inner, e.Outer })).Concat(_items.SelectMany(r => r.Path)).ToList();
+        if (all.Count == 0)
+            all = _overview.SelectMany(o => o.Points).ToList();
         if (all.Count == 0)
         {
             _scale = 0;
@@ -1243,7 +1288,7 @@ internal sealed class MFRebaixoPanel : SW.Window
 
         // Legenda e escala primeiro: reservam o espaco dos cantos.
         double ly = 8;
-        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("rebaixo", RebaixoBrush), ("com aviso", WarnBrush), ("selecionado", SelectedBrush) } : Array.Empty<(string, WM.Brush)>())
+        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("meio-fio", CurbBrush), ("rampa", RampBrush), ("rebaixado", RebaixoBrush), ("selecionado", SelectedBrush) } : Array.Empty<(string, WM.Brush)>())
         {
             var sw = new WS.Rectangle { Width = 14, Height = 6, Fill = b, IsHitTestVisible = false };
             WC.Canvas.SetLeft(sw, 8);
@@ -1264,37 +1309,30 @@ internal sealed class MFRebaixoPanel : SW.Window
             _labelRects.Add(new SW.Rect(w - len - 20, h - 30, len + 20, 30));
         }
 
-        // Baselines: as do corredor do rebaixo selecionado mais claras.
+        // Baselines: so referencia (tracejado fino). O que identifica o rebaixo e o meio-fio.
         AcadDb.ObjectId? selCorridor = _current?.CorridorId;
-        WM.Brush baseBrush = ToolTheme.Brush(120, 123, 128), baseSel = ToolTheme.Brush(185, 188, 194);
+        WM.Brush baseBrush = ToolTheme.Brush(120, 123, 128, 150);
         foreach ((AcadDb.ObjectId id, string _, List<Point3d> pts) in _overview)
         {
-            bool mine = selCorridor is AcadDb.ObjectId sid && sid == id;
-            var line = new WS.Polyline { Stroke = mine ? baseSel : baseBrush, StrokeThickness = mine ? 1.6 : 1.1, IsHitTestVisible = false };
+            var line = new WS.Polyline { Stroke = baseBrush, StrokeThickness = 0.8, StrokeDashArray = new WM.DoubleCollection { 8, 5 }, IsHitTestVisible = false };
             foreach (Point3d p in pts)
                 line.Points.Add(ToScreen(p.X, p.Y));
             _plan.Children.Add(line);
         }
 
-        // Rebaixos: traco grosso ao longo da baseline.
-        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
+        // Meios-fios reais (sarjeta + MF) de todos os corredores; os do corredor selecionado mais claros.
+        WM.Brush curbDim = ToolTheme.Brush(150, 153, 160);
+        foreach ((AcadDb.ObjectId id, List<(double Station, Point3d Inner, Point3d Outer)> band) in _curbs)
         {
-            if (r.Path.Count == 0)
-                continue;
-            bool selected = ReferenceEquals(r, _current);
-            bool serious = _warnings.Any(x => ReferenceEquals(x.Item, r) && x.Serious);
-            var path = new WS.Polyline
-            {
-                Stroke = selected ? SelectedBrush : serious ? WarnBrush : RebaixoBrush,
-                StrokeThickness = selected ? 7 : 5,
-                StrokeStartLineCap = WM.PenLineCap.Round,
-                StrokeEndLineCap = WM.PenLineCap.Round,
-                IsHitTestVisible = false
-            };
-            foreach (Point3d p in r.Path)
-                path.Points.Add(ToScreen(p.X, p.Y));
-            _plan.Children.Add(path);
+            bool mine = selCorridor is AcadDb.ObjectId sid && sid == id;
+            WM.Brush b = mine ? CurbBrush : curbDim;
+            if (BandPolygon(band, b, b, mine ? 1.4 : 1.0) is WS.Polygon curb)
+                _plan.Children.Add(curb);
         }
+
+        // Rebaixos: em cima do proprio meio-fio, rampas e trecho rebaixado em cores; o selecionado por ultimo.
+        foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
+            DrawRebaixo(r, ReferenceEquals(r, _current), 3.5);
 
         // Etiquetas dos rebaixos: o selecionado primeiro (sempre aparece), depois os demais na ordem.
         bool showCode = Show("CODIGO"), showName = Show("NOME"), showStations = Show("ESTACAS");
@@ -1387,6 +1425,53 @@ internal sealed class MFRebaixoPanel : SW.Window
         FillList();
         BuildTabs();
         RenderGraphic();
+        HighlightCurrent();
+    }
+
+    /// <summary>Poligono de tela de uma faixa (borda interna na ida, externa na volta).</summary>
+    private WS.Polygon? BandPolygon(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band, WM.Brush fill, WM.Brush stroke, double thickness)
+    {
+        if (band.Count < 2)
+            return null;
+        var pg = new WS.Polygon { Fill = fill, Stroke = stroke, StrokeThickness = thickness, StrokeLineJoin = WM.PenLineJoin.Round, IsHitTestVisible = false };
+        foreach ((_, Point3d inner, _) in band)
+            pg.Points.Add(ToScreen(inner.X, inner.Y));
+        for (int i = band.Count - 1; i >= 0; i--)
+            pg.Points.Add(ToScreen(band[i].Outer.X, band[i].Outer.Y));
+        return pg;
+    }
+
+    /// <summary>
+    /// Desenha o rebaixo sobre o meio-fio real: rampas em laranja, trecho rebaixado em vermelho,
+    /// contorno amarelo no selecionado. Sem a faixa lida do corredor, traco grosso no eixo.
+    /// </summary>
+    private void DrawRebaixo(RebaixoInfo r, bool selected, double thickness)
+    {
+        if (r.Band.Count < 2)
+        {
+            if (r.Path.Count == 0)
+                return;
+            var path = new WS.Polyline
+            {
+                Stroke = selected ? SelectedBrush : RebaixoBrush,
+                StrokeThickness = thickness + 2,
+                StrokeStartLineCap = WM.PenLineCap.Round,
+                StrokeEndLineCap = WM.PenLineCap.Round,
+                IsHitTestVisible = false
+            };
+            foreach (Point3d p in r.Path)
+                path.Points.Add(ToScreen(p.X, p.Y));
+            _plan.Children.Add(path);
+            return;
+        }
+
+        if (selected && BandPolygon(r.Band, WM.Brushes.Transparent, SelectedBrush, thickness + 5) is WS.Polygon halo)
+            _plan.Children.Add(halo);
+        foreach ((double a, double b, WM.Brush brush) in new[] { (r.S0, r.S1, RampBrush), (r.S1, r.S2, RebaixoBrush), (r.S2, r.S3, RampBrush) })
+        {
+            if (BandPolygon(r.BandBetween(a, b), brush, brush, thickness) is WS.Polygon part)
+                _plan.Children.Add(part);
+        }
     }
 
     private void RenderDetail()
@@ -1471,6 +1556,13 @@ internal sealed class MFRebaixoPanel : SW.Window
             _plan.Children.Add(new WS.Path { Data = geo, Fill = brush, Stroke = brush, StrokeThickness = 0.5, IsHitTestVisible = false });
         }
 
+        // Rebaixos em cima do meio-fio: rampas em laranja, trecho rebaixado em vermelho, o selecionado com contorno.
+        foreach (RebaixoInfo item in _items.OrderBy(x => ReferenceEquals(x, _current)))
+        {
+            if (_current is not null && item.CorridorId == _current.CorridorId)
+                DrawRebaixo(item, ReferenceEquals(item, _current), 1.0);
+        }
+
         // Linhas das secoes.
         WM.Brush sectionBrush = ToolTheme.Brush(255, 255, 255, 70);
         foreach (ModelSection s in model.Sections)
@@ -1512,7 +1604,8 @@ internal sealed class MFRebaixoPanel : SW.Window
         double ly = 8;
         foreach ((string text, WM.Color color) in !Show("LEGENDA") ? Array.Empty<(string, WM.Color)>() : new[]
                  {
-                     ("REBAIXO", RebaixoStyle.Of(new[] { "REBAIXO" }).Color),
+                     ("Rampa do rebaixo", WM.Color.FromRgb(245, 160, 40)),
+                     ("Trecho rebaixado", RebaixoStyle.Of(new[] { "REBAIXO" }).Color),
                      ("Meio-fio", RebaixoStyle.Of(new[] { "Curb", "Top" }).Color),
                      ("Sarjeta", RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color),
                      ("Calcada", RebaixoStyle.Of(new[] { "Calcada" }).Color),
@@ -1831,14 +1924,75 @@ internal sealed class MFRebaixoPanel : SW.Window
         if (r.RampOk.HasValue || r.FreeWidth.HasValue)
             p.Children.Add(Prop("Calcada", $"rampa {(r.RampOk is double ok && ok > 0.5 ? "ok" : "nao cabe")}, faixa livre {N(r.FreeWidth, "0.00")} m"));
 
-        p.Children.Add(Label("Editar e reaplicar", true));
+        p.Children.Add(Label("Posicao e tamanho", true));
         p.Children.Add(EditRow("s1", "Inicio do trecho rebaixado (S1)", N(r.S1), "m"));
+        p.Children.Add(EditRow("comp", "Comprimento do trecho rebaixado", N(r.LoweredLength, "0.000"), "m"));
         p.Children.Add(EditRow("s2", "Fim do trecho rebaixado (S2)", N(r.S2), "m"));
+        p.Children.Add(Label("Valor do rebaixo", true));
+        p.Children.Add(EditRow("red", "Rebaixo (quanto desce)", r.NormalHeight is double nh0 && r.FinalHeight is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
         p.Children.Add(EditRow("h", "Altura livre final", N(r.FinalHeight ?? 0, "0.000"), "m"));
-        p.Children.Add(Label("As rampas (S0 e S3) saem de novo da altura normal das secoes vizinhas e da declividade iRampa. O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta."));
+        p.Children.Add(Label("Mudou o inicio: o fim acompanha (o comprimento fica). Mudou o comprimento: o fim muda. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). As rampas (S0 e S3) saem de novo da altura normal das secoes vizinhas e da declividade iRampa. O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta."));
+
+        // Campos ligados: so reage ao campo que esta sendo digitado.
+        bool linking = false;
+        void When(string key, Action act)
+        {
+            if (!_fields.TryGetValue(key, out WC.TextBox? box))
+                return;
+            box.TextChanged += (_, _) =>
+            {
+                if (linking || !box.IsKeyboardFocused)
+                    return;
+                linking = true;
+                try
+                {
+                    act();
+                }
+                finally
+                {
+                    linking = false;
+                }
+            };
+        }
+
+        void Put(string key, double v)
+        {
+            if (_fields.TryGetValue(key, out WC.TextBox? box))
+                box.Text = N(v);
+        }
+
+        When("s1", () =>
+        {
+            if (Number("s1") is double a && Number("comp") is double c)
+                Put("s2", a + c);
+        });
+        When("comp", () =>
+        {
+            if (Number("s1") is double a && Number("comp") is double c)
+                Put("s2", a + c);
+        });
+        When("s2", () =>
+        {
+            if (Number("s1") is double a && Number("s2") is double z)
+                Put("comp", z - a);
+        });
+        if (r.NormalHeight is double normal)
+        {
+            When("red", () =>
+            {
+                if (Number("red") is double d)
+                    Put("h", normal - d);
+            });
+            When("h", () =>
+            {
+                if (Number("h") is double hh)
+                    Put("red", normal - hh);
+            });
+        }
 
         WC.WrapPanel actions = new();
         actions.Children.Add(ActionButton("Aplicar", () => ApplyEdit(r), true));
+        actions.Children.Add(ActionButton("Reposicionar no desenho", () => MoveInDrawing(r)));
         actions.Children.Add(ActionButton("Zoom no desenho", ZoomCurrent));
         actions.Children.Add(ActionButton("Selecionar corredor", SelectCorridor));
         actions.Children.Add(ActionButton("Remover", RemoveCurrent));
@@ -2034,19 +2188,81 @@ internal sealed class MFRebaixoPanel : SW.Window
             return;
         }
 
+        Reapply(r, s1.Value, s2.Value, h.Value);
+    }
+
+    /// <summary>
+    /// Reposiciona pelo desenho: clique o novo inicio do trecho rebaixado; o comprimento e a
+    /// altura final ficam. A estaca sai da projecao do clique na baseline do rebaixo.
+    /// </summary>
+    private void MoveInDrawing(RebaixoInfo r)
+    {
+        if (Doc is not Document doc)
+            return;
+        if (r.FinalHeight is not double h)
+        {
+            Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
+            return;
+        }
+
+        double length = r.LoweredLength;
+        double station = 0;
+        Say($"Clique no desenho o novo inicio do trecho rebaixado de {r.Label} (Esc cancela).");
+        try
+        {
+            try
+            {
+                Autodesk.AutoCAD.Internal.Utils.SetFocusToDwgView();
+            }
+            catch
+            {
+                // Segue sem trocar o foco.
+            }
+
+            using (doc.LockDocument())
+            {
+                var options = new PromptPointOptions(
+                    $"\nNovo inicio do trecho rebaixado de {r.Label} (comprimento {N(length, "0.00")} m mantido): ");
+                PromptPointResult result = doc.Editor.GetPoint(options);
+                if (result.Status != PromptStatus.OK)
+                {
+                    Say("Reposicionamento cancelado.");
+                    return;
+                }
+
+                Point3d picked = result.Value.TransformBy(doc.Editor.CurrentUserCoordinateSystem);
+                if (!MFRebaixoCommands.TryStationAt(doc.Database, r.CorridorId, r.BaselineKey, picked, out station))
+                {
+                    Say("O ponto clicado nao caiu na baseline deste rebaixo.");
+                    return;
+                }
+            }
+        }
+        catch (System.Exception ex)
+        {
+            Say("Erro ao ler o ponto: " + ex.Message);
+            return;
+        }
+
+        Activate();
+        Reapply(r, station, station + length, h);
+    }
+
+    private void Reapply(RebaixoInfo r, double newS1, double newS2, double newH)
+    {
         if (r.FinalHeight is not double oldH)
         {
             Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
             return;
         }
 
-        _pending = (r.CorridorId, r.BaselineKey, s1.Value);
-        Edit($"Rebaixo reaplicado: {N(s1.Value)} - {N(s2.Value)}, altura final {Cm(h)}.", (db, ed) =>
+        _pending = (r.CorridorId, r.BaselineKey, newS1);
+        Edit($"Rebaixo reaplicado: {N(newS1)} - {N(newS2)}, altura final {Cm(newH)}.", (db, ed) =>
         {
             MFRebaixoData.Remove(db, r, rebuild: false);
             try
             {
-                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1.Value, s2.Value, h.Value, MFRebaixoData.CommentFor(r.CustomName));
+                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, newS1, newS2, newH, MFRebaixoData.CommentFor(r.CustomName));
             }
             catch (System.Exception ex)
             {
@@ -2105,6 +2321,48 @@ internal sealed class MFRebaixoPanel : SW.Window
         Edit("Hachuras redesenhadas.", (db, _) => result = MFRebaixoHatch.RedrawAll(db, items));
         if (result.Rebaixos > 0)
             Say($"{result.Hachuras} hachura(s) em {result.Rebaixos} rebaixo(s), layer {_settings.HachuraLayer}.");
+    }
+
+    /// <summary>Liga/desliga a representacao em planta (layer das hachuras). Sem a layer, desenha as hachuras.</summary>
+    private void TogglePlanHatches()
+    {
+        if (Doc is not Document doc)
+        {
+            Say("Nenhum desenho aberto.");
+            return;
+        }
+
+        string layer = _settings.HachuraLayer;
+        bool? on;
+        try
+        {
+            using (doc.LockDocument())
+                on = MFRebaixoHatch.IsLayerOn(doc.Database, layer);
+        }
+        catch (System.Exception ex)
+        {
+            Say("Erro: " + ex.Message);
+            return;
+        }
+
+        if (on is null)
+        {
+            if (!_settings.HachuraAtiva)
+            {
+                _settings.HachuraAtiva = true;
+                SaveSettings();
+            }
+
+            RedrawHatches();
+            return;
+        }
+
+        bool turnOn = on == false;
+        Edit(turnOn ? $"Representacao em planta ligada (layer {layer})." : $"Representacao em planta desligada (layer {layer} desligada; clique de novo para voltar).", (db, ed) =>
+        {
+            MFRebaixoHatch.SetLayerOn(db, layer, turnOn);
+            ed.Regen();
+        });
     }
 
     private void RebuildCurrent()

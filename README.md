@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.1.0)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.2.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -119,11 +119,16 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
   `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
-- `MFREBAIXO` (v1.8): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
-  (3 HATCH na layer `MF-REBAIXO`: rampa de entrada, trecho rebaixado, rampa de saida), sem depender do
-  Code Set Style. O painel refaz/remove a hachura com o rebaixo e tem **Redesenhar hachuras**; layer, cor,
-  padroes, escala e transparencia ficam na Configuracao do painel. Use com o `MFSARJETA_v1.23.pkt`
-  (`subassemblies/MFSARJETA`), que nao tem mais os links de sobreposicao.
+- `MFREBAIXO` (v1.9): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
+  (layer `MF-REBAIXO`, vermelho solido com 20% de transparencia, cobrindo sarjeta + meio-fio de S0 a S3),
+  sem depender do Code Set Style. Layer, cor, padroes e transparencia ficam na Configuracao do painel.
+- `MFREBAIXOPAINEL` (v1.9): a planta geral mostra o **meio-fio real** de cada corredor (nao a baseline), com as
+  rampas em laranja e o trecho rebaixado em vermelho; clicar num rebaixo (lista ou planta) **destaca-o no
+  desenho** (contorno amarelo temporario); um rebaixo novo e selecionado sozinho. Aba Propriedades: inicio,
+  comprimento, fim, rebaixo (quanto desce) ou altura livre final, e **Reposicionar no desenho** (clique o novo
+  inicio). Botoes **Ligar/desligar a representacao em planta** e **Redesenhar hachuras**.
+- Use com o `MFSARJETA_v1.24.pkt` (`subassemblies/MFSARJETA`): sem links de sobreposicao e com os codes dos
+  shapes fixos (o solido do meio-fio nao fica mais com buraco nas rampas do rebaixo).
 - Sem Ribbon: use pela linha de comando. O log continua em `%LOCALAPPDATA%\Civil3D2026Plugin\logs`
   (Ctrl+Shift+L no painel do MFREBAIXO).
 - **Carregue uma DLL ou a outra**, nao as duas: o plugin completo ja tem esses comandos. Se as duas

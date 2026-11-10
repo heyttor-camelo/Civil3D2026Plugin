@@ -52,8 +52,15 @@ internal sealed class RebaixoInfo
     public Point3d P2 { get; set; }
     public Point3d P3 { get; set; }
 
-    /// <summary>Baseline de S0 a S3 (planta geral).</summary>
+    /// <summary>Eixo da faixa do rebaixo de S0 a S3 (meio entre borda da pista e fundo do MF); sem o meio-fio lido, a baseline.</summary>
     public List<Point3d> Path { get; } = new();
+
+    /// <summary>Faixa real do rebaixo no desenho: em cada secao de S0 a S3, borda da pista e fundo do meio-fio.</summary>
+    public List<(double Station, Point3d Inner, Point3d Outer)> Band { get; } = new();
+
+    /// <summary>Parte da faixa entre duas estacas (rampa de entrada, trecho rebaixado, rampa de saida).</summary>
+    public List<(double Station, Point3d Inner, Point3d Outer)> BandBetween(double from, double to) =>
+        Band.Where(e => e.Station >= from - 0.0005 && e.Station <= to + 0.0005).ToList();
 
     public double EntryLength => S1 - S0;
     public double LoweredLength => S2 - S1;
@@ -324,7 +331,10 @@ internal static class MFRebaixoData
             }
 
             if (region is not null)
+            {
                 ReadCorridorValues(tr, region, info);
+                ReadBand(tr, baseline, region, info);
+            }
 
             return info;
         }
@@ -332,6 +342,84 @@ internal static class MFRebaixoData
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Le a faixa real do rebaixo (sarjeta + meio-fio) nas secoes de S0 a S3. Com ela, o eixo do
+    /// rebaixo (Path) e os marcos S0..S3 passam para cima do meio-fio, em vez da baseline.
+    /// </summary>
+    private static void ReadBand(AcadDb.Transaction tr, CivilDb.Baseline baseline, CivilDb.BaselineRegion region, RebaixoInfo info)
+    {
+        try
+        {
+            AcadDb.ObjectId saId = MFRebaixoCommands.FindMfSubassemblyId(tr, region,
+                info.Left ? CivilDb.SubassemblySideType.Left : CivilDb.SubassemblySideType.Right, out _);
+            if (saId.IsNull)
+                return;
+            List<(double Station, Point3d Inner, Point3d Outer)> band = MFRebaixoHatch.Edges(baseline, saId, info.S0, info.S3, false);
+            if (band.Count < 2)
+                return;
+            info.Band.AddRange(band);
+            info.Path.Clear();
+            foreach ((_, Point3d a, Point3d b) in band)
+                info.Path.Add(new Point3d((a.X + b.X) / 2.0, (a.Y + b.Y) / 2.0, 0));
+
+            Point3d At(double st)
+            {
+                var e = band.OrderBy(x => Math.Abs(x.Station - st)).First();
+                return new Point3d((e.Inner.X + e.Outer.X) / 2.0, (e.Inner.Y + e.Outer.Y) / 2.0, 0);
+            }
+
+            info.P0 = At(info.S0);
+            info.P1 = At(info.S1);
+            info.P2 = At(info.S2);
+            info.P3 = At(info.S3);
+        }
+        catch
+        {
+            // Sem a faixa: o rebaixo continua representado sobre a baseline.
+        }
+    }
+
+    /// <summary>
+    /// Meios-fios dos corredores (planta geral): para cada baseline, region e lado com MF/MFSARJETA,
+    /// a faixa borda da pista -> fundo do MF em todas as secoes.
+    /// </summary>
+    public static List<(AcadDb.ObjectId Corridor, List<(double Station, Point3d Inner, Point3d Outer)> Band)> Curbs(AcadDb.Database db)
+    {
+        List<(AcadDb.ObjectId, List<(double Station, Point3d Inner, Point3d Outer)>)> list = new();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.ObjectId id in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not CivilCorridor corridor)
+                continue;
+            foreach (CivilDb.Baseline baseline in corridor.Baselines)
+            {
+                foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
+                {
+                    foreach (CivilDb.SubassemblySideType side in new[] { CivilDb.SubassemblySideType.Left, CivilDb.SubassemblySideType.Right })
+                    {
+                        try
+                        {
+                            AcadDb.ObjectId saId = MFRebaixoCommands.FindMfSubassemblyId(tr, region, side, out _);
+                            if (saId.IsNull)
+                                continue;
+                            double a = Math.Min(region.StartStation, region.EndStation), z = Math.Max(region.StartStation, region.EndStation);
+                            List<(double Station, Point3d Inner, Point3d Outer)> band = MFRebaixoHatch.Edges(baseline, saId, a, z, false);
+                            if (band.Count > 1)
+                                list.Add((id, band));
+                        }
+                        catch
+                        {
+                            // Region sem assembly ou sem meio-fio deste lado.
+                        }
+                    }
+                }
+            }
+        }
+
+        tr.Commit();
+        return list;
     }
 
     private static void ReadCorridorValues(AcadDb.Transaction tr, CivilDb.BaselineRegion region, RebaixoInfo info)
