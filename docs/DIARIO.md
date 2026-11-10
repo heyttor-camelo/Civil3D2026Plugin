@@ -15,7 +15,9 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - **2.94.0**: `C3DORDEMDESENHO` pergunta a origem `[Arquivo/Model/Layout]`; painel Geral ganhou "Ordem de desenho do Model ou de outro layout" para os layouts marcados (`DrawOrderCommands.CopiarDoDesenho`).
 - **2.94.1**: Renomear em lote com Base vazia + numerar = só prefixo+número+sufixo (antes repetia o nome antigo); título/prévia da aba acompanham a marcação.
 - Build no CAMELO: 0 erros, 15 avisos antigos; DLL 2.94.1 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX. Pendência: no CAMELO a permissão não deixa apagar as DLLs antigas numeradas (sobrou também uma 2.92.2 de uma compilação paralela descartada); apagar à mão.
-- Aguardando teste do Heyvid das quatro mudanças.
+- **2.94.2**: folga dos textos da malha ao norte/escala passou para 10 mm (pedido dele).
+- **2.95.0**: mapa-chave com `preVia` (caixa em qualquer lugar do layout atual, marcada no XData, fora da atualização normal), lista de pranchas na config (`KeyMapConfig.Layouts`, code 3 no Xrecord; vazia = todas), `DefinirLayouts`/`RemoverDe`/`RemoverPrevias`, menu do botão direito na viewport e botões na aba Mapa-chave. `Gerar` refatorado em `Preparar`/`Desenhar`/`Encaixe`.
+- Aguardando teste do Heyvid de tudo (2.92.1 a 2.95.0).
 
 ## 2026-11-09 — nuvem (Claude); build pendente
 
