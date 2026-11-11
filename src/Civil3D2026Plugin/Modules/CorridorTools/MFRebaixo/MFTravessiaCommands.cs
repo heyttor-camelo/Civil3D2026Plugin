@@ -106,8 +106,12 @@ public sealed class MFTravessiaCommands
             var (side1, side2, geo, roadInfo) = Compute(db, a, b, stA, stB, p);
 
             // Mudancas nos rebaixos.
-            var plan = new List<(RebaixoInfo R, double S1, double S2, double H, string Text)>();
-            foreach ((RebaixoInfo r, double st, double target) in new (RebaixoInfo, double, double)[] { (a, stA, geo.TargetExposedA), (b, stB, geo.TargetExposedB) })
+            var plan = new List<(RebaixoInfo R, double S1, double S2, double H, string Text, double St, double Desired)>();
+            foreach ((RebaixoInfo r, double st, double target, double desired) in new (RebaixoInfo, double, double, double)[]
+            {
+                (a, stA, geo.TargetExposedA, MFTravessia.At(side1.Samples, stA).Edge.Z + geo.HeightA),
+                (b, stB, geo.TargetExposedB, MFTravessia.At(side2.Samples, stB).Edge.Z + geo.HeightB)
+            })
             {
                 double s1 = r.S1, s2 = r.S2;
                 if (p.Centralizar && p.Tipo == TravessiaTipo.SemiElevada)
@@ -131,7 +135,7 @@ public sealed class MFTravessiaCommands
                     h = target;
                 }
                 if (changes.Count > 0)
-                    plan.Add((r, s1, s2, h, $"{r.Label}: " + string.Join(", ", changes)));
+                    plan.Add((r, s1, s2, h, $"{r.Label}: " + string.Join(", ", changes), st, desired));
             }
 
             // Confirmacao (regra do Heyvid: acao que mexe em varias pecas explica o que muda e como desfazer).
@@ -163,6 +167,41 @@ public sealed class MFTravessiaCommands
             // 1) Rebaixos.
             foreach (var item in plan)
                 Reapply(db, ed, item.R, item.S1, item.S2, item.H);
+
+            // 1b) O REB e um so no trecho e o meio-fio muda de altura ao longo dele (R01 da Waldir Soeiro:
+            // pedia 6,5 cm e o topo ficou 2,3 cm abaixo do plato). Confere o topo do meio-fio no eixo e,
+            // se nao bateu com o plato, reaplica uma vez compensando a diferenca.
+            if (p.Tipo == TravessiaTipo.SemiElevada && plan.Count > 0)
+            {
+                List<RebaixoInfo> now = MFRebaixoData.ReadAll(db);
+                foreach (var item in plan)
+                {
+                    RebaixoInfo? r = RebaixoAt(now, item.R.CorridorId, item.R.BaselineKey, item.R.Left, item.St);
+                    if (r is null)
+                        continue;
+                    TravessiaSide s = MFTravessia.ReadSide(db, r, item.St, item.St - 2.0, item.St + 2.0);
+                    if (s.Samples.Count < 2 || MFTravessia.At(s.Samples, item.St).Top is not double top)
+                        continue;
+                    double diff = item.Desired - top;
+                    if (Math.Abs(diff) <= 0.005)
+                        continue;
+                    double h2 = item.H + diff;
+                    string msg = $"{r.Label}: topo do meio-fio no eixo {Num(top)}, plato {Num(item.Desired)}; altura final {MFTravessia.Cm(item.H)} -> {MFTravessia.Cm(h2)}";
+                    try
+                    {
+                        if (h2 <= 0.0)
+                            throw new InvalidOperationException("a altura corrigida fica abaixo de zero");
+                        Reapply(db, ed, r, item.S1, item.S2, h2);
+                        PluginLog.Info(Mod, "Correcao: " + msg);
+                        ed.WriteMessage("\n  Corrigido: " + msg);
+                    }
+                    catch (System.Exception ex)
+                    {
+                        PluginLog.Aviso(Mod, $"Correcao nao feita ({msg}): {ex.Message}");
+                        ed.WriteMessage($"\n  AVISO: o topo do meio-fio de {r.Label} ficou {MFTravessia.Cm(-diff)} do nivel do plato; correcao nao feita: {ex.Message}");
+                    }
+                }
+            }
 
             // 2) Desenho (o meio-fio e a pista nao dependem do REB; relido so se os rebaixos mudaram).
             if (plan.Count > 0)
@@ -254,8 +293,8 @@ public sealed class MFTravessiaCommands
                     double span = (d.Params.Plataforma / 2.0) + d.Params.Rampa + 4.0;
                     TravessiaSide s1 = MFTravessia.ReadSide(db, ca, d.BaselineA, d.SubassemblyA, d.LeftA, d.LabelA, d.Origin, stA, stA - span, stA + span);
                     TravessiaSide s2 = MFTravessia.ReadSide(db, cb, d.BaselineB, d.SubassemblyB, d.LeftB, d.LabelB, d.Origin, stB, stB - span, stB + span);
-                    RebaixoInfo? ra = RebaixoAt(rebaixos, ca, d.BaselineA, stA);
-                    RebaixoInfo? rb = RebaixoAt(rebaixos, cb, d.BaselineB, stB);
+                    RebaixoInfo? ra = RebaixoAt(rebaixos, ca, d.BaselineA, d.LeftA, stA);
+                    RebaixoInfo? rb = RebaixoAt(rebaixos, cb, d.BaselineB, d.LeftB, stB);
                     Func<double, double, double?> road = MFTravessia.RoadSurface(db, new[] { ca, cb }, d.Params.Superficie, out string roadInfo);
                     TravessiaGeometry geo = MFTravessia.Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight);
                     (int count, List<string> notes) = MFTravessia.Draw(db, geo, d, settings);
@@ -263,12 +302,17 @@ public sealed class MFTravessiaCommands
                     string line = $"Travessia {d.Id} ({d.LabelA}-{d.LabelB}) refeita: {count} objeto(s). {roadInfo}";
                     if (d.Params.Tipo == TravessiaTipo.SemiElevada)
                     {
-                        foreach ((RebaixoInfo? r, double target, string label) in new (RebaixoInfo?, double, string)[] { (ra, geo.TargetExposedA, d.LabelA), (rb, geo.TargetExposedB, d.LabelB) })
+                        // Mesma conta do MFTRAVESSIA: topo do meio-fio no eixo x nivel do plato na borda da pista.
+                        foreach ((RebaixoInfo? r, TravessiaSide s, double st, double desired, string label) in new (RebaixoInfo?, TravessiaSide, double, double, string)[]
+                        {
+                            (ra, s1, stA, MFTravessia.At(s1.Samples, stA).Edge.Z + geo.HeightA, d.LabelA),
+                            (rb, s2, stB, MFTravessia.At(s2.Samples, stB).Edge.Z + geo.HeightB, d.LabelB)
+                        })
                         {
                             if (r is null)
                                 line += $" AVISO: nao ha rebaixo no eixo em {label}.";
-                            else if (r.FinalHeight is double h && Math.Abs(h - target) > 0.01)
-                                line += $" AVISO: {r.Label} esta com altura final {MFTravessia.Cm(h)}; o plato pede {MFTravessia.Cm(target)} (rode MFTRAVESSIA de novo para acertar).";
+                            else if (MFTravessia.At(s.Samples, st).Top is double top && Math.Abs(top - desired) > 0.01)
+                                line += $" AVISO: o topo do meio-fio de {r.Label} esta {MFTravessia.Cm(top - desired)} do nivel do plato (rode MFTRAVESSIA de novo para acertar).";
                         }
                     }
                     ed.WriteMessage("\n" + line);
@@ -500,8 +544,9 @@ public sealed class MFTravessiaCommands
     private static double? Station(AcadDb.Database db, AcadDb.ObjectId corridorId, string baselineKey, Point3d p) =>
         MFRebaixoCommands.TryStationAt(db, corridorId, baselineKey, p, out double st) ? st : null;
 
-    private static RebaixoInfo? RebaixoAt(List<RebaixoInfo> items, AcadDb.ObjectId corridorId, string baselineKey, double station) =>
-        items.Where(r => r.CorridorId == corridorId && r.BaselineKey == baselineKey && station >= r.S0 - 0.5 && station <= r.S3 + 0.5)
+    // Pelo lado tambem: os dois lados da rua costumam estar na mesma baseline (MFSARJETA_ESQ/DIR).
+    private static RebaixoInfo? RebaixoAt(List<RebaixoInfo> items, AcadDb.ObjectId corridorId, string baselineKey, bool left, double station) =>
+        items.Where(r => r.CorridorId == corridorId && r.BaselineKey == baselineKey && r.Left == left && station >= r.S0 - 0.5 && station <= r.S3 + 0.5)
              .OrderBy(r => Math.Abs(((r.S1 + r.S2) / 2.0) - station))
              .FirstOrDefault();
 

@@ -1,3 +1,13 @@
+## 2.105.1 - MFREBAIXO v1.15.1 / PassagemRampa v1.8.1: travessia compilada e testada no DWG da Waldir Soeiro
+
+Build e teste no LAPTOP-11TNS6P8 (accoreconsole, copia do DWG, 11/11/2026).
+
+- Nao compilava: `Color` ambiguo em `MFTravessia.cs` (AutoCAD x System.Drawing).
+- **Topo do meio-fio nao era lido**: o MFSARJETA marca o meio-fio com GUIA / MF_T30, sem "Curb". A travessia elevada nao funcionava e o aviso de altura ficava sem base. Agora vale a mesma regra do painel (Curb, GUIA*, MF_*).
+- **Lado errado no Refazer e na uniao**: os dois lados da rua costumam estar na mesma baseline (MFSARJETA_ESQ/DIR); o rebaixo de cada lado era procurado sem olhar o lado, entao os dois lados pegavam o mesmo rebaixo (aviso falso de altura e, na elevada, altura do meio-fio do outro lado). Agora filtra pelo lado.
+- **Altura final acertada no eixo**: o REB e um so no trecho e o meio-fio muda de altura ao longo dele (no R01 o topo ficava 2,3 cm abaixo do plato). Depois de reaplicar, o comando confere o topo do meio-fio no eixo e, se nao bateu (mais de 0,5 cm), reaplica uma vez compensando. O Refazer avisa pela mesma conta (topo do meio-fio x plato).
+- Travessia que passa do comeco/fim do corredor: a mensagem diz as estacas que a travessia precisa e onde o meio-fio existe.
+- Tampas dos cantos da uniao com o Property Set `C3D_TRAVESSIA`.
 ## 2.105.0 - MFREBAIXO v1.15.0 / PassagemRampa v1.8.0: unir travessias do cruzamento, superficie de topo escolhida, solidos da sinalizacao
 
 Pedidos do Heyvid de 11/11/2026, logo depois do 2.104.0.

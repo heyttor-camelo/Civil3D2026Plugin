@@ -119,13 +119,14 @@ internal static partial class MFTravessia
         double span = (d.Params.Plataforma / 2.0) + d.Params.Rampa + 4.0;
         TravessiaSide s1 = ReadSide(db, ca, d.BaselineA, d.SubassemblyA, d.LeftA, d.LabelA, d.Origin, stA, stA - span, stA + span);
         TravessiaSide s2 = ReadSide(db, cb, d.BaselineB, d.SubassemblyB, d.LeftB, d.LabelB, d.Origin, stB, stB - span, stB + span);
-        RebaixoInfo? ra = NearRebaixo(rebaixos, ca, d.BaselineA, stA), rb = NearRebaixo(rebaixos, cb, d.BaselineB, stB);
+        RebaixoInfo? ra = NearRebaixo(rebaixos, ca, d.BaselineA, d.LeftA, stA), rb = NearRebaixo(rebaixos, cb, d.BaselineB, d.LeftB, stB);
         Func<double, double, double?> road = RoadSurface(db, new[] { ca, cb }, d.Params.Superficie, out roadInfo);
         return Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight);
     }
 
-    private static RebaixoInfo? NearRebaixo(List<RebaixoInfo> items, AcadDb.ObjectId corridorId, string baselineKey, double station) =>
-        items.Where(r => r.CorridorId == corridorId && r.BaselineKey == baselineKey && station >= r.S0 - 0.5 && station <= r.S3 + 0.5)
+    // Pelo lado tambem: os dois lados da rua costumam estar na mesma baseline (MFSARJETA_ESQ/DIR).
+    private static RebaixoInfo? NearRebaixo(List<RebaixoInfo> items, AcadDb.ObjectId corridorId, string baselineKey, bool left, double station) =>
+        items.Where(r => r.CorridorId == corridorId && r.BaselineKey == baselineKey && r.Left == left && station >= r.S0 - 0.5 && station <= r.S3 + 0.5)
              .OrderBy(r => Math.Abs(((r.S1 + r.S2) / 2.0) - station))
              .FirstOrDefault();
 
@@ -493,6 +494,16 @@ internal static partial class MFTravessia
                         if (lid is not null)
                         {
                             lid.XData = PartXData(unionId, "UNIAO_TAMPA");
+                            if (lid is AcadDb.Solid3d ls)
+                                TryPropertySet(tr, db, ls, new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                                {
+                                    ["ID"] = unionId,
+                                    ["Versao"] = C3DVersions.MfRebaixo,
+                                    ["Objeto"] = "Tampa de concreto sobre a sarjeta (canto do cruzamento)",
+                                    ["Tipo"] = p0.Tipo == TravessiaTipo.Elevada ? "Travessia elevada" : "Travessia semi-elevada",
+                                    ["Altura_Plato"] = Math.Round(height, 3),
+                                    ["Tampa_Sarjeta"] = $"Concreto, {N(p0.TampaEspessura)} m"
+                                }, out _);
                             count++;
                             lids++;
                         }

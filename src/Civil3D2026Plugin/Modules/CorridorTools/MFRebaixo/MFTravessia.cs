@@ -131,7 +131,7 @@ internal static partial class MFTravessia
     /// <summary>
     /// Le o meio-fio do rebaixo em [from, to] da baseline: borda da pista = origem da subassembly
     /// (P1 do MFSARJETA) com a elevacao; pe do meio-fio = ponto mais longe dos links "Sarjeta";
-    /// topo = ponto mais alto dos links "Curb". Mesmo caminho da planta do rebaixo (links + nome).
+    /// topo = ponto mais alto dos links do meio-fio ("Curb", GUIA*, MF_*). Mesmo caminho da planta do rebaixo (links + nome).
     /// </summary>
     public static TravessiaSide ReadSide(AcadDb.Database db, RebaixoInfo r, double station, double from, double to)
     {
@@ -237,7 +237,10 @@ internal static partial class MFTravessia
                         foreach (string code in link.CorridorCodes)
                         {
                             if (string.IsNullOrWhiteSpace(code)) continue;
-                            if (code.Equals("Curb", StringComparison.OrdinalIgnoreCase)) isCurb = true;
+                            // MFSARJETA: o meio-fio vem com GUIA / MF_T30, sem "Curb" (mesma regra do painel).
+                            if (code.Equals("Curb", StringComparison.OrdinalIgnoreCase)
+                                || code.StartsWith("GUIA", StringComparison.OrdinalIgnoreCase)
+                                || code.StartsWith("MF_", StringComparison.OrdinalIgnoreCase)) isCurb = true;
                             else if (code.Equals("Sarjeta", StringComparison.OrdinalIgnoreCase)) isGutter = true;
                         }
                         if (!isCurb && !isGutter)
@@ -457,9 +460,9 @@ internal static partial class MFTravessia
         {
             Point3d basePt = origin + (along * t);
             Point3d pa = Cross(lineA, basePt, across)
-                ?? throw new InvalidOperationException($"A travessia ({N(2 * total)} m com as rampas) passa do trecho do meio-fio lido em {a.Label}. Diminua a plataforma/rampas ou confira o corredor.");
+                ?? throw new InvalidOperationException(OutOfCurb(a, total));
             Point3d pb = Cross(lineB, basePt, across)
-                ?? throw new InvalidOperationException($"A travessia ({N(2 * total)} m com as rampas) passa do trecho do meio-fio lido em {b.Label}. Diminua a plataforma/rampas ou confira o corredor.");
+                ?? throw new InvalidOperationException(OutOfCurb(b, total));
             ea.Add(pa);
             eb.Add(pb);
             fa.Add(Cross(footA, basePt, across) ?? pa);
@@ -591,6 +594,10 @@ internal static partial class MFTravessia
             geo.Notes.Add($"{label}: tampa de {N(width)} m de largura, {Cm(minGap)} livres para a agua no pe do meio-fio.");
     }
 
+    private static string OutOfCurb(TravessiaSide s, double total) =>
+        $"A travessia ({N(2 * total)} m com as rampas, estacas {N(s.Station - total)} a {N(s.Station + total)}) passa do meio-fio que existe no corredor em {s.Label} " +
+        $"(lido de {N(s.Samples[0].Station)} a {N(s.Samples[^1].Station)}: ali o corredor ou a region comeca/termina). Diminua a plataforma/rampas ou use rebaixos mais longe da ponta.";
+
     private static List<double> Stations(double from, double to)
     {
         int n = Math.Max(1, (int)Math.Ceiling((to - from) / Step - 1e-9));
@@ -628,7 +635,7 @@ internal static partial class MFTravessia
         return best;
     }
 
-    private static CurbSample At(List<CurbSample> samples, double station)
+    internal static CurbSample At(List<CurbSample> samples, double station)
     {
         if (station <= samples[0].Station)
             return samples[0];
@@ -1200,7 +1207,7 @@ internal static partial class MFTravessia
         var ltr = new AcadDb.LayerTableRecord
         {
             Name = name,
-            Color = Color.FromColorIndex(ColorMethod.ByAci, color),
+            Color = Autodesk.AutoCAD.Colors.Color.FromColorIndex(ColorMethod.ByAci, color),
             Description = description
         };
         lt.Add(ltr);
