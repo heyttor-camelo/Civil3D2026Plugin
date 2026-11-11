@@ -178,13 +178,31 @@ internal sealed partial class MFRebaixoPanel
                 bottom = Math.Min(bottom, q.Z);
         }
 
+        // MFSARJETA: os links nao tem "Curb"; o fundo vem da shape do meio-fio (GUIA / MF_T30).
+        if (s.Shapes.TryGetValue(key, out List<ModelShape>? shapes))
+        {
+            foreach (ModelShape sh in shapes.Where(x => IsGuiaShape(x.Codes)))
+            {
+                foreach (Point3d q in sh.Soe)
+                    bottom = Math.Min(bottom, q.Z);
+            }
+        }
+
         return bottom == double.MaxValue ? null : bottom;
     }
 
     /// <summary>Shape do meio-fio ou da sarjeta (o que muda de cor nas rampas e no trecho rebaixado).</summary>
     private static bool IsCurbShape(string[] codes) =>
-        !IsWalk(codes) && (Has(codes, "Curb") ||
-                           codes.Any(c => c.Contains("Sarjeta", StringComparison.OrdinalIgnoreCase) || c.Contains("Gutter", StringComparison.OrdinalIgnoreCase)));
+        IsGuiaShape(codes) ||
+        (!IsWalk(codes) && codes.Any(c => c.Contains("Sarjeta", StringComparison.OrdinalIgnoreCase) || c.Contains("Gutter", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Shape da peca do meio-fio em si. No MFSARJETA os codes da shape sao GUIA + o tipo (MF_T30, MF_T40...),
+    /// sem "Curb": so pelo "Curb" o meio-fio ficava cinza no 3D e na secao (teste de 11/11/2026).
+    /// </summary>
+    private static bool IsGuiaShape(string[] codes) =>
+        !IsWalk(codes) && (Has(codes, "Curb") || codes.Any(c =>
+            c.StartsWith("GUIA", StringComparison.OrdinalIgnoreCase) || c.StartsWith("MF_", StringComparison.OrdinalIgnoreCase)));
 
     /// <summary>
     /// Centro do rebaixo (o "CG" que identifica o rebaixo no modelo): centro em planta da faixa de S0 a
@@ -196,21 +214,25 @@ internal sealed partial class MFRebaixoPanel
         if (r.Band.Count >= 2)
         {
             // Centroide do poligono da faixa (ida pela borda de dentro, volta pela de fora).
+            // Conta feita relativa ao primeiro ponto: com coordenadas UTM (600000, 7788000) os produtos
+            // cruzados perdiam precisao e o centro caia ~1 km fora (teste de 11/11/2026).
             List<Point3d> poly = r.Band.Select(b => b.Inner).Concat(Enumerable.Reverse(r.Band).Select(b => b.Outer)).ToList();
+            double rx = poly[0].X, ry = poly[0].Y;
             double area = 0, cx = 0, cy = 0;
             for (int i = 0; i < poly.Count; i++)
             {
-                Point3d a = poly[i], b = poly[(i + 1) % poly.Count];
-                double cross = (a.X * b.Y) - (b.X * a.Y);
+                double ax = poly[i].X - rx, ay = poly[i].Y - ry;
+                double bx = poly[(i + 1) % poly.Count].X - rx, by = poly[(i + 1) % poly.Count].Y - ry;
+                double cross = (ax * by) - (bx * ay);
                 area += cross;
-                cx += (a.X + b.X) * cross;
-                cy += (a.Y + b.Y) * cross;
+                cx += (ax + bx) * cross;
+                cy += (ay + by) * cross;
             }
 
             if (Math.Abs(area) > 1e-9)
             {
-                x = cx / (3 * area);
-                y = cy / (3 * area);
+                x = rx + (cx / (3 * area));
+                y = ry + (cy / (3 * area));
             }
             else
             {
@@ -416,7 +438,7 @@ internal sealed partial class MFRebaixoPanel
             if (Y(z) < top)
                 break;
             ChartLine(left - 4, Y(z), left, Y(z), ToolTheme.GraphicLine, 1);
-            PlanLabel(N(z, "0.00"), 6, Y(z) - 7, 10);
+            PlanLabel(N(Math.Abs(z) < zstep * 1e-6 ? 0 : z, "0.00"), 6, Y(z) - 7, 10);
         }
 
         PlanLabel("estaca (m)", w - right - 60, h - 15, 10);
@@ -642,7 +664,7 @@ internal sealed partial class MFRebaixoPanel
                 if (x < 0 || x > w)
                     continue;
                 ChartLine(x, 0, x, h, gridBrush, 1);
-                PlanLabel(N(a, fmt), x + 3, h - 15, 10, gridText);
+                PlanLabel(N(Math.Abs(a) < gridStep * 1e-6 ? 0 : a, fmt), x + 3, h - 15, 10, gridText);
             }
 
             double e0 = c.Origin.Z + ((oy - h) / scale), e1 = c.Origin.Z + (oy / scale);
@@ -653,7 +675,7 @@ internal sealed partial class MFRebaixoPanel
                     continue;
                 ChartLine(0, y, w, y, gridBrush, 1);
                 if (y > SecTop && y < h - 22)
-                    PlanLabel(N(el, fmt), 4, y - 13, 10, gridText);
+                    PlanLabel(N(Math.Abs(el) < gridStep * 1e-6 ? 0 : el, fmt), 4, y - 13, 10, gridText);
             }
         }
 
@@ -749,7 +771,7 @@ internal sealed partial class MFRebaixoPanel
             used.Add(new SW.Rect(dimX, ((pTop.Y + pFlow.Y) / 2.0) - 7, dimW, 14));
 
             // Chamada de elevacao: ponto, linha e texto que pode ser arrastado (a posicao fica guardada).
-            void Mark(string id, Point3d q, string name, bool above, double dir)
+            void Mark(string id, Point3d q, string name, bool above, double dir, double rise = 34)
             {
                 SW.Point sp = P(q.Y - c.Origin.Y, q.Z - c.Origin.Z);
                 var dot = new WS.Ellipse { Width = 7, Height = 7, Fill = markBrush, IsHitTestVisible = false };
@@ -769,7 +791,7 @@ internal sealed partial class MFRebaixoPanel
                 tb.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
                 double tw = tb.DesiredSize.Width, th = tb.DesiredSize.Height;
                 double defX = dir > 0 ? sp.X + 14 : sp.X - tw - 14;
-                double defY = above ? sp.Y - 34 : sp.Y + 16;
+                double defY = above ? sp.Y - rise : sp.Y + 16;
                 double x = defX, y = defY;
                 if (_secLabelShift.TryGetValue(id, out SW.Vector shift))
                 {
@@ -831,7 +853,8 @@ internal sealed partial class MFRebaixoPanel
             Mark("TOPO", marks.Top, "Topo do meio-fio", true, road);
             if (Math.Abs(marks.Back.Y - marks.Top.Y) > 0.02)
                 Mark("FUNDO", marks.Back, "Fundo do meio-fio", true, -road);
-            Mark("FLUXO", marks.Flow, "Linha d'agua (pe do meio-fio)", true, road);
+            // Mais alto que os outros: a 34 px o texto caia em cima da sarjeta e do ponto da borda da pista.
+            Mark("FLUXO", marks.Flow, "Linha d'agua (pe do meio-fio)", true, road, 54);
             if (Math.Abs(c.Origin.Y - marks.Flow.Y) > 0.02)
                 Mark("BORDA", c.Origin, "Borda da pista", false, road);
         }
@@ -926,7 +949,9 @@ internal sealed partial class MFRebaixoPanel
         _host3D.Children.Add(new WC.TextBlock
         {
             Text = "arrastar: girar   |   botao do meio ou direito: mover   |   Shift + botao do meio: girar   |   roda: zoom no cursor   |   duplo clique: centralizar ali   |   clique num rebaixo: selecionar",
-            Foreground = ToolTheme.GraphicLine,
+            Foreground = ToolTheme.GraphicText,
+            Background = ToolTheme.Brush(30, 32, 36, 190),
+            Padding = new SW.Thickness(6, 2, 6, 2),
             FontSize = 10.5,
             Margin = new SW.Thickness(8, 0, 0, 6),
             HorizontalAlignment = SW.HorizontalAlignment.Left,
@@ -1099,7 +1124,9 @@ internal sealed partial class MFRebaixoPanel
         // Rebaixo selecionado: a mesma cor, acesa.
         var group = new W3.MaterialGroup();
         group.Children.Add(diffuse);
-        group.Children.Add(new W3.EmissiveMaterial(new WM.SolidColorBrush(WM.Color.FromRgb(95, 80, 10))));
+        // Emissivo da propria cor: acende sem mudar o tom (amarelo fixo fazia o vermelho parecer laranja
+        // e o laranja parecer amarelo, teste de 11/11/2026).
+        group.Children.Add(new W3.EmissiveMaterial(new WM.SolidColorBrush(WM.Color.FromRgb((byte)(color.R * 0.22), (byte)(color.G * 0.22), (byte)(color.B * 0.22)))));
         return group;
     }
 
@@ -1576,6 +1603,16 @@ internal sealed partial class MFRebaixoPanel
     /// <summary>Seleciona um rebaixo no painel (na lista, se ele estiver nela).</summary>
     private void SelectRebaixo(RebaixoInfo r)
     {
+        // Fora da categoria REBAIXOS (planta geral, avisos...), volta para ela com este rebaixo marcado.
+        if (_category != "REBAIXOS")
+        {
+            _current = r;
+            _secMark = null;
+            _category = "REBAIXOS";
+            FillCategories();
+            FillList();
+        }
+
         foreach (object o in _list.Items)
         {
             if (o is WC.ListViewItem { Tag: Row { Data: RebaixoInfo x } } item && FocusKey(x) == FocusKey(r))

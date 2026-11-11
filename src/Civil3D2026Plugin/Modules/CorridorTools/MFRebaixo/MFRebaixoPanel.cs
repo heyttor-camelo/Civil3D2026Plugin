@@ -1513,20 +1513,6 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         }
     }
 
-    private void SelectRebaixo(RebaixoInfo r)
-    {
-        _current = r;
-        if (_category != "REBAIXOS")
-        {
-            _category = "REBAIXOS";
-            FillCategories();
-        }
-
-        FillList();
-        BuildTabs();
-        RenderGraphic();
-        HighlightCurrent();
-    }
 
     /// <summary>Poligono de tela de uma faixa (borda interna na ida, externa na volta).</summary>
     private WS.Polygon? BandPolygon(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band, WM.Brush fill, WM.Brush stroke, double thickness)
