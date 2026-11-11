@@ -1,3 +1,10 @@
+## 2.104.1 - MFREBAIXO v1.14.1 / PassagemRampa v1.7.1: clicar num ponto para ver a elevacao
+
+Pedido do Heyvid em 11/11/2026 ("clicar no ponto e ver a elevacao, principalmente do topo do mf").
+
+- **Vista Secao**: clique (sem arrastar) num ponto da peca gruda no vertice mais proximo e mostra a elevacao dele, com o nome quando e um ponto conhecido (topo/fundo do meio-fio, linha d'agua, borda da pista); clique de novo no ponto para tirar; o texto pode ser arrastado. Link **elevacao do topo** deixa a elevacao do topo do meio-fio ligada em todas as secoes; **limpar pontos** tira tudo.
+- **3D**: clicar em qualquer ponto acrescenta ao quadro "Ponto clicado: elevacao ..." (clicar num rebaixo continua selecionando o rebaixo).
+
 ## 2.104.0 - MFREBAIXO v1.14.0 / PassagemRampa v1.7.0: travessia elevada/semi-elevada entre rebaixos (MFTRAVESSIA)
 
 Segunda parte do plugin de rebaixos, pedida pelo Heyvid em 11/11/2026, com a planta GPAA (Drawing1.dxf) e o detalhe de lombofaixa como referencia.

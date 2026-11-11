@@ -58,6 +58,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     // Rotulos ja colocados na planta (para nao sobrepor textos).
     private readonly List<SW.Rect> _labelRects = new();
 
+    private SW.Point _downPlan;
     private string Mode => _settings.PainelModo is "PLANTA" or "PERFIL" or "SECAO" or "3D" ? _settings.PainelModo : "GERAL";
     private string? _modelKey;
     private bool _refreshQueued;
@@ -318,12 +319,17 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             }
 
             _dragFrom = e.GetPosition(_plan);
+            _downPlan = _dragFrom.Value;
             _plan.CaptureMouse();
         };
-        _plan.MouseUp += (_, _) =>
+        _plan.MouseUp += (_, e) =>
         {
+            bool click = _dragFrom is not null && e.ChangedButton == WI.MouseButton.Left && (e.GetPosition(_plan) - _downPlan).Length < 4;
             _dragFrom = null;
             _plan.ReleaseMouseCapture();
+            // Vista Secao: clique (sem arrastar) num ponto da peca mostra a elevacao dele.
+            if (click && Mode == "SECAO")
+                SectionClick(e.GetPosition(_plan));
         };
         WC.DockPanel graphicBar = new() { Margin = new SW.Thickness(4, 0, 4, 0), Background = T.Hover, Height = 24 };
         _viewToggles = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
@@ -971,6 +977,10 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             _viewToggles.Children.Add(Sep());
             _viewToggles.Children.Add(Link("\u25C0 anterior", () => StepSection(-1), "Secao anterior do corredor"));
             _viewToggles.Children.Add(Link("proxima \u25B6", () => StepSection(+1), "Proxima secao do corredor"));
+            _viewToggles.Children.Add(Sep());
+            _viewToggles.Children.Add(Link("elevacao do topo", ToggleSectionTop, "Mostra a elevacao do topo do meio-fio em todas as secoes. Para outro ponto, clique nele na vista (clique de novo para tirar).", _secShowTop));
+            if (_secPins.Count > 0 || _secShowTop)
+                _viewToggles.Children.Add(Link("limpar pontos", ClearSectionPins, "Tira as elevacoes dos pontos clicados"));
         }
 
         if (Mode == "3D")

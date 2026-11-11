@@ -532,6 +532,112 @@ internal sealed partial class MFRebaixoPanel
     private double _secZoom = 1, _secPanX, _secPanY;
     private readonly Dictionary<string, SW.Vector> _secLabelShift = new();
 
+    // Pontos clicados na vista Secao para ver a elevacao (por estaca) e os pontos da secao desenhada.
+    private readonly List<(double Station, double Offset, double Elev)> _secPins = new();
+    private readonly List<(SW.Point Screen, double Offset, double Elev)> _secVerts = new();
+    private double _secStation = double.NaN;
+    private bool _secShowTop;
+
+    /// <summary>Clique na vista Secao: gruda no ponto mais proximo da peca e liga/desliga a elevacao dele.</summary>
+    private void SectionClick(SW.Point p)
+    {
+        if (_secVerts.Count == 0 || double.IsNaN(_secStation))
+            return;
+        (SW.Point Screen, double Offset, double Elev) best = _secVerts.OrderBy(v => (v.Screen - p).Length).First();
+        if ((best.Screen - p).Length > 14)
+            return;
+        int at = _secPins.FindIndex(q => Math.Abs(q.Station - _secStation) < 1e-4 && Math.Abs(q.Offset - best.Offset) < 1e-4 && Math.Abs(q.Elev - best.Elev) < 1e-4);
+        if (at >= 0)
+            _secPins.RemoveAt(at);
+        else
+            _secPins.Add((_secStation, best.Offset, best.Elev));
+        BuildViewToggles();
+        RenderCross();
+    }
+
+    private void ClearSectionPins()
+    {
+        _secPins.Clear();
+        _secShowTop = false;
+        BuildViewToggles();
+        RenderGraphic();
+    }
+
+    private void ToggleSectionTop()
+    {
+        _secShowTop = !_secShowTop;
+        BuildViewToggles();
+        RenderGraphic();
+    }
+
+    /// <summary>Texto de elevacao de um ponto clicado: fica acima do ponto, pode ser arrastado e a linha acompanha.</summary>
+    private void PinText(string id, string text, SW.Point anchor, WS.Line leader)
+    {
+        var tb = new WC.TextBlock
+        {
+            Text = text,
+            Foreground = ToolTheme.Brush(170, 228, 255),
+            Background = ToolTheme.Brush(34, 36, 40, 235),
+            Padding = new SW.Thickness(4, 1, 4, 2),
+            FontSize = 11.5,
+            FontWeight = SW.FontWeights.SemiBold,
+            Cursor = WI.Cursors.SizeAll,
+            ToolTip = "Arraste para mover. Clique de novo no ponto para tirar."
+        };
+        tb.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+        double tw = tb.DesiredSize.Width, th = tb.DesiredSize.Height;
+        double defX = anchor.X - (tw / 2.0), defY = anchor.Y - th - 30;
+        double x = defX, y = defY;
+        if (_secLabelShift.TryGetValue(id, out SW.Vector shift))
+        {
+            x += shift.X;
+            y += shift.Y;
+        }
+        else
+        {
+            x = Math.Clamp(x, 4, Math.Max(4, _plan.ActualWidth - tw - 4));
+            y = Math.Max(SecTop, y);
+        }
+
+        void Place()
+        {
+            WC.Canvas.SetLeft(tb, x);
+            WC.Canvas.SetTop(tb, y);
+            leader.X2 = Math.Clamp(anchor.X, x, x + tw);
+            leader.Y2 = Math.Clamp(anchor.Y, y, y + th);
+        }
+
+        Place();
+        SW.Point? from = null;
+        tb.MouseLeftButtonDown += (_, e) =>
+        {
+            from = e.GetPosition(_plan);
+            tb.CaptureMouse();
+            e.Handled = true;
+        };
+        tb.MouseMove += (_, e) =>
+        {
+            if (from is not SW.Point f)
+                return;
+            SW.Point now = e.GetPosition(_plan);
+            x += now.X - f.X;
+            y += now.Y - f.Y;
+            from = now;
+            Place();
+            e.Handled = true;
+        };
+        tb.MouseLeftButtonUp += (_, e) =>
+        {
+            if (from is null)
+                return;
+            from = null;
+            tb.ReleaseMouseCapture();
+            _secLabelShift[id] = new SW.Vector(x - defX, y - defY);
+            e.Handled = true;
+        };
+        _plan.Children.Add(tb);
+    }
+
     private void ResetSectionView(bool labels)
     {
         _secZoom = 1;
@@ -872,6 +978,46 @@ internal sealed partial class MFRebaixoPanel
             }
         }
 
+        // Pontos da secao (para o clique) e as elevacoes pedidas: clique num ponto, ou o link "elevacao do topo".
+        _secStation = cur.Station;
+        _secVerts.Clear();
+        foreach ((ModelLink l, bool _) in curLinks)
+        {
+            foreach (Point3d q in l.Soe)
+                _secVerts.Add((P(q.Y - c.Origin.Y, q.Z - c.Origin.Z), q.Y, q.Z));
+        }
+
+        foreach (ModelShape sh in cur.Shapes.Values.SelectMany(v => v))
+        {
+            foreach (Point3d q in sh.Soe)
+                _secVerts.Add((P(q.Y - c.Origin.Y, q.Z - c.Origin.Z), q.Y, q.Z));
+        }
+
+        {
+            (Point3d Top, Point3d Flow, Point3d Back)? known = CurbMarks(cur, key);
+            List<(double Offset, double Elev)> pins = _secPins.Where(q => Math.Abs(q.Station - cur.Station) < 1e-4).Select(q => (q.Offset, q.Elev)).ToList();
+            if (_secShowTop && known is { } kt && !pins.Any(q => Math.Abs(q.Offset - kt.Top.Y) < 1e-4 && Math.Abs(q.Elev - kt.Top.Z) < 1e-4))
+                pins.Add((kt.Top.Y, kt.Top.Z));
+            WM.Brush pinBrush = ToolTheme.Brush(90, 200, 255);
+            foreach ((double offset, double elev) in pins)
+            {
+                bool Is(Point3d q) => Math.Abs(q.Y - offset) < 1e-4 && Math.Abs(q.Z - elev) < 1e-4;
+                string name = known is { } k && Is(k.Top) ? "Topo do meio-fio"
+                    : known is { } k2 && Is(k2.Back) ? "Fundo do meio-fio"
+                    : known is { } k3 && Is(k3.Flow) ? "Linha d'agua"
+                    : Is(c.Origin) ? "Borda da pista"
+                    : "Ponto";
+                SW.Point sp = P(offset - c.Origin.Y, elev - c.Origin.Z);
+                var dot = new WS.Ellipse { Width = 8, Height = 8, Fill = pinBrush, Stroke = WM.Brushes.White, StrokeThickness = 1, IsHitTestVisible = false };
+                WC.Canvas.SetLeft(dot, sp.X - 4);
+                WC.Canvas.SetTop(dot, sp.Y - 4);
+                var leader = new WS.Line { X1 = sp.X, Y1 = sp.Y, Stroke = ToolTheme.Brush(90, 200, 255, 170), StrokeThickness = 1, IsHitTestVisible = false };
+                _plan.Children.Add(leader);
+                _plan.Children.Add(dot);
+                PinText($"PIN|{offset:0.0000}|{elev:0.0000}", $"{name}: elevacao {N(elev)}", sp, leader);
+            }
+        }
+
         if (Show("ESCALA") && !grid)
         {
             double step = NiceStep(w / scale / 8.0);
@@ -1175,9 +1321,18 @@ internal sealed partial class MFRebaixoPanel
             lines.Add($"Centro do rebaixo:  X {cg.X:0.000}   Y {cg.Y:0.000}   elevacao {cg.Z:0.000}");
         }
 
+        if (_picked3D is Point3d pk)
+        {
+            lines.Add("");
+            lines.Add($"Ponto clicado: elevacao {pk.Z:0.000}");
+        }
+
         _info3D.Text = string.Join("\n", lines);
         _info3D.Visibility = SW.Visibility.Visible;
     }
+
+    // Ultimo ponto clicado no 3D (coordenadas do desenho), para mostrar a elevacao dele.
+    private Point3d? _picked3D;
 
     private static string CurbTypeName(string code) => code.ToUpperInvariant() switch
     {
@@ -1653,15 +1808,29 @@ internal sealed partial class MFRebaixoPanel
     {
         try
         {
-            if (Hit3D(p) is not { } hit || !_faces.TryGetValue(hit.Model, out Face3D? face) ||
+            if (Hit3D(p) is not { } hit)
+            {
+                _picked3D = null;
+                ApplySelection3D();
+                return;
+            }
+
+            // Qualquer ponto clicado mostra a elevacao dele no quadro (topo do meio-fio, pista, sarjeta...).
+            _picked3D = World(hit.Point);
+            if (!_faces.TryGetValue(hit.Model, out Face3D? face) ||
                 face.Owner < 0 || face.Model >= _owners3D.Count || face.Owner >= _owners3D[face.Model].Count)
             {
+                ApplySelection3D();
                 return;
             }
 
             RebaixoInfo owner = _owners3D[face.Model][face.Owner].R;
             if (_current is not null && FocusKey(_current) == FocusKey(owner))
+            {
+                ApplySelection3D();
                 return;
+            }
+
             // A camera nao sai do lugar por causa desta selecao.
             _focus3D = FocusKey(owner);
             _keepCamera3D = true;
