@@ -134,6 +134,18 @@ internal sealed class ModelLink
     public Point3d[] Soe { get; init; } = Array.Empty<Point3d>();
 }
 
+/// <summary>Shape calculada do corredor (contorno fechado da peca na secao): base dos solidos do 3D e do preenchimento da secao.</summary>
+internal sealed class ModelShape
+{
+    public string[] Codes { get; init; } = Array.Empty<string>();
+
+    /// <summary>Contorno em coordenadas do desenho (sem repetir o primeiro ponto).</summary>
+    public Point3d[] Points { get; init; } = Array.Empty<Point3d>();
+
+    /// <summary>O mesmo contorno em estaca (X), offset (Y) e elevacao (Z).</summary>
+    public Point3d[] Soe { get; init; } = Array.Empty<Point3d>();
+}
+
 internal sealed class ModelSection
 {
     public double Station { get; init; }
@@ -144,6 +156,9 @@ internal sealed class ModelSection
 
     /// <summary>Codes das shapes de cada subassembly na secao (ex. MF_T30: tipo do meio-fio do MFSARJETA).</summary>
     public Dictionary<long, string[]> ShapeCodes { get; } = new();
+
+    /// <summary>Shapes (contornos fechados) de cada subassembly na secao, na ordem da peca.</summary>
+    public Dictionary<long, List<ModelShape>> Shapes { get; } = new();
 }
 
 /// <summary>Trecho do corredor em volta de um rebaixo (planta e 3D).</summary>
@@ -732,26 +747,99 @@ internal static class MFRebaixoData
                     try
                     {
                         List<string> shapeCodes = new();
+                        List<ModelShape> shapes = new();
                         foreach (CivilDb.CalculatedShape shape in asa.Shapes)
                         {
+                            List<string> own = new();
                             foreach (string code in shape.CorridorCodes)
                             {
-                                if (!string.IsNullOrWhiteSpace(code) && !shapeCodes.Contains(code))
+                                if (string.IsNullOrWhiteSpace(code))
+                                    continue;
+                                own.Add(code);
+                                if (!shapeCodes.Contains(code))
                                     shapeCodes.Add(code);
                             }
+
+                            // Contorno: os links da shape encadeados ponta a ponta.
+                            List<List<Point3d>> segments = new();
+                            foreach (CivilDb.CalculatedLink sl in shape.CalculatedLinks)
+                            {
+                                List<Point3d> seg = new();
+                                foreach (CivilDb.CalculatedPoint cp in sl.CalculatedPoints)
+                                    seg.Add(cp.StationOffsetElevationToBaseline);
+                                if (seg.Count > 1)
+                                    segments.Add(seg);
+                            }
+
+                            List<Point3d> loop = ChainLoop(segments);
+                            if (loop.Count < 3)
+                                continue;
+                            Point3d[] world = loop.Select(q => Xyz(baseline, q.X, q.Y, q.Z)).ToArray();
+                            if (world.Any(q => q == Point3d.Origin))
+                                continue;
+                            shapes.Add(new ModelShape { Codes = own.ToArray(), Points = world, Soe = loop.ToArray() });
                         }
 
                         section.ShapeCodes[asa.SubassemblyId.Handle.Value] = shapeCodes.ToArray();
+                        section.Shapes[asa.SubassemblyId.Handle.Value] = shapes;
                     }
                     catch
                     {
-                        // Sem shapes: o tipo do meio-fio fica pelo nome da peca.
+                        // Sem shapes: o tipo do meio-fio fica pelo nome da peca e o 3D pelas faces dos links.
                     }
                 }
             }
             list.Add(section);
         }
         return list;
+    }
+
+    /// <summary>Encadeia os links de uma shape num contorno fechado (offset/elevacao), sem repetir o primeiro ponto.</summary>
+    private static List<Point3d> ChainLoop(List<List<Point3d>> segments)
+    {
+        List<Point3d> chain = new();
+        if (segments.Count == 0)
+            return chain;
+        static bool Same(Point3d a, Point3d b) => Math.Abs(a.Y - b.Y) < 1e-4 && Math.Abs(a.Z - b.Z) < 1e-4;
+        List<List<Point3d>> rest = segments.Skip(1).ToList();
+        chain.AddRange(segments[0]);
+        while (rest.Count > 0)
+        {
+            Point3d end = chain[^1];
+            int i = rest.FindIndex(x => Same(x[0], end));
+            if (i >= 0)
+            {
+                chain.AddRange(rest[i].Skip(1));
+                rest.RemoveAt(i);
+                continue;
+            }
+
+            i = rest.FindIndex(x => Same(x[^1], end));
+            if (i >= 0)
+            {
+                chain.AddRange(Enumerable.Reverse(rest[i]).Skip(1));
+                rest.RemoveAt(i);
+                continue;
+            }
+
+            // Primeiro link ao contrario dos outros: tenta pelo comeco da cadeia.
+            Point3d start = chain[0];
+            i = rest.FindIndex(x => Same(x[0], start) || Same(x[^1], start));
+            if (i < 0)
+                break;
+            chain.Reverse();
+        }
+
+        if (chain.Count > 1 && Same(chain[0], chain[^1]))
+            chain.RemoveAt(chain.Count - 1);
+        // Pontos repetidos em sequencia (links de comprimento zero) saem.
+        for (int k = chain.Count - 1; k > 0; k--)
+        {
+            if (Same(chain[k], chain[k - 1]))
+                chain.RemoveAt(k);
+        }
+
+        return chain;
     }
 
     /// <summary>

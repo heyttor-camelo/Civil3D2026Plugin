@@ -163,6 +163,84 @@ internal sealed partial class MFRebaixoPanel
         return (top, flow, back);
     }
 
+    /// <summary>Base (fundo enterrado) do meio-fio numa secao: a menor elevacao dos links com code Curb.</summary>
+    private static double? CurbBottom(ModelSection s, long key)
+    {
+        List<ModelLink>? links = s.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
+        if (links is null)
+            return null;
+        double bottom = double.MaxValue;
+        foreach (ModelLink l in links)
+        {
+            if (IsWalk(l.Codes) || !Has(l.Codes, "Curb"))
+                continue;
+            foreach (Point3d q in l.Soe)
+                bottom = Math.Min(bottom, q.Z);
+        }
+
+        return bottom == double.MaxValue ? null : bottom;
+    }
+
+    /// <summary>Shape do meio-fio ou da sarjeta (o que muda de cor nas rampas e no trecho rebaixado).</summary>
+    private static bool IsCurbShape(string[] codes) =>
+        !IsWalk(codes) && (Has(codes, "Curb") ||
+                           codes.Any(c => c.Contains("Sarjeta", StringComparison.OrdinalIgnoreCase) || c.Contains("Gutter", StringComparison.OrdinalIgnoreCase)));
+
+    /// <summary>
+    /// Centro do rebaixo (o "CG" que identifica o rebaixo no modelo): centro em planta da faixa de S0 a
+    /// S3 (borda da pista ate o fundo do meio-fio) e a elevacao media do topo do meio-fio no trecho.
+    /// </summary>
+    private static Point3d? RebaixoCenter(RebaixoInfo r, RebaixoModel? model)
+    {
+        double x, y, z;
+        if (r.Band.Count >= 2)
+        {
+            // Centroide do poligono da faixa (ida pela borda de dentro, volta pela de fora).
+            List<Point3d> poly = r.Band.Select(b => b.Inner).Concat(Enumerable.Reverse(r.Band).Select(b => b.Outer)).ToList();
+            double area = 0, cx = 0, cy = 0;
+            for (int i = 0; i < poly.Count; i++)
+            {
+                Point3d a = poly[i], b = poly[(i + 1) % poly.Count];
+                double cross = (a.X * b.Y) - (b.X * a.Y);
+                area += cross;
+                cx += (a.X + b.X) * cross;
+                cy += (a.Y + b.Y) * cross;
+            }
+
+            if (Math.Abs(area) > 1e-9)
+            {
+                x = cx / (3 * area);
+                y = cy / (3 * area);
+            }
+            else
+            {
+                x = poly.Average(q => q.X);
+                y = poly.Average(q => q.Y);
+            }
+
+            z = poly.Average(q => q.Z);
+        }
+        else if (r.Path.Count > 0)
+        {
+            Point3d m = r.Path[r.Path.Count / 2];
+            (x, y, z) = (m.X, m.Y, m.Z);
+        }
+        else
+        {
+            return null;
+        }
+
+        if (model is not null && model.CorridorId == r.CorridorId && model.BaselineKey == r.BaselineKey && MfKey(model, r) is long key)
+        {
+            List<double> tops = model.Sections.Where(s => s.Station >= r.S0 - 1e-4 && s.Station <= r.S3 + 1e-4)
+                .Select(s => CurbTopWorld(s, key)).Where(q => q is not null).Select(q => q!.Value.Z).ToList();
+            if (tops.Count > 0)
+                z = tops.Average();
+        }
+
+        return new Point3d(x, y, z);
+    }
+
     private void ChartMessage(string text)
     {
         _scale = 0;
@@ -218,8 +296,18 @@ internal sealed partial class MFRebaixoPanel
             return;
         }
 
+        // Base do meio-fio em cada secao (parte enterrada, abaixo da linha d'agua).
+        Dictionary<double, double> bots = new();
+        foreach (ModelSection s in model.Sections)
+        {
+            if (CurbBottom(s, key) is double bt)
+                bots[s.Station] = bt;
+        }
+
+        double Bot((double St, double Top, double Flow) q) => bots.TryGetValue(q.St, out double bt) ? Math.Min(bt, q.Flow) : q.Flow;
+
         double sa = pts[0].St, sb = pts[^1].St;
-        double zmin = pts.Min(p => p.Flow), zmax = pts.Max(p => p.Top);
+        double zmin = pts.Min(Bot), zmax = pts.Max(p => p.Top);
         double pad = Math.Max(0.03, (zmax - zmin) * 0.3);
         zmin -= pad;
         zmax += pad * 1.8;
@@ -246,8 +334,30 @@ internal sealed partial class MFRebaixoPanel
             _plan.Children.Add(pg);
         }
 
-        var topLine = new WS.Polyline { Stroke = WM.Brushes.White, StrokeThickness = 2, IsHitTestVisible = false };
-        var flowLine = new WS.Polyline { Stroke = ToolTheme.GraphicLine, StrokeThickness = 1.5, IsHitTestVisible = false };
+        // Parte enterrada do meio-fio (abaixo da linha d'agua): mesma cor, bem transparente.
+        var botLine = new WS.Polyline { Stroke = ToolTheme.GraphicLine, StrokeThickness = 1, StrokeDashArray = new WM.DoubleCollection { 4, 3 }, IsHitTestVisible = false };
+        for (int i = 0; i + 1 < pts.Count; i++)
+        {
+            (double St, double Top, double Flow) a = pts[i], b = pts[i + 1];
+            if (Bot(a) >= a.Flow - 1e-4 && Bot(b) >= b.Flow - 1e-4)
+                continue;
+            int zone = ZoneOf(r, (a.St + b.St) / 2.0);
+            var pg = new WS.Polygon { Fill = zone == 2 ? RebaixoBrush : zone == 1 ? RampBrush : normalFill, Opacity = 0.28, IsHitTestVisible = false };
+            pg.Points.Add(new SW.Point(X(a.St), Y(a.Flow)));
+            pg.Points.Add(new SW.Point(X(b.St), Y(b.Flow)));
+            pg.Points.Add(new SW.Point(X(b.St), Y(Bot(b))));
+            pg.Points.Add(new SW.Point(X(a.St), Y(Bot(a))));
+            _plan.Children.Add(pg);
+        }
+
+        foreach ((double St, double Top, double Flow) q in pts)
+            botLine.Points.Add(new SW.Point(X(q.St), Y(Bot(q))));
+        if (bots.Count > 0)
+            _plan.Children.Add(botLine);
+
+        WM.Brush waterBrush = ToolTheme.Brush(80, 170, 255);
+        var topLine = new WS.Polyline { Stroke = WM.Brushes.White, StrokeThickness = 2.5, IsHitTestVisible = false };
+        var flowLine = new WS.Polyline { Stroke = waterBrush, StrokeThickness = 2, IsHitTestVisible = false };
         foreach ((double st, double zt, double zf) in pts)
         {
             topLine.Points.Add(new SW.Point(X(st), Y(zt)));
@@ -313,10 +423,12 @@ internal sealed partial class MFRebaixoPanel
         if (Show("LEGENDA"))
         {
             PlanLabel($"Perfil do meio-fio   |   exagero vertical {sy / sx:0.#}x", left + 8, 6, 11);
-            ChartLine(left + 300, 14, left + 322, 14, WM.Brushes.White, 2);
+            ChartLine(left + 300, 14, left + 322, 14, WM.Brushes.White, 2.5);
             PlanLabel("topo do meio-fio", left + 326, 6, 11);
-            ChartLine(left + 440, 14, left + 462, 14, ToolTheme.GraphicLine, 1.5);
-            PlanLabel("sarjeta (linha d'agua)", left + 466, 6, 11);
+            ChartLine(left + 440, 14, left + 462, 14, waterBrush, 2);
+            PlanLabel("linha d'agua (sarjeta)", left + 466, 6, 11);
+            ChartLine(left + 610, 14, left + 632, 14, ToolTheme.GraphicLine, 1, dashed: true);
+            PlanLabel("base do meio-fio (parte enterrada, transparente)", left + 636, 6, 11);
         }
 
         _chartCursor = p =>
@@ -391,6 +503,42 @@ internal sealed partial class MFRebaixoPanel
         {
             _syncingSections = false;
         }
+    }
+
+    // Zoom e arrasto da vista Secao (em pixels de tela) e chamadas arrastadas pelo usuario.
+    private const double SecTop = 60, SecBottom = 30;
+    private double _secZoom = 1, _secPanX, _secPanY;
+    private readonly Dictionary<string, SW.Vector> _secLabelShift = new();
+
+    private void ResetSectionView(bool labels)
+    {
+        _secZoom = 1;
+        _secPanX = _secPanY = 0;
+        if (labels)
+            _secLabelShift.Clear();
+    }
+
+    private SW.Point SectionCenter() =>
+        new(_plan.ActualWidth / 2.0, SecTop + ((_plan.ActualHeight - SecTop - SecBottom) / 2.0));
+
+    private void SectionWheel(WI.MouseWheelEventArgs e)
+    {
+        SW.Point p = e.GetPosition(_plan);
+        double nz = Math.Clamp(_secZoom * (e.Delta > 0 ? 1.25 : 0.8), 0.3, 80);
+        double f = nz / _secZoom;
+        SW.Point c0 = SectionCenter();
+        // O ponto sob o cursor fica parado.
+        _secPanX = p.X - c0.X - ((p.X - c0.X - _secPanX) * f);
+        _secPanY = p.Y - c0.Y - ((p.Y - c0.Y - _secPanY) * f);
+        _secZoom = nz;
+        RenderCross();
+    }
+
+    private void SectionDrag(SW.Vector d)
+    {
+        _secPanX += d.X;
+        _secPanY += d.Y;
+        RenderCross();
     }
 
     private void RenderCross()
@@ -471,11 +619,67 @@ internal sealed partial class MFRebaixoPanel
 
         double umin = box.Min(p => p.U) - 0.45, umax = box.Max(p => p.U) + 0.45;
         double vmin = box.Min(p => p.V) - 0.12, vmax = box.Max(p => p.V) + 0.18;
-        const double marginX = 24, marginTop = 46, marginBottom = 30;
-        double scale = Math.Min((w - (2 * marginX)) / Math.Max(umax - umin, 1e-6), (h - marginTop - marginBottom) / Math.Max(vmax - vmin, 1e-6));
-        double ox = (w / 2.0) - (((umin + umax) / 2.0) * scale);
-        double oy = marginTop + ((h - marginTop - marginBottom) / 2.0) + (((vmin + vmax) / 2.0) * scale);
+        const double marginX = 24;
+        double baseScale = Math.Min((w - (2 * marginX)) / Math.Max(umax - umin, 1e-6), (h - SecTop - SecBottom) / Math.Max(vmax - vmin, 1e-6));
+        double scale = baseScale * _secZoom;
+        SW.Point c0 = SectionCenter();
+        double ox = c0.X - (((umin + umax) / 2.0) * scale) + _secPanX;
+        double oy = c0.Y + (((vmin + vmax) / 2.0) * scale) + _secPanY;
         SW.Point P(double u, double v) => new(ox + (u * scale), oy - (v * scale));
+
+        // Grade: elevacao (esquerda) e afastamento do eixo (embaixo), em valores reais do corredor.
+        bool grid = Show("GRADE");
+        double gridStep = NiceStep(80.0 / scale);
+        if (grid)
+        {
+            WM.Brush gridBrush = ToolTheme.Brush(70, 72, 78);
+            WM.Brush gridText = ToolTheme.Brush(150, 152, 158);
+            string fmt = gridStep >= 1 ? "0" : gridStep >= 0.1 ? "0.0" : gridStep >= 0.01 ? "0.00" : "0.000";
+            double a0 = c.Origin.Y - (ox / scale), a1 = c.Origin.Y + ((w - ox) / scale);
+            for (double a = Math.Floor(a0 / gridStep) * gridStep; a <= a1; a += gridStep)
+            {
+                double x = ox + ((a - c.Origin.Y) * scale);
+                if (x < 0 || x > w)
+                    continue;
+                ChartLine(x, 0, x, h, gridBrush, 1);
+                PlanLabel(N(a, fmt), x + 3, h - 15, 10, gridText);
+            }
+
+            double e0 = c.Origin.Z + ((oy - h) / scale), e1 = c.Origin.Z + (oy / scale);
+            for (double el = Math.Floor(e0 / gridStep) * gridStep; el <= e1; el += gridStep)
+            {
+                double y = oy - ((el - c.Origin.Z) * scale);
+                if (y < 0 || y > h)
+                    continue;
+                ChartLine(0, y, w, y, gridBrush, 1);
+                if (y > SecTop && y < h - 22)
+                    PlanLabel(N(el, fmt), 4, y - 13, 10, gridText);
+            }
+        }
+
+        int zone = ZoneOf(r, cur.Station);
+
+        // Preenchimento das pecas (shapes): meio-fio e sarjeta mais fortes, vizinhos bem leves.
+        foreach (KeyValuePair<long, List<ModelShape>> kv in cur.Shapes)
+        {
+            bool own = kv.Key == key;
+            foreach (ModelShape sh in kv.Value)
+            {
+                RebaixoStyle.Look look = RebaixoStyle.Of(sh.Codes);
+                WM.Color color = look.Color.A == 0 ? WM.Color.FromRgb(132, 134, 140) : look.Color;
+                byte alpha = (byte)(own ? 95 : 45);
+                if (own && zone > 0 && IsCurbShape(sh.Codes))
+                {
+                    color = zone == 2 ? WM.Color.FromRgb(225, 45, 60) : WM.Color.FromRgb(245, 160, 40);
+                    alpha = 120;
+                }
+
+                var pg = new WS.Polygon { Fill = new WM.SolidColorBrush(WM.Color.FromArgb(alpha, color.R, color.G, color.B)), IsHitTestVisible = false };
+                foreach (Point3d q in sh.Soe)
+                    pg.Points.Add(P(q.Y - c.Origin.Y, q.Z - c.Origin.Z));
+                _plan.Children.Add(pg);
+            }
+        }
 
         void Draw(ModelLink l, Point3d origin, WM.Brush brush, double thickness, bool dashed)
         {
@@ -501,7 +705,6 @@ internal sealed partial class MFRebaixoPanel
                 Draw(l, n2.Origin, ghost, 1.2, true);
         }
 
-        int zone = ZoneOf(r, cur.Station);
         foreach ((ModelLink l, bool mf) in curLinks)
         {
             if (!mf)
@@ -516,43 +719,124 @@ internal sealed partial class MFRebaixoPanel
         PlanLabel($"Secao na estaca {N(cur.Station)}   |   {ZoneName(r, cur.Station)}   |   {idx + 1} de {secs.Count}", 10, 6, 12);
         string normalText = n is { } n3 && normal is not null ? $"   (secao normal, estaca {N(normal.Station)}: {(n3.Top - n3.Flow) * 100:0.0} cm, tracejada)" : "";
         PlanLabel($"Altura do meio-fio: {(c.Top - c.Flow) * 100:0.0} cm{normalText}", 10, 24, 11);
-        // Elevacoes dos pontos do meio-fio (pedido do Heyvid em 10/11/2026).
+        PlanLabel((grid ? $"grade de {gridStep:0.###} m: elevacao (m) na esquerda, afastamento do eixo (m) embaixo   |   " : "") +
+                  "roda: zoom   |   arrastar: mover a vista   |   arrastar um texto: mover a chamada   |   duplo clique: voltar",
+            10, 41, 10, ToolTheme.GraphicLine);
+
         if (Show("ELEVACOES") && CurbMarks(cur, key) is { } marks)
         {
-            // Rotulos para os lados (topo e linha d'agua para o lado da pista, fundo para o lado da
-            // calcada): centrados em cima do ponto, topo e fundo (7 cm um do outro) se empilhavam e a
-            // linha d'agua caia em cima das linhas do meio-fio (teste de 10/11/2026).
-            double road = P(c.Origin.Y - c.Origin.Y, 0).X >= P(marks.Top.Y - c.Origin.Y, 0).X ? 1 : -1;
+            WM.Brush markBrush = ToolTheme.Brush(90, 200, 255);
+            WM.Brush leaderBrush = ToolTheme.Brush(90, 200, 255, 150);
+            WM.Brush labelBack = ToolTheme.Brush(34, 36, 40, 225);
+            // +1 quando a pista fica a direita do meio-fio na tela.
+            double road = P(0, 0).X >= P(marks.Top.Y - c.Origin.Y, 0).X ? 1 : -1;
             List<SW.Rect> used = new();
-            void Mark(Point3d q, string name, bool above, double dir)
+
+            // Cota da altura do meio-fio (linha d'agua ate o topo), do lado da calcada.
+            SW.Point pTop = P(marks.Back.Y - c.Origin.Y, marks.Top.Z - c.Origin.Z);
+            SW.Point pFlow = P(marks.Flow.Y - c.Origin.Y, marks.Flow.Z - c.Origin.Z);
+            double xd = pTop.X - (road * 26);
+            WM.Brush dimBrush = ToolTheme.Brush(255, 205, 80);
+            ChartLine(pTop.X, pTop.Y, xd - (road * 5), pTop.Y, dimBrush, 0.8, dashed: true);
+            ChartLine(pFlow.X, pFlow.Y, xd - (road * 5), pFlow.Y, dimBrush, 0.8, dashed: true);
+            ChartLine(xd, pTop.Y, xd, pFlow.Y, dimBrush, 1.4);
+            ChartLine(xd - 4, pTop.Y, xd + 4, pTop.Y, dimBrush, 1.4);
+            ChartLine(xd - 4, pFlow.Y, xd + 4, pFlow.Y, dimBrush, 1.4);
+            string dimText = $"altura {(c.Top - c.Flow) * 100:0.0} cm";
+            double dimW = dimText.Length * 6.2;
+            double dimX = road > 0 ? xd - dimW - 8 : xd + 8;
+            PlanLabel(dimText, dimX, ((pTop.Y + pFlow.Y) / 2.0) - 7, 11, dimBrush);
+            used.Add(new SW.Rect(dimX, ((pTop.Y + pFlow.Y) / 2.0) - 7, dimW, 14));
+
+            // Chamada de elevacao: ponto, linha e texto que pode ser arrastado (a posicao fica guardada).
+            void Mark(string id, Point3d q, string name, bool above, double dir)
             {
                 SW.Point sp = P(q.Y - c.Origin.Y, q.Z - c.Origin.Z);
-                var dot = new WS.Ellipse { Width = 6, Height = 6, Fill = ToolTheme.Brush(90, 200, 255), IsHitTestVisible = false };
-                WC.Canvas.SetLeft(dot, sp.X - 3);
-                WC.Canvas.SetTop(dot, sp.Y - 3);
+                var dot = new WS.Ellipse { Width = 7, Height = 7, Fill = markBrush, IsHitTestVisible = false };
+                WC.Canvas.SetLeft(dot, sp.X - 3.5);
+                WC.Canvas.SetTop(dot, sp.Y - 3.5);
+
+                var tb = new WC.TextBlock
+                {
+                    Text = $"{name}: elevacao {N(q.Z)} m",
+                    Foreground = ToolTheme.Brush(170, 228, 255),
+                    Background = labelBack,
+                    Padding = new SW.Thickness(4, 1, 4, 2),
+                    FontSize = 11,
+                    Cursor = WI.Cursors.SizeAll,
+                    ToolTip = "Arraste para mover esta chamada"
+                };
+                tb.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+                double tw = tb.DesiredSize.Width, th = tb.DesiredSize.Height;
+                double defX = dir > 0 ? sp.X + 14 : sp.X - tw - 14;
+                double defY = above ? sp.Y - 34 : sp.Y + 16;
+                double x = defX, y = defY;
+                if (_secLabelShift.TryGetValue(id, out SW.Vector shift))
+                {
+                    x += shift.X;
+                    y += shift.Y;
+                }
+                else
+                {
+                    x = Math.Clamp(x, 4, Math.Max(4, w - tw - 4));
+                    for (int k = 0; k < 8 && used.Any(u => u.IntersectsWith(new SW.Rect(x, y, tw, th))); k++)
+                        y += above ? -(th + 3) : th + 3;
+                    y = Math.Clamp(y, SecTop, Math.Max(SecTop, h - th - 20));
+                }
+
+                used.Add(new SW.Rect(x, y, tw, th));
+                var leader = new WS.Line { X1 = sp.X, Y1 = sp.Y, Stroke = leaderBrush, StrokeThickness = 1, IsHitTestVisible = false };
+                void Place()
+                {
+                    WC.Canvas.SetLeft(tb, x);
+                    WC.Canvas.SetTop(tb, y);
+                    leader.X2 = Math.Clamp(sp.X, x, x + tw);
+                    leader.Y2 = Math.Clamp(sp.Y, y, y + th);
+                }
+
+                Place();
+                SW.Point? from = null;
+                tb.MouseLeftButtonDown += (_, e) =>
+                {
+                    from = e.GetPosition(_plan);
+                    tb.CaptureMouse();
+                    e.Handled = true;
+                };
+                tb.MouseMove += (_, e) =>
+                {
+                    if (from is not SW.Point f)
+                        return;
+                    SW.Point now = e.GetPosition(_plan);
+                    x += now.X - f.X;
+                    y += now.Y - f.Y;
+                    from = now;
+                    Place();
+                    e.Handled = true;
+                };
+                tb.MouseLeftButtonUp += (_, e) =>
+                {
+                    if (from is null)
+                        return;
+                    from = null;
+                    tb.ReleaseMouseCapture();
+                    _secLabelShift[id] = new SW.Vector(x - defX, y - defY);
+                    e.Handled = true;
+                };
+
+                _plan.Children.Add(leader);
                 _plan.Children.Add(dot);
-                string text = $"{name}  {N(q.Z)}";
-                double tw = (text.Length * 6.2) + 6;
-                double x = Math.Clamp(dir > 0 ? sp.X + 8 : sp.X - tw - 8, 4, Math.Max(4, w - tw - 4));
-                double y = above ? sp.Y - 26 : sp.Y + 6;
-                for (int k = 0; k < 6 && used.Any(u => u.IntersectsWith(new SW.Rect(x, y, tw, 14))); k++)
-                    y += above ? -15 : 15;
-                y = Math.Clamp(y, 42, h - 18);
-                used.Add(new SW.Rect(x, y, tw, 14));
-                ChartLine(sp.X, sp.Y, dir > 0 ? x : x + tw, above ? y + 14 : y, ToolTheme.Brush(90, 200, 255, 140), 0.8);
-                PlanLabel(text, x, y, 11, ToolTheme.Brush(150, 220, 255));
+                _plan.Children.Add(tb);
             }
 
-            Mark(marks.Top, "topo do meio-fio", true, road);
+            Mark("TOPO", marks.Top, "Topo do meio-fio", true, road);
             if (Math.Abs(marks.Back.Y - marks.Top.Y) > 0.02)
-                Mark(marks.Back, "fundo do meio-fio", true, -road);
-            // Linha d'agua acima da sarjeta (embaixo ficam as camadas do pavimento).
-            Mark(marks.Flow, "linha d'agua", true, road);
+                Mark("FUNDO", marks.Back, "Fundo do meio-fio", true, -road);
+            Mark("FLUXO", marks.Flow, "Linha d'agua (pe do meio-fio)", true, road);
             if (Math.Abs(c.Origin.Y - marks.Flow.Y) > 0.02)
-                Mark(c.Origin, "borda da pista", false, road);
+                Mark("BORDA", c.Origin, "Borda da pista", false, road);
         }
 
-        if (Show("ESCALA"))
+        if (Show("ESCALA") && !grid)
         {
             double step = NiceStep(w / scale / 8.0);
             double len = step * scale;
@@ -563,7 +847,7 @@ internal sealed partial class MFRebaixoPanel
         _chartCursor = p =>
         {
             double u = (p.X - ox) / scale, v = (oy - p.Y) / scale;
-            return $"estaca {N(cur.Station)}  -  offset {N(c.Origin.Y + u)}  elevacao {N(c.Origin.Z + v)}  (da borda da pista: {u:0.000} / {v:0.000})";
+            return $"estaca {N(cur.Station)}  -  afastamento do eixo {N(c.Origin.Y + u)}  elevacao {N(c.Origin.Z + v)}  (da borda da pista: {u:0.000} / {v:0.000})";
         };
     }
 
@@ -571,12 +855,14 @@ internal sealed partial class MFRebaixoPanel
     // 3D interativo
     // ------------------------------------------------------------------
 
-    private sealed record Face3D(int Model, long Key, int Link, int Zone, string[] Codes);
+    /// <summary>Peca do 3D: de qual modelo, de qual subassembly, em que trecho do rebaixo e de qual rebaixo (-1 = nenhum).</summary>
+    private sealed record Face3D(int Model, long Key, int Zone, int Owner, WM.Color Color);
 
     private readonly WC.Grid _host3D = new() { Visibility = SW.Visibility.Collapsed };
     private readonly WC.Viewport3D _viewport = new() { ClipToBounds = true };
     private readonly WC.TextBlock _info3D = new();
     private readonly Dictionary<W3.GeometryModel3D, Face3D> _faces = new();
+    private bool _built3D;
     private double _exagero3D = 1.0;
     private string? _key3D;
     private double _yaw = -60, _pitch = 28, _dist = 20;
@@ -584,8 +870,6 @@ internal sealed partial class MFRebaixoPanel
     private double _cx3, _cy3, _z03;
     private SW.Point? _orbitFrom;
     private SW.Point _downAt;
-    private W3.GeometryModel3D? _picked;
-    private W3.Material? _pickedMaterial;
 
     // 3D geral: todos os corredores com todos os rebaixos (senao, so o trecho do rebaixo selecionado).
     private bool _tudo3D;
@@ -593,6 +877,7 @@ internal sealed partial class MFRebaixoPanel
     private string? _modelsKey3D;
     private bool _near3D;
     private string? _focus3D;
+    private bool _keepCamera3D;
     private List<RebaixoModel> _shown3D = new();
     // Para cada modelo mostrado: os rebaixos dele e a chave do meio-fio de cada um.
     private List<List<(RebaixoInfo R, long Key)>> _owners3D = new();
@@ -611,8 +896,18 @@ internal sealed partial class MFRebaixoPanel
 
     private W3.Point3D Loc(Point3d p) => new(p.X - _cx3, p.Y - _cy3, (p.Z - _z03) * _exagero3D);
 
+    private Point3d World(W3.Point3D p) => new(p.X + _cx3, p.Y + _cy3, (p.Z / _exagero3D) + _z03);
+
     private SW.UIElement Build3DHost()
     {
+        // A tela e remontada ao trocar o tema: o 3D e o mesmo, so muda de pai.
+        if (_built3D)
+        {
+            (_host3D.Parent as WC.Panel)?.Children.Remove(_host3D);
+            return _host3D;
+        }
+
+        _built3D = true;
         _host3D.Background = ToolTheme.GraphicBack;
         _viewport.Camera = new W3.PerspectiveCamera { FieldOfView = 40, NearPlaneDistance = 0.05, FarPlaneDistance = 100000 };
         _host3D.Children.Add(_viewport);
@@ -630,7 +925,7 @@ internal sealed partial class MFRebaixoPanel
 
         _host3D.Children.Add(new WC.TextBlock
         {
-            Text = "arraste: girar   |   botao do meio: mover   |   roda: aproximar   |   clique num rebaixo: ficha dele   |   clique em outra face: medidas",
+            Text = "arrastar: girar   |   botao do meio ou direito: mover   |   Shift + botao do meio: girar   |   roda: zoom no cursor   |   duplo clique: centralizar ali   |   clique num rebaixo: selecionar",
             Foreground = ToolTheme.GraphicLine,
             FontSize = 10.5,
             Margin = new SW.Thickness(8, 0, 0, 6),
@@ -641,8 +936,26 @@ internal sealed partial class MFRebaixoPanel
 
         _host3D.MouseDown += (_, e) =>
         {
-            _orbitFrom = e.GetPosition(_host3D);
-            _downAt = _orbitFrom.Value;
+            SW.Point p = e.GetPosition(_host3D);
+            if (e.ClickCount == 2 && e.ChangedButton == WI.MouseButton.Left)
+            {
+                // Duplo clique: o ponto clicado vira o centro do giro; no vazio, enquadra tudo.
+                if (Hit3D(p) is { } hit)
+                {
+                    _target = hit.Point;
+                    UpdateCamera();
+                }
+                else
+                {
+                    FitAll3D();
+                }
+
+                _orbitFrom = null;
+                return;
+            }
+
+            _orbitFrom = p;
+            _downAt = p;
             _host3D.CaptureMouse();
         };
         _host3D.MouseMove += (_, e) =>
@@ -651,20 +964,21 @@ internal sealed partial class MFRebaixoPanel
                 return;
             SW.Point p = e.GetPosition(_host3D);
             double dx = p.X - f.X, dy = p.Y - f.Y;
-            if (e.MiddleButton == WI.MouseButtonState.Pressed || e.RightButton == WI.MouseButtonState.Pressed)
+            bool shift = (WI.Keyboard.Modifiers & WI.ModifierKeys.Shift) != 0;
+            bool middle = e.MiddleButton == WI.MouseButtonState.Pressed;
+            bool pan = e.RightButton == WI.MouseButtonState.Pressed || (middle && !shift);
+            bool orbit = e.LeftButton == WI.MouseButtonState.Pressed || (middle && shift);
+            if (pan)
             {
-                // Move o alvo no plano da tela.
-                double k = _dist * 0.0016;
-                double yaw = _yaw * Math.PI / 180.0;
-                _target = new W3.Point3D(
-                    _target.X + ((Math.Sin(yaw) * dx) * k),
-                    _target.Y - ((Math.Cos(yaw) * dx) * k),
-                    _target.Z + (dy * k));
+                // Move no plano da tela: o ponto agarrado acompanha o cursor (como o PAN do AutoCAD).
+                (W3.Vector3D right, W3.Vector3D up, _) = CameraAxes();
+                double k = 2.0 * _dist * Math.Tan(20.0 * Math.PI / 180.0) / Math.Max(_host3D.ActualWidth, 1);
+                _target += (right * (-dx * k)) + (up * (dy * k));
             }
-            else if (e.LeftButton == WI.MouseButtonState.Pressed)
+            else if (orbit)
             {
-                _yaw -= dx * 0.4;
-                _pitch = Math.Clamp(_pitch + (dy * 0.4), 2, 89);
+                _yaw -= dx * 0.35;
+                _pitch = Math.Clamp(_pitch + (dy * 0.35), 2, 89);
             }
             else
             {
@@ -685,21 +999,62 @@ internal sealed partial class MFRebaixoPanel
         };
         _host3D.MouseWheel += (_, e) =>
         {
-            _dist = Math.Clamp(_dist * (e.Delta > 0 ? 0.85 : 1.18), 0.4, 50000);
+            double nd = Math.Clamp(_dist * (e.Delta > 0 ? 0.85 : 1.18), 0.4, 50000);
+            double f = nd / _dist;
+            // Zoom no cursor: o alvo anda na direcao do ponto sob o mouse.
+            if (Hit3D(e.GetPosition(_host3D)) is { } hit)
+                _target = hit.Point + ((_target - hit.Point) * f);
+            _dist = nd;
             UpdateCamera();
         };
         return _host3D;
+    }
+
+    /// <summary>Eixos da camera: direita, cima e a direcao do alvo para a camera.</summary>
+    private (W3.Vector3D Right, W3.Vector3D Up, W3.Vector3D Back) CameraAxes()
+    {
+        double yaw = _yaw * Math.PI / 180.0, pitch = _pitch * Math.PI / 180.0;
+        var back = new W3.Vector3D(Math.Cos(pitch) * Math.Cos(yaw), Math.Cos(pitch) * Math.Sin(yaw), Math.Sin(pitch));
+        W3.Vector3D right = W3.Vector3D.CrossProduct(-back, new W3.Vector3D(0, 0, 1));
+        if (right.Length < 1e-9)
+            right = new W3.Vector3D(1, 0, 0);
+        right.Normalize();
+        W3.Vector3D up = W3.Vector3D.CrossProduct(right, -back);
+        up.Normalize();
+        return (right, up, back);
     }
 
     private void UpdateCamera()
     {
         if (_viewport.Camera is not W3.PerspectiveCamera cam)
             return;
-        double yaw = _yaw * Math.PI / 180.0, pitch = _pitch * Math.PI / 180.0;
-        var offset = new W3.Vector3D(Math.Cos(pitch) * Math.Cos(yaw), Math.Cos(pitch) * Math.Sin(yaw), Math.Sin(pitch)) * _dist;
+        W3.Vector3D offset = CameraAxes().Back * _dist;
         cam.Position = _target + offset;
         cam.LookDirection = -offset;
         cam.UpDirection = new W3.Vector3D(0, 0, 1);
+    }
+
+    /// <summary>Vistas prontas: muda so a inclinacao da camera (89 = de cima, 6 = de frente).</summary>
+    private void View3D(double pitch)
+    {
+        _pitch = pitch;
+        UpdateCamera();
+    }
+
+    private (W3.GeometryModel3D Model, W3.Point3D Point)? Hit3D(SW.Point p)
+    {
+        try
+        {
+            SW.Point vp = _host3D.TranslatePoint(p, _viewport);
+            if (WM.VisualTreeHelper.HitTest(_viewport, vp) is W3.RayMeshGeometry3DHitTestResult hit && hit.ModelHit is W3.GeometryModel3D gm)
+                return (gm, hit.PointHit);
+        }
+        catch
+        {
+            // Sem cena: nada sob o cursor.
+        }
+
+        return null;
     }
 
     /// <summary>Modelos do 3D: so o trecho do rebaixo selecionado, ou todos os corredores ("tudo").</summary>
@@ -736,6 +1091,128 @@ internal sealed partial class MFRebaixoPanel
         return _models3D;
     }
 
+    private static W3.Material Material3D(WM.Color color, bool selected)
+    {
+        var diffuse = new W3.DiffuseMaterial(new WM.SolidColorBrush(color));
+        if (!selected)
+            return diffuse;
+        // Rebaixo selecionado: a mesma cor, acesa.
+        var group = new W3.MaterialGroup();
+        group.Children.Add(diffuse);
+        group.Children.Add(new W3.EmissiveMaterial(new WM.SolidColorBrush(WM.Color.FromRgb(95, 80, 10))));
+        return group;
+    }
+
+    /// <summary>Acende as pecas do rebaixo selecionado e mostra a identificacao dele (nome e centro).</summary>
+    private void ApplySelection3D()
+    {
+        RebaixoInfo? r = _current;
+        foreach (KeyValuePair<W3.GeometryModel3D, Face3D> kv in _faces)
+        {
+            Face3D f = kv.Value;
+            bool selected = r is not null && f.Owner >= 0 && f.Model < _owners3D.Count && f.Owner < _owners3D[f.Model].Count &&
+                            FocusKey(_owners3D[f.Model][f.Owner].R) == FocusKey(r);
+            W3.Material mat = Material3D(f.Color, selected);
+            kv.Key.Material = mat;
+            kv.Key.BackMaterial = mat;
+        }
+
+        RebaixoModel? model = r is null ? null : _shown3D.FirstOrDefault(m => m.CorridorId == r.CorridorId && m.BaselineKey == r.BaselineKey);
+        if (r is not null && RebaixoCenter(r, model) is Point3d cg)
+        {
+            _info3D.Text = $"{r.Label}\nCentro:  X {cg.X:0.000}   Y {cg.Y:0.000}   elevacao {cg.Z:0.000}";
+            _info3D.Visibility = SW.Visibility.Visible;
+        }
+        else
+        {
+            _info3D.Visibility = SW.Visibility.Collapsed;
+        }
+    }
+
+    private static void Quad(W3.MeshGeometry3D mesh, W3.Point3D a, W3.Point3D b, W3.Point3D c, W3.Point3D d)
+    {
+        int i0 = mesh.Positions.Count;
+        mesh.Positions.Add(a);
+        mesh.Positions.Add(b);
+        mesh.Positions.Add(c);
+        mesh.Positions.Add(d);
+        mesh.TriangleIndices.Add(i0);
+        mesh.TriangleIndices.Add(i0 + 1);
+        mesh.TriangleIndices.Add(i0 + 2);
+        mesh.TriangleIndices.Add(i0);
+        mesh.TriangleIndices.Add(i0 + 2);
+        mesh.TriangleIndices.Add(i0 + 3);
+    }
+
+    /// <summary>Tampa de uma shape (poligono simples, pode ser concavo): triangulos por corte de orelhas no plano da secao.</summary>
+    private void Cap(W3.MeshGeometry3D mesh, ModelShape shape)
+    {
+        int n = shape.Soe.Length;
+        if (n < 3 || shape.Points.Length != n)
+            return;
+        List<int> idx = Enumerable.Range(0, n).ToList();
+        double area = 0;
+        for (int i = 0; i < n; i++)
+        {
+            Point3d a = shape.Soe[i], b = shape.Soe[(i + 1) % n];
+            area += (a.Y * b.Z) - (b.Y * a.Z);
+        }
+
+        double sign = area >= 0 ? 1 : -1;
+        double Cross(int i, int j, int k) =>
+            ((shape.Soe[j].Y - shape.Soe[i].Y) * (shape.Soe[k].Z - shape.Soe[i].Z)) - ((shape.Soe[j].Z - shape.Soe[i].Z) * (shape.Soe[k].Y - shape.Soe[i].Y));
+        bool Inside(int i, int j, int k, int q)
+        {
+            double d1 = Cross(i, j, q) * sign, d2 = Cross(j, k, q) * sign, d3 = Cross(k, i, q) * sign;
+            return d1 > 1e-12 && d2 > 1e-12 && d3 > 1e-12;
+        }
+
+        void Tri(int i, int j, int k)
+        {
+            int i0 = mesh.Positions.Count;
+            mesh.Positions.Add(Loc(shape.Points[i]));
+            mesh.Positions.Add(Loc(shape.Points[j]));
+            mesh.Positions.Add(Loc(shape.Points[k]));
+            mesh.TriangleIndices.Add(i0);
+            mesh.TriangleIndices.Add(i0 + 1);
+            mesh.TriangleIndices.Add(i0 + 2);
+        }
+
+        int guard = n * n;
+        while (idx.Count > 3 && guard-- > 0)
+        {
+            bool cut = false;
+            for (int t = 0; t < idx.Count; t++)
+            {
+                int i = idx[(t + idx.Count - 1) % idx.Count], j = idx[t], k = idx[(t + 1) % idx.Count];
+                if (Cross(i, j, k) * sign <= 1e-12)
+                    continue; // canto concavo ou reto
+                bool ear = true;
+                foreach (int q in idx)
+                {
+                    if (q != i && q != j && q != k && Inside(i, j, k, q))
+                    {
+                        ear = false;
+                        break;
+                    }
+                }
+
+                if (!ear)
+                    continue;
+                Tri(i, j, k);
+                idx.RemoveAt(t);
+                cut = true;
+                break;
+            }
+
+            if (!cut)
+                break; // poligono degenerado: fecha em leque com o que sobrou
+        }
+
+        for (int t = 1; t + 1 < idx.Count; t++)
+            Tri(idx[0], idx[t], idx[t + 1]);
+    }
+
     private void Render3D()
     {
         RebaixoInfo? r = _current;
@@ -744,7 +1221,6 @@ internal sealed partial class MFRebaixoPanel
         {
             _viewport.Children.Clear();
             _faces.Clear();
-            _picked = null;
             _key3D = null;
             _shown3D = new List<RebaixoModel>();
             _info3D.Text = !_tudo3D && r is null ? "Selecione um rebaixo (ou use \"tudo\" para ver todos os corredores)." : "Sem secoes calculadas (Rebuild no corredor?).";
@@ -758,36 +1234,37 @@ internal sealed partial class MFRebaixoPanel
             // 3D geral: escolher outro rebaixo na lista leva a camera ate ele, sem refazer a cena.
             if (_tudo3D && r is not null && FocusKey(r) != _focus3D)
                 Focus3D(r);
+            ApplySelection3D();
             return;
         }
+
+        // Rebaixo escolhido com um clique no proprio 3D: a camera fica onde esta.
+        bool keep = _keepCamera3D && _shown3D.Count > 0;
+        _keepCamera3D = false;
+        Point3d keepTarget = keep ? World(_target) : Point3d.Origin;
 
         _key3D = key3D;
         _viewport.Children.Clear();
         _faces.Clear();
-        _picked = null;
-        _info3D.Visibility = SW.Visibility.Collapsed;
         _shown3D = models;
 
-        double minX = double.MaxValue, minY = double.MaxValue, minZ = double.MaxValue, maxX = double.MinValue, maxY = double.MinValue, maxZ = double.MinValue;
-        foreach (Point3d p in models.SelectMany(m => m.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.SelectMany(l => l.Points)))))
+        // Pontos para a caixa e para enquadrar (as pontas de cada link, no maximo ~6000).
+        List<Point3d> ends = models.SelectMany(m => m.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.Where(l => l.Points.Length > 0).SelectMany(l => new[] { l.Points[0], l.Points[^1] })))).ToList();
+        if (ends.Count == 0)
+            return;
+        double minX = ends.Min(p => p.X), maxX = ends.Max(p => p.X), minY = ends.Min(p => p.Y), maxY = ends.Max(p => p.Y);
+        double minZ = ends.Min(p => p.Z), maxZ = ends.Max(p => p.Z);
+        foreach (ModelShape sh in models.SelectMany(m => m.Sections.SelectMany(s => s.Shapes.Values.SelectMany(v => v))))
         {
-            minX = Math.Min(minX, p.X);
-            minY = Math.Min(minY, p.Y);
-            minZ = Math.Min(minZ, p.Z);
-            maxX = Math.Max(maxX, p.X);
-            maxY = Math.Max(maxY, p.Y);
-            maxZ = Math.Max(maxZ, p.Z);
+            foreach (Point3d q in sh.Points)
+                minZ = Math.Min(minZ, q.Z);
         }
 
-        if (minX == double.MaxValue)
-            return;
         _cx3 = (minX + maxX) / 2.0;
         _cy3 = (minY + maxY) / 2.0;
         _z03 = minZ;
         _min3 = Loc(new Point3d(minX, minY, minZ));
         _max3 = Loc(new Point3d(maxX, maxY, maxZ));
-        // Pontos para enquadrar (as pontas de cada link, no maximo ~6000).
-        List<Point3d> ends = models.SelectMany(m => m.Sections.SelectMany(s => s.Subassemblies.SelectMany(a => a.Links.Where(l => l.Points.Length > 0).SelectMany(l => new[] { l.Points[0], l.Points[^1] })))).ToList();
         int stride = Math.Max(1, ends.Count / 6000);
         _fit3D = ends.Where((_, i) => i % stride == 0).Select(Loc).ToList();
 
@@ -806,80 +1283,138 @@ internal sealed partial class MFRebaixoPanel
             _owners3D.Add(owners);
         }
 
-        var meshes = new Dictionary<(int Model, long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)>();
+        // Uma malha por (modelo, peca, parte, trecho, rebaixo). Parte >= 0: shape (solido); negativa: link solto (face).
+        var meshes = new Dictionary<(int Model, long Key, int Part, int Zone, int Owner), (W3.MeshGeometry3D Mesh, string[] Codes)>();
+        W3.MeshGeometry3D MeshOf(int mi, long key, int part, int zone, int owner, string[] codes)
+        {
+            if (!meshes.TryGetValue((mi, key, part, zone, owner), out (W3.MeshGeometry3D Mesh, string[] Codes) entry))
+            {
+                entry = (new W3.MeshGeometry3D(), codes);
+                meshes[(mi, key, part, zone, owner)] = entry;
+            }
+
+            return entry.Mesh;
+        }
+
         for (int mi = 0; mi < models.Count; mi++)
         {
             RebaixoModel model = models[mi];
             List<(RebaixoInfo R, long Key)> owners = _owners3D[mi];
-            for (int k = 0; k + 1 < model.Sections.Count; k++)
+            int last = model.Sections.Count - 1;
+
+            // Trecho (0 fora, 1 rampa, 2 rebaixado) e rebaixo dono de uma peca do meio-fio entre duas secoes.
+            (int Zone, int Owner) ZoneAt(long key, double station)
+            {
+                int zone = 0, owner = -1;
+                for (int o = 0; o < owners.Count; o++)
+                {
+                    if (owners[o].Key != key)
+                        continue;
+                    int z = ZoneOf(owners[o].R, station);
+                    if (z > zone)
+                    {
+                        zone = z;
+                        owner = o;
+                    }
+                }
+
+                return (zone, owner);
+            }
+
+            // A shape j da peca existe igual (mesmo numero de pontos) nas secoes k e k+1?
+            bool Solid(int k, long key, int j) =>
+                k >= 0 && k < last &&
+                model.Sections[k].Shapes.TryGetValue(key, out List<ModelShape>? xa) && j < xa.Count &&
+                model.Sections[k + 1].Shapes.TryGetValue(key, out List<ModelShape>? xb) && j < xb.Count &&
+                xa[j].Points.Length >= 3 && xa[j].Points.Length == xb[j].Points.Length;
+
+            for (int k = 0; k < last; k++)
             {
                 ModelSection a = model.Sections[k], b = model.Sections[k + 1];
                 double midStation = (a.Station + b.Station) / 2.0;
+
+                // Solidos: cada shape vira um prisma entre as duas secoes, com tampa nas pontas.
+                foreach (KeyValuePair<long, List<ModelShape>> kv in a.Shapes)
+                {
+                    for (int j = 0; j < kv.Value.Count; j++)
+                    {
+                        if (!Solid(k, kv.Key, j))
+                            continue;
+                        ModelShape sa = kv.Value[j], sb = b.Shapes[kv.Key][j];
+                        (int zone, int owner) = IsCurbShape(sa.Codes) ? ZoneAt(kv.Key, midStation) : (0, -1);
+                        W3.MeshGeometry3D mesh = MeshOf(mi, kv.Key, j, zone, owner, sa.Codes);
+                        int n = sa.Points.Length;
+                        for (int p = 0; p < n; p++)
+                        {
+                            int q = (p + 1) % n;
+                            Quad(mesh, Loc(sa.Points[p]), Loc(sa.Points[q]), Loc(sb.Points[q]), Loc(sb.Points[p]));
+                        }
+
+                        if (!Solid(k - 1, kv.Key, j))
+                            Cap(mesh, sa);
+                        if (!Solid(k + 1, kv.Key, j))
+                            Cap(mesh, sb);
+                    }
+                }
+
+                // Links que nao sao borda de nenhuma shape (calcada, taludes): continuam como faces.
                 foreach ((long key, List<ModelLink> linksA) in a.Subassemblies)
                 {
                     List<ModelLink>? linksB = b.Subassemblies.FirstOrDefault(x => x.Key == key).Links;
                     if (linksB is null)
                         continue;
+                    List<Point3d> verts = a.Shapes.TryGetValue(key, out List<ModelShape>? shapesA)
+                        ? Enumerable.Range(0, shapesA.Count).Where(j => Solid(k, key, j)).SelectMany(j => shapesA[j].Soe).ToList()
+                        : new List<Point3d>();
                     int n = Math.Min(linksA.Count, linksB.Count);
                     for (int j = 0; j < n; j++)
                     {
                         ModelLink la = linksA[j], lb = linksB[j];
                         if (la.Points.Length < 2 || la.Points.Length != lb.Points.Length)
                             continue;
-                        int zone = 0;
-                        if (!IsWalk(la.Codes) && (Has(la.Codes, "Curb") || Has(la.Codes, "Top") || Has(la.Codes, "TOPO") || Has(la.Codes, "Sarjeta")))
+                        if (verts.Count > 0 && la.Soe.Length > 0 &&
+                            la.Soe.All(q => verts.Any(v => Math.Abs(v.Y - q.Y) < 2e-4 && Math.Abs(v.Z - q.Z) < 2e-4)))
                         {
-                            foreach ((RebaixoInfo o, long ok) in owners)
-                            {
-                                if (ok == key)
-                                    zone = Math.Max(zone, ZoneOf(o, midStation));
-                            }
+                            continue; // ja esta no solido
                         }
 
-                        if (!meshes.TryGetValue((mi, key, j, zone), out (W3.MeshGeometry3D Mesh, string[] Codes) entry))
-                        {
-                            entry = (new W3.MeshGeometry3D(), la.Codes);
-                            meshes[(mi, key, j, zone)] = entry;
-                        }
-
+                        (int zone, int owner) = !IsWalk(la.Codes) && (Has(la.Codes, "Curb") || Has(la.Codes, "Top") || Has(la.Codes, "TOPO") || Has(la.Codes, "Sarjeta"))
+                            ? ZoneAt(key, midStation)
+                            : (0, -1);
+                        W3.MeshGeometry3D mesh = MeshOf(mi, key, -1 - j, zone, owner, la.Codes);
                         for (int p = 0; p + 1 < la.Points.Length; p++)
-                        {
-                            int i0 = entry.Mesh.Positions.Count;
-                            entry.Mesh.Positions.Add(Loc(la.Points[p]));
-                            entry.Mesh.Positions.Add(Loc(la.Points[p + 1]));
-                            entry.Mesh.Positions.Add(Loc(lb.Points[p + 1]));
-                            entry.Mesh.Positions.Add(Loc(lb.Points[p]));
-                            entry.Mesh.TriangleIndices.Add(i0);
-                            entry.Mesh.TriangleIndices.Add(i0 + 1);
-                            entry.Mesh.TriangleIndices.Add(i0 + 2);
-                            entry.Mesh.TriangleIndices.Add(i0);
-                            entry.Mesh.TriangleIndices.Add(i0 + 2);
-                            entry.Mesh.TriangleIndices.Add(i0 + 3);
-                        }
+                            Quad(mesh, Loc(la.Points[p]), Loc(la.Points[p + 1]), Loc(lb.Points[p + 1]), Loc(lb.Points[p]));
                     }
                 }
             }
         }
 
         var group = new W3.Model3DGroup();
-        group.Children.Add(new W3.AmbientLight(WM.Color.FromRgb(125, 125, 125)));
-        group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(190, 190, 190), new W3.Vector3D(-0.45, -0.3, -1)));
-        group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(70, 70, 70), new W3.Vector3D(0.5, 0.6, -0.3)));
-        foreach (KeyValuePair<(int Model, long Key, int Link, int Zone), (W3.MeshGeometry3D Mesh, string[] Codes)> kv in meshes)
+        group.Children.Add(new W3.AmbientLight(WM.Color.FromRgb(110, 110, 110)));
+        group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(175, 175, 175), new W3.Vector3D(-0.45, -0.3, -1)));
+        group.Children.Add(new W3.DirectionalLight(WM.Color.FromRgb(95, 95, 95), new W3.Vector3D(0.6, 0.7, -0.25)));
+        foreach (KeyValuePair<(int Model, long Key, int Part, int Zone, int Owner), (W3.MeshGeometry3D Mesh, string[] Codes)> kv in meshes)
         {
             RebaixoStyle.Look look = RebaixoStyle.Of(kv.Value.Codes);
             WM.Color color = kv.Key.Zone == 2 ? WM.Color.FromRgb(225, 45, 60)
                 : kv.Key.Zone == 1 ? WM.Color.FromRgb(245, 160, 40)
                 : look.Color.A == 0 ? WM.Color.FromRgb(132, 134, 140) : look.Color;
-            var material = new W3.DiffuseMaterial(new WM.SolidColorBrush(color));
+            W3.Material material = Material3D(color, false);
             var gm = new W3.GeometryModel3D(kv.Value.Mesh, material) { BackMaterial = material };
             group.Children.Add(gm);
-            _faces[gm] = new Face3D(kv.Key.Model, kv.Key.Key, kv.Key.Link, kv.Key.Zone, kv.Value.Codes);
+            _faces[gm] = new Face3D(kv.Key.Model, kv.Key.Key, kv.Key.Zone, kv.Key.Owner, color);
         }
 
         _viewport.Children.Add(new W3.ModelVisual3D { Content = group });
+        ApplySelection3D();
 
-        if (_tudo3D)
+        if (keep)
+        {
+            _target = Loc(keepTarget);
+            _focus3D = r is null ? null : FocusKey(r);
+            UpdateCamera();
+        }
+        else if (_tudo3D)
         {
             _focus3D = r is null ? null : FocusKey(r);
             FitAll3D();
@@ -901,16 +1436,13 @@ internal sealed partial class MFRebaixoPanel
             return;
         _target = new W3.Point3D((_min3.X + _max3.X) / 2.0, (_min3.Y + _max3.Y) / 2.0, (_min3.Z + _max3.Z) / 2.0);
         _pitch = 40;
+
         // Distancia em que todos os pontos cabem na tela, nos dois sentidos: o FieldOfView da camera
         // e o horizontal e a vista e larga e baixa; so pela largura a parte de perto ficava fora da
         // tela (teste de 10/11/2026).
         double aspect = _host3D.ActualWidth > 1 && _host3D.ActualHeight > 1 ? _host3D.ActualHeight / _host3D.ActualWidth : 0.4;
         double tanH = Math.Tan(20.0 * Math.PI / 180.0), tanV = tanH * aspect;
-        double yaw = _yaw * Math.PI / 180.0, pitch = _pitch * Math.PI / 180.0;
-        var dir = new W3.Vector3D(Math.Cos(pitch) * Math.Cos(yaw), Math.Cos(pitch) * Math.Sin(yaw), Math.Sin(pitch));
-        W3.Vector3D right = W3.Vector3D.CrossProduct(-dir, new W3.Vector3D(0, 0, 1));
-        right.Normalize();
-        W3.Vector3D up = W3.Vector3D.CrossProduct(right, -dir);
+        (W3.Vector3D right, W3.Vector3D up, W3.Vector3D dir) = CameraAxes();
         double need = 0;
         foreach (W3.Point3D q in _fit3D)
         {
@@ -929,9 +1461,8 @@ internal sealed partial class MFRebaixoPanel
     {
         _focus3D = FocusKey(r);
         double mid = (r.S1 + r.S2) / 2.0;
-        for (int mi = 0; mi < _shown3D.Count && mi < _owners3D.Count; mi++)
+        foreach (RebaixoModel model in _shown3D)
         {
-            RebaixoModel model = _shown3D[mi];
             if (model.CorridorId != r.CorridorId || model.BaselineKey != r.BaselineKey || MfKey(model, r) is not long key)
                 continue;
             ModelSection? s = model.Sections.OrderBy(x => Math.Abs(x.Station - mid)).FirstOrDefault();
@@ -950,7 +1481,7 @@ internal sealed partial class MFRebaixoPanel
             return;
         }
 
-        if (r.Path.Count > 0)
+        if (r.Path.Count > 0 && _shown3D.Count > 0)
         {
             _target = Loc(r.Path[r.Path.Count / 2]);
             _dist = Math.Max(6, (r.TotalLength * 2.2) + 2);
@@ -1012,172 +1543,57 @@ internal sealed partial class MFRebaixoPanel
         return top;
     }
 
-    private static string CurbTypeName(string code) => code.ToUpperInvariant() switch
-    {
-        "MF_T30" => "SUDECAP 30",
-        "MF_T40" => "SUDECAP 40",
-        "MF_KASSEL" => "Kassel (guia de atracagem)",
-        "MF_PERS" => "Personalizado",
-        "MF_MOLDADO" => "Moldado no local",
-        _ => code
-    };
-
     /// <summary>
-    /// Ficha do rebaixo para o clique no 3D: identificacao, tipo do meio-fio, comprimento e inclinacao
-    /// das rampas, alturas e coordenadas dos quatro marcos (topo do meio-fio). Pedido do Heyvid em
-    /// 10/11/2026, pensando na federacao do modelo BIM.
+    /// Clique no 3D: se caiu num rebaixo (rampa ou trecho rebaixado), ele vira o selecionado do painel
+    /// (lista, propriedades, destaque no desenho) e o 3D mostra so a identificacao: nome e centro.
+    /// As medidas de face/peca sairam (pedido do Heyvid em 11/11/2026: nao interessam).
     /// </summary>
-    private static List<string> RebaixoCard(RebaixoModel model, RebaixoInfo r, long key)
-    {
-        ModelSection? At(double st) => model.Sections.Where(s => CurbOf(s, key) is not null).OrderBy(s => Math.Abs(s.Station - st)).FirstOrDefault();
-        double? Height(double st) => At(st) is ModelSection s && Math.Abs(s.Station - st) < 0.05 && CurbOf(s, key) is { } c ? c.Top - c.Flow : null;
-
-        double? h0 = Height(r.S0), h1 = Height(r.S1), h2 = Height(r.S2), h3 = Height(r.S3);
-        ModelSection? before = model.Sections.LastOrDefault(s => s.Station < r.S0 - 1e-4 && CurbOf(s, key) is not null);
-        double? normal = h0 ?? (before is not null && CurbOf(before, key) is { } cb ? cb.Top - cb.Flow : r.NormalHeight);
-        double? final = h1 is double a1 && h2 is double a2 ? (a1 + a2) / 2.0 : r.FinalHeight;
-
-        string type = "";
-        ModelSection? mid = At((r.S1 + r.S2) / 2.0);
-        if (mid is not null && mid.ShapeCodes.TryGetValue(key, out string[]? shapeCodes))
-            type = shapeCodes.FirstOrDefault(c => c.StartsWith("MF_", StringComparison.OrdinalIgnoreCase)) ?? "";
-        string typeText = type.Length > 0 ? $"{CurbTypeName(type)}  ({type})" : "(nao informado pela peca)";
-
-        string Slope(double? from, double? to, double length) =>
-            from is double f && to is double t && length > 1e-4 ? $"{Math.Abs(f - t) / length * 100:0.00}%" : "-";
-
-        var lines = new List<string>
-        {
-            "REBAIXO " + r.Label,
-            $"Corredor: {r.CorridorName}",
-            $"Baseline: {r.BaselineName}   lado {r.SideLabel.ToLowerInvariant()}",
-            $"Peca: {r.SubassemblyName}",
-            "Tipo de meio-fio: " + typeText,
-            "",
-            $"Rampa de entrada: {N(r.EntryLength)} m   inclinacao {Slope(h0, h1, r.EntryLength)}",
-            $"Trecho rebaixado: {N(r.LoweredLength)} m",
-            $"Rampa de saida: {N(r.ExitLength)} m   inclinacao {Slope(h3, h2, r.ExitLength)}",
-            $"Comprimento total: {N(r.TotalLength)} m",
-            "",
-            $"Altura do meio-fio: normal {Cm(normal)}   rebaixado {Cm(final)}" +
-                (normal is double nn && final is double ff ? $"   (desce {Cm(nn - ff)})" : ""),
-            "",
-            "Coordenadas do topo do meio-fio (X, Y, elevacao):"
-        };
-        foreach ((string name, double st) in new[] { ("S0 inicio da rampa", r.S0), ("S1 inicio do rebaixo", r.S1), ("S2 fim do rebaixo", r.S2), ("S3 fim da rampa", r.S3) })
-        {
-            Point3d? w = At(st) is ModelSection s && Math.Abs(s.Station - st) < 0.05 ? CurbTopWorld(s, key) : null;
-            lines.Add(w is Point3d q
-                ? $"  {name}: {q.X:0.000}  {q.Y:0.000}  {q.Z:0.000}   (estaca {N(st)})"
-                : $"  {name}: estaca {N(st)} (sem secao calculada)");
-        }
-
-        return lines;
-    }
-
-    private void ClearPick()
-    {
-        if (_picked is not null && _pickedMaterial is not null)
-        {
-            _picked.Material = _pickedMaterial;
-            _picked.BackMaterial = _pickedMaterial;
-        }
-
-        _picked = null;
-        _pickedMaterial = null;
-    }
-
-    /// <summary>Clique numa face do 3D: destaca e mostra peca, codes, estaca e medidas do link.</summary>
     private void Pick(SW.Point p)
     {
         try
         {
-            ClearPick();
-            if (WM.VisualTreeHelper.HitTest(_viewport, p) is not W3.RayMeshGeometry3DHitTestResult hit ||
-                hit.ModelHit is not W3.GeometryModel3D gm || !_faces.TryGetValue(gm, out Face3D? face) ||
-                face.Model >= _shown3D.Count)
+            if (Hit3D(p) is not { } hit || !_faces.TryGetValue(hit.Model, out Face3D? face) ||
+                face.Owner < 0 || face.Model >= _owners3D.Count || face.Owner >= _owners3D[face.Model].Count)
             {
-                _info3D.Visibility = SW.Visibility.Collapsed;
                 return;
             }
 
-            RebaixoModel model = _shown3D[face.Model];
-            List<(RebaixoInfo R, long Key)> owners = face.Model < _owners3D.Count ? _owners3D[face.Model] : new List<(RebaixoInfo R, long Key)>();
-            _picked = gm;
-            _pickedMaterial = gm.Material;
-            var yellow = new W3.DiffuseMaterial(new WM.SolidColorBrush(WM.Color.FromRgb(255, 215, 60)));
-            gm.Material = yellow;
-            gm.BackMaterial = yellow;
-
-            double x = hit.PointHit.X + _cx3, y = hit.PointHit.Y + _cy3, z = (hit.PointHit.Z / _exagero3D) + _z03;
-
-            // Secao mais perto do ponto clicado, no mesmo link.
-            ModelSection? best = null;
-            ModelLink? link = null;
-            double bestD = double.MaxValue;
-            foreach (ModelSection s in model.Sections)
-            {
-                List<ModelLink>? links = s.Subassemblies.FirstOrDefault(a => a.Key == face.Key).Links;
-                if (links is null || face.Link >= links.Count)
-                    continue;
-                foreach (Point3d q in links[face.Link].Points)
-                {
-                    double d = ((q.X - x) * (q.X - x)) + ((q.Y - y) * (q.Y - y));
-                    if (d < bestD)
-                    {
-                        bestD = d;
-                        best = s;
-                        link = links[face.Link];
-                    }
-                }
-            }
-
-            // Clique num rebaixo: a ficha do rebaixo (o que interessa para o modelo BIM), nao a da face.
-            RebaixoInfo? hitOwner = best is null ? null
-                : owners.Where(o => o.Key == face.Key && ZoneOf(o.R, best.Station) > 0).Select(o => o.R).FirstOrDefault();
-            if (hitOwner is not null)
-            {
-                List<string> card = RebaixoCard(model, hitOwner, face.Key);
-                card.Add("");
-                card.Add($"Ponto clicado: estaca {N(best!.Station)} ({ZoneName(hitOwner, best.Station)})");
-                card.Add($"   X {x:0.000}   Y {y:0.000}   elevacao {z:0.000}");
-                _info3D.Text = string.Join("\n", card);
-                _info3D.Visibility = SW.Visibility.Visible;
+            RebaixoInfo owner = _owners3D[face.Model][face.Owner].R;
+            if (_current is not null && FocusKey(_current) == FocusKey(owner))
                 return;
-            }
-
-            var lines = new List<string>
-            {
-                "Peca: " + (model.Names.TryGetValue(face.Key, out string? name) ? name : "?"),
-                "Codes: " + (face.Codes.Length == 0 ? "(sem code)" : string.Join(", ", face.Codes))
-            };
-            if (best is not null && link is not null && link.Soe.Length > 1)
-            {
-                // Rebaixo dono da face: o do mesmo meio-fio cuja faixa S0-S3 pega a estaca.
-                RebaixoInfo? owner = owners.Where(o => o.Key == face.Key && ZoneOf(o.R, best.Station) > 0).Select(o => o.R).FirstOrDefault();
-                Point3d a = link.Soe[0], b = link.Soe[^1];
-                double width = Math.Abs(b.Y - a.Y), dz = b.Z - a.Z;
-                double length = 0;
-                for (int i = 1; i < link.Soe.Length; i++)
-                    length += Math.Sqrt(Math.Pow(link.Soe[i].Y - link.Soe[i - 1].Y, 2) + Math.Pow(link.Soe[i].Z - link.Soe[i - 1].Z, 2));
-                if (owner is not null)
-                    lines.Insert(0, "Rebaixo: " + owner.Label);
-                lines.Add(owner is null ? $"Secao: estaca {N(best.Station)}" : $"Secao: estaca {N(best.Station)}  ({ZoneName(owner, best.Station)})");
-                lines.Add($"Offset: {N(a.Y)} a {N(b.Y)}   largura {width:0.000} m");
-                lines.Add($"Elevacao: {N(a.Z)} a {N(b.Z)}   desnivel {dz * 100:0.0} cm");
-                lines.Add(width > 1e-4 ? $"Inclinacao: {Math.Abs(dz) / width * 100:0.00}%" : "Inclinacao: vertical");
-                lines.Add($"Comprimento do link: {length:0.000} m");
-                if (owners.Any(o => o.Key == face.Key) && CurbOf(best, face.Key) is { } c)
-                    lines.Add($"Altura do meio-fio nesta secao: {(c.Top - c.Flow) * 100:0.0} cm   topo {N(c.Top)}");
-            }
-
-            lines.Add($"Ponto: X {x:0.000}  Y {y:0.000}  elevacao {z:0.000}");
-            _info3D.Text = string.Join("\n", lines);
-            _info3D.Visibility = SW.Visibility.Visible;
+            // A camera nao sai do lugar por causa desta selecao.
+            _focus3D = FocusKey(owner);
+            _keepCamera3D = true;
+            SelectRebaixo(owner);
+            _keepCamera3D = false;
         }
         catch (System.Exception ex)
         {
             Civil3D2026Plugin.Infrastructure.PluginLog.Aviso("MFREBAIXO", "3D: clique nao lido: " + ex.Message);
         }
+    }
+
+    /// <summary>Seleciona um rebaixo no painel (na lista, se ele estiver nela).</summary>
+    private void SelectRebaixo(RebaixoInfo r)
+    {
+        foreach (object o in _list.Items)
+        {
+            if (o is WC.ListViewItem { Tag: Row { Data: RebaixoInfo x } } item && FocusKey(x) == FocusKey(r))
+            {
+                if (!ReferenceEquals(_list.SelectedItem, item))
+                {
+                    _list.SelectedItem = item;
+                    _list.ScrollIntoView(item);
+                }
+
+                return;
+            }
+        }
+
+        _current = r;
+        _secMark = null;
+        BuildTabs();
+        RenderGraphic();
+        HighlightCurrent();
     }
 }

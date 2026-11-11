@@ -46,6 +46,37 @@ internal sealed record ToolTheme(
         }
     }
 
+    /// <summary>
+    /// Grava o tema escolhido (o mesmo arquivo de preferencias do painel viario, chave "tema"),
+    /// mantendo as outras preferencias. Usado pelos paineis que tem o proprio botao de tema.
+    /// </summary>
+    public static void SaveDark(bool dark)
+    {
+        try
+        {
+            string path = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "Civil3D2026Plugin", "viario_painel.txt");
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+            var lines = new System.Collections.Generic.List<string>();
+            if (System.IO.File.Exists(path))
+            {
+                foreach (string line in System.IO.File.ReadAllLines(path))
+                {
+                    if (!line.TrimStart().StartsWith("tema=", StringComparison.OrdinalIgnoreCase))
+                        lines.Add(line);
+                }
+            }
+
+            lines.Add("tema=" + (dark ? "escuro" : "claro"));
+            System.IO.File.WriteAllLines(path, lines);
+        }
+        catch
+        {
+            // Preferencia e conveniencia.
+        }
+    }
+
     public static WM.SolidColorBrush Brush(byte r, byte g, byte b, byte a = 255)
     {
         WM.SolidColorBrush brush = new(WM.Color.FromArgb(a, r, g, b));

@@ -27,7 +27,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 {
     private static MFRebaixoPanel? _instance;
 
-    private readonly ToolTheme T = ToolTheme.Current;
+    private ToolTheme T = ToolTheme.Current;
     private static readonly WM.FontFamily UiFont = new("Arial");
     private static readonly WM.FontFamily MonoFont = new("Consolas");
 
@@ -300,6 +300,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             {
                 _zoom = 1;
                 _panX = _panY = 0;
+                ResetSectionView(true);
                 RenderPlan();
                 return;
             }
@@ -369,8 +370,18 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         return root;
     }
 
+    private void SetTheme(bool dark)
+    {
+        ToolTheme.SaveDark(dark);
+        T = dark ? ToolTheme.Dark : ToolTheme.Light;
+        Content = BuildUi();
+        Refresh();
+    }
+
     private void AddStyles()
     {
+        ToolStyles.Aplicar(Resources, T);
+
         SW.Style header = new(typeof(WC.GridViewColumnHeader));
         header.Setters.Add(new SW.Setter(WC.Control.BackgroundProperty, T.Hover));
         header.Setters.Add(new SW.Setter(WC.Control.ForegroundProperty, T.Text));
@@ -707,6 +718,13 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             button.Click += (_, _) => SelectCategory(cat);
             _categoryBar.Children.Add(button);
         }
+
+        // Tema claro/escuro (o mesmo do painel viario), trocado aqui mesmo.
+        WC.TextBlock theme = Link(T.IsDarkTheme ? "Tema claro" : "Tema escuro", () => SetTheme(!T.IsDarkTheme),
+            "Troca o tema da janela (claro/escuro). Vale tambem para as outras janelas do plugin ao reabrir.");
+        theme.Margin = new SW.Thickness(18, 0, 0, 0);
+        theme.VerticalAlignment = SW.VerticalAlignment.Center;
+        _categoryBar.Children.Add(theme);
     }
 
     private void SelectCategory(string id)
@@ -948,8 +966,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             _viewToggles.Children.Add(Sep());
             _viewToggles.Children.Add(Link("so o trecho", () => Set3DAll(false), "3D so do trecho em volta do rebaixo selecionado (os outros rebaixos do trecho tambem aparecem coloridos)", !_tudo3D));
             _viewToggles.Children.Add(Link("tudo", () => Set3DAll(true), "3D de todos os corredores com todos os rebaixos; clicar num rebaixo da lista leva a vista ate ele", _tudo3D));
-            if (_tudo3D)
-                _viewToggles.Children.Add(Link("enquadrar", FitAll3D, "Mostrar todos os corredores na vista 3D"));
+            _viewToggles.Children.Add(Sep());
+            _viewToggles.Children.Add(Link("enquadrar", FitAll3D, "Mostrar tudo o que esta no 3D"));
+            _viewToggles.Children.Add(Link("ir ao rebaixo", () => { if (_current is RebaixoInfo cur) Focus3D(cur); }, "Leva a vista ate o rebaixo selecionado"));
+            _viewToggles.Children.Add(Link("topo", () => View3D(89), "Olhar de cima"));
+            _viewToggles.Children.Add(Link("frente", () => View3D(6), "Olhar de frente, na altura da pista"));
+            _viewToggles.Children.Add(Link("inclinada", () => View3D(32), "Vista inclinada"));
             _viewToggles.Children.Add(Sep());
             foreach (double ex in new[] { 1.0, 3.0, 10.0 })
             {
@@ -1020,6 +1042,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         ("MARCOS", "Planta", "Marcos S0-S3", "Inicio/fim das rampas e do trecho rebaixado (planta do rebaixo)"),
         ("LEGENDA", "Planta", "Legenda", "Cores da vista"),
         ("ESCALA", "Planta", "Escala grafica", "Barra de escala no canto"),
+        ("GRADE", "Planta", "Grade na secao", "Grade com as elevacoes (esquerda) e o afastamento do eixo (embaixo) na vista Secao"),
         ("ELEVACOES", "Planta", "Elevacoes na secao", "Elevacao do topo do meio-fio, da linha d'agua, da borda da pista e do fundo do meio-fio (vista Secao)"),
         ("RESUMO", "Barra de baixo", "Resumo", "Quantidade de rebaixos / dados do rebaixo selecionado"),
         ("CURSOR", "Barra de baixo", "O que esta sob o cursor", "Rebaixo, corredor ou secao sob o mouse")
@@ -1736,7 +1759,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         if (Mode is "PERFIL" or "SECAO")
         {
-            _coords.Text = Show("CURSOR") ? UnderCursorChart(e.GetPosition(_plan)) : "";
+            SW.Point cp = e.GetPosition(_plan);
+            if (Mode == "SECAO" && _dragFrom is SW.Point df && (e.LeftButton == WI.MouseButtonState.Pressed || e.MiddleButton == WI.MouseButtonState.Pressed))
+            {
+                SectionDrag(cp - df);
+                _dragFrom = cp;
+            }
+
+            _coords.Text = Show("CURSOR") ? UnderCursorChart(cp) : "";
             return;
         }
 
@@ -1839,6 +1869,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
     private void OnPlanWheel(object sender, WI.MouseWheelEventArgs e)
     {
+        if (Mode == "SECAO")
+        {
+            SectionWheel(e);
+            return;
+        }
+
         if (_scale <= 0)
             return;
         SW.Point p = e.GetPosition(_plan);
@@ -2008,6 +2044,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(Prop("Nome no Corridor Transition", r.SetName + (r.HighlightSetName is null ? "" : "  e  " + r.HighlightSetName)));
         p.Children.Add(Prop("Corredor / baseline / region", $"{r.CorridorName} / {r.BaselineName} / {r.RegionName}"));
         p.Children.Add(Prop("Lado / subassembly", $"{r.SideLabel} / {r.SubassemblyName}"));
+        if (RebaixoCenter(r, _model) is Point3d cg)
+            p.Children.Add(Prop("Centro do rebaixo (X, Y, elevacao)", $"{cg.X:0.000}   {cg.Y:0.000}   {cg.Z:0.000}"));
         p.Children.Add(Prop("Rampa de entrada", $"{N(r.S0)} -> {N(r.S1)}  ({N(r.EntryLength, "0.00")} m)"));
         p.Children.Add(Prop("Trecho rebaixado", $"{N(r.S1)} -> {N(r.S2)}  ({N(r.LoweredLength, "0.00")} m)"));
         p.Children.Add(Prop("Rampa de saida", $"{N(r.S2)} -> {N(r.S3)}  ({N(r.ExitLength, "0.00")} m)"));

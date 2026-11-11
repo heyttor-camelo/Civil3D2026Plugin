@@ -1,3 +1,14 @@
+## 2.103.0 - MFREBAIXO v1.13.0 / PassagemRampa v1.6.0: tema escuro no painel, 3D solido e mais facil de mexer, secao com zoom/grade/chamadas moveis
+
+Pedidos do Heyvid de 11/11/2026, testando o 2.102.0 na tela.
+
+- **Tema escuro**: o painel ja seguia o tema do painel viario, mas nao tinha onde trocar. Agora tem o link **Tema escuro / Tema claro** ao lado das categorias (`ToolTheme.SaveDark`, mesma preferencia do viario); a tela e remontada na hora.
+- **3D com solidos**: as pecas passam a ser prismas fechados feitos das shapes calculadas do corredor (`ModelSection.Shapes`, contorno encadeado dos links da shape; tampas por corte de orelhas), no lugar das faces soltas dos links. Links que nao sao borda de shape (calcada, taludes) continuam como face.
+- **3D mais facil de mexer**: botao do meio (ou direito) move no plano da tela, com o ponto agarrado acompanhando o cursor, como o PAN do AutoCAD (antes o arrasto vertical so mexia na elevacao); Shift + botao do meio gira; a roda aproxima **no cursor**; duplo clique centraliza no ponto clicado (no vazio, enquadra); links **enquadrar**, **ir ao rebaixo**, **topo**, **frente** e **inclinada**.
+- **Clique no 3D seleciona o rebaixo inteiro** (nao mais a face): ele acende, vira o selecionado da lista/propriedades e o quadro mostra so o nome e o **centro do rebaixo** (X, Y, elevacao), para identificacao. A ficha longa e as medidas de face sairam. O centro tambem aparece na aba Propriedades.
+- **Vista Secao**: zoom na roda (no cursor) e arrasto; **grade** com a elevacao na esquerda e o afastamento do eixo embaixo (Textos > Grade na secao); pecas preenchidas (meio-fio e sarjeta mais fortes, laranja/vermelho nas rampas e no rebaixo); **cota da altura do meio-fio**; chamadas com o texto completo ("Topo do meio-fio: elevacao 0.257 m") que podem ser **arrastadas** e ficam onde foram deixadas; duplo clique volta a vista e as chamadas.
+- **Perfil**: parte enterrada do meio-fio (da linha d'agua ate a base) na mesma cor, transparente, com a base tracejada; linha d'agua em azul e topo mais grosso.
+
 ## 2.102.0 - MFREBAIXO v1.12.0 / PassagemRampa v1.5.0: 3D com todos os rebaixos, ficha do rebaixo no clique, elevacoes na secao
 
 Pedidos do Heyvid de 10/11/2026 (fim da tarde), testando o 2.101.0.

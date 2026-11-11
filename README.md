@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.5.0)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.6.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -132,6 +132,11 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   altura do meio-fio em cm), **Secao** (secao transversal numa estaca, com a secao normal tracejada por baixo;
   links anterior/proxima) e **3D** (arraste para girar, botao do meio para mover, roda para aproximar, exagero
   de altura 1x/3x/10x; clique numa face mostra peca, codes, estaca, offsets, elevacoes, largura e inclinacao).
+- `MFREBAIXOPAINEL` (v1.13): botao **Tema escuro / Tema claro** no topo; 3D com as pecas **solidas** (shapes do
+  corredor), mover com o botao do meio como no AutoCAD, zoom no cursor, vistas prontas (topo, frente, inclinada);
+  clique num rebaixo no 3D **seleciona o rebaixo** e mostra so o nome e o centro (X, Y, elevacao); vista Secao com
+  zoom, arrasto, grade de elevacao/afastamento, cota da altura do meio-fio e chamadas que podem ser arrastadas;
+  Perfil com a parte enterrada do meio-fio e a linha d'agua em azul.
 - `MFREBAIXOPAINEL` (v1.12): o 3D colore todos os rebaixos do trecho e tem a opcao **tudo** (todos os corredores);
   clicar num rebaixo no 3D mostra a **ficha do rebaixo** (tipo de meio-fio, rampas, inclinacao, alturas e
   coordenadas dos marcos); a aba Secoes leva a vista Secao para a linha clicada; a vista Secao mostra as
