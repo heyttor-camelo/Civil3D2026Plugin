@@ -130,7 +130,7 @@ internal sealed class ModelLink
     public string[] Codes { get; init; } = Array.Empty<string>();
     public Point3d[] Points { get; init; } = Array.Empty<Point3d>();
 
-    /// <summary>Os mesmos pontos em estaca (X), offset (Y) e elevacao (Z) na baseline (perfil, secao e 3D).</summary>
+    /// <summary>Os mesmos pontos em estaca (X), offset (Y) na baseline e elevacao absoluta (Z) (perfil, secao e 3D).</summary>
     public Point3d[] Soe { get; init; } = Array.Empty<Point3d>();
 }
 
@@ -142,7 +142,7 @@ internal sealed class ModelShape
     /// <summary>Contorno em coordenadas do desenho (sem repetir o primeiro ponto).</summary>
     public Point3d[] Points { get; init; } = Array.Empty<Point3d>();
 
-    /// <summary>O mesmo contorno em estaca (X), offset (Y) e elevacao (Z).</summary>
+    /// <summary>O mesmo contorno em estaca (X), offset (Y) e elevacao absoluta (Z).</summary>
     public Point3d[] Soe { get; init; } = Array.Empty<Point3d>();
 }
 
@@ -151,7 +151,7 @@ internal sealed class ModelSection
     public double Station { get; init; }
     public List<(long Key, List<ModelLink> Links)> Subassemblies { get; } = new();
 
-    /// <summary>Origem de cada subassembly na secao, em estaca (X), offset (Y) e elevacao (Z).</summary>
+    /// <summary>Origem de cada subassembly na secao, em estaca (X), offset (Y) e elevacao absoluta (Z).</summary>
     public Dictionary<long, Point3d> Origins { get; } = new();
 
     /// <summary>Codes das shapes de cada subassembly na secao (ex. MF_T30: tipo do meio-fio do MFSARJETA).</summary>
@@ -574,12 +574,17 @@ internal static class MFRebaixoData
         return null;
     }
 
+    /// <summary>
+    /// Estaca/offset/elevacao da baseline para X, Y e elevacao ABSOLUTA do desenho. A elevacao dos
+    /// pontos do corredor (StationOffsetElevationToBaseline.Z) e relativa ao perfil da baseline; o Z
+    /// devolvido aqui ja soma o perfil (igual ao CalculatedPoint.XYZ). Antes o Z era trocado pela
+    /// elevacao relativa e o painel mostrava -0,1 / 0,2 num projeto na elevacao 949 (teste de 11/11/2026).
+    /// </summary>
     private static Point3d Xyz(CivilDb.Baseline baseline, double station, double offset, double elevation)
     {
         try
         {
-            Point3d p = baseline.StationOffsetElevationToXYZ(new Point3d(station, offset, elevation));
-            return new Point3d(p.X, p.Y, elevation);
+            return baseline.StationOffsetElevationToXYZ(new Point3d(station, offset, elevation));
         }
         catch
         {
@@ -726,7 +731,7 @@ internal static class MFRebaixoData
                             {
                                 pts.Add(w);
                                 if (!planOnly)
-                                    soes.Add(soe);
+                                    soes.Add(new Point3d(soe.X, soe.Y, w.Z));
                             }
                         }
                     }
@@ -735,7 +740,10 @@ internal static class MFRebaixoData
                 section.Subassemblies.Add((asa.SubassemblyId.Handle.Value, links));
                 try
                 {
-                    section.Origins[asa.SubassemblyId.Handle.Value] = asa.OriginStationOffsetElevationToBaseline;
+                    Point3d o = asa.OriginStationOffsetElevationToBaseline;
+                    Point3d ow = Xyz(baseline, o.X, o.Y, o.Z);
+                    if (ow != Point3d.Origin)
+                        section.Origins[asa.SubassemblyId.Handle.Value] = new Point3d(o.X, o.Y, ow.Z);
                 }
                 catch
                 {
@@ -777,7 +785,7 @@ internal static class MFRebaixoData
                             Point3d[] world = loop.Select(q => Xyz(baseline, q.X, q.Y, q.Z)).ToArray();
                             if (world.Any(q => q == Point3d.Origin))
                                 continue;
-                            shapes.Add(new ModelShape { Codes = own.ToArray(), Points = world, Soe = loop.ToArray() });
+                            shapes.Add(new ModelShape { Codes = own.ToArray(), Points = world, Soe = loop.Select((q, i) => new Point3d(q.X, q.Y, world[i].Z)).ToArray() });
                         }
 
                         section.ShapeCodes[asa.SubassemblyId.Handle.Value] = shapeCodes.ToArray();

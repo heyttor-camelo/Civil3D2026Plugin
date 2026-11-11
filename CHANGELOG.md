@@ -1,3 +1,10 @@
+## 2.103.2 - MFREBAIXO v1.13.2 / PassagemRampa v1.6.2: elevacao absoluta no painel, cota da sarjeta abaixo da peca
+
+Conferido no DWG da Waldir Soeiro (copia, 11/11/2026).
+
+- **Elevacao errada (-0,094 no R01, 0,220 no R02)**: a elevacao dos pontos do corredor (`StationOffsetElevationToBaseline.Z`) e **relativa ao perfil da baseline**, e o painel jogava fora a parte do perfil. Agora o modelo do painel guarda a elevacao absoluta (perfil + relativa, igual ao `CalculatedPoint.XYZ`): centro do rebaixo, grade e cursor da Secao, Perfil e 3D. R01: 949,605 (feature line TOPO_GUIA do corredor 949,602; superficie TOPO 949,604). R02: 949,962 (TOPO_GUIA 949,947 no meio).
+- **Secao**: a cota da sarjeta passa abaixo do ponto mais baixo da sarjeta/base (cortava a base na rampa e no trecho rebaixado); rotulos da grade nao encostam mais no cabecalho.
+
 ## 2.103.1 - MFREBAIXO v1.13.1 / PassagemRampa v1.6.1: cotas na secao, ficha do rebaixo de volta no 3D
 
 Retorno do Heyvid em 11/11/2026 sobre o 2.103.0.

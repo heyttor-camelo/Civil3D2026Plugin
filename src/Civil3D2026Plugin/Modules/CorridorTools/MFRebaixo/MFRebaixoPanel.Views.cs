@@ -674,7 +674,8 @@ internal sealed partial class MFRebaixoPanel
                 if (y < 0 || y > h)
                     continue;
                 ChartLine(0, y, w, y, gridBrush, 1);
-                if (y > SecTop && y < h - 22)
+                // O texto fica 13 px acima da linha: so abaixo das duas linhas do cabecalho.
+                if (y > SecTop + 10 && y < h - 22)
                     PlanLabel(N(Math.Abs(el) < gridStep * 1e-6 ? 0 : el, fmt), 4, y - 13, 10, gridText);
             }
         }
@@ -853,7 +854,20 @@ internal sealed partial class MFRebaixoPanel
             if (gutter > 0.02)
             {
                 double drop = c.Origin.Z - marks.Flow.Z;
-                HDim("SARJETA", Math.Max(pEdge.Y, pFlow.Y) + 46, pEdge, pFlow,
+                // Linha da cota abaixo de tudo o que a peca tem entre a borda da pista e a linha d'agua
+                // (sarjeta e base): com 46 px fixos ela cortava a base na rampa (teste de 11/11/2026).
+                double ua = Math.Min(0, marks.Flow.Y - c.Origin.Y) - 0.005, ub = Math.Max(0, marks.Flow.Y - c.Origin.Y) + 0.005;
+                double low = Math.Max(pEdge.Y, pFlow.Y);
+                IEnumerable<Point3d> own = curLinks.Where(x => x.Mf).SelectMany(x => x.Link.Soe)
+                    .Concat(cur.Shapes.TryGetValue(key, out List<ModelShape>? ownShapes) ? ownShapes.SelectMany(sh => sh.Soe) : Enumerable.Empty<Point3d>());
+                foreach (Point3d q in own)
+                {
+                    double u = q.Y - c.Origin.Y;
+                    if (u >= ua && u <= ub)
+                        low = Math.Max(low, P(u, q.Z - c.Origin.Z).Y);
+                }
+
+                HDim("SARJETA", low + 16, pEdge, pFlow,
                     $"sarjeta {gutter * 100:0.0} cm   caimento {drop / gutter * 100:0.0}% ({drop * 100:0.0} cm)", 1);
             }
         }
