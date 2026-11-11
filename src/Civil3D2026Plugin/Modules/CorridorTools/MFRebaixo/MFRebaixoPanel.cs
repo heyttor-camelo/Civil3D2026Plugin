@@ -866,8 +866,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 break;
 
             case "TRAVESSIAS":
-                headers = new[] { "Travessia", "Tipo", "Altura", "Plataforma", "Rampas", "Tampa", "Volume", "Uniao" };
-                widths = new[] { 190.0, 90, 70, 75, 65, 60, 70, 100 };
+                headers = new[] { "Travessia", "Tipo", "Altura", "Plataforma", "Rampas", "Sarjeta", "Volume", "Uniao" };
+                widths = new[] { 190.0, 90, 70, 75, 65, 95, 70, 100 };
                 rows = TravRows(s => Match(s));
                 break;
 

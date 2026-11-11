@@ -46,6 +46,31 @@ internal sealed class TravessiaParams
     /// <summary>Superficie de topo escolhida pelo usuario (nome); vazio = a de topo do corredor.</summary>
     public string Superficie { get; set; } = "";
 
+    /// <summary>Cobertura da sarjeta na plataforma: 0 grelha metalica (padrao), 1 tampa de concreto. Tampa=false: nenhuma.</summary>
+    public int Cobertura { get; set; }
+
+    public double GrelhaEspessura { get; set; } = 0.03;
+
+    /// <summary>Vigas baldrame transversais nas duas pontas da lombofaixa (ancoragem no pavimento).</summary>
+    public bool Vigas { get; set; } = true;
+
+    public double VigaLargura { get; set; } = 0.15;
+
+    public double VigaAltura { get; set; } = 0.30;
+
+    /// <summary>Fracao da altura da viga abaixo do pavimento (0,5 = metade enterrada).</summary>
+    public double VigaEnterrada { get; set; } = 0.5;
+
+    /// <summary>Distancia do pe da rampa ate a face de fora da viga (0 = no pe da rampa).</summary>
+    public double VigaRecuo { get; set; }
+
+    public bool Grelha => Tampa && Cobertura == 0;
+
+    /// <summary>Espessura da cobertura da sarjeta (grelha ou concreto).</summary>
+    public double LidThickness => Cobertura == 0 ? GrelhaEspessura : TampaEspessura;
+
+    public string CoberturaTexto => !Tampa ? "sem cobertura" : Cobertura == 0 ? $"grelha metalica de {MFTravessia.Cm(GrelhaEspessura)}" : $"tampa de concreto de {MFTravessia.Cm(TampaEspessura)}";
+
     public string TipoTexto => Tipo == TravessiaTipo.Elevada ? "elevada" : "semi-elevada";
 }
 
@@ -97,6 +122,9 @@ internal sealed class TravessiaGeometry
     public Point3d[,] Bottom { get; init; } = new Point3d[0, 0];
 
     public List<(Point3d[,] Top, Point3d[,] Bottom, bool SideA)> Lids { get; } = new();
+
+    /// <summary>Vigas baldrame: grades de topo/base, ponta (-1/+1), comprimento, parte enterrada e parte dentro da lombofaixa (min/max).</summary>
+    public List<(Point3d[,] Top, Point3d[,] Bottom, int Sign, double Length, double Buried, double InsideMin, double InsideMax)> Beams { get; } = new();
 
     public List<Point3d> EdgeA { get; } = new();
     public List<Point3d> EdgeB { get; } = new();
@@ -530,10 +558,18 @@ internal static partial class MFTravessia
             throw new InvalidOperationException($"Nao deu para ler o meio-fio de {a.Label} no corredor (Rebuild no corredor e tente de novo).");
         if (b.Samples.Count < 2)
             throw new InvalidOperationException($"Nao deu para ler o meio-fio de {b.Label} no corredor (Rebuild no corredor e tente de novo).");
-        if (p.Plataforma < 1.0)
-            throw new InvalidOperationException("A plataforma tem que ter pelo menos 1 m.");
-        if (p.Rampa < 0.10)
-            throw new InvalidOperationException("A rampa tem que ter pelo menos 0,10 m.");
+        // Sem recusas (pedido do Heyvid): so o minimo para o solido fechar, com aviso.
+        var early = new List<string>();
+        if (p.Plataforma < 0.10)
+        {
+            early.Add($"AVISO: plataforma de {N(p.Plataforma)} m e pequena demais para o solido; usada 0,10 m.");
+            p.Plataforma = 0.10;
+        }
+        if (p.Rampa < 0.01)
+        {
+            early.Add($"AVISO: rampa de {N(p.Rampa)} m; usada 0,01 m (degrau).");
+            p.Rampa = 0.01;
+        }
 
         CurbSample ca = At(a.Samples, a.Station);
         CurbSample cb = At(b.Samples, b.Station);
@@ -551,10 +587,12 @@ internal static partial class MFTravessia
         Vector3d ab = Flat(cb.Edge - ca.Edge);
         if (across.DotProduct(ab) < 0)
             across = across.Negate();
+        if (ab.Length < 0.05)
+            throw new InvalidOperationException($"{a.Label} e {b.Label} estao no mesmo lugar: nao ha largura para o plato.");
         if (ab.Length < 1.0)
-            throw new InvalidOperationException($"{a.Label} e {b.Label} estao a menos de 1 m um do outro: escolha rebaixos dos dois lados da rua.");
+            early.Add($"AVISO: {a.Label} e {b.Label} estao a {N(ab.Length)} m um do outro.");
         if (Math.Abs(ab.GetNormal().DotProduct(across)) < 0.5)
-            throw new InvalidOperationException($"{a.Label} e {b.Label} nao estao um de frente para o outro (ficam no mesmo lado da pista?).");
+            early.Add($"AVISO: {a.Label} e {b.Label} nao estao bem um de frente para o outro (mesmo lado da pista?): o plato sai torto.");
 
         Point3d origin = new((ca.Edge.X + cb.Edge.X) / 2.0, (ca.Edge.Y + cb.Edge.Y) / 2.0, 0);
         double half = p.Plataforma / 2.0;
@@ -579,10 +617,10 @@ internal static partial class MFTravessia
             // Depois da curva da esquina (boca da rua transversal) a borda e o prolongamento do
             // alinhamento do meio-fio: a rampa nao invade a transversal alem dele.
             Point3d pa = Cross(lineA, basePt, across)
-                ?? (a.CurveSplice ? Alignment(a, basePt, across, ref mouth) : null)
+                ?? Alignment(a, basePt, across, ref mouth)
                 ?? throw new InvalidOperationException(OutOfCurb(a, total));
             Point3d pb = Cross(lineB, basePt, across)
-                ?? (b.CurveSplice ? Alignment(b, basePt, across, ref mouth) : null)
+                ?? Alignment(b, basePt, across, ref mouth)
                 ?? throw new InvalidOperationException(OutOfCurb(b, total));
             ea.Add(pa);
             eb.Add(pb);
@@ -597,8 +635,10 @@ internal static partial class MFTravessia
         double ha, hb;
         if (p.Tipo == TravessiaTipo.Elevada)
         {
-            double na = normalA ?? a.NormalExposed ?? throw new InvalidOperationException($"Nao deu para ler a altura do meio-fio de {a.Label}.");
-            double nb = normalB ?? b.NormalExposed ?? throw new InvalidOperationException($"Nao deu para ler a altura do meio-fio de {b.Label}.");
+            double na = normalA ?? a.NormalExposed ?? p.Altura;
+            double nb = normalB ?? b.NormalExposed ?? p.Altura;
+            if ((normalA ?? a.NormalExposed) is null || (normalB ?? b.NormalExposed) is null)
+                early.Add($"AVISO: altura do meio-fio nao lida; usada a altura {Cm(p.Altura)}.");
             ha = fa0.Z + na - ea0.Z;
             hb = fb0.Z + nb - eb0.Z;
         }
@@ -606,8 +646,12 @@ internal static partial class MFTravessia
         {
             ha = hb = p.Altura;
         }
-        if (ha < 0.02 || hb < 0.02)
-            throw new InvalidOperationException($"Altura do plato muito baixa ({Cm(Math.Min(ha, hb))}).");
+        if (ha < 0.005 || hb < 0.005)
+        {
+            early.Add($"AVISO: altura do plato muito baixa ({Cm(Math.Min(ha, hb))}); usado 0,5 cm.");
+            ha = Math.Max(ha, 0.005);
+            hb = Math.Max(hb, 0.005);
+        }
 
         int cols = Math.Max(3, (int)Math.Ceiling(Dist2d(ea0, eb0) / Step) + 1);
         var top = new Point3d[rows.Count, cols];
@@ -664,6 +708,7 @@ internal static partial class MFTravessia
                 ? $"pista pela superficie do corredor ({fromSurface} pontos; maior diferenca para a reta entre as bordas {Cm(maxDev)})"
                 : "pista em linha reta entre as bordas (sem superficie do corredor no local)"
         };
+        result.Notes.AddRange(early);
         result.Rows.AddRange(rows);
         result.EdgeA.AddRange(ea);
         result.EdgeB.AddRange(eb);
@@ -682,6 +727,11 @@ internal static partial class MFTravessia
             AddLid(result, rows, ea, fa, ha, p, half, true, a.Label);
             AddLid(result, rows, eb, fb, hb, p, half, false, b.Label);
         }
+        if (p.Vigas)
+        {
+            AddBeam(result, p, -1);
+            AddBeam(result, p, 1);
+        }
 
         return result;
     }
@@ -695,7 +745,7 @@ internal static partial class MFTravessia
         double width = idx.Average(i => Dist2d(edge[i], foot[i]));
         if (width < 0.05)
         {
-            geo.Notes.Add($"{label}: sem sarjeta lida entre a pista e o meio-fio; tampa nao desenhada.");
+            geo.Notes.Add($"{label}: sem sarjeta lida entre a pista e o meio-fio; cobertura da sarjeta nao desenhada.");
             return;
         }
         var top = new Point3d[idx.Count, 2];
@@ -705,7 +755,7 @@ internal static partial class MFTravessia
         {
             int i = idx[k];
             double z = edge[i].Z + height;
-            double zb = z - p.TampaEspessura;
+            double zb = z - p.LidThickness;
             top[k, 0] = new Point3d(edge[i].X, edge[i].Y, z);
             top[k, 1] = new Point3d(foot[i].X, foot[i].Y, z);
             bottom[k, 0] = new Point3d(edge[i].X, edge[i].Y, zb);
@@ -714,9 +764,9 @@ internal static partial class MFTravessia
         }
         geo.Lids.Add((top, bottom, sideA));
         if (minGap < 0.05)
-            geo.Notes.Add($"{label}: so {Cm(minGap)} livres entre a tampa ({Cm(p.TampaEspessura)} de espessura) e o fundo da sarjeta.");
+            geo.Notes.Add($"{label}: so {Cm(minGap)} livres entre a {(p.Grelha ? "grelha" : "tampa")} ({Cm(p.LidThickness)} de espessura) e o fundo da sarjeta.");
         else
-            geo.Notes.Add($"{label}: tampa de {N(width)} m de largura, {Cm(minGap)} livres para a agua no pe do meio-fio.");
+            geo.Notes.Add($"{label}: {(p.Grelha ? "grelha" : "tampa")} de {N(width)} m de largura, {Cm(minGap)} livres para a agua no pe do meio-fio.");
     }
 
     /// <summary>
@@ -740,7 +790,7 @@ internal static partial class MFTravessia
             return null;
         double rx = p0.X - basePt.X, ry = p0.Y - basePt.Y;
         double w = ((across.X * ry) - (across.Y * rx)) / den;
-        if (w < -0.05 || w > 10.0)
+        if (w < -0.05 || w > 50.0)
             return null;
         count++;
         return new Point3d(p0.X + (e.X * w), p0.Y + (e.Y * w), p0.Z);
@@ -750,6 +800,69 @@ internal static partial class MFTravessia
         $"A travessia ({N(2 * total)} m com as rampas, estacas {N(s.Station - total)} a {N(s.Station + total)}) passa do meio-fio que existe no corredor em {s.Label} " +
         $"(lido de {N(s.Samples[0].Station)} a {N(s.Samples[^1].Station)}, ja procurando o meio-fio das baselines vizinhas; se ali o meio-fio vira a esquina, a travessia nao passa). Diminua a plataforma/rampas, leve os rebaixos para mais longe da esquina ou, num cruzamento, una as travessias (MFTRAVESSIAUNIR).";
 
+    /// <summary>
+    /// Viga baldrame transversal numa ponta da lombofaixa (sign -1/+1), de borda a borda da pista:
+    /// face de fora no pe da rampa (mais o recuo), parte enterrada fixa abaixo da superficie e a
+    /// parte de cima ate onde a lombofaixa deixa, ponto a ponto (nunca passa do topo).
+    /// </summary>
+    private static void AddBeam(TravessiaGeometry g, TravessiaParams p, int sign)
+    {
+        double outer = Math.Max(-g.Total, g.Total - Math.Max(0, p.VigaRecuo));
+        double inner = Math.Max(-g.Total, outer - Math.Max(0.01, p.VigaLargura));
+        if (outer - inner < 0.01)
+        {
+            g.Notes.Add("AVISO: sem espaco para a viga baldrame (recuo maior que a travessia).");
+            return;
+        }
+        double buried = Math.Max(0.0, p.VigaAltura * Math.Clamp(p.VigaEnterrada, 0, 1));
+        double up = Math.Max(0.0, p.VigaAltura - buried);
+        if (buried < 0.005 && up < 0.005)
+            return;
+        int nt = Math.Max(2, (int)Math.Ceiling((outer - inner) / 0.05) + 1);
+        int cols = g.Top.GetLength(1);
+        var top = new Point3d[nt, cols];
+        var bottom = new Point3d[nt, cols];
+        double inMin = double.MaxValue, inMax = 0;
+        for (int i = 0; i < nt; i++)
+        {
+            double t = sign * (inner + ((outer - inner) * i / (nt - 1)));
+            Point3d ea = RowAt(g, g.EdgeA, t), eb = RowAt(g, g.EdgeB, t);
+            for (int j = 0; j < cols; j++)
+            {
+                double w = j / (double)(cols - 1);
+                var q = new Point3d(ea.X + ((eb.X - ea.X) * w), ea.Y + ((eb.Y - ea.Y) * w), 0);
+                double surf = GridAt(g, g.Bottom, q);
+                double lid = GridAt(g, g.Top, q);
+                double zt = Math.Max(surf, Math.Min(surf + up, lid));
+                inMin = Math.Min(inMin, zt - surf);
+                inMax = Math.Max(inMax, zt - surf);
+                top[i, j] = new Point3d(q.X, q.Y, Math.Max(zt, surf - buried + 0.005));
+                bottom[i, j] = new Point3d(q.X, q.Y, surf - buried);
+            }
+        }
+        double tm = sign * ((inner + outer) / 2.0);
+        double length = Dist2d(RowAt(g, g.EdgeA, tm), RowAt(g, g.EdgeB, tm));
+        g.Beams.Add((top, bottom, sign, length, buried, inMin, inMax));
+        if (inMax < up - 0.005)
+            g.Notes.Add($"viga baldrame {(sign < 0 ? "de tras" : "da frente")}: {Cm(buried)} enterrada e de {Cm(inMin)} a {Cm(inMax)} dentro da lombofaixa (pediu {Cm(up)}; a lombofaixa ali nao tem mais que isso).");
+    }
+
+    /// <summary>Ponto da linha (borda A ou B) na posicao t do sentido dos carros, interpolado entre as linhas da grade.</summary>
+    private static Point3d RowAt(TravessiaGeometry g, List<Point3d> line, double t)
+    {
+        List<double> rows = g.Rows;
+        if (t <= rows[0])
+            return line[0];
+        for (int i = 0; i + 1 < rows.Count; i++)
+        {
+            if (t <= rows[i + 1])
+            {
+                double f = (t - rows[i]) / Math.Max(1e-9, rows[i + 1] - rows[i]);
+                return Lerp(line[i], line[i + 1], f);
+            }
+        }
+        return line[^1];
+    }
     private static List<double> Stations(double from, double to)
     {
         int n = Math.Max(1, (int)Math.Ceiling((to - from) / Step - 1e-9));
@@ -855,14 +968,23 @@ internal static partial class MFTravessia
         int count = 0;
         string layer = string.IsNullOrWhiteSpace(settings.TravessiaLayer) ? "MF-TRAVESSIA" : settings.TravessiaLayer.Trim();
         string layer3d = layer + "-3D", layerSign = layer + "-SINALIZACAO", layerLid = layer + "-TAMPA";
+        string layerGrid = layer + "-GRELHA", layerBeam = layer + "-VIGA";
+        TravessiaParams p = data.Params;
+        string lidLayer = p.Grelha ? layerGrid : layerLid, lidPart = p.Grelha ? "GRELHA" : "TAMPA";
+        var info = new Dictionary<string, Dictionary<string, object>>(StringComparer.OrdinalIgnoreCase);
 
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
-        Erase(tr, db, data.Id);
+        // Editar sem recriar (pedido do Heyvid): as pecas antigas ficam ate o fim; cada peca nova
+        // assume o handle da antiga da mesma parte (SwapIdWith), como no C3DSOLIDLIGAR.
+        Dictionary<string, List<AcadDb.ObjectId>> old = PartsOf(tr, db, data.Id);
+        var oldSet = new HashSet<AcadDb.ObjectId>(old.Values.SelectMany(x => x));
         EnsureRegApp(tr, db);
         EnsureLayer(tr, db, layer, 8, "Travessias elevadas/semi-elevadas entre rebaixos (planta)");
         EnsureLayer(tr, db, layer3d, 8, "Travessias entre rebaixos: solidos do plato");
         EnsureLayer(tr, db, layerSign, 7, "Travessias entre rebaixos: faixa e triangulos (branco)");
-        EnsureLayer(tr, db, layerLid, 40, "Travessias entre rebaixos: tampa de concreto sobre a sarjeta");
+        EnsureLayer(tr, db, lidLayer, p.Grelha ? (short)252 : (short)40, p.Grelha ? "Travessias entre rebaixos: grelha metalica sobre a sarjeta" : "Travessias entre rebaixos: tampa de concreto sobre a sarjeta");
+        if (p.Vigas && g.Beams.Count > 0)
+            EnsureLayer(tr, db, layerBeam, 30, "Travessias entre rebaixos: vigas baldrame nas pontas da lombofaixa");
 
         var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
         var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
@@ -880,25 +1002,62 @@ internal static partial class MFTravessia
             plato.XData = PlatoXData(data);
             count++;
             notes.Add("plato: " + mode);
-            if (plato is AcadDb.Solid3d solid)
-            {
-                if (!TryPropertySet(tr, db, solid, PropertyValues(data, g, "Plato da travessia " + data.Params.TipoTexto), out string psMsg))
-                    notes.Add("Property Set nao gravado: " + psMsg);
-            }
+            info[PartPlato] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Objeto"] = "Plato da travessia " + p.TipoTexto, ["Material"] = "Concreto" };
         }
 
-        // Tampas.
+        // Cobertura da sarjeta: grelha metalica (padrao) ou tampa de concreto.
         foreach ((Point3d[,] top, Point3d[,] bottom, bool sideA) in g.Lids)
         {
-            AcadDb.Entity? lid = MeshSolid(tr, ms, top, bottom, layerLid, out string lidMode);
+            AcadDb.Entity? lid = MeshSolid(tr, ms, top, bottom, lidLayer, out string lidMode);
             if (lid is null)
                 continue;
-            lid.XData = PartXData(data.Id, sideA ? "TAMPA_A" : "TAMPA_B");
+            string part = lidPart + (sideA ? "_A" : "_B");
+            lid.XData = PartXData(data.Id, part);
             count++;
-            if (lid is AcadDb.Solid3d ls)
-                TryPropertySet(tr, db, ls, PropertyValues(data, g, "Tampa de concreto sobre a sarjeta"), out _);
+            double lenL = 0, widL = 0;
+            int rowsL = top.GetLength(0);
+            for (int k = 0; k < rowsL; k++)
+            {
+                widL += Dist2d(top[k, 0], top[k, 1]) / rowsL;
+                if (k + 1 < rowsL)
+                    lenL += Dist2d(top[k, 0], top[k + 1, 0]);
+            }
+            info[part] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Objeto"] = p.Grelha ? "Grelha metalica sobre a sarjeta" : "Tampa de concreto sobre a sarjeta",
+                ["Material"] = p.Grelha ? "Grelha metalica" : "Concreto",
+                ["Comprimento"] = Math.Round(lenL, 3),
+                ["Largura"] = Math.Round(widL, 3),
+                ["Altura_Espessura"] = Math.Round(p.LidThickness, 3),
+                ["Area"] = Math.Round(lenL * widL, 3),
+                ["Quantidade"] = 1
+            };
             if (lidMode.Length > 0 && !lidMode.StartsWith("solido", StringComparison.Ordinal))
-                notes.Add("tampa: " + lidMode);
+                notes.Add(lidPart.ToLowerInvariant() + ": " + lidMode);
+        }
+
+        // Vigas baldrame nas duas pontas.
+        foreach ((Point3d[,] top, Point3d[,] bottom, int sign, double length, double buried, double inMin, double inMax) in g.Beams)
+        {
+            if (outer != 0 && sign != outer)
+                continue; // na uniao, so a ponta de fora
+            AcadDb.Entity? beam = MeshSolid(tr, ms, top, bottom, layerBeam, out string beamMode);
+            if (beam is null)
+                continue;
+            string part = sign < 0 ? "VIGA_A" : "VIGA_B";
+            beam.XData = PartXData(data.Id, part);
+            count++;
+            info[part] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Objeto"] = "Viga baldrame " + (sign < 0 ? "(ponta de tras)" : "(ponta da frente)"),
+                ["Material"] = "Concreto",
+                ["Comprimento"] = Math.Round(length, 3),
+                ["Largura"] = Math.Round(p.VigaLargura, 3),
+                ["Altura_Espessura"] = Math.Round(buried + inMax, 3),
+                ["Area"] = Math.Round(length * p.VigaLargura, 3),
+                ["Quantidade"] = 1
+            };
+            notes.Add($"viga {(sign < 0 ? "de tras" : "da frente")}: {N(length)} m, {Cm(p.VigaLargura)} x {Cm(buried + inMax)} ({Cm(buried)} enterrada, ate {Cm(inMax)} dentro da lombofaixa)" + (beamMode.StartsWith("solido", StringComparison.Ordinal) ? "" : "; " + beamMode));
         }
 
         // Planta: plato e rampas.
@@ -919,7 +1078,7 @@ internal static partial class MFTravessia
             foreach (bool sideA in g.Lids.Select(l => l.SideA))
             {
                 List<Point3d> e = sideA ? g.EdgeA : g.EdgeB, f = sideA ? g.FootA : g.FootB;
-                count += Hatch(tr, db, ms, Band(e, f, plat), layerLid, "ANSI37", 0.03, Angle(g.Along), 256, data.Id, "PLANTA_TAMPA", hatches);
+                count += Hatch(tr, db, ms, Band(e, f, plat), lidLayer, "ANSI37", 0.03, Angle(g.Along), 256, data.Id, "PLANTA_" + lidPart, hatches);
             }
         }
 
@@ -970,13 +1129,54 @@ internal static partial class MFTravessia
             }
         }
 
+        // Pecas novas assumem os handles das antigas; o que sobrar das antigas sai.
+        (int reused, int erased) = Reuse(tr, db, data.Id, old, oldSet);
+        if (reused > 0 || erased > 0)
+            notes.Add($"editada no lugar: {reused} peca(s) mantiveram o handle, {erased} sairam");
+
+        // Property Sets nas pecas finais (depois da troca: o Property Set antigo fica e e atualizado).
+        foreach ((string part, List<AcadDb.ObjectId> ids) in PartsOf(tr, db, data.Id))
+        {
+            if (!info.TryGetValue(part, out Dictionary<string, object>? extra))
+                continue;
+            foreach (AcadDb.ObjectId oid in ids)
+            {
+                if (tr.GetObject(oid, AcadDb.OpenMode.ForWrite) is not AcadDb.Solid3d s3)
+                    continue;
+                Dictionary<string, object> values = PropertyValues(data, g, (string)extra["Objeto"]);
+                foreach ((string k, object v) in extra)
+                    values[k] = v;
+                try
+                {
+                    values["Volume"] = Math.Round(s3.MassProperties.Volume, 4);
+                }
+                catch
+                {
+                    // Sem volume.
+                }
+                if (!TryPropertySet(tr, db, s3, values, out string psMsg))
+                    notes.Add($"Property Set de {part} nao gravado: " + psMsg);
+            }
+        }
+
         try
         {
             var order = (AcadDb.DrawOrderTable)tr.GetObject(ms.DrawOrderTableId, AcadDb.OpenMode.ForWrite);
-            if (hatches.Count > 0)
-                order.MoveToTop(hatches);
-            if (signs.Count > 0)
-                order.MoveToTop(signs);
+            var hatchIds = new AcadDb.ObjectIdCollection();
+            var signIds = new AcadDb.ObjectIdCollection();
+            foreach ((string part, List<AcadDb.ObjectId> ids) in PartsOf(tr, db, data.Id))
+            {
+                foreach (AcadDb.ObjectId oid in ids)
+                {
+                    if (!oid.ObjectClass.IsDerivedFrom(RXObject.GetClass(typeof(AcadDb.Hatch))))
+                        continue;
+                    (part is "FAIXA" or "TRIANGULO" ? signIds : hatchIds).Add(oid);
+                }
+            }
+            if (hatchIds.Count > 0)
+                order.MoveToTop(hatchIds);
+            if (signIds.Count > 0)
+                order.MoveToTop(signIds);
         }
         catch (System.Exception ex)
         {
@@ -985,6 +1185,72 @@ internal static partial class MFTravessia
 
         tr.Commit();
         return (count, notes);
+    }
+
+    /// <summary>Pecas da travessia/uniao no desenho por parte, na ordem do Model Space.</summary>
+    private static Dictionary<string, List<AcadDb.ObjectId>> PartsOf(AcadDb.Transaction tr, AcadDb.Database db, string id)
+    {
+        var map = new Dictionary<string, List<AcadDb.ObjectId>>(StringComparer.Ordinal);
+        var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId oid in ms)
+        {
+            if (oid.IsErased || tr.GetObject(oid, AcadDb.OpenMode.ForRead) is not AcadDb.Entity e || PartOf(e) is not { } part || part.Id != id)
+                continue;
+            if (!map.TryGetValue(part.Part, out List<AcadDb.ObjectId>? list))
+                map[part.Part] = list = new List<AcadDb.ObjectId>();
+            list.Add(oid);
+        }
+        return map;
+    }
+
+    /// <summary>
+    /// Cada peca nova (fora de <paramref name="oldSet"/>) assume o ObjectId/handle e o Property Set da
+    /// antiga da mesma parte e do mesmo tipo (SwapIdWith, XData nova fica); antigas que sobram saem.
+    /// </summary>
+    private static (int Reused, int Erased) Reuse(AcadDb.Transaction tr, AcadDb.Database db, string id,
+        Dictionary<string, List<AcadDb.ObjectId>> old, HashSet<AcadDb.ObjectId> oldSet)
+    {
+        int reused = 0, erased = 0;
+        var used = new HashSet<AcadDb.ObjectId>();
+        foreach ((string part, List<AcadDb.ObjectId> ids) in PartsOf(tr, db, id))
+        {
+            List<AcadDb.ObjectId> fresh = ids.Where(x => !oldSet.Contains(x)).ToList();
+            List<AcadDb.ObjectId> prev = old.TryGetValue(part, out List<AcadDb.ObjectId>? o) ? o : new List<AcadDb.ObjectId>();
+            for (int k = 0; k < fresh.Count && k < prev.Count; k++)
+            {
+                try
+                {
+                    var ne = (AcadDb.Entity)tr.GetObject(fresh[k], AcadDb.OpenMode.ForWrite);
+                    var oe = (AcadDb.Entity)tr.GetObject(prev[k], AcadDb.OpenMode.ForWrite);
+                    if (ne.GetType() != oe.GetType())
+                        continue;
+                    ne.SwapIdWith(oe.ObjectId, false, true);
+                    oe.Erase();
+                    used.Add(prev[k]);
+                    reused++;
+                }
+                catch (System.Exception ex)
+                {
+                    PluginLog.Aviso("MFTRAVESSIA", $"Peca {part} da travessia {id} nao manteve o handle: {ex.Message}");
+                }
+            }
+        }
+        foreach (AcadDb.ObjectId oid in oldSet)
+        {
+            if (used.Contains(oid) || oid.IsErased)
+                continue;
+            try
+            {
+                tr.GetObject(oid, AcadDb.OpenMode.ForWrite).Erase();
+                erased++;
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Aviso("MFTRAVESSIA", $"Peca antiga da travessia {id} nao apagada (layer trancada?): {ex.Message}");
+            }
+        }
+        return (reused, erased);
     }
 
     // Espessura da pintura (faixa e triangulos) em solido, por cima do plato.
@@ -1021,7 +1287,10 @@ internal static partial class MFTravessia
     }
 
     /// <summary>Elevacao do topo do plato no ponto (interpolada na grade do plato).</summary>
-    private static double TopAt(TravessiaGeometry g, Point3d p)
+    private static double TopAt(TravessiaGeometry g, Point3d p) => GridAt(g, g.Top, p);
+
+    /// <summary>Elevacao interpolada numa grade da travessia (topo ou base/superficie) no ponto.</summary>
+    private static double GridAt(TravessiaGeometry g, Point3d[,] grid, Point3d p)
     {
         int rows = g.Rows.Count, cols = g.Top.GetLength(1);
         double t = (p - g.Origin).DotProduct(g.Along);
@@ -1035,7 +1304,7 @@ internal static partial class MFTravessia
             double w = Math.Clamp((((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / Math.Max(1e-9, (dx * dx) + (dy * dy)), 0, 1) * (cols - 1);
             int c = Math.Min(cols - 2, (int)Math.Floor(w));
             double u = w - c;
-            return g.Top[r, c].Z + ((g.Top[r, c + 1].Z - g.Top[r, c].Z) * u);
+            return grid[r, c].Z + ((grid[r, c + 1].Z - grid[r, c].Z) * u);
         }
         double z0 = RowZ(i), z1 = RowZ(i + 1);
         double f = Math.Clamp((t - g.Rows[i]) / Math.Max(1e-9, g.Rows[i + 1] - g.Rows[i]), 0, 1);
@@ -1245,7 +1514,14 @@ internal static partial class MFTravessia
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.LabelB)),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.UnionId)),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)d.OuterSign),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(p.Superficie)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(p.Superficie)),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)p.Cobertura),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaEspessura),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(p.Vigas ? 1 : 0)),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.VigaLargura),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.VigaAltura),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.VigaEnterrada),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.VigaRecuo));
     }
 
     /// <summary>Le os dados da travessia gravados no solido do plato (null se nao for um).</summary>
@@ -1272,7 +1548,15 @@ internal static partial class MFTravessia
                 Rampa = D(7),
                 Tampa = B(8),
                 TampaEspessura = D(9),
-                Superficie = v.Length >= 25 ? S(24) : ""
+                Superficie = v.Length >= 25 ? S(24) : "",
+                // Travessias de antes da 1.18: tampa de concreto e sem vigas (como foram desenhadas).
+                Cobertura = v.Length >= 32 ? Convert.ToInt32(v[25].Value, CultureInfo.InvariantCulture) : 1,
+                GrelhaEspessura = v.Length >= 32 ? D(26) : 0.03,
+                Vigas = v.Length >= 32 && B(27),
+                VigaLargura = v.Length >= 32 ? D(28) : 0.15,
+                VigaAltura = v.Length >= 32 ? D(29) : 0.30,
+                VigaEnterrada = v.Length >= 32 ? D(30) : 0.5,
+                VigaRecuo = v.Length >= 32 ? D(31) : 0.0
             },
             Origin = new Point3d(D(10), D(11), 0),
             CorridorA = S(12),
@@ -1388,7 +1672,7 @@ internal static partial class MFTravessia
         ["Comprimento_Rampa"] = d.Params.Rampa,
         ["Extensao_Travessia"] = Math.Round(g.WidthAtAxis, 3),
         ["Elevacao_Topo_Centro"] = Math.Round(g.TopElevationAtCenter, 3),
-        ["Tampa_Sarjeta"] = d.Params.Tampa ? $"Concreto, {N(d.Params.TampaEspessura)} m" : "Sem tampa",
+        ["Tampa_Sarjeta"] = d.Params.Tampa ? (d.Params.Grelha ? $"Grelha metalica, {N(d.Params.GrelhaEspessura)} m" : $"Concreto, {N(d.Params.TampaEspessura)} m") : "Sem cobertura",
         ["Rebaixo_A"] = d.LabelA,
         ["Rebaixo_B"] = d.LabelB
     };
@@ -1399,7 +1683,10 @@ internal static partial class MFTravessia
         ("Tipo", AecPropData.DataType.Text), ("Altura_Plato", AecPropData.DataType.Real), ("Largura_Plataforma", AecPropData.DataType.Real),
         ("Comprimento_Rampa", AecPropData.DataType.Real), ("Extensao_Travessia", AecPropData.DataType.Real),
         ("Elevacao_Topo_Centro", AecPropData.DataType.Real), ("Tampa_Sarjeta", AecPropData.DataType.Text),
-        ("Rebaixo_A", AecPropData.DataType.Text), ("Rebaixo_B", AecPropData.DataType.Text)
+        ("Rebaixo_A", AecPropData.DataType.Text), ("Rebaixo_B", AecPropData.DataType.Text),
+        ("Material", AecPropData.DataType.Text), ("Comprimento", AecPropData.DataType.Real), ("Largura", AecPropData.DataType.Real),
+        ("Altura_Espessura", AecPropData.DataType.Real), ("Area", AecPropData.DataType.Real), ("Volume", AecPropData.DataType.Real),
+        ("Quantidade", AecPropData.DataType.Integer)
     };
 
     /// <summary>Property Set C3D_TRAVESSIA (para a federacao BIM). Falha nao cancela o desenho.</summary>

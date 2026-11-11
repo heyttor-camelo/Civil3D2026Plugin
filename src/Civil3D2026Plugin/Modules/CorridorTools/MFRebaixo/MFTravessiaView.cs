@@ -24,6 +24,9 @@ internal sealed class TravessiaView
     /// <summary>Triangulos dos solidos (plato, tampas, pintura), por parte, para a vista 3D.</summary>
     public List<(string Part, Point3d A, Point3d B, Point3d C)> Tris { get; } = new();
 
+    /// <summary>Solidos da travessia: parte, handle, volume e as propriedades gravadas (Property Set).</summary>
+    public List<(string Part, string Handle, double Volume, Dictionary<string, string> Props)> Solids { get; } = new();
+
     public int Objects { get; set; }
     public double Volume { get; set; }
     public double MinX { get; set; } = double.MaxValue;
@@ -85,19 +88,22 @@ internal static partial class MFTravessia
                         }
                         break;
                     case AcadDb.Solid3d s:
-                        if (part.Part is PartPlato or "UNIAO_PLATO")
+                    {
+                        double vol = 0;
+                        try
                         {
-                            try
-                            {
-                                v.Volume += s.MassProperties.Volume;
-                            }
-                            catch
-                            {
-                                // Sem volume.
-                            }
+                            vol = s.MassProperties.Volume;
                         }
+                        catch
+                        {
+                            // Sem volume.
+                        }
+                        if (part.Part is PartPlato or "UNIAO_PLATO")
+                            v.Volume += vol;
+                        v.Solids.Add((part.Part, s.Handle.ToString(), vol, ReadProps(tr, s)));
                         Tessellate(s, part.Part, v);
                         break;
+                    }
                 }
             }
             catch (System.Exception ex)
@@ -107,6 +113,26 @@ internal static partial class MFTravessia
         }
         tr.Commit();
         return views.Values.OrderBy(x => x.IsUnion).ThenBy(x => x.Data?.LabelA ?? x.Id, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private static Dictionary<string, string> ReadProps(AcadDb.Transaction tr, AcadDb.Entity e)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (AcadDb.ObjectId psId in Autodesk.Aec.PropertyData.DatabaseServices.PropertyDataServices.GetPropertySets(e))
+            {
+                if (tr.GetObject(psId, AcadDb.OpenMode.ForRead) is not Autodesk.Aec.PropertyData.DatabaseServices.PropertySet ps || ps.PropertySetDefinitionName != PropertySetName)
+                    continue;
+                foreach (Autodesk.Aec.PropertyData.DatabaseServices.PropertySetData d in ps.PropertySetData)
+                    map[ps.PropertyIdToName(d.Id)] = Convert.ToString(d.GetData(), System.Globalization.CultureInfo.InvariantCulture) ?? "";
+            }
+        }
+        catch
+        {
+            // Sem Property Set.
+        }
+        return map;
     }
 
     private static void Tessellate(AcadDb.Solid3d solid, string part, TravessiaView v)

@@ -64,7 +64,7 @@ internal sealed partial class MFRebaixoPanel
                         d.Params.Tipo == TravessiaTipo.Elevada ? "calcada" : Cm(d.Params.Altura),
                         N(d.Params.Plataforma, "0.00") + " m",
                         N(d.Params.Rampa, "0.00") + " m",
-                        d.Params.Tampa ? Cm(d.Params.TampaEspessura) : "sem",
+                        !d.Params.Tampa ? "nenhuma" : d.Params.Grelha ? "grelha " + Cm(d.Params.GrelhaEspessura) : "concreto " + Cm(d.Params.TampaEspessura),
                         N(t.Volume, "0.00") + " m3",
                         d.UnionId
                     };
@@ -99,7 +99,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(Prop("Objetos no desenho", t.Objects.ToString(CultureInfo.InvariantCulture)));
         if (t.HasBox)
             p.Children.Add(Prop("Elevacao (base a topo)", $"{N(t.MinZ)} a {N(t.MaxZ)}"));
-        p.Children.Add(Prop("Volume do plato", N(t.Volume, "0.000") + " m3"));
+        AddQuantities(p, t);
 
         WC.WrapPanel acts = new();
         if (t.IsUnion || t.Data is null)
@@ -137,10 +137,30 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(EditRow("t_altura", "Altura (semi-elevada)", N(d.Params.Altura, "0.000"), "m"));
         p.Children.Add(EditRow("t_plat", "Plataforma (faixa)", N(d.Params.Plataforma, "0.00"), "m"));
         p.Children.Add(EditRow("t_rampa", "Rampa de cada lado", N(d.Params.Rampa, "0.00"), "m"));
-        p.Children.Add(EditRow("t_tampa", "Tampa (0 = sem tampa)", d.Params.Tampa ? N(d.Params.TampaEspessura, "0.000") : "0", "m"));
+        var cob = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 3, 0, 3) };
+        cob.Items.Add("grelha metalica");
+        cob.Items.Add("tampa de concreto");
+        cob.Items.Add("nenhuma");
+        cob.SelectedIndex = !d.Params.Tampa ? 2 : d.Params.Cobertura == 1 ? 1 : 0;
+        WC.Grid cobRow = new() { Margin = new SW.Thickness(0, 3, 0, 3) };
+        cobRow.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(190) });
+        cobRow.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
+        cobRow.Children.Add(new WC.TextBlock { Text = "Cobertura da sarjeta", Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center });
+        WC.Grid.SetColumn(cob, 1);
+        cobRow.Children.Add(cob);
+        p.Children.Add(cobRow);
+        p.Children.Add(EditRow("t_grelha", "Espessura da grelha", N(d.Params.GrelhaEspessura, "0.000"), "m"));
+        p.Children.Add(EditRow("t_tampa", "Espessura da tampa de concreto", N(d.Params.TampaEspessura, "0.000"), "m"));
+        var vigas = new WC.CheckBox { Content = "Vigas baldrame nas duas pontas", IsChecked = d.Params.Vigas, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
+        p.Children.Add(vigas);
+        p.Children.Add(EditRow("t_vl", "Largura da viga", N(d.Params.VigaLargura, "0.000"), "m"));
+        p.Children.Add(EditRow("t_va", "Altura da viga", N(d.Params.VigaAltura, "0.000"), "m"));
+        p.Children.Add(EditRow("t_ve", "Parte enterrada da viga", N(d.Params.VigaAltura * d.Params.VigaEnterrada, "0.000"), "m"));
+        p.Children.Add(EditRow("t_vr", "Recuo da viga a partir do pe da rampa", N(d.Params.VigaRecuo, "0.000"), "m"));
+        p.Children.Add(Label("A parte de cima da viga vai ate onde a lombofaixa deixa (nunca passa do topo); a altura real fica nas quantidades acima. Aplicar edita as pecas existentes (mesmos objetos no desenho)."));
         p.Children.Add(Label("A altura final dos rebaixos nao muda aqui. Se mudar a altura ou o tipo, o Redesenhar avisa quando o meio-fio nao bater com o plato; para acertar os rebaixos, apague e lance de novo com Nova travessia."));
 
-        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1), true));
+        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true), true));
         acts.Children.Add(ActionButton("Redesenhar como esta", () => RedrawTrav(null)));
         acts.Children.Add(ActionButton("Zoom no desenho", ZoomTrav));
         if (d.UnionId.Length > 0)
@@ -165,32 +185,83 @@ internal sealed partial class MFRebaixoPanel
         Say(_currentTrav is null ? "Selecione uma travessia na lista." : "Mude as medidas e clique em Aplicar e redesenhar.");
     }
 
-    private void ApplyTrav(bool elevada)
+    /// <summary>Quantidades: plato, grelha/tampa e vigas (comprimento, secao, volume) e total de concreto.</summary>
+    private void AddQuantities(WC.StackPanel p, TravessiaView t)
+    {
+        static double Num(Dictionary<string, string> m, string k) =>
+            m.TryGetValue(k, out string? s) && double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out double v) ? v : 0;
+        p.Children.Add(Label("Quantidades (lidas do desenho)", true));
+        double concreto = 0;
+        foreach ((string part, string handle, double vol, Dictionary<string, string> props) in t.Solids.OrderBy(x => x.Part))
+        {
+            string name = part switch
+            {
+                "PLATO" => "Lombofaixa (plato)",
+                "UNIAO_PLATO" => "Plato do cruzamento",
+                "GRELHA_A" => "Grelha metalica A",
+                "GRELHA_B" => "Grelha metalica B",
+                "TAMPA_A" => "Tampa de concreto A",
+                "TAMPA_B" => "Tampa de concreto B",
+                "UNIAO_TAMPA" => "Cobertura de canto",
+                "VIGA_A" => "Viga baldrame (tras)",
+                "VIGA_B" => "Viga baldrame (frente)",
+                _ => ""
+            };
+            if (name.Length == 0)
+                continue; // pintura: nao entra nas quantidades
+            string text = $"{N(vol, "0.000")} m3";
+            if (part.StartsWith("GRELHA", StringComparison.Ordinal) || part.StartsWith("TAMPA", StringComparison.Ordinal))
+                text = $"{N(Num(props, "Comprimento"), "0.00")} x {N(Num(props, "Largura"), "0.00")} m, espessura {Cm(Num(props, "Altura_Espessura"))}, area {N(Num(props, "Area"), "0.00")} m2, {text}";
+            else if (part.StartsWith("VIGA", StringComparison.Ordinal))
+            {
+                double buried = (t.Data?.Params.VigaAltura ?? 0) * (t.Data?.Params.VigaEnterrada ?? 0.5);
+                double h = Num(props, "Altura_Espessura");
+                text = $"{N(Num(props, "Comprimento"), "0.00")} m, secao {Cm(Num(props, "Largura"))} x {Cm(h)} ({Cm(buried)} enterrada, {Cm(Math.Max(0, h - buried))} dentro da lombofaixa), {text}";
+            }
+            p.Children.Add(Prop(name + $" [{handle}]", text));
+            if (part is "PLATO" or "UNIAO_PLATO" || part.StartsWith("TAMPA", StringComparison.Ordinal))
+                concreto += vol;
+            else if (part.StartsWith("VIGA", StringComparison.Ordinal))
+            {
+                // A parte da viga dentro da lombofaixa ja esta no volume do plato: soma so a enterrada.
+                double buried = (t.Data?.Params.VigaAltura ?? 0) * (t.Data?.Params.VigaEnterrada ?? 0.5);
+                double h = Num(props, "Altura_Espessura");
+                concreto += h > 1e-6 ? vol * Math.Min(1.0, buried / h) : vol;
+            }
+        }
+        p.Children.Add(Prop("Total de concreto", N(concreto, "0.000") + " m3 (plato + tampas + parte enterrada das vigas)"));
+    }
+
+    private void ApplyTrav(bool elevada, int cobertura, bool vigas)
     {
         if (_currentTrav?.Data is not { } d)
         {
             Say("Selecione uma travessia.");
             return;
         }
-        double? h = Number("t_altura"), plat = Number("t_plat"), ramp = Number("t_rampa"), lid = Number("t_tampa");
-        if (h is null || plat is null || ramp is null || lid is null)
+        double? h = Number("t_altura"), plat = Number("t_plat"), ramp = Number("t_rampa"), lid = Number("t_tampa"), grid = Number("t_grelha");
+        double? vl = Number("t_vl"), va = Number("t_va"), ve = Number("t_ve"), vr = Number("t_vr");
+        if (h is null || plat is null || ramp is null || lid is null || grid is null || vl is null || va is null || ve is null || vr is null)
         {
             Say("Valores invalidos (use ponto ou virgula).");
             return;
         }
-        if (plat < 1.0 || ramp < 0.1 || h < 0.02 || lid < 0)
-        {
-            Say("Plataforma minima 1 m, rampa minima 0,10 m, altura minima 2 cm.");
-            return;
-        }
+        // Sem recusas (pedido do Heyvid): o calculo avisa e usa o minimo que fecha o solido.
         var p = new TravessiaParams
         {
             Tipo = elevada ? TravessiaTipo.Elevada : TravessiaTipo.SemiElevada,
             Altura = h.Value,
             Plataforma = plat.Value,
             Rampa = ramp.Value,
-            Tampa = lid.Value > 0.005,
-            TampaEspessura = lid.Value > 0.005 ? lid.Value : d.Params.TampaEspessura,
+            Tampa = cobertura != 2,
+            Cobertura = cobertura == 1 ? 1 : 0,
+            TampaEspessura = Math.Max(0.005, lid.Value),
+            GrelhaEspessura = Math.Max(0.002, grid.Value),
+            Vigas = vigas,
+            VigaLargura = Math.Max(0.01, vl.Value),
+            VigaAltura = Math.Max(0.01, va.Value),
+            VigaEnterrada = Math.Clamp(ve.Value / Math.Max(0.01, va.Value), 0, 1),
+            VigaRecuo = Math.Max(0, vr.Value),
             Centralizar = d.Params.Centralizar,
             Superficie = d.Params.Superficie
         };

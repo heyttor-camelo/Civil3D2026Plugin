@@ -1,3 +1,13 @@
+## 2.108.0 - MFREBAIXO v1.18.0 / PassagemRampa v1.11.0: grelha metalica na sarjeta, vigas baldrame, editar a travessia sem recriar
+
+Pedidos do Heyvid em 11/11/2026, depois de testar a 2.106.0.
+
+- **Grelha metalica** sobre a sarjeta (padrao no lugar da tampa de concreto, que ficava sem espaco para a agua): solido de 3 cm (editavel) no nivel do plato, layer `MF-TRAVESSIA-GRELHA`, mesma hachura em planta. Opcao `cObertura` no MFTRAVESSIA [Grelha/Concreto/Nenhuma] e no painel. Property Set com material, comprimento, largura, espessura, area, volume e quantidade.
+- **Vigas baldrame** nas duas pontas da lombofaixa (pes das rampas), transversais a rua, de borda a borda da pista: padrao 15 cm de largura x 30 cm de altura, 15 cm enterrados abaixo da superficie de topo. A parte de cima vai ate onde a lombofaixa deixa, ponto a ponto (nunca passa do topo); o comando e o painel dizem quanto ficou dentro. Recuo a partir do pe da rampa editavel (padrao 0). Layer `MF-TRAVESSIA-VIGA`, Property Set com comprimento, secao real e volume. Opcao `Vigas` no comando e no painel.
+- **Editar sem recriar**: redesenhar/editar uma travessia (painel, MFTRAVESSIAREFAZER, uniao) troca o corpo das pecas existentes e mantem o mesmo objeto (handle) e o Property Set, como no C3DSOLIDLIGAR (`SwapIdWith`); so cria ou apaga o que sobra ou falta.
+- **Sem recusas na insercao de travessias**: plataforma, rampa, altura, rebaixos fora de frente, plato acima/abaixo do meio-fio e meio-fio que acaba viram aviso e o comando segue (limitado pelo alinhamento do meio-fio quando ele acaba). So para quando nao ha largura nenhuma para o plato.
+- Painel, aba Propriedades da travessia: quantidades lidas do desenho (lombofaixa, grelhas, vigas com secao real e volume, total de concreto) e os campos novos (cobertura, espessuras, vigas, largura, altura, parte enterrada, recuo). Coluna "Sarjeta" na lista.
+- Teste (copia do DWG, R01-R02 com 5 + 2x1,5 m): plato 7,73 m3, grelhas 4,0 x 0,5 m (3,5 cm livres para a agua no R01, contra -3,5 cm da tampa de concreto), vigas de 10,24 e 9,47 m; editar para 4 + 2x1,0 m com recuo 0,30 manteve os 52 handles.
 ## 2.107.0 - MFREBAIXO v1.17.0 / PassagemRampa v1.10.0 / MFSARJETA v1.25: meio-fio com qualquer altura final (tambem acima da normal)
 
 Pedido do Heyvid em 11/11/2026 ("permitir meio-fio com alturas superiores, ou melhor, qualquer altura que eu bem entender").

@@ -419,7 +419,9 @@ internal static partial class MFTravessia
         var notes = new List<string>();
 
         string layer = string.IsNullOrWhiteSpace(settings.TravessiaLayer) ? "MF-TRAVESSIA" : settings.TravessiaLayer.Trim();
-        string layer3d = layer + "-3D", layerLid = layer + "-TAMPA";
+        string layer3d = layer + "-3D";
+        bool grelha = members[0].Data.Params.Grelha;
+        string layerLid = layer + (grelha ? "-GRELHA" : "-TAMPA");
         int lids = 0;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
@@ -427,7 +429,7 @@ internal static partial class MFTravessia
             EnsureRegApp(tr, db);
             EnsureLayer(tr, db, layer, 8, "Travessias elevadas/semi-elevadas entre rebaixos (planta)");
             EnsureLayer(tr, db, layer3d, 8, "Travessias entre rebaixos: solidos do plato");
-            EnsureLayer(tr, db, layerLid, 40, "Travessias entre rebaixos: tampa de concreto sobre a sarjeta");
+            EnsureLayer(tr, db, layerLid, grelha ? (short)252 : (short)40, grelha ? "Travessias entre rebaixos: grelha metalica sobre a sarjeta" : "Travessias entre rebaixos: tampa de concreto sobre a sarjeta");
             var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
             var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
             var hatches = new AcadDb.ObjectIdCollection();
@@ -451,7 +453,7 @@ internal static partial class MFTravessia
                         ["Comprimento_Rampa"] = members[0].Data.Params.Rampa,
                         ["Extensao_Travessia"] = Math.Round(2.0 * maxR, 3),
                         ["Elevacao_Topo_Centro"] = Math.Round(zc + height, 3),
-                        ["Tampa_Sarjeta"] = members[0].Data.Params.Tampa ? $"Concreto, {N(members[0].Data.Params.TampaEspessura)} m" : "Sem tampa",
+                        ["Tampa_Sarjeta"] = !members[0].Data.Params.Tampa ? "Sem cobertura" : grelha ? $"Grelha metalica, {N(members[0].Data.Params.GrelhaEspessura)} m" : $"Concreto, {N(members[0].Data.Params.TampaEspessura)} m",
                         ["Rebaixo_A"] = string.Join(", ", members.Select(m => m.Data.LabelA)),
                         ["Rebaixo_B"] = string.Join(", ", members.Select(m => m.Data.LabelB))
                     };
@@ -484,8 +486,8 @@ internal static partial class MFTravessia
                             double z = e.Z + height;
                             lt[k, 0] = new Point3d(e.X, e.Y, z);
                             lt[k, 1] = new Point3d(f.X, f.Y, z);
-                            lb[k, 0] = new Point3d(e.X, e.Y, z - p0.TampaEspessura);
-                            lb[k, 1] = new Point3d(f.X, f.Y, z - p0.TampaEspessura);
+                            lb[k, 0] = new Point3d(e.X, e.Y, z - p0.LidThickness);
+                            lb[k, 1] = new Point3d(f.X, f.Y, z - p0.LidThickness);
                             plan.Add(e);
                         }
                         for (int k = run.Count - 1; k >= 0; k--)
@@ -499,10 +501,11 @@ internal static partial class MFTravessia
                                 {
                                     ["ID"] = unionId,
                                     ["Versao"] = C3DVersions.MfRebaixo,
-                                    ["Objeto"] = "Tampa de concreto sobre a sarjeta (canto do cruzamento)",
+                                    ["Objeto"] = grelha ? "Grelha metalica sobre a sarjeta (canto do cruzamento)" : "Tampa de concreto sobre a sarjeta (canto do cruzamento)",
                                     ["Tipo"] = p0.Tipo == TravessiaTipo.Elevada ? "Travessia elevada" : "Travessia semi-elevada",
                                     ["Altura_Plato"] = Math.Round(height, 3),
-                                    ["Tampa_Sarjeta"] = $"Concreto, {N(p0.TampaEspessura)} m"
+                                    ["Tampa_Sarjeta"] = grelha ? $"Grelha metalica, {N(p0.GrelhaEspessura)} m" : $"Concreto, {N(p0.TampaEspessura)} m",
+                                    ["Material"] = grelha ? "Grelha metalica" : "Concreto"
                                 }, out _);
                             count++;
                             lids++;

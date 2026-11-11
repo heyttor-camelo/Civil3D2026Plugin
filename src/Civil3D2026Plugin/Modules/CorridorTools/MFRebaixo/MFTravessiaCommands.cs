@@ -82,7 +82,13 @@ public sealed class MFTravessiaCommands
                 Tampa = settings.TravessiaTampa,
                 TampaEspessura = settings.TravessiaTampaEspessura,
                 Centralizar = settings.TravessiaCentralizar,
-                Superficie = settings.TravessiaSuperficie
+                Superficie = settings.TravessiaSuperficie,
+                Cobertura = settings.TravessiaCobertura,
+                GrelhaEspessura = settings.TravessiaGrelhaEspessura,
+                Vigas = settings.TravessiaVigas,
+                VigaLargura = settings.TravessiaVigaLargura,
+                VigaAltura = settings.TravessiaVigaAltura,
+                VigaEnterrada = settings.TravessiaVigaEnterrada
             };
             if (!AskParams(ed, db, a, b, p))
                 return;
@@ -95,6 +101,12 @@ public sealed class MFTravessiaCommands
             settings.TravessiaTampa = p.Tampa;
             settings.TravessiaTampaEspessura = p.TampaEspessura;
             settings.TravessiaCentralizar = p.Centralizar;
+            settings.TravessiaCobertura = p.Cobertura;
+            settings.TravessiaGrelhaEspessura = p.GrelhaEspessura;
+            settings.TravessiaVigas = p.Vigas;
+            settings.TravessiaVigaLargura = p.VigaLargura;
+            settings.TravessiaVigaAltura = p.VigaAltura;
+            settings.TravessiaVigaEnterrada = p.VigaEnterrada;
             MFRebaixoSettingsStore.Save(settings);
 
             // Eixo: no meio dos dois rebaixos; estaca dele na baseline de cada um.
@@ -107,12 +119,13 @@ public sealed class MFTravessiaCommands
 
             // Mudancas nos rebaixos.
             var plan = new List<(RebaixoInfo R, double S1, double S2, double H, string Text, double St, double Desired)>();
-            foreach ((RebaixoInfo r, double st, double target, double desired) in new (RebaixoInfo, double, double, double)[]
+            foreach ((RebaixoInfo r, double st, double target0, double desired) in new (RebaixoInfo, double, double, double)[]
             {
                 (a, stA, geo.TargetExposedA, MFTravessia.At(side1.Samples, stA).Edge.Z + geo.HeightA),
                 (b, stB, geo.TargetExposedB, MFTravessia.At(side2.Samples, stB).Edge.Z + geo.HeightB)
             })
             {
+                double target = target0;
                 double s1 = r.S1, s2 = r.S2;
                 if (p.Centralizar && p.Tipo == TravessiaTipo.SemiElevada)
                 {
@@ -125,11 +138,17 @@ public sealed class MFTravessiaCommands
                     changes.Add($"trecho rebaixado {Num(r.S1)}-{Num(r.S2)} -> {Num(s1)}-{Num(s2)}");
                 if (p.Tipo == TravessiaTipo.SemiElevada)
                 {
+                    // Sem recusa (pedido do Heyvid, 11/11/2026): so avisa e segue.
                     double normal = r.NormalHeight ?? double.MaxValue;
                     if (target < 0.0)
-                        throw new InvalidOperationException($"{r.Label}: o plato ficaria abaixo do pe do meio-fio ({MFTravessia.Cm(target)}). Aumente a altura.");
-                    if (target > normal - 0.005)
-                        throw new InvalidOperationException($"{r.Label}: o plato ({MFTravessia.Cm(target)} acima do pe do meio-fio) passa da altura normal do meio-fio ({MFTravessia.Cm(normal)}). Use a travessia elevada ou diminua a altura.");
+                    {
+                        geo.Notes.Add($"AVISO {r.Label}: o plato fica {MFTravessia.Cm(-target)} abaixo do pe do meio-fio; o meio-fio vai para altura final 0.");
+                        target = 0.0;
+                    }
+                    else if (target > normal + 0.005)
+                    {
+                        geo.Notes.Add($"AVISO {r.Label}: o plato ({MFTravessia.Cm(target)} acima do pe do meio-fio) passa da altura normal do meio-fio ({MFTravessia.Cm(normal)}): o meio-fio sobe no trecho.");
+                    }
                     if (r.FinalHeight is not double cur || Math.Abs(cur - target) > 0.005)
                         changes.Add($"altura final {(r.FinalHeight is double c ? MFTravessia.Cm(c) : "?")} -> {MFTravessia.Cm(target)}");
                     h = target;
@@ -142,8 +161,9 @@ public sealed class MFTravessiaCommands
             ed.WriteMessage($"\n\nTravessia {p.TipoTexto} entre {a.Label} e {b.Label}:");
             ed.WriteMessage($"\n  plataforma {MFTravessia.N(p.Plataforma)} m + rampas de {MFTravessia.N(p.Rampa)} m, altura {MFTravessia.Cm((geo.HeightA + geo.HeightB) / 2.0)} acima da borda da pista, {MFTravessia.N(geo.WidthAtAxis)} m de borda a borda");
             ed.WriteMessage($"\n  {geo.RoadSource}");
-            if (p.Tampa)
-                ed.WriteMessage($"\n  tampa de concreto de {MFTravessia.Cm(p.TampaEspessura)} sobre a sarjeta, nos dois lados");
+            ed.WriteMessage($"\n  sarjeta: {p.CoberturaTexto}{(p.Tampa ? ", nos dois lados" : "")}");
+            if (p.Vigas)
+                ed.WriteMessage($"\n  vigas baldrame {MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} nas duas pontas da lombofaixa, de borda a borda da pista");
             foreach (string note in geo.Notes)
                 ed.WriteMessage("\n  " + note);
             if (plan.Count == 0)
@@ -152,7 +172,7 @@ public sealed class MFTravessiaCommands
                 ed.WriteMessage("\n  Muda no corredor: " + item.Text);
             if (p.Tipo == TravessiaTipo.Elevada)
                 ed.WriteMessage("\n  Elevada: o plato fica no nivel da calcada e os rebaixos nao sao mexidos (podem ser removidos no painel).");
-            ed.WriteMessage($"\n  Desenha: solido do plato e tampas (layer {settings.TravessiaLayer}-3D / -TAMPA), hachura, faixa e triangulos ({settings.TravessiaLayer}, -SINALIZACAO).");
+            ed.WriteMessage($"\n  Desenha: solido do plato (layer {settings.TravessiaLayer}-3D), grelha/tampa (-GRELHA / -TAMPA), vigas (-VIGA), hachura, faixa e triangulos ({settings.TravessiaLayer}, -SINALIZACAO).");
             ed.WriteMessage("\n  Para desfazer: U (ou Ctrl+Z) logo em seguida.");
 
             var confirm = new PromptKeywordOptions("\nCriar a travessia? [Sim/Nao]", "Sim Nao") { AllowNone = true };
@@ -392,10 +412,10 @@ public sealed class MFTravessiaCommands
         {
             string alt = p.Tipo == TravessiaTipo.Elevada ? "altura da calcada" : "altura " + MFTravessia.Cm(p.Altura);
             string msg = $"\nTravessia {a.Label}-{b.Label}: {p.TipoTexto}, {alt}, plataforma {MFTravessia.N(p.Plataforma)} m, rampas {MFTravessia.N(p.Rampa)} m, " +
-                         $"tampa {(p.Tampa ? MFTravessia.Cm(p.TampaEspessura) : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
+                         $"sarjeta {p.CoberturaTexto}, vigas {(p.Vigas ? $"{MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)}" : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
                          $"superficie {(p.Superficie.Length > 0 ? p.Superficie : "automatica")}." +
-                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/tAmpa/Centralizar/sUperficie/Seguir]";
-            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa tAmpa Centralizar sUperficie Seguir") { AllowNone = true };
+                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/cObertura/Vigas/Centralizar/sUperficie/Seguir]";
+            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa cObertura Vigas Centralizar sUperficie Seguir") { AllowNone = true };
             opt.Keywords.Default = "Seguir";
             PromptResult r = ed.GetKeywords(opt);
             if (r.Status == PromptStatus.Cancel)
@@ -417,26 +437,46 @@ public sealed class MFTravessiaCommands
                 case "Altura":
                     if (p.Tipo == TravessiaTipo.Elevada)
                         ed.WriteMessage("\nNa elevada a altura e a do meio-fio (nivel da calcada), lida do corredor.");
-                    else if (AskDouble(ed, "\nAltura do plato acima da borda da pista (m)", p.Altura, 0.03, 0.30) is double h)
+                    else if (AskDouble(ed, "\nAltura do plato acima da borda da pista (m)", p.Altura, 0.005, 2.0) is double h)
                         p.Altura = h;
                     break;
                 case "Plataforma":
-                    if (AskDouble(ed, "\nLargura da plataforma, no sentido dos carros (m; o detalhe pede > 4,0)", p.Plataforma, 1.0, 20.0) is double w)
+                    if (AskDouble(ed, "\nLargura da plataforma, no sentido dos carros (m; o detalhe pede > 4,0)", p.Plataforma, 0.10, 100.0) is double w)
                         p.Plataforma = w;
                     break;
                 case "Rampa":
-                    if (AskDouble(ed, "\nComprimento de cada rampa dos carros (m)", p.Rampa, 0.10, 10.0) is double rl)
+                    if (AskDouble(ed, "\nComprimento de cada rampa dos carros (m)", p.Rampa, 0.01, 50.0) is double rl)
                         p.Rampa = rl;
                     break;
-                case "tAmpa":
+                case "cObertura":
                 {
-                    var t = new PromptKeywordOptions("\nTampa de concreto sobre a sarjeta [Sim/Nao]", "Sim Nao") { AllowNone = true };
-                    t.Keywords.Default = p.Tampa ? "Sim" : "Nao";
+                    var t = new PromptKeywordOptions("\nCobertura da sarjeta na plataforma [Grelha/Concreto/Nenhuma]", "Grelha Concreto Nenhuma") { AllowNone = true };
+                    t.Keywords.Default = !p.Tampa ? "Nenhuma" : p.Cobertura == 1 ? "Concreto" : "Grelha";
                     PromptResult tr = ed.GetKeywords(t);
                     if (tr.Status == PromptStatus.OK)
-                        p.Tampa = tr.StringResult == "Sim";
-                    if (p.Tampa && AskDouble(ed, "\nEspessura da tampa (m)", p.TampaEspessura, 0.03, 0.30) is double e)
+                    {
+                        p.Tampa = tr.StringResult != "Nenhuma";
+                        p.Cobertura = tr.StringResult == "Concreto" ? 1 : 0;
+                    }
+                    if (p.Grelha && AskDouble(ed, "\nEspessura da grelha metalica (m)", p.GrelhaEspessura, 0.005, 0.30) is double eg)
+                        p.GrelhaEspessura = eg;
+                    else if (p.Tampa && p.Cobertura == 1 && AskDouble(ed, "\nEspessura da tampa de concreto (m)", p.TampaEspessura, 0.01, 0.50) is double e)
                         p.TampaEspessura = e;
+                    break;
+                }
+                case "Vigas":
+                {
+                    var t = new PromptKeywordOptions("\nVigas baldrame nas duas pontas da lombofaixa [Sim/Nao]", "Sim Nao") { AllowNone = true };
+                    t.Keywords.Default = p.Vigas ? "Sim" : "Nao";
+                    PromptResult tr = ed.GetKeywords(t);
+                    if (tr.Status == PromptStatus.OK)
+                        p.Vigas = tr.StringResult == "Sim";
+                    if (!p.Vigas)
+                        break;
+                    if (AskDouble(ed, "\nLargura da viga (m)", p.VigaLargura, 0.05, 2.0) is double vl)
+                        p.VigaLargura = vl;
+                    if (AskDouble(ed, "\nAltura da viga (m)", p.VigaAltura, 0.05, 3.0) is double va)
+                        p.VigaAltura = va;
                     break;
                 }
                 case "sUperficie":

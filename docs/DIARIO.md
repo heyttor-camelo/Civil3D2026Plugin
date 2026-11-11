@@ -8,6 +8,13 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.108.0: grelha metálica, vigas baldrame, editar sem recriar
+
+- Pedidos do Heyvid depois do teste da 2.106.0 (trava da altura final do rebaixo ficou com a outra frente, 2.107.0 / MFSARJETA v1.25).
+- Grelha metálica na sarjeta (padrão, 3 cm, layer `MF-TRAVESSIA-GRELHA`); vigas baldrame 15 x 30 cm nas pontas (15 cm enterrados, parte de cima até o topo da lombofaixa ponto a ponto, recuo editável); editar/redesenhar mantém os handles (`Reuse` + `SwapIdWith`, como no C3DSOLIDLIGAR); MFTRAVESSIA não recusa medidas (avisos); painel com quantidades (grelhas, vigas com seção real, total de concreto) e campos novos.
+- Teste (cópia do DWG, `v4\travessia`, `ZZTeste5*.cs` não commitados): R01-R02 5 + 2×1,5 m: platô 7,73 m³, grelhas 4,0 × 0,5 m (3,5 cm livres no R01), vigas 10,24 / 9,56 m com só 0,5–1,6 cm dentro da lombofaixa no pé da rampa; editar para 4 + 2×1,0 m e recuo 0,30 manteve os 52 handles (vigas com 3,8–5,5 cm dentro). Platô de 0,25 m: rebaixo reaplicado acima da altura normal sem erro (o meio-fio só sobe com MFSARJETA v1.25 no corredor; a cópia tem a v1.24).
+- Entregue 2.108.0 / PassagemRampa 1.11.0 só com versão no nome (Civil aberto): Drive `atual` e `versoes`, `C:\Temp\hydro-build`, FDX; hashes conferidos.
+- Pendências: Heyvid decidir se a viga fica no pé da rampa (quase toda enterrada) ou mais para dentro (recuo); teste dele na tela.
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.107.0: meio-fio com qualquer altura (compilado e testado)
 
 - O commit 038e1b9 (feito na nuvem sem compilar) compilou sem erro nem aviso novo; `ValidateProject` ok.
