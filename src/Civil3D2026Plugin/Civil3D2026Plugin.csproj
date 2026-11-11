@@ -157,7 +157,8 @@
     <PropertyGroup>
       <PluginVer>$([System.Text.RegularExpressions.Regex]::Match($([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Infrastructure\PluginVersions.cs')), '(?&lt;=Plugin = ")[^"]+').Value)</PluginVer>
     </PropertyGroup>
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" Condition="'$(CivilAberto)' != 'sim'" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(DriveDir)\atual\Civil3D2026Plugin-$(PluginVer).dll" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\versoes\$(PluginVer)" ContinueOnError="true" />
     <Message Importance="high" Text="DLL $(PluginVer) copiada para $(DriveDir)\atual" />
   </Target>
@@ -187,8 +188,9 @@
     </PropertyGroup>
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" ContinueOnError="true" />
     <!-- Fica so a mais nova; as antigas saem (a que estiver carregada no Civil fica, por estar presa). -->
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'Civil3D2026Plugin-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'Civil3D2026Plugin-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" Condition="'$(CivilAberto)' != 'sim'" />
     <Message Importance="high" Text="DLL $(LocalVer) em $(LocalBuildDir)\Civil3D2026Plugin-$(LocalVer).dll" />
   </Target>
 
+  <Import Project="..\..\tools\CivilAberto.targets" />
 </Project>

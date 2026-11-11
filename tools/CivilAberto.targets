@@ -1,0 +1,16 @@
+<Project>
+  <!--
+    Civil 3D aberto nesta maquina? (acad.exe). No Google Drive (G:) o Windows NAO trava a DLL carregada:
+    sobrescrever ou apagar o arquivo que o Civil esta usando corrompe os metodos que ainda nao rodaram
+    ("Common Language Runtime detected an invalid program" no MFTRAVESSIA do Heyvid, 11/11/2026 15:06).
+    Com o Civil aberto, a entrega so grava as copias com a versao no nome e nao apaga as antigas.
+  -->
+  <Target Name="DetectCivilAberto" BeforeTargets="CopyToDrive;CopyToFdx;CopyVersionedLocal" Condition="'$(Configuration)' == 'Release'">
+    <Exec Command="powershell -NoProfile -Command &quot;if (Get-Process acad -ErrorAction SilentlyContinue) { 'sim' } else { 'nao' }&quot;"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" ContinueOnError="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="CivilAberto" />
+    </Exec>
+    <Message Importance="high" Condition="'$(CivilAberto)' == 'sim'"
+             Text="AVISO: Civil 3D aberto: a DLL sem numero e as versionadas antigas NAO foram trocadas/apagadas (so a com a versao no nome). Rode a entrega de novo com o Civil fechado." />
+  </Target>
+</Project>

@@ -1,3 +1,9 @@
+## 2.105.3 - MFREBAIXO v1.15.3 / PassagemRampa v1.8.3: rampa acompanha a curva da esquina; lombofaixa que "nao aparecia"
+
+- **Lombofaixa nao gerada no teste do Heyvid (15:06)**: o log mostrava `Common Language Runtime detected an invalid program` no desenho da travessia. Causa: a entrega da 2.105.2 sobrescreveu `atual\Civil3D2026Plugin.dll` no Google Drive 10 s antes, com o Civil aberto usando esse arquivo (no G: o Windows nao trava a DLL carregada; o .NET le cada metodo do arquivo so na primeira vez que ele roda). A mesma 2.105.1 desenha normalmente no Civil 3D aberto do zero (conferido no acad.exe, com e sem o painel aberto). **A entrega agora nao troca nem apaga DLL com o Civil aberto**: so grava as copias com a versao no nome e avisa (`tools/CivilAberto.targets`, `Copy-DllFdx.ps1`).
+- Se o desenho da travessia falhar depois de os rebaixos terem sido reaplicados, a mensagem diz isso e que U volta. No fim do MFTRAVESSIA, do Refazer e da uniao, o comando rele o desenho e diz o que ficou gravado: objetos por layer (avisa layer desligada/congelada) e a caixa e elevacao do plato.
+- **Rampa acompanha a curva da esquina** (escolha do Heyvid): quando o meio-fio reto acaba e a continuacao e o retorno da esquina (outra baseline), a borda da travessia segue a curva ate ela ficar de lado; depois disso (boca da rua transversal), a borda e o prolongamento do alinhamento do meio-fio, com aviso. O sentido da linha vizinha e lido no ponto mais perto da ponta (a SARJETA 14 da Waldir sai para tras e depois vira).
+- Waldir Soeiro, R01-R02 com 5 m + 2 x 1,5 m: agora cabe. Do lado do R01 a rampa segue a curva da SARJETA 14; do lado do R02 emenda na SARJETA 08. Solido de 7,73 m3, topo no centro 949,851, planta 49,0 m2 (plato) + 16,7 / 14,3 m2 (rampas).
 ## 2.105.2 - MFREBAIXO v1.15.2 / PassagemRampa v1.8.2: travessia continua no meio-fio da baseline vizinha
 
 Pedido do Heyvid em 11/11/2026 ("o corredor nao acaba, so troca de baseline naquela regiao").

@@ -33,6 +33,12 @@ if ($bases.Count -eq 0) {
 $dest = Join-Path $bases[0] 'dll'
 New-Item -ItemType Directory -Force $dest | Out-Null
 Copy-Item $Dll (Join-Path $dest "$Name-$Version.dll") -Force
+# No G: o Windows nao trava a DLL carregada: com o Civil aberto, trocar/apagar a DLL em uso corrompe o plugin
+# ("invalid program", 11/11/2026). Entao so a versionada; a sem numero e as antigas ficam.
+if (Get-Process acad -ErrorAction SilentlyContinue) {
+    Write-Host "AVISO: Civil 3D aberto: em $dest so foi gravada a $Name-$Version.dll (a $Name.dll e as antigas ficam ate a proxima entrega com o Civil fechado)."
+    exit 0
+}
 try {
     Copy-Item $Dll (Join-Path $dest "$Name.dll") -Force -ErrorAction Stop
 } catch {

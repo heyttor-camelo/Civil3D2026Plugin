@@ -222,10 +222,21 @@ public sealed class MFTravessiaCommands
                 LeftB = side2.Left,
                 LabelB = b.Label
             };
-            (int count, List<string> notes) = MFTravessia.Draw(db, geo, data, settings);
+            int count;
+            List<string> notes;
+            try
+            {
+                (count, notes) = MFTravessia.Draw(db, geo, data, settings);
+            }
+            catch (System.Exception ex) when (plan.Count > 0)
+            {
+                // Os rebaixos ja foram mexidos: dizer isso, senao parece que nada mudou.
+                throw new InvalidOperationException($"{ex.Message} Os rebaixos ja tinham sido reaplicados ({string.Join("; ", plan.Select(x => x.R.Label))}): use U para voltar como estavam.", ex);
+            }
             string fim = $"Travessia {data.Id} ({p.TipoTexto}, {a.Label}-{b.Label}): {count} objeto(s) desenhado(s); {string.Join("; ", notes)}.";
-            ed.WriteMessage("\n" + fim + "\n");
-            PluginLog.Info(Mod, fim + " " + roadInfo);
+            string gravado = MFTravessia.Summary(db, data.Id);
+            ed.WriteMessage("\n" + fim + "\n" + gravado + "\n");
+            PluginLog.Info(Mod, fim + " " + roadInfo + " " + gravado);
             ed.Regen();
         }
         catch (System.Exception ex)
@@ -299,7 +310,7 @@ public sealed class MFTravessiaCommands
                     TravessiaGeometry geo = MFTravessia.Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight);
                     (int count, List<string> notes) = MFTravessia.Draw(db, geo, d, settings);
                     ok++;
-                    string line = $"Travessia {d.Id} ({d.LabelA}-{d.LabelB}) refeita: {count} objeto(s). {roadInfo}";
+                    string line = $"Travessia {d.Id} ({d.LabelA}-{d.LabelB}) refeita: {count} objeto(s). {roadInfo} {MFTravessia.Summary(db, d.Id)}";
                     if (d.Params.Tipo == TravessiaTipo.SemiElevada)
                     {
                         // Mesma conta do MFTRAVESSIA: topo do meio-fio no eixo x nivel do plato na borda da pista.

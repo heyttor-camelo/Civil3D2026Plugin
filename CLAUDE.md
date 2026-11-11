@@ -70,8 +70,10 @@ tools\Copy-DllFdx.ps1 -Dll $dll -Version $v
 ```
 
 - `G:\Meu Drive\Civil3D2026Plugin\atual\Civil3D2026Plugin.dll` é a DLL "oficial", acessível de qualquer
-  computador. Se o Civil estiver com ela aberta e a cópia falhar, a versão com número no nome
-  (`Civil3D2026Plugin-2.x.y.dll`) resolve: ele carrega a de número maior. Não espere o Civil fechar.
+  computador. **No G: a cópia NÃO falha com o Civil aberto: ela troca o arquivo que o Civil está usando e
+  o plugin quebra ("invalid program", 11/11/2026).** Com o Civil aberto (`acad.exe`), grave só a versão com
+  número no nome (`Civil3D2026Plugin-2.x.y.dll`) e não apague versionadas antigas; o build Release já faz isso
+  sozinho (`tools/CivilAberto.targets`, `Copy-DllFdx.ps1`). Ele carrega a de número maior.
 - **Pasta de teste local: só `C:\Temp\hydro-build`.** Não crie `hydro-build2` e afins (confunde ele).
   Mantenha só as ~5 DLLs mais recentes lá e em `atual\` (apague as versionadas antigas).
 - **Sempre** copie também a última DLL para `G:\Meu Drive\1 FDX ENGENHARIA\2 - Arquivos de Engenharia\dll`.

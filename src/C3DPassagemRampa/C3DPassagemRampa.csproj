@@ -149,10 +149,10 @@
     </PropertyGroup>
   </Target>
   <Target Name="CopyToDrive" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('$(DriveDir)')">
-    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\atual" ContinueOnError="true" Condition="'$(CivilAberto)' != 'sim'" />
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(DriveDir)\atual\C3DPassagemRampa-$(PrVer).dll" ContinueOnError="true" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(DriveDir)\versoes\C3DPassagemRampa\$(PrVer)" ContinueOnError="true" />
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(DriveDir)\atual' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(DriveDir)\atual' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" Condition="'$(CivilAberto)' != 'sim'" />
     <Message Importance="high" Text="C3DPassagemRampa $(PrVer) copiada para $(DriveDir)\atual" />
   </Target>
   <Target Name="CopyToFdx" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('G:\')">
@@ -160,7 +160,8 @@
   </Target>
   <Target Name="CopyVersionedLocal" AfterTargets="ReadPassagemRampaVersion" Condition="'$(Configuration)' == 'Release' And Exists('$(LocalBuildDir)')">
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(LocalBuildDir)\C3DPassagemRampa-$(PrVer).dll" ContinueOnError="true" />
-    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" />
+    <Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(LocalBuildDir)' -Filter 'C3DPassagemRampa-*.dll' | Sort-Object LastWriteTime -Descending | Select-Object -Skip 1 | Remove-Item -ErrorAction SilentlyContinue&quot;" ContinueOnError="true" Condition="'$(CivilAberto)' != 'sim'" />
   </Target>
 
+  <Import Project="..\..\tools\CivilAberto.targets" />
 </Project>

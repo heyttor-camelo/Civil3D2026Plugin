@@ -8,6 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.105.3: causa da "lombofaixa que não aparece" + rampa na curva da esquina
+
+- O Heyvid testou às 15:05 (sessão PID 9152, plugin 2.105.1) e a lombofaixa não saiu. Log: `InvalidProgramException` em `MFTravessia.Draw`, 10 s depois de eu sobrescrever `atual\Civil3D2026Plugin.dll` no Drive com a 2.105.2 (15:06:08). No G: o Windows não trava a DLL carregada. Reproduzido o contrário: a mesma 2.105.1 desenha normalmente no `acad.exe` aberto do zero (minimizado, cópia do DWG, com e sem o painel). Os rebaixos dele já tinham sido reaplicados antes do erro.
+- Correção na entrega: `tools/CivilAberto.targets` (importado nos dois csproj) e `Copy-DllFdx.ps1`: com `acad.exe` aberto, não troca a DLL sem número nem apaga versionadas antigas. CLAUDE.md atualizado. A 2.105.3 foi entregue assim (só versionadas; a sem número continua a 2.105.2 até a próxima entrega com o Civil fechado).
+- MFTRAVESSIA: diz o que ficou gravado (objetos por layer, layer desligada/congelada, caixa do platô) e avisa quando o desenho falha depois de reaplicar os rebaixos.
+- Rampa acompanha a curva da esquina (escolha do Heyvid): R01-R02 com 5 + 2×1,5 m agora cabe (7,73 m³, topo no centro 949,851); R01 segue a SARJETA 14, R02 emenda na SARJETA 08.
+- Entregue 2.105.3 / PassagemRampa 1.8.3 só com versão no nome (Drive `atual` e `versoes`, `C:\Temp\hydro-build`, FDX), hashes conferidos (634625734025…, BF483AB83062…).
+- Próximo: menu próprio de travessias no painel e travessias na vista 3D/planta do painel (pedido do Heyvid).
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.105.2: travessia emenda o meio-fio da baseline vizinha
 
 - O Heyvid avisou que o corredor perto do R01/R02 não acaba, só troca de baseline. Agora a leitura do meio-fio da travessia emenda a outra baseline quando o trecho lido não cobre a travessia (`MFTravessia.ExtendAcrossBaselines`, usa `CurbLines`). Só emenda linha a menos de 1,5 m, no mesmo sentido, e só a parte além da ponta; retorno de esquina fica de fora.

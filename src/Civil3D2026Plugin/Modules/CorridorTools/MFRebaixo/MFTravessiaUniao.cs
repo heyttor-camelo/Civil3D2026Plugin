@@ -545,6 +545,7 @@ internal static partial class MFTravessia
 
         string summary = $"Uniao {unionId}: {members.Count} travessias, contorno com {n} pontos (raio ate {N(maxR)} m), altura {Cm(height)}, {lids} tampa(s) nos cantos, {count} objeto(s). " +
                          $"{roadInfo} ({fromSurface} pontos pela superficie). {string.Join("; ", notes)}" + (open > 0 ? $" AVISO: {open} rumo(s) sem meio-fio foram pulados." : "");
+        summary += " " + Summary(db, unionId);
         PluginLog.Info("MFTRAVESSIA", summary);
         return summary;
     }
@@ -630,6 +631,58 @@ internal static partial class MFTravessia
             mode = $"malha (a conversao em solido falhou: {ex.Message})";
             PluginLog.Aviso("MFTRAVESSIA", "Uniao: conversao em solido falhou, ficou a malha: " + ex.Message);
             return mesh;
+        }
+    }
+
+    /// <summary>
+    /// O que ficou gravado no desenho para a travessia/uniao (relido do desenho, nao o que o comando
+    /// pensa que fez): objetos por layer, se a layer esta desligada/congelada e a caixa do solido.
+    /// </summary>
+    public static string Summary(AcadDb.Database db, string id)
+    {
+        try
+        {
+            var byLayer = new SortedDictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            string box = "", kind = "";
+            using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+            var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+            var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+            foreach (AcadDb.ObjectId oid in ms)
+            {
+                if (tr.GetObject(oid, AcadDb.OpenMode.ForRead) is not AcadDb.Entity e || PartOf(e) is not { } part || part.Id != id)
+                    continue;
+                byLayer[e.Layer] = byLayer.TryGetValue(e.Layer, out int n) ? n + 1 : 1;
+                if (part.Part is PartPlato or "UNIAO_PLATO")
+                {
+                    kind = e is AcadDb.Solid3d ? "solido 3D" : e.GetType().Name;
+                    try
+                    {
+                        AcadDb.Extents3d x = e.GeometricExtents;
+                        box = $"X {x.MinPoint.X:0.00}-{x.MaxPoint.X:0.00}, Y {x.MinPoint.Y:0.00}-{x.MaxPoint.Y:0.00}, elevacao {x.MinPoint.Z:0.000}-{x.MaxPoint.Z:0.000}";
+                    }
+                    catch
+                    {
+                        // Sem extents.
+                    }
+                }
+            }
+            var lt = (AcadDb.LayerTable)tr.GetObject(db.LayerTableId, AcadDb.OpenMode.ForRead);
+            var layers = new List<string>();
+            foreach ((string name, int n) in byLayer)
+            {
+                string state = "";
+                if (lt.Has(name) && tr.GetObject(lt[name], AcadDb.OpenMode.ForRead) is AcadDb.LayerTableRecord l)
+                    state = (l.IsOff ? " DESLIGADA" : "") + (l.IsFrozen ? " CONGELADA" : "");
+                layers.Add($"{name} {n}{state}");
+            }
+            tr.Commit();
+            if (byLayer.Count == 0)
+                return $"AVISO: nada da travessia {id} ficou gravado no desenho.";
+            return $"Gravado no desenho: {string.Join(", ", layers)}" + (box.Length > 0 ? $"; plato ({kind}) em {box}." : ".");
+        }
+        catch (System.Exception ex)
+        {
+            return "Conferencia do que foi gravado falhou: " + ex.Message;
         }
     }
 

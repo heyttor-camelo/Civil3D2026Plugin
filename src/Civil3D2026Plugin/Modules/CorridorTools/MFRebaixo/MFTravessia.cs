@@ -64,6 +64,9 @@ internal sealed class TravessiaSide
     public double Station { get; init; }
     public List<CurbSample> Samples { get; } = new();
 
+    /// <summary>O meio-fio foi emendado com a curva da esquina (retorno) de outra baseline.</summary>
+    public bool CurveSplice { get; set; }
+
     /// <summary>Altura normal do meio-fio (topo - pe) nas pontas do trecho lido, fora do rebaixo.</summary>
     public double? NormalExposed
     {
@@ -215,27 +218,56 @@ internal static partial class MFTravessia
                 double missing = (atStart ? own[0].Station - from : to - own[^1].Station) + 2.0;
 
                 // Linha de outra baseline/corredor que passa a menos de 1,5 m da ponta (encostando ou
-                // sobreposta) e continua para fora no mesmo sentido; fica so a parte alem da ponta.
+                // sobreposta). O sentido e lido no ponto mais perto da ponta (a linha inteira pode ir para
+                // outro lado, como o retorno da esquina). Prefere a continuacao reta; sem ela, segue a curva
+                // da esquina ate ela ficar de lado (pedido do Heyvid: a rampa acompanha a curva).
                 List<CurbSample>? best = null;
+                bool bestCurve = false;
                 double bestD = 1.5;
                 foreach (List<CurbSample> line in CurbLines(db, tip.Edge, 15.0))
                 {
-                    List<CurbSample> l = Flat(line[^1].Edge - line[0].Edge).DotProduct(outward) >= 0 ? line : Enumerable.Reverse(line).ToList();
-                    double d = l.Min(s => Dist2d(s.Edge, tip.Edge));
-                    if (d >= bestD)
+                    int k = Enumerable.Range(0, line.Count).OrderBy(x => Dist2d(line[x].Edge, tip.Edge)).First();
+                    double d = Dist2d(line[k].Edge, tip.Edge);
+                    if (d >= 1.5)
                         continue;
-                    List<CurbSample> beyond = l.SkipWhile(s => Flat(s.Edge - tip.Edge).DotProduct(outward) <= 0.05).ToList();
-                    if (beyond.Count < 2 || Dist2d(beyond[0].Edge, tip.Edge) > 2.0)
+                    // Anda para o lado em que a linha sai da ponta para fora.
+                    double fwd = k + 1 < line.Count ? Flat(line[k + 1].Edge - line[k].Edge).DotProduct(outward) : double.MinValue;
+                    double back = k > 0 ? Flat(line[k - 1].Edge - line[k].Edge).DotProduct(outward) : double.MinValue;
+                    int step = fwd >= back ? 1 : -1;
+                    var path = new List<CurbSample>();
+                    bool curve = false;
+                    Point3d last = line[k].Edge;
+                    for (int x = k + step; x >= 0 && x < line.Count; x += step)
+                    {
+                        CurbSample s = line[x];
+                        Vector3d tan = Flat(s.Edge - last);
+                        if (tan.Length > 1e-6)
+                        {
+                            double dot = tan.GetNormal().DotProduct(outward);
+                            if (dot < 0.2)
+                                break; // a curva ja ficou de lado (meio-fio da rua transversal)
+                            if (dot < 0.9)
+                                curve = true;
+                        }
+                        last = s.Edge;
+                        if (Flat(s.Edge - tip.Edge).DotProduct(outward) > 0.05)
+                            path.Add(s);
+                    }
+                    if (path.Count < 2 || Dist2d(path[0].Edge, tip.Edge) > 2.0)
                         continue;
-                    // Mesmo sentido do meio-fio (nao o retorno da esquina nem o outro lado da rua).
-                    if (Flat(beyond[0].Edge - tip.Edge).GetNormal().DotProduct(outward) < 0.5 ||
-                        Flat(beyond[^1].Edge - beyond[0].Edge).GetNormal().DotProduct(outward) < 0.5)
+                    // Reta ganha da curva; entre iguais, a mais perto.
+                    if (best is not null && curve && !bestCurve)
+                        continue;
+                    if (best is not null && curve == bestCurve && d >= bestD)
                         continue;
                     bestD = d;
-                    best = beyond;
+                    best = path;
+                    bestCurve = curve;
                 }
                 if (best is null)
                     continue;
+                if (bestCurve)
+                    side.CurveSplice = true;
 
                 var add = new List<CurbSample>();
                 double run = 0;
@@ -258,7 +290,7 @@ internal static partial class MFTravessia
                 {
                     own.AddRange(add.Where(s => s.Station > own[^1].Station + 1e-5));
                 }
-                PluginLog.Info("MFTRAVESSIA", $"{side.Label}: meio-fio emendado com outra baseline na {(atStart ? "ponta de tras" : "ponta da frente")} ({add.Count} secoes, {N(run)} m; distancia ate a outra linha {N(bestD)} m, diferenca de elevacao na emenda {Cm(zStep)} em {N(gap)} m).");
+                PluginLog.Info("MFTRAVESSIA", $"{side.Label}: meio-fio emendado com outra baseline ({(bestCurve ? "curva da esquina" : "reta")}) na {(atStart ? "ponta de tras" : "ponta da frente")} ({add.Count} secoes, {N(run)} m; distancia ate a outra linha {N(bestD)} m, diferenca de elevacao na emenda {Cm(zStep)} em {N(gap)} m).");
             }
         }
         catch (System.Exception ex)
@@ -540,12 +572,17 @@ internal static partial class MFTravessia
         List<Point3d> lineB = b.Samples.Select(s => s.Edge).ToList();
         List<Point3d> footA = a.Samples.Select(s => s.Foot).ToList();
         List<Point3d> footB = b.Samples.Select(s => s.Foot).ToList();
+        int mouth = 0;
         foreach (double t in rows)
         {
             Point3d basePt = origin + (along * t);
+            // Depois da curva da esquina (boca da rua transversal) a borda e o prolongamento do
+            // alinhamento do meio-fio: a rampa nao invade a transversal alem dele.
             Point3d pa = Cross(lineA, basePt, across)
+                ?? (a.CurveSplice ? Alignment(a, basePt, across, ref mouth) : null)
                 ?? throw new InvalidOperationException(OutOfCurb(a, total));
             Point3d pb = Cross(lineB, basePt, across)
+                ?? (b.CurveSplice ? Alignment(b, basePt, across, ref mouth) : null)
                 ?? throw new InvalidOperationException(OutOfCurb(b, total));
             ea.Add(pa);
             eb.Add(pb);
@@ -632,6 +669,10 @@ internal static partial class MFTravessia
         result.EdgeB.AddRange(eb);
         result.FootA.AddRange(fa);
         result.FootB.AddRange(fb);
+        if (a.CurveSplice || b.CurveSplice)
+            result.Notes.Add($"a rampa acompanha a curva da esquina em {(a.CurveSplice ? a.Label : "")}{(a.CurveSplice && b.CurveSplice ? " e " : "")}{(b.CurveSplice ? b.Label : "")} (meio-fio de outra baseline).");
+        if (mouth > 0)
+            result.Notes.Add($"{mouth} linha(s) da rampa passam da curva da esquina: limitadas pelo prolongamento do alinhamento do meio-fio.");
         if (linear > 0 && fromSurface > 0)
             result.Notes.Add($"{linear} ponto(s) fora da superficie do corredor: usada a reta entre as bordas.");
 
@@ -676,6 +717,33 @@ internal static partial class MFTravessia
             geo.Notes.Add($"{label}: so {Cm(minGap)} livres entre a tampa ({Cm(p.TampaEspessura)} de espessura) e o fundo da sarjeta.");
         else
             geo.Notes.Add($"{label}: tampa de {N(width)} m de largura, {Cm(minGap)} livres para a agua no pe do meio-fio.");
+    }
+
+    /// <summary>
+    /// Na boca da rua transversal (a linha passa da curva da esquina): cruzamento com a reta que
+    /// prolonga o alinhamento do meio-fio do proprio rebaixo, na ponta mais perto.
+    /// </summary>
+    private static Point3d? Alignment(TravessiaSide side, Point3d basePt, Vector3d across, ref int count)
+    {
+        List<CurbSample> own = side.Samples.Where(s => s.Top is not null).ToList();
+        if (own.Count < 2)
+            return null;
+        bool atStart = Dist2d(own[0].Edge, basePt) <= Dist2d(own[^1].Edge, basePt);
+        Point3d p0 = atStart ? own[0].Edge : own[^1].Edge;
+        Point3d p1 = atStart ? own[1].Edge : own[^2].Edge;
+        Vector3d e = Flat(p0 - p1);
+        if (e.Length < 1e-6)
+            return null;
+        e = e.GetNormal();
+        double den = (across.X * (-e.Y)) - (across.Y * (-e.X));
+        if (Math.Abs(den) < 1e-9)
+            return null;
+        double rx = p0.X - basePt.X, ry = p0.Y - basePt.Y;
+        double w = ((across.X * ry) - (across.Y * rx)) / den;
+        if (w < -0.05 || w > 10.0)
+            return null;
+        count++;
+        return new Point3d(p0.X + (e.X * w), p0.Y + (e.Y * w), p0.Z);
     }
 
     private static string OutOfCurb(TravessiaSide s, double total) =>
