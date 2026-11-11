@@ -586,7 +586,7 @@ internal sealed partial class MFRebaixoPanel
         };
         tb.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
         double tw = tb.DesiredSize.Width, th = tb.DesiredSize.Height;
-        double defX = anchor.X - (tw / 2.0), defY = anchor.Y - th - 30;
+        double defX = anchor.X - (tw / 2.0), defY = anchor.Y - th - 62; // acima da cota "topo" (20 px + texto)
         double x = defX, y = defY;
         if (_secLabelShift.TryGetValue(id, out SW.Vector shift))
         {

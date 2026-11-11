@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.15.0";
+    public const string Versao = "1.17.0";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -1146,25 +1146,16 @@ public sealed class MFRebaixoCommands
                 $"Altura livre final inválida ({finalHeight:0.###} m): não pode ser negativa.");
         }
 
-        // Altura final acima da altura lida nas pontas: o rebaixo sai mesmo assim (pedido do
-        // Heyvid em 10/11/2026); só fica o aviso, porque nesse lado o meio-fio não desce.
-        // Acima das DUAS pontas não há o que rebaixar: a profundidade (REB) fica 0 dos dois lados,
-        // o set não faz nada no corredor e o painel o tratava como removido (o rebaixo sumia da
-        // lista e o Limpar removidos o apagava). Achado no teste de 10/11/2026.
-        if (finalHeight > Math.Max(startEffectiveHeight, endEffectiveHeight) + StationTolerance)
-        {
-            throw new InvalidOperationException(
-                $"Altura final {finalHeight:0.###} m é maior que a altura do meio-fio nas duas pontas " +
-                $"(antes={startEffectiveHeight:0.###} m; depois={endEffectiveHeight:0.###} m): " +
-                "não há o que rebaixar. Use uma altura menor que a do meio-fio.");
-        }
-
+        // Qualquer altura final vale (pedido do Heyvid em 11/11/2026): acima da altura lida nas
+        // pontas o meio-fio SOBE no trecho (REB negativo). Para subir, a peça precisa ser o
+        // MFSARJETA v1.25 ou mais novo; nas anteriores o REB negativo é ignorado (vira 0).
         if (finalHeight > maximumFinalHeight + StationTolerance)
         {
             string aviso =
                 $"Altura final {finalHeight:0.###} m é maior que a altura do meio-fio lida nas pontas " +
-                $"(antes={startEffectiveHeight:0.###} m; depois={endEffectiveHeight:0.###} m). " +
-                "Rebaixo criado mesmo assim; confira o resultado na seção.";
+                $"(antes={startEffectiveHeight:0.###} m; depois={endEffectiveHeight:0.###} m): " +
+                "o meio-fio sobe nesse trecho. Precisa do MFSARJETA v1.25 ou mais novo no corredor; " +
+                "com peça mais antiga o meio-fio não sobe.";
 
             PluginLog.Aviso("MFREBAIXO", aviso);
 
@@ -1243,15 +1234,12 @@ public sealed class MFRebaixoCommands
         if (useDepth)
         {
             // Profundidade do rebaixo em relação ao topo normal de cada lado.
+            // Negativa = o meio-fio sobe (MFSARJETA v1.25+).
             double depthIn =
-                Math.Max(
-                    0.0,
-                    startEffectiveHeight - finalHeight);
+                startEffectiveHeight - finalHeight;
 
             double depthOut =
-                Math.Max(
-                    0.0,
-                    endEffectiveHeight - finalHeight);
+                endEffectiveHeight - finalHeight;
 
             CorridorTransition d1 =
                 set.AddTransition(
@@ -3327,10 +3315,7 @@ public sealed class MFRebaixoCommands
             double currentReduction =
                 settings.UltimaReducao;
 
-            if (
-                currentReduction < 0.0
-                ||
-                currentReduction > normalHeight)
+            if (currentReduction > normalHeight)
             {
                 currentReduction =
                     Math.Max(
@@ -3346,10 +3331,10 @@ public sealed class MFRebaixoCommands
                 var pdo =
                     new PromptDoubleOptions(
                         "\nQuanto deseja ABAIXAR da altura livre efetiva do meio-fio " +
-                        $"<{currentReduction:0.###}>: ")
+                        $"(negativo = subir) <{currentReduction:0.###}>: ")
                     {
                         AllowNone = true,
-                        AllowNegative = false,
+                        AllowNegative = true,
                         AllowZero = true,
                         DefaultValue = currentReduction,
                         UseDefaultValue = true
@@ -3399,10 +3384,7 @@ public sealed class MFRebaixoCommands
         double currentFinalHeight =
             settings.UltimaAlturaFinal;
 
-        if (
-            currentFinalHeight < 0.0
-            ||
-            currentFinalHeight > normalHeight)
+        if (currentFinalHeight < 0.0)
         {
             currentFinalHeight =
                 Math.Max(
@@ -3439,7 +3421,6 @@ public sealed class MFRebaixoCommands
                     ? currentFinalHeight
                     : pdr.Value;
 
-            if (requestedFinalHeight <= normalHeight)
             {
                 finalHeight =
                     requestedFinalHeight;
@@ -3464,10 +3445,6 @@ public sealed class MFRebaixoCommands
 
                 return true;
             }
-
-            ed.WriteMessage(
-                $"\nA altura final não pode ser maior que a altura livre de referência " +
-                $"({normalHeight:0.###} m).");
         }
     }
 

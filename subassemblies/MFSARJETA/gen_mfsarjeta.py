@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.24"
+VERSION = "1.25"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -91,9 +91,12 @@ EXPR = {
     "EXPN": ('[IF(KK>0.5, H-FH, IF(ESTICAR.Value="Yes", Math.Max(0,EXP0), '
              'Math.Max(0, Math.Min(EXP0, H-0.001))))]'),
     # REB: profundidade do rebaixo (o MFREBAIXO grava por Corridor Transition). Kassel não rebaixa.
-    "DREB": "[IF(KK>0.5, 0, Math.Max(0, Math.Min(REB, EXPN)))]",
+    # v1.25: REB negativo SOBE o meio-fio (qualquer altura final, pedido do Heyvid em 11/11/2026).
+    "DREB": "[IF(KK>0.5, 0, Math.Min(REB, EXPN))]",
     "EXP":  "[EXPN - DREB]",
-    "HR":   '[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes", EXP+EMB, H)))]',
+    # v1.25: exposto acima da altura da peça (só acontece com REB negativo): a peça estica, com o
+    # enterrado mínimo, em vez de ficar com o fundo acima da flowline.
+    "HR":   '[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes" OrElse EXP > H - 0.0005, EXP+EMB, H)))]',
     "ENT":  "[HR-EXP]",
     "M":    "[IF(KK>0.5, 0, (LB-LT)/HR)]",
     "SW":   "[Math.PI/2 - Math.Atan(M)]",
@@ -361,21 +364,25 @@ EXPR.update({
     "FIT":  "[IF(DREB <= 0.0005, 1, IF(IRD > SN + 0.000001 AndAlso DREB/Math.Max(IRD - SN, 0.000001) <= WC - 0.05, 1, 0))]",
     # rampa e resto da calçada nunca com menos de 5 cm: link de 1 mm some na planta e a ligação
     # entre seções (S0/S3) sai trocada (gravata/triângulo errado na hachura)
-    "XR":   "[Math.Min(WC - 0.05, Math.Max(0.05, IF(DREB <= 0.0005, 0, IF(FIT > 0.5, DREB/(IRD - SN), WC))))]",
-    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), (P102.Elevation - P7.Elevation)*XR/WC)]",
+    # v1.25: MF levantado (DREB < 0): a rampa DESCE do topo levantado com iRampa até encontrar a
+    # calçada normal, em XU = -DREB/(iRampa + decl. normal); se não couber, a calçada inteira desce reta.
+    "XU":   "[IF(DREB < -0.0005, -DREB/Math.Max(IRD + SN, 0.000001), 0)]",
+    "FITU": "[IF(DREB < -0.0005 AndAlso XU <= WC - 0.05, 1, 0)]",
+    "XR":   "[Math.Min(WC - 0.05, Math.Max(0.05, IF(DREB > 0.0005, IF(FIT > 0.5, DREB/(IRD - SN), WC), IF(FITU > 0.5, XU, 0))))]",
+    "YR":   "[IF(DREB > 0.0005 AndAlso FIT > 0.5, Math.Min(IRD*XR, DREB + SN*XR), IF(FITU > 0.5, -IRD*XR, (P102.Elevation - P7.Elevation)*XR/WC))]",
     "DatumCP": '[IF(E_CALC_BASE <= 0.0005, "Datum", "")]',
     # v1.23: a rampa volta a ter sempre o code Calcada (a hachura do rebaixo em planta passou a ser
     # desenhada pelo plugin, MFREBAIXO 1.8; não há mais links de sobreposição).
     "CalcRampCode": '["Calcada"]',
 })
-VARTYPES.update({k: "Double" for k in ("IRD", "ICD", "W0", "FIT0", "SLC", "WC", "SN", "FIT", "XR", "YR")})
+VARTYPES.update({k: "Double" for k in ("IRD", "ICD", "W0", "FIT0", "SLC", "WC", "SN", "FIT", "XU", "FITU", "XR", "YR")})
 VARTYPES["DatumCP"] = "String"; VARTYPES["CalcRampCode"] = "String"
 with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
   with swC.case("Yes"):
     for v in ("IRD", "ICD", "W0", "FIT0", "SLC"): var(v)
     pt_slope("P102", "P7", "[SLC]", "[W0]", "[CALC_ELEV]", codes=["Calcada_Ext"], ot="[CALC_OFFSET]",
              disp="P102 - borda externa da calçada (alvos)")
-    for v in ("WC", "SN", "FIT", "XR", "YR", "DatumCP", "CalcRampCode"): var(v)
+    for v in ("WC", "SN", "FIT", "XU", "FITU", "XR", "YR", "DatumCP", "CalcRampCode"): var(v)
     pt("P101", "P7", "[XR]", "[YR]", codes=["Rampa_Fim"], link="L101", lcodes=["[CalcRampCode]", "Top", "TOPO"],
        disp="P101&L101 - fim da rampa (topo)")
     lk("L102", "P101", "P102", codes=["Calcada", "Top", "TOPO"], disp="L102 - topo da calçada")
@@ -397,8 +404,8 @@ with Switch('[IF(CALCADA.Value="Yes","Yes","No")]', "Calçada?") as swC:
         lk("L109", "P106", "P107", codes=["CalcadaBase", "Datum"], disp="L109 - fundo da base")
         lk("L110", "P107", "P105", codes=["CalcadaBase"], disp="L110 - encosto da base no MF")
         sh("S33", ["L104", "L106", "L108", "L109", "L110"], codes=["CalcadaBase"], disp="S33 - BASE DA CALÇADA")
-    out("RAMPA_OK", "[FIT]")
-    out("FAIXA_LIVRE", "[Math.Max(0, WC - IF(DREB > 0.0005, XR, 0))]")
+    out("RAMPA_OK", "[IF(DREB < -0.0005, FITU, FIT)]")
+    out("FAIXA_LIVRE", "[Math.Max(0, WC - IF(DREB > 0.0005 OrElse FITU > 0.5, XR, 0))]")
 
 # v1.23: saíram os links de sobreposição (L201, L211-216, L221-230, L241) que davam o code REBAIXO
 # para a hachura em planta via Code Set Style. Eles viravam cascas (BODY) na extração de sólidos do

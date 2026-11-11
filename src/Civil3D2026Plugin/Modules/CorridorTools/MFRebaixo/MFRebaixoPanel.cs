@@ -2120,7 +2120,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(EditRow("comp", "Comprimento do trecho rebaixado", N(r.LoweredLength, "0.000"), "m"));
         p.Children.Add(EditRow("s2", "Fim do trecho rebaixado (S2)", N(r.S2), "m"));
         p.Children.Add(Label("Valor do rebaixo", true));
-        p.Children.Add(EditRow("red", "Rebaixo (quanto desce)", r.NormalHeight is double nh0 && r.FinalHeight is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
+        p.Children.Add(EditRow("red", "Rebaixo (quanto desce; negativo sobe)", r.NormalHeight is double nh0 && r.FinalHeight is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
         p.Children.Add(EditRow("h", "Altura livre final", N(r.FinalHeight ?? 0, "0.000"), "m"));
         p.Children.Add(Label("Mudou o inicio: o fim acompanha (o comprimento fica). Mudou o comprimento: o fim muda. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). As rampas (S0 e S3) saem de novo da altura normal das secoes vizinhas e da declividade iRampa. O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta."));
 

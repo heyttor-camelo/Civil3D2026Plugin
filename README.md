@@ -169,7 +169,9 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   desenho** (contorno amarelo temporario); um rebaixo novo e selecionado sozinho. Aba Propriedades: inicio,
   comprimento, fim, rebaixo (quanto desce) ou altura livre final, e **Reposicionar no desenho** (clique o novo
   inicio). Botoes **Ligar/desligar a representacao em planta** e **Redesenhar hachuras**.
-- Use com o `MFSARJETA_v1.24.pkt` (`subassemblies/MFSARJETA`): sem links de sobreposicao e com os codes dos
+- Altura final livre (v1.17.0): qualquer valor a partir de 0. Acima da altura normal o meio-fio **sobe** no
+  trecho (precisa do `MFSARJETA_v1.25.pkt`; com peca mais antiga so rebaixa).
+- Use com o `MFSARJETA_v1.25.pkt` (`subassemblies/MFSARJETA`): sem links de sobreposicao e com os codes dos
   shapes fixos (o solido do meio-fio nao fica mais com buraco nas rampas do rebaixo).
 - Sem Ribbon: use pela linha de comando. O log continua em `%LOCALAPPDATA%\Civil3D2026Plugin\logs`
   (Ctrl+Shift+L no painel do MFREBAIXO).

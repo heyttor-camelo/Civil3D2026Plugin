@@ -3,7 +3,7 @@
 Meio-fio SUDECAP 30/40, Kassel (guia de atracagem) e personalizado, com sarjeta
 opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
-- `MFSARJETA_v1.24.pkt`: pacote para importar no Civil 3D.
+- `MFSARJETA_v1.25.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
   Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt`
 
@@ -41,6 +41,13 @@ codes entre duas seções, o sólido ficava com um buraco em cada rampa do rebai
 (`REB` > 0) a rampa sai do topo rebaixado com `iRampa` (8,33%) até encontrar a calçada
 normal. Se não couber na largura, a calçada inteira fica em `iRampa` (sem alvo) e
 `Rampa OK` = 0. `Faixa livre` = largura que sobra depois da rampa (NBR 9050: >= 1,20 m).
+
+## Meio-fio levantado (v1.25)
+
+`REB` negativo sobe o meio-fio (o MFREBAIXO grava assim quando a altura final pedida é maior que a
+normal). Se o exposto passar da altura da peça, ela estica mantendo o `Enterrado mínimo`. Com calçada,
+a rampa desce do topo levantado até a calçada normal com `iRampa`; se não couber, a calçada desce reta
+até a borda externa e `Rampa OK` = 0.
 
 ## Kassel
 
