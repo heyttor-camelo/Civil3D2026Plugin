@@ -1,3 +1,14 @@
+## 2.106.0 - MFREBAIXO v1.16.0 / PassagemRampa v1.9.0: menu de travessias no painel e travessias no 3D
+
+Pedido do Heyvid em 11/11/2026 ("nao tem menu para ela no painel; falta aparecer no 3d").
+
+- Painel de rebaixos: categoria nova **Travessias**. A lista mostra cada travessia (rebaixos A-B, tipo, altura, plataforma, rampas, tampa, volume do plato, uniao) e as unioes de cruzamento. Selecionar destaca o contorno do plato no desenho (amarelo, temporario) e leva a planta/3D do painel para o rebaixo de um lado. Duplo clique da zoom.
+- Aba Propriedades da travessia: id, objetos gravados, elevacao, volume, rebaixos, superficie de topo; **editar** tipo, altura, plataforma, rampas e tampa e **Aplicar e redesenhar** (os dados ficam guardados no solido; a uniao e refeita junto). A altura final dos rebaixos nao muda pelo painel (o aviso explica).
+- Barra de comandos, grupo Travessia: Nova travessia, Editar travessia, Redesenhar a selecionada, Redesenhar todas, Unir travessias do cruzamento, **Separar a uniao**, **Apagar travessia** (confirmacao dizendo o que sai e que os rebaixos nao mudam; U desfaz) e Zoom na travessia.
+- **Planta geral e planta do rebaixo**: travessias desenhadas por cima (plato, rampas, tampas, faixa e triangulos), a selecionada com contorno.
+- **3D do painel**: os solidos das travessias (plato, tampas e a pintura de 3 mm) aparecem junto com o corredor, lidos do proprio desenho (Brep do AutoCAD). Clicar no plato mostra a elevacao do ponto.
+- O painel se atualiza sozinho depois de MFTRAVESSIA, MFTRAVESSIAREFAZER e MFTRAVESSIAUNIR.
+- Teste (copia do DWG, painel fora da tela): travessia R01-R02 lida com 50 objetos, 2540 triangulos, 26 contornos, 7,73 m3; editar para 4 + 2x1,0 m redesenhou (5,91 m3); apagar tirou tudo.
 ## 2.105.3 - MFREBAIXO v1.15.3 / PassagemRampa v1.8.3: rampa acompanha a curva da esquina; lombofaixa que "nao aparecia"
 
 - **Lombofaixa nao gerada no teste do Heyvid (15:06)**: o log mostrava `Common Language Runtime detected an invalid program` no desenho da travessia. Causa: a entrega da 2.105.2 sobrescreveu `atual\Civil3D2026Plugin.dll` no Google Drive 10 s antes, com o Civil aberto usando esse arquivo (no G: o Windows nao trava a DLL carregada; o .NET le cada metodo do arquivo so na primeira vez que ele roda). A mesma 2.105.1 desenha normalmente no Civil 3D aberto do zero (conferido no acad.exe, com e sem o painel aberto). **A entrega agora nao troca nem apaga DLL com o Civil aberto**: so grava as copias com a versao no nome e avisa (`tools/CivilAberto.targets`, `Copy-DllFdx.ps1`).

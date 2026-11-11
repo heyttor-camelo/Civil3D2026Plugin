@@ -1484,7 +1484,7 @@ internal sealed partial class MFRebaixoPanel
             return;
         }
 
-        string key3D = $"{(_tudo3D ? _modelsKey3D : _modelKey)}|{_items.Count}|{_exagero3D:0.##}";
+        string key3D = $"{(_tudo3D ? _modelsKey3D : _modelKey)}|{_items.Count}|{_exagero3D:0.##}|{_travSig}|{(_category == "TRAVESSIAS" ? _currentTrav?.Id : "")}";
         if (key3D == _key3D)
         {
             // 3D geral: escolher outro rebaixo na lista leva a camera ate ele, sem refazer a cena.
@@ -1661,6 +1661,7 @@ internal sealed partial class MFRebaixoPanel
             _faces[gm] = new Face3D(kv.Key.Model, kv.Key.Key, kv.Key.Zone, kv.Key.Owner, color);
         }
 
+        AddTravessias3D(group, minX, minY, maxX, maxY);
         _viewport.Children.Add(new W3.ModelVisual3D { Content = group });
         ApplySelection3D();
 

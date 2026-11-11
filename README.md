@@ -1,5 +1,10 @@
 # Civil3D2026Plugin
 
+```
+- Painel de rebaixos (MFREBAIXO v1.16): categoria **Travessias** com a lista das travessias do desenho (rebaixos, tipo, altura, plataforma, rampas, tampa, volume, uniao). Selecionar mostra a travessia em amarelo no desenho e leva a planta/3D do painel ate ela; aba Propriedades para **editar** as medidas e **Aplicar e redesenhar**; botoes Nova travessia, Redesenhar a selecionada / todas, Unir, **Separar a uniao**, **Apagar** (com confirmacao; U desfaz) e Zoom. As travessias aparecem na planta geral, na planta do rebaixo e no **3D** do painel (plato, tampas, faixa e triangulos).
+
+# Civil3D2026Plugin
+
 Projeto unificado para Civil 3D 2026.2 (**.NET 8 / x64**) e Civil 3D 2027 (**.NET 10 / x64**), mesmo codigo-fonte.
 
 ## Baixar pronto (sem compilar)

@@ -8,6 +8,13 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.106.0: menu de travessias no painel e travessias no 3D
+
+- Categoria **Travessias** no painel de rebaixos (`MFRebaixoPanel.Travessias.cs`) e leitura das travessias do desenho para o painel (`MFTravessiaView.cs`: hachuras de planta e sólidos em triângulos via Brep).
+- O que tem: lista; Propriedades com edição e **Aplicar e redesenhar**; Redesenhar selecionada/todas, Unir, Separar a união, Apagar (confirmação), Zoom; travessias na planta geral, na planta do rebaixo e no 3D. O painel se atualiza depois dos comandos MFTRAVESSIA*.
+- Testado fora da tela (accoreconsole + `ZZTeste5P.cs`, só em `v4\travessia`): R01-R02 com 5 + 2×1,5 m lida com 50 objetos, 2540 triângulos, 7,73 m³; editar para 4 + 2×1,0 redesenhou (5,91 m³); apagar tirou tudo. PNGs em `v4\travessia\painel-trav-*.png`.
+- Entregue 2.106.0 / PassagemRampa 1.9.0 completa (o Civil estava fechado): Drive `atual` e `versoes`, `C:\Temp\hydro-build`, FDX; hashes conferidos (74965C180536…, B12B9565B9CC…).
+- Pendências: teste do Heyvid na tela (botões, edição, 3D); decidir a tampa onde a sarjeta sobe para o meio-fio (sem espaço para a água).
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.105.3: causa da "lombofaixa que não aparece" + rampa na curva da esquina
 
 - O Heyvid testou às 15:05 (sessão PID 9152, plugin 2.105.1) e a lombofaixa não saiu. Log: `InvalidProgramException` em `MFTravessia.Draw`, 10 s depois de eu sobrescrever `atual\Civil3D2026Plugin.dll` no Drive com a 2.105.2 (15:06:08). No G: o Windows não trava a DLL carregada. Reproduzido o contrário: a mesma 2.105.1 desenha normalmente no `acad.exe` aberto do zero (minimizado, cópia do DWG, com e sem o painel). Os rebaixos dele já tinham sido reaplicados antes do erro.

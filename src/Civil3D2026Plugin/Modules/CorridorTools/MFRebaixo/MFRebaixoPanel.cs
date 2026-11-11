@@ -95,6 +95,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private static readonly (string Id, string Icon, string Title)[] Categories =
     {
         ("REBAIXOS", "rebaixo", "Rebaixos"),
+        ("TRAVESSIAS", "passagem", "Travessias"),
         ("CORREDORES", "corredor", "Corredores"),
         ("AVISOS", "aviso", "Avisos"),
         ("CONFIG", "config", "Configuracao")
@@ -108,22 +109,6 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             "Lanca um rebaixo por dois cliques no trecho que fica totalmente rebaixado (MFREBAIXO). As rampas e as secoes saem calculadas.",
             new[] { "Selecione o corredor.", "Clique o inicio e o fim do trecho rebaixado.", "Informe a altura livre final ou a reducao." },
             p => p.Send(C3DCommands.Corridor.MfRebaixo + " ", "Novo rebaixo: siga a linha de comando.")),
-        new("TRAVESSIA", "passagem", "Travessia entre rebaixos", "Rebaixo",
-            "Lombofaixa elevada ou semi-elevada ligando dois rebaixos frente a frente (MFTRAVESSIA): plato 3D sobre a superficie de topo do corredor, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
-            new[] { "Clique no desenho o primeiro rebaixo.", "Clique o rebaixo do outro lado da rua.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
-            p =>
-            {
-                MFTravessiaCommands.PreSelectedSet = p._current?.SetName;
-                p.Send(C3DCommands.Corridor.MfTravessia + " ", "Travessia: siga a linha de comando.");
-            }),
-        new("UNIRTRAVESSIAS", "passagem", "Unir travessias do cruzamento", "Rebaixo",
-            "Une as travessias de um cruzamento num plato so, limitado pelo meio-fio (MFTRAVESSIAUNIR). Em cada travessia fica so a rampa de fora. A opcao Separar desfaz.",
-            new[] { "Lance antes as travessias do cruzamento.", "Selecione todas no desenho e confirme." },
-            p => p.Send(C3DCommands.Corridor.MfTravessiaUnir + " ", "Unir travessias: siga a linha de comando.")),
-        new("REFAZERTRAVESSIAS", "atualizar", "Refazer travessias", "Rebaixo",
-            "Desenha de novo as travessias (MFTRAVESSIAREFAZER) depois de mexer no corredor ou nos rebaixos.",
-            new[] { "Todas ou selecionadas no desenho." },
-            p => p.Send(C3DCommands.Corridor.MfTravessiaRefazer + " ", "Refazer travessias: siga a linha de comando.")),
         new("EDITAR", "renomear", "Editar rebaixo", "Rebaixo",
             "Muda o inicio, o fim ou a altura final do rebaixo selecionado e reaplica (Transitions e secoes refeitas).",
             new[] { "Selecione o rebaixo.", "Altere os valores na aba Propriedades.", "Aplicar." }, p => p.SelectTab("Propriedades")),
@@ -149,6 +134,39 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             new[] { "Selecione um rebaixo ou corredor." }, p => p.SelectCorridor()),
         new("REBUILD", "reconstruir", "Rebuild do corredor", "Corredor",
             "Reconstroi o corredor do item escolhido e le tudo de novo.", new[] { "Selecione um rebaixo ou corredor." }, p => p.RebuildCurrent()),
+        new("NOVATRAVESSIA", "passagem", "Nova travessia", "Travessia",
+            "Lombofaixa elevada ou semi-elevada ligando dois rebaixos frente a frente (MFTRAVESSIA): plato 3D sobre a superficie de topo, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
+            new[] { "Escolha a superficie de topo (so na primeira vez).", "Clique no primeiro rebaixo e no do outro lado da rua.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
+            p => p.NewTravessia()),
+        new("EDITARTRAVESSIA", "renomear", "Editar travessia", "Travessia",
+            "Muda tipo, altura, plataforma, rampas e tampa da travessia selecionada (categoria Travessias, aba Propriedades) e redesenha.",
+            new[] { "Selecione a travessia na lista.", "Mude as medidas.", "Aplicar e redesenhar." }, p => p.EditTrav()),
+        new("REDESENHARTRAVESSIA", "atualizar", "Redesenhar a travessia selecionada", "Travessia",
+            "Desenha de novo a travessia selecionada com o corredor atual (depois de mexer no corredor ou nos rebaixos).",
+            new[] { "Selecione a travessia na lista." }, p => p.RedrawTrav(null)),
+        new("REDESENHARTODAS", "reconstruir", "Redesenhar todas as travessias", "Travessia",
+            "Desenha de novo todas as travessias e unioes do desenho (MFTRAVESSIAREFAZER > Todas).",
+            new[] { "Sem perguntas." }, p => p.Send(C3DCommands.Corridor.MfTravessiaRefazer + " Todas ", "Redesenhando todas as travessias.")),
+        new("UNIRTRAVESSIAS", "solido3d", "Unir travessias do cruzamento", "Travessia",
+            "Une as travessias de um cruzamento num plato so, limitado pelo meio-fio (MFTRAVESSIAUNIR). Em cada travessia fica so a rampa de fora.",
+            new[] { "Lance antes as travessias do cruzamento.", "Selecione todas no desenho e confirme." },
+            p => p.Send(C3DCommands.Corridor.MfTravessiaUnir + " Unir ", "Unir travessias: selecione as travessias do cruzamento no desenho.")),
+        new("SEPARARUNIAO", "corte", "Separar a uniao", "Travessia",
+            "Desfaz a uniao da travessia selecionada: o plato do cruzamento sai e as travessias voltam inteiras. Pede confirmacao.",
+            new[] { "Selecione a uniao ou uma travessia dela." },
+            p =>
+            {
+                string? u = p._currentTrav is { IsUnion: true } t ? t.Id : p._currentTrav?.Data?.UnionId;
+                if (string.IsNullOrEmpty(u))
+                    p.Say("A travessia selecionada nao esta numa uniao.");
+                else
+                    p.SeparateUnion(u);
+            }),
+        new("APAGARTRAVESSIA", "excluir", "Apagar travessia", "Travessia",
+            "Apaga a travessia selecionada (plato, tampas, hachuras, faixa e triangulos). Os rebaixos nao mudam. Pede confirmacao; U desfaz.",
+            new[] { "Selecione a travessia na lista." }, p => p.DeleteTrav()),
+        new("ZOOMTRAVESSIA", "zoom", "Zoom na travessia", "Travessia",
+            "Aproxima o desenho na travessia selecionada (duplo clique na lista faz o mesmo).", new[] { "Selecione a travessia." }, p => p.ZoomTrav()),
         new("ATUALIZAR", "atualizar", "Atualizar", "Geral",
             "Le os rebaixos do desenho de novo.", new[] { "Sem perguntas." }, p => p.Refresh()),
         new("AJUDA", "ajuda", "Ajuda do MFREBAIXO", "Geral",
@@ -233,6 +251,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         string name = e.GlobalCommandName ?? "";
         if ((name.StartsWith("MFREBAIXO", StringComparison.OrdinalIgnoreCase) && !name.Equals(C3DCommands.Corridor.MfRebaixoPainel, StringComparison.OrdinalIgnoreCase)) ||
+            name.StartsWith("MFTRAVESSIA", StringComparison.OrdinalIgnoreCase) ||
             name is "U" or "UNDO" or "REDO" or "MREDO" ||
             name.Contains("CORRIDOR", StringComparison.OrdinalIgnoreCase))
         {
@@ -612,6 +631,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 _curbs = MFRebaixoData.Curbs(doc.Database);
                 _strips = MFRebaixoData.PlanStrips(doc.Database);
                 _stripBounds = null;
+                LoadTravessias(doc.Database);
             }
         }
         catch (System.Exception ex)
@@ -686,6 +706,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         try
         {
+            if (_category == "TRAVESSIAS")
+            {
+                HighlightTrav();
+                return;
+            }
+
             RebaixoInfo? r = _category is "CORREDORES" or "CONFIG" ? null : _current;
             if (r is null || Doc is null)
                 MFRebaixoHighlight.Clear();
@@ -705,6 +731,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private int CountFor(string category) => category switch
     {
         "REBAIXOS" => _items.Count,
+        "TRAVESSIAS" => _travs.Count,
         "CORREDORES" => _corridors.Count,
         "AVISOS" => _warnings.Count,
         _ => -1
@@ -838,6 +865,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 }).ToList();
                 break;
 
+            case "TRAVESSIAS":
+                headers = new[] { "Travessia", "Tipo", "Altura", "Plataforma", "Rampas", "Tampa", "Volume", "Uniao" };
+                widths = new[] { 190.0, 90, 70, 75, 65, 60, 70, 100 };
+                rows = TravRows(s => Match(s));
+                break;
+
             case "CONFIG":
                 headers = new[] { "Opcao", "Valor" };
                 widths = new[] { 240.0, 160 };
@@ -906,7 +939,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             var item = new WC.ListViewItem { Content = new RowView(row, IconOf(row.Icon)), Tag = row };
             _list.Items.Add(item);
             if ((row.Data is RebaixoInfo r && ReferenceEquals(r, _current) && _category == "REBAIXOS") ||
-                (row.Data is CorridorSummary c && ReferenceEquals(c, _currentCorridor)))
+                (row.Data is CorridorSummary c && ReferenceEquals(c, _currentCorridor)) ||
+                (row.Data is TravessiaView tv && ReferenceEquals(tv, _currentTrav)))
             {
                 keep = item;
             }
@@ -935,6 +969,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 break;
             case CorridorSummary c:
                 _currentCorridor = c;
+                break;
+            case TravessiaView t:
+                FollowTrav(t);
                 break;
         }
 
@@ -1521,6 +1558,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             }
         }
 
+        // Travessias por cima dos rebaixos.
+        DrawTravessiasPlan();
+
         // Nomes dos corredores ao longo da baseline mais comprida de cada um (por ultimo: so onde sobra espaco).
         foreach (IGrouping<AcadDb.ObjectId, (AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> g in _overview.GroupBy(o => o.Corridor))
         {
@@ -1685,6 +1725,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             if (_current is not null && item.CorridorId == _current.CorridorId)
                 DrawRebaixo(item, ReferenceEquals(item, _current), 1.0);
         }
+
+        DrawTravessiasPlan();
 
         // Linhas das secoes.
         WM.Brush sectionBrush = ToolTheme.Brush(255, 255, 255, 70);
@@ -2034,6 +2076,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
         if (_category == "CONFIG")
             return BuildConfig();
+
+        if (_category == "TRAVESSIAS")
+            return BuildTravProperties();
 
         RebaixoInfo? r = _current;
         if (r is null)
@@ -2604,6 +2649,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
     private void ZoomCurrent()
     {
+        if (_category == "TRAVESSIAS")
+        {
+            ZoomTrav();
+            return;
+        }
+
         if (_category == "CORREDORES" || _category == "CONFIG")
             return;
         RebaixoInfo? r = _current;
