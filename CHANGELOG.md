@@ -1,3 +1,9 @@
+## 2.105.2 - MFREBAIXO v1.15.2 / PassagemRampa v1.8.2: travessia continua no meio-fio da baseline vizinha
+
+Pedido do Heyvid em 11/11/2026 ("o corredor nao acaba, so troca de baseline naquela regiao").
+
+- A leitura do meio-fio da travessia (MFTRAVESSIA, MFTRAVESSIAREFAZER e uniao) so olhava a baseline do rebaixo. Agora, quando o trecho lido nao cobre a travessia, emenda o meio-fio de outra baseline/corredor que passa a menos de 1,5 m da ponta (encostando ou sobreposta) e segue no mesmo sentido; fica so a parte alem da ponta, com o XYZ absoluto. Retorno de esquina e o outro lado da rua ficam de fora. O log diz o que foi emendado, a distancia e a diferenca de elevacao na emenda.
+- Waldir Soeiro: do lado do R02 o meio-fio continua na SARJETA 08 (sobreposta 0,40 m, 1,3 cm de diferenca, sem degrau). Do lado do R01 a ponta (est. 49,106) e o comeco do retorno da esquina (SARJETA 14, vira para a rua transversal): ali a travessia de 5 + 2x1,5 m continua sem caber; a mensagem agora explica e sugere afastar os rebaixos ou unir as travessias do cruzamento.
 ## 2.105.1 - MFREBAIXO v1.15.1 / PassagemRampa v1.8.1: travessia compilada e testada no DWG da Waldir Soeiro
 
 Build e teste no LAPTOP-11TNS6P8 (accoreconsole, copia do DWG, 11/11/2026).

@@ -70,7 +70,8 @@ internal sealed class TravessiaSide
         get
         {
             var ends = new List<double>();
-            foreach (CurbSample s in new[] { Samples.FirstOrDefault(), Samples.LastOrDefault() })
+            // So as secoes da propria baseline (as emendadas de outra baseline vem sem topo).
+            foreach (CurbSample s in new[] { Samples.FirstOrDefault(x => x.Top is not null), Samples.LastOrDefault(x => x.Top is not null) })
             {
                 if (s.Top is double top)
                     ends.Add(top - s.Foot.Z);
@@ -155,6 +156,7 @@ internal static partial class MFTravessia
         };
         side.Samples.AddRange(samples);
         tr.Commit();
+        ExtendAcrossBaselines(db, side, from, to);
         return side;
     }
 
@@ -180,7 +182,89 @@ internal static partial class MFTravessia
         };
         side.Samples.AddRange(samples);
         tr.Commit();
+        ExtendAcrossBaselines(db, side, from, to);
         return side;
+    }
+
+    /// <summary>
+    /// O meio-fio pode continuar em outra baseline (o corredor troca de baseline perto da esquina):
+    /// se o trecho lido nao chega em <paramref name="from"/>/<paramref name="to"/>, emenda o meio-fio
+    /// de outra baseline/corredor que comeca a menos de 1,5 m da ponta e segue para fora.
+    /// </summary>
+    private static void ExtendAcrossBaselines(AcadDb.Database db, TravessiaSide side, double from, double to)
+    {
+        List<CurbSample> own = side.Samples;
+        if (own.Count < 2)
+            return;
+        // O trecho pedido tem 4 m de folga de cada lado (ReadSide): so emenda quando falta mais que a folga.
+        bool needStart = own[0].Station > from + 3.0, needEnd = own[^1].Station < to - 3.0;
+        if (!needStart && !needEnd)
+            return;
+        try
+        {
+            foreach (bool atStart in new[] { true, false })
+            {
+                if (atStart ? !needStart : !needEnd)
+                    continue;
+                CurbSample tip = atStart ? own[0] : own[^1];
+                CurbSample inner = atStart ? own[1] : own[^2];
+                Vector3d outward = Flat(tip.Edge - inner.Edge);
+                if (outward.Length < 1e-6)
+                    continue;
+                outward = outward.GetNormal();
+                double missing = (atStart ? own[0].Station - from : to - own[^1].Station) + 2.0;
+
+                // Linha de outra baseline/corredor que passa a menos de 1,5 m da ponta (encostando ou
+                // sobreposta) e continua para fora no mesmo sentido; fica so a parte alem da ponta.
+                List<CurbSample>? best = null;
+                double bestD = 1.5;
+                foreach (List<CurbSample> line in CurbLines(db, tip.Edge, 15.0))
+                {
+                    List<CurbSample> l = Flat(line[^1].Edge - line[0].Edge).DotProduct(outward) >= 0 ? line : Enumerable.Reverse(line).ToList();
+                    double d = l.Min(s => Dist2d(s.Edge, tip.Edge));
+                    if (d >= bestD)
+                        continue;
+                    List<CurbSample> beyond = l.SkipWhile(s => Flat(s.Edge - tip.Edge).DotProduct(outward) <= 0.05).ToList();
+                    if (beyond.Count < 2 || Dist2d(beyond[0].Edge, tip.Edge) > 2.0)
+                        continue;
+                    // Mesmo sentido do meio-fio (nao o retorno da esquina nem o outro lado da rua).
+                    if (Flat(beyond[0].Edge - tip.Edge).GetNormal().DotProduct(outward) < 0.5 ||
+                        Flat(beyond[^1].Edge - beyond[0].Edge).GetNormal().DotProduct(outward) < 0.5)
+                        continue;
+                    bestD = d;
+                    best = beyond;
+                }
+                if (best is null)
+                    continue;
+
+                var add = new List<CurbSample>();
+                double run = 0;
+                Point3d prev = tip.Edge;
+                foreach (CurbSample s in best)
+                {
+                    run += Dist2d(prev, s.Edge);
+                    prev = s.Edge;
+                    double st = atStart ? tip.Station - run : tip.Station + run;
+                    add.Add(new CurbSample(st, s.Edge, s.Foot, null));
+                    if (run > missing)
+                        break;
+                }
+                double zStep = add[0].Edge.Z - tip.Edge.Z, gap = Dist2d(add[0].Edge, tip.Edge);                if (atStart)
+                {
+                    add.Reverse();
+                    own.InsertRange(0, add.Where(s => s.Station < own[0].Station - 1e-5));
+                }
+                else
+                {
+                    own.AddRange(add.Where(s => s.Station > own[^1].Station + 1e-5));
+                }
+                PluginLog.Info("MFTRAVESSIA", $"{side.Label}: meio-fio emendado com outra baseline na {(atStart ? "ponta de tras" : "ponta da frente")} ({add.Count} secoes, {N(run)} m; distancia ate a outra linha {N(bestD)} m, diferenca de elevacao na emenda {Cm(zStep)} em {N(gap)} m).");
+            }
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("MFTRAVESSIA", $"{side.Label}: meio-fio de outra baseline nao emendado: {ex.Message}");
+        }
     }
 
     private static List<CurbSample> ReadSamples(AcadDb.Transaction tr, CivilDb.Baseline baseline, string subassemblyName,
@@ -596,7 +680,7 @@ internal static partial class MFTravessia
 
     private static string OutOfCurb(TravessiaSide s, double total) =>
         $"A travessia ({N(2 * total)} m com as rampas, estacas {N(s.Station - total)} a {N(s.Station + total)}) passa do meio-fio que existe no corredor em {s.Label} " +
-        $"(lido de {N(s.Samples[0].Station)} a {N(s.Samples[^1].Station)}: ali o corredor ou a region comeca/termina). Diminua a plataforma/rampas ou use rebaixos mais longe da ponta.";
+        $"(lido de {N(s.Samples[0].Station)} a {N(s.Samples[^1].Station)}, ja procurando o meio-fio das baselines vizinhas; se ali o meio-fio vira a esquina, a travessia nao passa). Diminua a plataforma/rampas, leve os rebaixos para mais longe da esquina ou, num cruzamento, una as travessias (MFTRAVESSIAUNIR).";
 
     private static List<double> Stations(double from, double to)
     {

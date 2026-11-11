@@ -8,6 +8,12 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.105.2: travessia emenda o meio-fio da baseline vizinha
+
+- O Heyvid avisou que o corredor perto do R01/R02 não acaba, só troca de baseline. Agora a leitura do meio-fio da travessia emenda a outra baseline quando o trecho lido não cobre a travessia (`MFTravessia.ExtendAcrossBaselines`, usa `CurbLines`). Só emenda linha a menos de 1,5 m, no mesmo sentido, e só a parte além da ponta; retorno de esquina fica de fora.
+- No DWG (cópia, `v4\travessia`, `ZZT5NEAR` lista o que há perto da ponta): do lado do R02 a SARJETA 08 se sobrepõe 0,40 m à Waldir e foi emendada (1,3 cm de diferença de elevação, sem degrau). Do lado do R01, a ponta (est. 49,106) é o começo da SARJETA 14, que vira para a rua transversal (retorno da esquina). Por isso 5 + 2×1,5 m continua sem caber ali; a mensagem agora explica. Com a emenda, R01-R02 aceita 4 + 2×0,6 m: Solid3d 5,42 m³, topo do MF no eixo +0,9 / −0,5 cm do platô, Refazer igual.
+- Entregue 2.105.2 / PassagemRampa 1.8.2 (Drive `atual` e `versoes`, `C:\Temp\hydro-build`, pasta dll da FDX; hashes conferidos: 3D863875FC50…, DF006903BF93…).
+- Pendência: decidir com o Heyvid se a travessia R01-R02 deve avançar sobre o retorno da esquina (hoje recusa) ou se ali vale unir as travessias do cruzamento.
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste da travessia (2.104.0 → 2.105.0 → entregue 2.105.1)
 
 - Compilado o master até 97f9fca (2.105.0, escrito na nuvem): só 1 erro, `Color` ambíguo em `MFTravessia.cs`. 15 avisos antigos, nenhum novo; `ValidateProject.ps1` OK.
