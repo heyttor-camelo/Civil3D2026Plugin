@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.6.2)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.7.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -118,7 +118,18 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP` e `C3DPASSAGEMRAMPA` (lista os comandos).
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
+  `MFTRAVESSIA`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
+- `MFTRAVESSIA` (MFREBAIXO v1.14): **travessia elevada ou semi-elevada (lombofaixa) entre dois rebaixos** frente a
+  frente. Clique perto de um rebaixo (ou use o botao "Travessia entre rebaixos" do painel com ele selecionado);
+  Enter aceita o rebaixo do outro lado da rua. Padroes do detalhe de lombofaixa: plataforma 5,00 m, rampas de
+  1,50 m, semi-elevada a 12 cm acima da borda da pista (elevada = nivel da calcada). Gera o **plato em solido 3D**
+  (layer `MF-TRAVESSIA-3D`, Property Set `C3D_TRAVESSIA`) sobre a **superficie de topo do corredor** (sem ela,
+  reta entre as bordas), a **tampa de concreto sobre a sarjeta** (sarjeta livre, agua por baixo; `MF-TRAVESSIA-TAMPA`)
+  e a planta: plato e rampas em cinza (`MF-TRAVESSIA`), faixa zebrada e triangulos brancos nas rampas
+  (`MF-TRAVESSIA-SINALIZACAO`). Na semi-elevada, os dois rebaixos vao para o eixo da travessia e a altura final
+  deles passa a deixar o topo do meio-fio no nivel do plato (pede confirmacao; U desfaz).
+  `MFTRAVESSIAREFAZER` redesenha as travessias depois de mexer no corredor.
 - `MFREBAIXO` (v1.9): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
   (layer `MF-REBAIXO`, vermelho solido com 20% de transparencia, cobrindo sarjeta + meio-fio de S0 a S3),
   sem depender do Code Set Style. Layer, cor, padroes e transparencia ficam na Configuracao do painel.

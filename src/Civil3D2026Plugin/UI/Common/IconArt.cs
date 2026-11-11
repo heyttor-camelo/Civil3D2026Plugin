@@ -144,6 +144,8 @@ internal static class IconArt
         ["MFREBAIXO"] = ("rebaixo", null),
         ["MFREBAIXOHACHURA"] = ("rebaixo", "atualizar"),
         ["MFREBAIXOLIMPAR"] = ("rebaixo", "corte"),
+        ["MFTRAVESSIA"] = ("passagem", null),
+        ["MFTRAVESSIAREFAZER"] = ("passagem", "atualizar"),
         ["MFREBAIXOCFG"] = ("rebaixo", "config"),
         ["MFREBAIXOHELP"] = ("rebaixo", "ajuda"),
         ["C3DSOLIDARRAY"] = ("solido3d", null),

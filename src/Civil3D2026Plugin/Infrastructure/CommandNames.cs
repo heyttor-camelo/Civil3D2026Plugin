@@ -93,6 +93,8 @@ public static class CommandNames
         public const string MfRebaixoPainel = "MFREBAIXOPAINEL";
         public const string MfRebaixoHachura = "MFREBAIXOHACHURA";
         public const string MfRebaixoLimpar = "MFREBAIXOLIMPAR";
+        public const string MfTravessia = "MFTRAVESSIA";
+        public const string MfTravessiaRefazer = "MFTRAVESSIAREFAZER";
 
         public const string SolidArray = "C3DSOLIDARRAY";
         public const string SolidCfg = "C3DSOLIDCFG";

@@ -107,6 +107,18 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             "Lanca um rebaixo por dois cliques no trecho que fica totalmente rebaixado (MFREBAIXO). As rampas e as secoes saem calculadas.",
             new[] { "Selecione o corredor.", "Clique o inicio e o fim do trecho rebaixado.", "Informe a altura livre final ou a reducao." },
             p => p.Send(C3DCommands.Corridor.MfRebaixo + " ", "Novo rebaixo: siga a linha de comando.")),
+        new("TRAVESSIA", "passagem", "Travessia entre rebaixos", "Rebaixo",
+            "Lombofaixa elevada ou semi-elevada ligando o rebaixo selecionado ao do outro lado da rua (MFTRAVESSIA): plato 3D sobre a superficie de topo do corredor, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
+            new[] { "Selecione um rebaixo (ou clique no desenho).", "Enter aceita o rebaixo do outro lado.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
+            p =>
+            {
+                MFTravessiaCommands.PreSelectedSet = p._current?.SetName;
+                p.Send(C3DCommands.Corridor.MfTravessia + " ", "Travessia: siga a linha de comando.");
+            }),
+        new("REFAZERTRAVESSIAS", "atualizar", "Refazer travessias", "Rebaixo",
+            "Desenha de novo as travessias (MFTRAVESSIAREFAZER) depois de mexer no corredor ou nos rebaixos.",
+            new[] { "Todas ou selecionadas no desenho." },
+            p => p.Send(C3DCommands.Corridor.MfTravessiaRefazer + " ", "Refazer travessias: siga a linha de comando.")),
         new("EDITAR", "renomear", "Editar rebaixo", "Rebaixo",
             "Muda o inicio, o fim ou a altura final do rebaixo selecionado e reaplica (Transitions e secoes refeitas).",
             new[] { "Selecione o rebaixo.", "Altere os valores na aba Propriedades.", "Aplicar." }, p => p.SelectTab("Propriedades")),

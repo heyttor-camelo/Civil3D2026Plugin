@@ -1,3 +1,14 @@
+## 2.104.0 - MFREBAIXO v1.14.0 / PassagemRampa v1.7.0: travessia elevada/semi-elevada entre rebaixos (MFTRAVESSIA)
+
+Segunda parte do plugin de rebaixos, pedida pelo Heyvid em 11/11/2026, com a planta GPAA (Drawing1.dxf) e o detalhe de lombofaixa como referencia.
+
+- Comando novo **`MFTRAVESSIA`**: liga dois rebaixos frente a frente com uma lombofaixa. Clique perto de um rebaixo (ou botao **Travessia entre rebaixos** no painel, com ele selecionado); o plugin acha o rebaixo do outro lado da rua (Enter aceita). Tipo **semi-elevada** (padrao, 12 cm acima da borda da pista) ou **elevada** (nivel da calcada, lido da altura do meio-fio); plataforma 5,00 m e rampas de 1,50 m (detalhe de lombofaixa), tudo ajustavel e lembrado.
+- **Plato em solido 3D** de borda a borda da pista, perpendicular a ela no eixo entre os dois rebaixos: a base segue a **superficie de topo do corredor** (nome com TOP; sem superficie, reta entre as bordas) a cada 0,5 m, o topo e base + altura e nas rampas cresce de 0 ate a altura. Malha de triangulos convertida em Solid3d (montada perto da origem por causa das coordenadas UTM); layer `MF-TRAVESSIA-3D`, Property Set `C3D_TRAVESSIA` (tipo, altura, plataforma, rampa, extensao, elevacao do topo, tampa, rebaixos) para a federacao BIM.
+- **Sarjeta livre com tampa de concreto** por cima (pedido do Heyvid): solido de 10 cm (ajustavel) da borda da pista ao pe do meio-fio, ao longo da plataforma, com o topo no nivel do plato; o comando informa quanto fica livre para a agua (`MF-TRAVESSIA-TAMPA`).
+- **Planta**: plato em cinza e rampas em cinza claro (`MF-TRAVESSIA`), faixa zebrada e triangulos brancos nas rampas com a ponta para o plato (`MF-TRAVESSIA-SINALIZACAO`), hachura da tampa.
+- **Rebaixos acertados** (semi-elevada): os dois rebaixos vao para o eixo da travessia e a altura final deles passa a deixar o topo do meio-fio no nivel do plato. Antes de mexer, o comando lista o que muda em cada rebaixo e pede confirmacao (U desfaz). Se o rebaixo nao voltar, o antigo e mantido.
+- **`MFTRAVESSIAREFAZER`**: redesenha as travessias (todas ou selecionadas) com o corredor atual, pelos dados guardados no solido do plato, e avisa se a altura de um rebaixo nao bate mais com o plato.
+
 ## 2.103.2 - MFREBAIXO v1.13.2 / PassagemRampa v1.6.2: elevacao absoluta no painel, cota da sarjeta abaixo da peca
 
 Conferido no DWG da Waldir Soeiro (copia, 11/11/2026).

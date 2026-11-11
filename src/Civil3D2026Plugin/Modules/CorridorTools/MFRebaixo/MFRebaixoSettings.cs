@@ -50,6 +50,20 @@ internal sealed class MFRebaixoSettings
 
     public const int HachuraVersaoAtual = 2;
 
+    // Travessia entre rebaixos (MFTRAVESSIA, MFREBAIXO 1.14). Padroes do detalhe de lombofaixa e da
+    // planta GPAA que o Heyvid mandou em 11/11/2026: plataforma 5 m, rampas 1,5 m, semi-elevada a 12 cm,
+    // sarjeta livre com tampa de concreto por cima.
+    public int TravessiaTipo { get; set; }
+    public double TravessiaAltura { get; set; } = 0.12;
+    public double TravessiaPlataforma { get; set; } = 5.00;
+    public double TravessiaRampa { get; set; } = 1.50;
+    public bool TravessiaTampa { get; set; } = true;
+    public double TravessiaTampaEspessura { get; set; } = 0.10;
+    public bool TravessiaCentralizar { get; set; } = true;
+    public string TravessiaLayer { get; set; } = "MF-TRAVESSIA";
+    public double TravessiaListra { get; set; } = 0.40;
+    public double TravessiaListraEspaco { get; set; } = 0.40;
+
     public void MigrarHachura()
     {
         if (HachuraVersao >= HachuraVersaoAtual)
