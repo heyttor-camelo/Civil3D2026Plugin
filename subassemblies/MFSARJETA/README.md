@@ -5,7 +5,7 @@ opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
 - `MFSARJETA_v1.25.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
-  Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt`
+  Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt` (no Windows sem `python` no PATH: `py gen_mfsarjeta.py ...`)
 
 Regra de versão: nunca mudar o tipo de dado de um parâmetro existente
 (o "change subassembly .pkt" do Civil 3D não converte e deixa o campo vazio);
@@ -45,7 +45,10 @@ normal. Se não couber na largura, a calçada inteira fica em `iRampa` (sem alvo
 ## Meio-fio levantado (v1.25)
 
 `REB` negativo sobe o meio-fio (o MFREBAIXO grava assim quando a altura final pedida é maior que a
-normal). Se o exposto passar da altura da peça, ela estica mantendo o `Enterrado mínimo`. Com calçada,
+normal). A peça estica assim que o enterrado ficaria menor que o `Enterrado mínimo` (`EMB`); se a seção
+normal já tinha enterrado menor que `EMB`, mantém esse enterrado (o fundo da peça não sobe). Assim a
+altura da peça muda sem salto ao longo das rampas (ex. T30 com 12 cm enterrados levantado para 35 cm:
+`H_REAL` = 47 cm). Com calçada,
 a rampa desce do topo levantado até a calçada normal com `iRampa`; se não couber, a calçada desce reta
 até a borda externa e `Rampa OK` = 0.
 

@@ -8,6 +8,18 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.107.0: meio-fio com qualquer altura (compilado e testado)
+
+- O commit 038e1b9 (feito na nuvem sem compilar) compilou sem erro nem aviso novo; `ValidateProject` ok.
+- Teste sem tela numa cópia nova do DWG da Waldir Soeiro (`C:\Temp\hydro-build\teste-rebaixo\v5-altura\w.dwg`, versão de 11/11 15:14), accoreconsole + `C3DPassagemRampa.dll` com `ZZTeste6.cs` (só na pasta v5-altura, não commitado). Original não aberto; `MFRebaixo\config.json` restaurado.
+- O DWG usa o MFSARJETA v1.24 lido de `G:\...\7 - 2026\12 OFICINA BH\MFSARJETA_v1.24.pkt` (`UseEmbeddedProject = False`). Dá para trocar o pkt sem tela: `Subassembly.GeometryGenerator.ProjectOrAssemblyName` + gravar o gerador de volta na peça + Rebuild.
+- **Peça antiga (v1.24)**, R01 (normal 13,5 cm) com final 0,18: sem erro, REB −0,045/−0,039 gravado, R01 continua na lista (não vira "removido"), meio-fio fica em 13,5 (peça ignora REB negativo), aviso no log pedindo a v1.25. Rebaixar normal (R03 com 0,02): EXPOSTO 0,020, igual a antes.
+- **Peça v1.25** (pkt trocado na cópia): sem mexer em nada, valores iguais à v1.24. R01 com 0,18: EXPOSTO 0,175–0,180 no trecho; com a calçada ligada (na cópia CALCADA estava "Não") a rampa desce 3,4 cm em 0,41 m (8,3%) até a calçada normal, RAMPA_OK 1, FAIXA_LIVRE 1,09. R03 (T30) com 0,35: EXPOSTO 0,350, calçada não cabe a rampa (RAMPA_OK 0, desce reta).
+- **Defeito achado e corrigido no gerador**: o HR só esticava a peça quando o exposto passava de H; nas rampas de transição sobravam 9 mm enterrados e o enterrado saltava para EMB no trecho. Agora estica quando o enterrado ficaria menor que EMB e mantém o enterrado da seção normal se ele já era menor (o fundo não sobe). Novo teste R03 0,35: enterrado constante 0,112, H_REAL 0,300 → 0,368 → 0,403 → 0,462 sem salto. pkt gerado de novo (`py gen_mfsarjeta.py`, não há `python` no PATH desta máquina).
+- O 0,02 no R01 e o 0,35 no R01 dão "rampa ultrapassa o início da Region" (R01 fica perto do começo da Region): limite que já existia; no painel o rebaixo antigo volta sozinho.
+- Entrega com o Civil aberto: só `Civil3D2026Plugin-2.107.0.dll` e `C3DPassagemRampa-1.10.0.dll` (Drive `atual`, `versoes\2.107.0`, `C:\Temp\hydro-build`, FDX `dll`). `MFSARJETA_v1.25.pkt` em `G:\Meu Drive\Civil3D2026Plugin\atual\` e ao lado do v1.24 em `G:\...\7 - 2026\12 OFICINA BH\`.
+- Pendências: com o Civil fechado, rodar a entrega de novo (DLL sem número e limpar versionadas antigas); no DWG real, trocar a peça para a v1.25 (o pkt fica ao lado do v1.24) e testar na tela.
+
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.106.0: menu de travessias no painel e travessias no 3D
 
 - Categoria **Travessias** no painel de rebaixos (`MFRebaixoPanel.Travessias.cs`) e leitura das travessias do desenho para o painel (`MFTravessiaView.cs`: hachuras de planta e sólidos em triângulos via Brep).

@@ -94,9 +94,12 @@ EXPR = {
     # v1.25: REB negativo SOBE o meio-fio (qualquer altura final, pedido do Heyvid em 11/11/2026).
     "DREB": "[IF(KK>0.5, 0, Math.Min(REB, EXPN))]",
     "EXP":  "[EXPN - DREB]",
-    # v1.25: exposto acima da altura da peça (só acontece com REB negativo): a peça estica, com o
-    # enterrado mínimo, em vez de ficar com o fundo acima da flowline.
-    "HR":   '[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes" OrElse EXP > H - 0.0005, EXP+EMB, H)))]',
+    # v1.25: MF levantado (REB negativo): a peça estica assim que o enterrado ficaria menor que o
+    # mínimo (EMB); se a seção normal já tinha enterrado menor que EMB, mantém esse enterrado (o fundo
+    # da peça não sobe). Contínuo em REB = 0 (teste de 11/11/2026: com "EXP > H" a peça ficava com
+    # 9 mm enterrados na rampa de transição e o enterrado saltava para EMB no trecho).
+    "HR":   ('[IF(KK>0.5, H, Math.Max(0.001, IF(ESTICAR.Value="Yes", EXP+EMB, '
+             'IF(DREB < 0, Math.Max(H, EXP + Math.Min(EMB, Math.Max(0, H - EXPN))), H))))]'),
     "ENT":  "[HR-EXP]",
     "M":    "[IF(KK>0.5, 0, (LB-LT)/HR)]",
     "SW":   "[Math.PI/2 - Math.Atan(M)]",

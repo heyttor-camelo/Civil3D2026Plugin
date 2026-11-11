@@ -3,7 +3,7 @@
 Pedido do Heyvid em 11/11/2026 ("permitir meio-fio com alturas superiores, ou melhor, qualquer altura que eu bem entender").
 
 - `MFREBAIXO` e painel de rebaixos: a altura final nao tem mais teto. Acima da altura normal o meio-fio **sobe** no trecho (rampas de subida e descida com a mesma declividade `iRampa`); abaixo continua rebaixando. So nao aceita altura negativa. Na linha de comando, no modo "quanto abaixar", valor negativo sobe.
-- **MFSARJETA v1.25** (`subassemblies/MFSARJETA/MFSARJETA_v1.25.pkt`): `REB` negativo sobe o meio-fio. Se a altura exposta passar da altura da peca (T30 = 30 cm, T40 = 40 cm), a peca estica mantendo o enterrado minimo. Com calcada, a rampa desce do topo levantado ate a calcada normal com `iRampa`. **Para subir, o corredor precisa estar com a v1.25**; com a peca antiga o meio-fio nao sobe (rebaixar continua igual).
+- **MFSARJETA v1.25** (`subassemblies/MFSARJETA/MFSARJETA_v1.25.pkt`): `REB` negativo sobe o meio-fio. A peca estica assim que o enterrado ficaria menor que o minimo (`EMB`), sem salto ao longo das rampas; se a secao normal ja tinha enterrado menor, ele e mantido (corrigido no teste de 11/11/2026: antes so esticava quando o exposto passava da altura da peca e na rampa sobravam 9 mm enterrados). Com calcada, a rampa desce do topo levantado ate a calcada normal com `iRampa`. **Para subir, o corredor precisa estar com a v1.25**; com a peca antiga o meio-fio nao sobe (rebaixar continua igual).
 - Vista Secao: o texto da elevacao do topo do meio-fio nasce acima da cota "topo" (antes ficava por cima dela).
 
 ## 2.106.0 - MFREBAIXO v1.16.0 / PassagemRampa v1.9.0: menu de travessias no painel e travessias no 3D
