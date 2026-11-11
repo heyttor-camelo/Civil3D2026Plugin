@@ -108,8 +108,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             new[] { "Selecione o corredor.", "Clique o inicio e o fim do trecho rebaixado.", "Informe a altura livre final ou a reducao." },
             p => p.Send(C3DCommands.Corridor.MfRebaixo + " ", "Novo rebaixo: siga a linha de comando.")),
         new("TRAVESSIA", "passagem", "Travessia entre rebaixos", "Rebaixo",
-            "Lombofaixa elevada ou semi-elevada ligando o rebaixo selecionado ao do outro lado da rua (MFTRAVESSIA): plato 3D sobre a superficie de topo do corredor, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
-            new[] { "Selecione um rebaixo (ou clique no desenho).", "Enter aceita o rebaixo do outro lado.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
+            "Lombofaixa elevada ou semi-elevada ligando dois rebaixos frente a frente (MFTRAVESSIA): plato 3D sobre a superficie de topo do corredor, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
+            new[] { "Clique no desenho o primeiro rebaixo.", "Clique o rebaixo do outro lado da rua.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
             p =>
             {
                 MFTravessiaCommands.PreSelectedSet = p._current?.SetName;

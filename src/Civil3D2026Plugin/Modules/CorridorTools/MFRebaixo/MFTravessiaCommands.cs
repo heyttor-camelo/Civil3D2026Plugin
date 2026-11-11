@@ -49,19 +49,14 @@ public sealed class MFTravessiaCommands
                 return;
             }
 
-            RebaixoInfo? a = pre is null ? null : items.FirstOrDefault(r => r.SetName == pre);
+            // O Heyvid quer clicar nos dois rebaixos (11/11/2026): nada de escolha automatica.
+            _ = pre;
+            RebaixoInfo? a = PickRebaixo(ed, items, "\nClique no primeiro rebaixo: ", null);
             if (a is null)
-            {
-                a = PickRebaixo(ed, items, "\nClique perto do primeiro rebaixo: ", null);
-                if (a is null)
-                    return;
-            }
+                return;
             ed.WriteMessage($"\nPrimeiro rebaixo: {Describe(a)}");
 
-            RebaixoInfo? auto = Facing(a, items);
-            RebaixoInfo? b = PickRebaixo(ed, items.Where(r => r != a).ToList(),
-                auto is null ? "\nClique perto do rebaixo do outro lado da rua: " : $"\nClique perto do rebaixo do outro lado da rua ou Enter para {auto.Label}: ",
-                auto);
+            RebaixoInfo? b = PickRebaixo(ed, items.Where(r => r != a).ToList(), "\nClique no rebaixo do outro lado da rua: ", null);
             if (b is null)
                 return;
             ed.WriteMessage($"\nSegundo rebaixo: {Describe(b)}");
@@ -431,37 +426,6 @@ public sealed class MFTravessiaCommands
                 return best;
             ed.WriteMessage("\nNenhum rebaixo perto do clique (ate 15 m). Clique mais perto do meio-fio rebaixado.");
         }
-    }
-
-    /// <summary>O rebaixo do outro lado da rua, de frente para <paramref name="a"/> (ate 40 m).</summary>
-    private static RebaixoInfo? Facing(RebaixoInfo a, List<RebaixoInfo> items)
-    {
-        Point3d ca = Center(a);
-        Vector3d dir = a.Path.Count >= 2 ? a.Path[^1] - a.Path[0] : a.P3 - a.P0;
-        dir = new Vector3d(dir.X, dir.Y, 0);
-        if (dir.Length < 1e-6)
-            return null;
-        dir = dir.GetNormal();
-        RebaixoInfo? best = null;
-        double bestScore = double.MaxValue;
-        foreach (RebaixoInfo r in items)
-        {
-            if (r == a)
-                continue;
-            Vector3d d = Center(r) - ca;
-            d = new Vector3d(d.X, d.Y, 0);
-            double along = Math.Abs(d.DotProduct(dir));
-            double across = Math.Abs((d.X * dir.Y) - (d.Y * dir.X));
-            if (across < 2.0 || d.Length > 40.0 || along > 15.0)
-                continue;
-            double score = along + (0.1 * across);
-            if (score < bestScore)
-            {
-                bestScore = score;
-                best = r;
-            }
-        }
-        return best;
     }
 
     private static Point3d Center(RebaixoInfo r)

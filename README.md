@@ -121,8 +121,7 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
   `MFTRAVESSIA`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
 - `MFTRAVESSIA` (MFREBAIXO v1.14): **travessia elevada ou semi-elevada (lombofaixa) entre dois rebaixos** frente a
-  frente. Clique perto de um rebaixo (ou use o botao "Travessia entre rebaixos" do painel com ele selecionado);
-  Enter aceita o rebaixo do outro lado da rua. Padroes do detalhe de lombofaixa: plataforma 5,00 m, rampas de
+  frente. Clique nos dois rebaixos no desenho (comando ou botao "Travessia entre rebaixos" do painel). Padroes do detalhe de lombofaixa: plataforma 5,00 m, rampas de
   1,50 m, semi-elevada a 12 cm acima da borda da pista (elevada = nivel da calcada). Gera o **plato em solido 3D**
   (layer `MF-TRAVESSIA-3D`, Property Set `C3D_TRAVESSIA`) sobre a **superficie de topo do corredor** (sem ela,
   reta entre as bordas), a **tampa de concreto sobre a sarjeta** (sarjeta livre, agua por baixo; `MF-TRAVESSIA-TAMPA`)
