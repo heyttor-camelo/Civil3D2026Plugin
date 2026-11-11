@@ -8,6 +8,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.103.0 / MFREBAIXO 1.13.0
+
+- O f8987e5 (nuvem, sem compilar) **não compilava**: `SelectRebaixo` duplicado (CS0111). Ficou um só (volta para a categoria Rebaixos se preciso e marca na lista). `CalculatedShape.CalculatedLinks` existe e funciona; o resto compilou sem avisos novos (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`); `ValidateProject.ps1` OK.
+- Teste sozinho numa cópia do DWG da Waldir Soeiro (versão de 10/11 16:55, R01 ESQ e R02 DIR) em `C:\Temp\hydro-build\teste-rebaixo\v3`, accoreconsole + `C3DPassagemRampa.dll` com `ZZTeste3.cs` (só na pasta v3, não commitado). Original não tocado; preferências (`viario_painel.txt`, `MFRebaixo\config.json`) restauradas depois.
+- Shapes: 16 por seção em todas as seções (18 no R01, 20 no R02); MF = GUIA/MF_T30 (9 pontos), sarjeta, base, camadas do pavimento. A BASE do MF muda de 4 para 6 pontos em 3 seções (ali vira face, não prisma).
+- Corrigido (commit 051a468): **centro do rebaixo ~1 km fora** (centroide com coordenadas UTM perdia precisão); **meio-fio cinza** no 3D/seção (codes da shape são GUIA/MF_T30, sem "Curb"); **perfil sem a parte enterrada** (base só por link "Curb"; agora pelo fundo da shape GUIA); selecionado no 3D acendia em amarelo (vermelho parecia laranja); dicas do 3D sem fundo; chamada da linha d'água sobre a sarjeta; "-0.0" na grade.
+- Conferido: tema escuro/claro 4 trocas sem exceção, 3D não duplica, 79 textos e nenhum com contraste < 3; clique no outro rebaixo seleciona na lista sem mexer a câmera; pan/zoom/duplo clique pela mesma conta dos eventos (o mouse em si não dá para simular no console). PNGs em `v3\*.png` (rodadas antigas em `v3\rodada1`, `rodada2`), saída em `v3\saida.txt`.
+- Entregue: 2.103.0 e PassagemRampa 1.6.0 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX (hashes conferidos).
+- Pendência: teste do Heyvid na tela (arrastar de verdade com o mouse, sensação do pan/zoom).
+
 ## 2026-11-10 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.102.0 / MFREBAIXO 1.12.0
 
 - O 206cd8c (escrito na nuvem sem compilar) compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), 15 avisos antigos, nenhum novo; `ValidateProject.ps1` OK.
