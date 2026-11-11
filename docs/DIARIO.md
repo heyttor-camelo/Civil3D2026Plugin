@@ -8,6 +8,17 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.103.1, elevação corrigida no 2.103.2
+
+- O 694ed31 (2.103.1, nuvem) compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos.
+- Teste numa cópia nova do DWG da Waldir Soeiro (versão de 11/11 13:47) em `C:\Temp\hydro-build\teste-rebaixo\v4`, accoreconsole + `C3DPassagemRampa.dll` com `ZZTeste4.cs` (só na pasta v4, não commitado). Original não tocado; preferências restauradas.
+- **Elevação errada no painel: confirmada.** `CalculatedPoint.StationOffsetElevationToBaseline.Z` é **relativo ao perfil da baseline** (perfil "Grid from DEM ... (66)" da AV. WALDYR SOEIRO LD, ~949,7). Ex. R01 est. 51,233: SOE.Z −0,180 + perfil 949,691 = 949,512 = `cp.XYZ.Z`. `MFRebaixoData.Xyz` jogava fora o Z de `StationOffsetElevationToXYZ`. Corrigido na raiz (2.103.2): Soe/Origins/Points do modelo com elevação absoluta. Centro R01 −0,094 → **949,605** (feature line TOPO_GUIA 949,602, superfície TOPO 949,604); R02 0,220 → **949,962** (TOPO_GUIA 949,947 no meio).
+- Seção (cotas): altura/peça/topo/sarjeta nos lugares certos nos dois lados; a cota da sarjeta cortava a base na rampa (R01) e no rebaixado (R02): agora passa abaixo do ponto mais baixo. Grade não encosta mais no cabeçalho. Teste automático: 0 sobreposições, 0 cotas sobre a peça nas 6 seções.
+- 3D: ficha sem S0..S3, com "Centro do rebaixo"; ocupa ~25% da largura no canto direito.
+- PNGs: `v4\*.png` (depois da correção) e `v4\antes\*.png`; saída `v4\saida.txt`.
+- Entregue: 2.103.2 e PassagemRampa 1.6.2 no Drive (`atual`, `versoes\2.103.2`), `C:\Temp\hydro-build` e pasta dll da FDX (hashes conferidos).
+- Pendência: teste do Heyvid na tela.
+
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.103.0 / MFREBAIXO 1.13.0
 
 - O f8987e5 (nuvem, sem compilar) **não compilava**: `SelectRebaixo` duplicado (CS0111). Ficou um só (volta para a categoria Rebaixos se preciso e marca na lista). `CalculatedShape.CalculatedLinks` existe e funciona; o resto compilou sem avisos novos (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`); `ValidateProject.ps1` OK.
