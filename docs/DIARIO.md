@@ -8,6 +8,23 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste da travessia (2.104.0 → 2.105.0 → entregue 2.105.1)
+
+- Compilado o master até 97f9fca (2.105.0, escrito na nuvem): só 1 erro, `Color` ambíguo em `MFTravessia.cs`. 15 avisos antigos, nenhum novo; `ValidateProject.ps1` OK.
+- Teste sem o Heyvid numa cópia do DWG da Waldir Soeiro (`teste-rebaixo\v4\w.dwg`, versão de 11/11 13:47), accoreconsole + `C3DPassagemRampa.dll` com `ZZTeste5.cs`/`ZZTeste5P.cs` (só em `v4\travessia`, não commitados). Os comandos reais (`MFTRAVESSIA`, `MFTRAVESSIAREFAZER`, `MFTRAVESSIAUNIR`) rodaram por script, com os cliques passados como coordenadas. O original não foi salvo; `MFRebaixo\config.json` restaurado.
+- **Achados e correções (2.105.1 / MFREBAIXO 1.15.1 / PassagemRampa 1.8.1, d50cff9):**
+  - o topo do meio-fio não era lido (o MFSARJETA usa GUIA/MF_T30, sem "Curb"), então a elevada não funcionava;
+  - no Refazer e na união, os dois lados (ESQ/DIR estão na mesma baseline) pegavam o mesmo rebaixo (aviso falso e altura do lado errado na elevada);
+  - o REB é um só no trecho e o MF muda de altura: no R01 o topo ficava 2,3 cm abaixo do platô. Agora o comando confere no eixo e reaplica uma vez compensando (R01 +0,9 cm, R02 −0,5 cm);
+  - mensagem com as estacas quando a travessia passa do começo do corredor; Property Set nas tampas dos cantos da união.
+- **R01/R02 com 5 + 2×1,5 m não cabe**: o corredor (region TRECHO - ST - 190) começa na est. 49,106 (esquina) e a travessia centrada em 52,05 precisaria de 48,05. O erro é correto. Testado com 4 + 2×0,5: Solid3d de 5,32 m³, largura 9,79 m, topo no centro 949,851, base pela superfície TOPO-WALDYR_SOEIRO_KM_01 (209 pontos), 11 listras + 10 triângulos em Solid3d.
+- Pares criados só no teste (R03/R04 na est. ~100, R05/R06 na ~116), semi 5 + 2×1,5 com 0,12: Solid3d 6,37 m³ (8,14 m × 6,5 m × 0,12 ≈ 6,35), elevação ~951,7; tampas 0,25 m³; hachuras plato 40,7 m², rampas 12,4/12,0 m², tampas 2,5 m²; 9 listras + 8 triângulos em Solid3d, apoiados no topo (TopAt = nós da grade, diferença 0,0000). Elevada 5 + 2×1,5 em R05/R06: 5,93 m³. Refazer: nada muda, sem aviso.
+- **União** (não há cruzamento utilizável no DWG: perto da est. 49 só a Waldir tem rebaixos; os outros ramos são baselines SARJETA sem rebaixo): testada com 2 travessias vizinhas na mesma rua (est. 100 e 116). Contorno fechado (321 raios), platô Solid3d 15,3 m³, 160,7 m² em planta, 2 tampas nos cantos, cada travessia ficou só com a rampa de fora. O Refazer refaz a união igual e o Separar devolve as 84 peças originais.
+- **Painel (4151a9e)**: o link "elevação do topo" aparece nas 5 seções de R01 e R02; clicar no topo mostra "Topo do meio-fio: elevacao 949.602" com ponto e linha, e o segundo clique tira. O texto fica um pouco por cima da cota "topo" (dá para arrastar).
+- **Atenção (decisão do Heyvid):** onde a sarjeta sobe para o meio-fio (R01, R04, R06), a tampa de 10 cm com o platô de 12 cm fica **sem espaço para a água** (−3,5 a −6,4 cm). O comando avisa na confirmação. Precisa decidir: tampa mais fina, platô mais alto ou outro detalhe.
+- Saídas: `C:\Temp\hydro-build\teste-rebaixo\v4\travessia\` (`saida-*.txt`, `planta-*.png`, `secao-eixo-*.png`, `painel-*.png`, `travessia-*.dxf`).
+- Entregue: 2.105.1 e PassagemRampa 1.8.1 no Drive (`atual`, `versoes`), `C:\Temp\hydro-build` e pasta dll da FDX (hashes conferidos: plugin 4ED077F96791…, avulsa 84266B966211…).
+- Pendência: teste do Heyvid na tela (cliques reais, união num cruzamento de verdade, tampa x água).
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), build e teste do 2.103.1, elevação corrigida no 2.103.2
 
 - O 694ed31 (2.103.1, nuvem) compilou de primeira (net8, `-p:AcadDir=...\DeviceModeler\refs\acad2026`), sem avisos novos.
