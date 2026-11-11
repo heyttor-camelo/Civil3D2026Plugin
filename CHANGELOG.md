@@ -1,3 +1,10 @@
+## 2.103.1 - MFREBAIXO v1.13.1 / PassagemRampa v1.6.1: cotas na secao, ficha do rebaixo de volta no 3D
+
+Retorno do Heyvid em 11/11/2026 sobre o 2.103.0.
+
+- **Vista Secao**: as chamadas de elevacao viraram **cotas** em cm (altura do meio-fio, altura total da peca, largura do topo, largura e caimento da sarjeta); os textos continuam arrastaveis. A linha de dicas no alto da vista saiu (informacao desnecessaria). Textos > "Cotas na secao" liga/desliga.
+- **3D**: a ficha do rebaixo voltou (identificacao, corredor, lado, peca, tipo de meio-fio, rampas com inclinacao, trecho rebaixado, alturas). O que era demais era so o bloco de coordenadas dos marcos e do ponto clicado; no lugar dele fica a coordenada do centro do rebaixo.
+
 ## 2.103.0 - MFREBAIXO v1.13.0 / PassagemRampa v1.6.0: tema escuro no painel, 3D solido e mais facil de mexer, secao com zoom/grade/chamadas moveis
 
 Pedidos do Heyvid de 11/11/2026, testando o 2.102.0 na tela.

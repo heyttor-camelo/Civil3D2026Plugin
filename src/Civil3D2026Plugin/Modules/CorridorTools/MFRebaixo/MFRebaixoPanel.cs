@@ -1043,7 +1043,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         ("LEGENDA", "Planta", "Legenda", "Cores da vista"),
         ("ESCALA", "Planta", "Escala grafica", "Barra de escala no canto"),
         ("GRADE", "Planta", "Grade na secao", "Grade com as elevacoes (esquerda) e o afastamento do eixo (embaixo) na vista Secao"),
-        ("ELEVACOES", "Planta", "Elevacoes na secao", "Elevacao do topo do meio-fio, da linha d'agua, da borda da pista e do fundo do meio-fio (vista Secao)"),
+        ("COTAS", "Planta", "Cotas na secao", "Cotas do meio-fio e da sarjeta na vista Secao: altura, peca, topo, largura e caimento da sarjeta (os textos podem ser arrastados)"),
         ("RESUMO", "Barra de baixo", "Resumo", "Quantidade de rebaixos / dados do rebaixo selecionado"),
         ("CURSOR", "Barra de baixo", "O que esta sob o cursor", "Rebaixo, corredor ou secao sob o mouse")
     };

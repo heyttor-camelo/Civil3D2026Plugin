@@ -528,7 +528,7 @@ internal sealed partial class MFRebaixoPanel
     }
 
     // Zoom e arrasto da vista Secao (em pixels de tela) e chamadas arrastadas pelo usuario.
-    private const double SecTop = 60, SecBottom = 30;
+    private const double SecTop = 46, SecBottom = 30;
     private double _secZoom = 1, _secPanX, _secPanY;
     private readonly Dictionary<string, SW.Vector> _secLabelShift = new();
 
@@ -741,82 +741,39 @@ internal sealed partial class MFRebaixoPanel
         PlanLabel($"Secao na estaca {N(cur.Station)}   |   {ZoneName(r, cur.Station)}   |   {idx + 1} de {secs.Count}", 10, 6, 12);
         string normalText = n is { } n3 && normal is not null ? $"   (secao normal, estaca {N(normal.Station)}: {(n3.Top - n3.Flow) * 100:0.0} cm, tracejada)" : "";
         PlanLabel($"Altura do meio-fio: {(c.Top - c.Flow) * 100:0.0} cm{normalText}", 10, 24, 11);
-        PlanLabel((grid ? $"grade de {gridStep:0.###} m: elevacao (m) na esquerda, afastamento do eixo (m) embaixo   |   " : "") +
-                  "roda: zoom   |   arrastar: mover a vista   |   arrastar um texto: mover a chamada   |   duplo clique: voltar",
-            10, 41, 10, ToolTheme.GraphicLine);
-
-        if (Show("ELEVACOES") && CurbMarks(cur, key) is { } marks)
+        // Cotas do meio-fio e da sarjeta (medidas em cm), no lugar das chamadas de elevacao: o Heyvid
+        // pediu cotas (11/11/2026); a elevacao continua na grade e na barra de baixo (cursor).
+        if (Show("COTAS") && CurbMarks(cur, key) is { } marks)
         {
-            WM.Brush markBrush = ToolTheme.Brush(90, 200, 255);
-            WM.Brush leaderBrush = ToolTheme.Brush(90, 200, 255, 150);
+            WM.Brush dimBrush = ToolTheme.Brush(255, 205, 80);
             WM.Brush labelBack = ToolTheme.Brush(34, 36, 40, 225);
             // +1 quando a pista fica a direita do meio-fio na tela.
             double road = P(0, 0).X >= P(marks.Top.Y - c.Origin.Y, 0).X ? 1 : -1;
-            List<SW.Rect> used = new();
 
-            // Cota da altura do meio-fio (linha d'agua ate o topo), do lado da calcada.
-            SW.Point pTop = P(marks.Back.Y - c.Origin.Y, marks.Top.Z - c.Origin.Z);
-            SW.Point pFlow = P(marks.Flow.Y - c.Origin.Y, marks.Flow.Z - c.Origin.Z);
-            double xd = pTop.X - (road * 26);
-            WM.Brush dimBrush = ToolTheme.Brush(255, 205, 80);
-            ChartLine(pTop.X, pTop.Y, xd - (road * 5), pTop.Y, dimBrush, 0.8, dashed: true);
-            ChartLine(pFlow.X, pFlow.Y, xd - (road * 5), pFlow.Y, dimBrush, 0.8, dashed: true);
-            ChartLine(xd, pTop.Y, xd, pFlow.Y, dimBrush, 1.4);
-            ChartLine(xd - 4, pTop.Y, xd + 4, pTop.Y, dimBrush, 1.4);
-            ChartLine(xd - 4, pFlow.Y, xd + 4, pFlow.Y, dimBrush, 1.4);
-            string dimText = $"altura {(c.Top - c.Flow) * 100:0.0} cm";
-            double dimW = dimText.Length * 6.2;
-            double dimX = road > 0 ? xd - dimW - 8 : xd + 8;
-            PlanLabel(dimText, dimX, ((pTop.Y + pFlow.Y) / 2.0) - 7, 11, dimBrush);
-            used.Add(new SW.Rect(dimX, ((pTop.Y + pFlow.Y) / 2.0) - 7, dimW, 14));
-
-            // Chamada de elevacao: ponto, linha e texto que pode ser arrastado (a posicao fica guardada).
-            void Mark(string id, Point3d q, string name, bool above, double dir, double rise = 34)
+            // Texto da cota: pode ser arrastado e fica onde foi deixado (duplo clique na vista volta).
+            void DimText(string id, string text, double centerX, double centerY)
             {
-                SW.Point sp = P(q.Y - c.Origin.Y, q.Z - c.Origin.Z);
-                var dot = new WS.Ellipse { Width = 7, Height = 7, Fill = markBrush, IsHitTestVisible = false };
-                WC.Canvas.SetLeft(dot, sp.X - 3.5);
-                WC.Canvas.SetTop(dot, sp.Y - 3.5);
-
                 var tb = new WC.TextBlock
                 {
-                    Text = $"{name}: elevacao {N(q.Z)} m",
-                    Foreground = ToolTheme.Brush(170, 228, 255),
+                    Text = text,
+                    Foreground = dimBrush,
                     Background = labelBack,
                     Padding = new SW.Thickness(4, 1, 4, 2),
                     FontSize = 11,
                     Cursor = WI.Cursors.SizeAll,
-                    ToolTip = "Arraste para mover esta chamada"
+                    ToolTip = "Arraste para mover este texto"
                 };
                 tb.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
-                double tw = tb.DesiredSize.Width, th = tb.DesiredSize.Height;
-                double defX = dir > 0 ? sp.X + 14 : sp.X - tw - 14;
-                double defY = above ? sp.Y - rise : sp.Y + 16;
+                double defX = centerX - (tb.DesiredSize.Width / 2.0), defY = centerY - (tb.DesiredSize.Height / 2.0);
                 double x = defX, y = defY;
                 if (_secLabelShift.TryGetValue(id, out SW.Vector shift))
                 {
                     x += shift.X;
                     y += shift.Y;
                 }
-                else
-                {
-                    x = Math.Clamp(x, 4, Math.Max(4, w - tw - 4));
-                    for (int k = 0; k < 8 && used.Any(u => u.IntersectsWith(new SW.Rect(x, y, tw, th))); k++)
-                        y += above ? -(th + 3) : th + 3;
-                    y = Math.Clamp(y, SecTop, Math.Max(SecTop, h - th - 20));
-                }
 
-                used.Add(new SW.Rect(x, y, tw, th));
-                var leader = new WS.Line { X1 = sp.X, Y1 = sp.Y, Stroke = leaderBrush, StrokeThickness = 1, IsHitTestVisible = false };
-                void Place()
-                {
-                    WC.Canvas.SetLeft(tb, x);
-                    WC.Canvas.SetTop(tb, y);
-                    leader.X2 = Math.Clamp(sp.X, x, x + tw);
-                    leader.Y2 = Math.Clamp(sp.Y, y, y + th);
-                }
-
-                Place();
+                WC.Canvas.SetLeft(tb, x);
+                WC.Canvas.SetTop(tb, y);
                 SW.Point? from = null;
                 tb.MouseLeftButtonDown += (_, e) =>
                 {
@@ -832,7 +789,8 @@ internal sealed partial class MFRebaixoPanel
                     x += now.X - f.X;
                     y += now.Y - f.Y;
                     from = now;
-                    Place();
+                    WC.Canvas.SetLeft(tb, x);
+                    WC.Canvas.SetTop(tb, y);
                     e.Handled = true;
                 };
                 tb.MouseLeftButtonUp += (_, e) =>
@@ -844,19 +802,60 @@ internal sealed partial class MFRebaixoPanel
                     _secLabelShift[id] = new SW.Vector(x - defX, y - defY);
                     e.Handled = true;
                 };
-
-                _plan.Children.Add(leader);
-                _plan.Children.Add(dot);
                 _plan.Children.Add(tb);
             }
 
-            Mark("TOPO", marks.Top, "Topo do meio-fio", true, road);
-            if (Math.Abs(marks.Back.Y - marks.Top.Y) > 0.02)
-                Mark("FUNDO", marks.Back, "Fundo do meio-fio", true, -road);
-            // Mais alto que os outros: a 34 px o texto caia em cima da sarjeta e do ponto da borda da pista.
-            Mark("FLUXO", marks.Flow, "Linha d'agua (pe do meio-fio)", true, road, 54);
-            if (Math.Abs(c.Origin.Y - marks.Flow.Y) > 0.02)
-                Mark("BORDA", c.Origin, "Borda da pista", false, road);
+            // Cota vertical entre duas elevacoes, na coluna xd da tela; as linhas de chamada saem dos pontos medidos.
+            void VDim(string id, double xd, SW.Point from, SW.Point to, string text, double textSide)
+            {
+                ChartLine(from.X, from.Y, xd, from.Y, dimBrush, 0.8, dashed: true);
+                ChartLine(to.X, to.Y, xd, to.Y, dimBrush, 0.8, dashed: true);
+                ChartLine(xd, from.Y, xd, to.Y, dimBrush, 1.4);
+                ChartLine(xd - 4, from.Y, xd + 4, from.Y, dimBrush, 1.4);
+                ChartLine(xd - 4, to.Y, xd + 4, to.Y, dimBrush, 1.4);
+                DimText(id, text, xd + (textSide * ((text.Length * 3.2) + 12)), (from.Y + to.Y) / 2.0);
+            }
+
+            // Cota horizontal entre dois afastamentos, na linha yd da tela.
+            void HDim(string id, double yd, SW.Point from, SW.Point to, string text, double textSide)
+            {
+                ChartLine(from.X, from.Y, from.X, yd, dimBrush, 0.8, dashed: true);
+                ChartLine(to.X, to.Y, to.X, yd, dimBrush, 0.8, dashed: true);
+                ChartLine(from.X, yd, to.X, yd, dimBrush, 1.4);
+                ChartLine(from.X, yd - 4, from.X, yd + 4, dimBrush, 1.4);
+                ChartLine(to.X, yd - 4, to.X, yd + 4, dimBrush, 1.4);
+                DimText(id, text, (from.X + to.X) / 2.0, yd + (textSide * 12));
+            }
+
+            SW.Point pTop = P(marks.Top.Y - c.Origin.Y, marks.Top.Z - c.Origin.Z);
+            SW.Point pBack = P(marks.Back.Y - c.Origin.Y, marks.Back.Z - c.Origin.Z);
+            SW.Point pFlow = P(marks.Flow.Y - c.Origin.Y, marks.Flow.Z - c.Origin.Z);
+            SW.Point pEdge = P(0, 0);
+
+            // Altura do meio-fio (linha d'agua ate o topo), do lado da calcada.
+            double xd1 = pBack.X - (road * 26);
+            VDim("ALTURA", xd1, new SW.Point(pBack.X, pTop.Y), pFlow, $"altura {(c.Top - c.Flow) * 100:0.0} cm", -road);
+
+            // Altura total da peca (base enterrada ate o topo), mais para fora.
+            if (CurbBottom(cur, key) is double bottom && c.Flow - bottom > 0.01)
+            {
+                SW.Point pBase = P(marks.Back.Y - c.Origin.Y, bottom - c.Origin.Z);
+                VDim("PECA", xd1 - (road * 150), new SW.Point(pBack.X, pTop.Y), pBase, $"peca {(c.Top - bottom) * 100:0.0} cm", -road);
+            }
+
+            // Largura do topo do meio-fio.
+            double topWidth = Math.Abs(marks.Back.Y - marks.Top.Y);
+            if (topWidth > 0.02)
+                HDim("TOPO", Math.Min(pTop.Y, pBack.Y) - 20, pTop, pBack, $"topo {topWidth * 100:0.0} cm", -1);
+
+            // Sarjeta: largura (borda da pista ate a linha d'agua) e caimento.
+            double gutter = Math.Abs(marks.Flow.Y - c.Origin.Y);
+            if (gutter > 0.02)
+            {
+                double drop = c.Origin.Z - marks.Flow.Z;
+                HDim("SARJETA", Math.Max(pEdge.Y, pFlow.Y) + 46, pEdge, pFlow,
+                    $"sarjeta {gutter * 100:0.0} cm   caimento {drop / gutter * 100:0.0}% ({drop * 100:0.0} cm)", 1);
+            }
         }
 
         if (Show("ESCALA") && !grid)
@@ -1144,16 +1143,77 @@ internal sealed partial class MFRebaixoPanel
             kv.Key.BackMaterial = mat;
         }
 
+        // Ficha do rebaixo selecionado: tudo menos as coordenadas dos marcos e do ponto clicado (era so
+        // esse bloco que o Heyvid achou demais, 11/11/2026); para identificar fica a coordenada do centro.
         RebaixoModel? model = r is null ? null : _shown3D.FirstOrDefault(m => m.CorridorId == r.CorridorId && m.BaselineKey == r.BaselineKey);
-        if (r is not null && RebaixoCenter(r, model) is Point3d cg)
-        {
-            _info3D.Text = $"{r.Label}\nCentro:  X {cg.X:0.000}   Y {cg.Y:0.000}   elevacao {cg.Z:0.000}";
-            _info3D.Visibility = SW.Visibility.Visible;
-        }
-        else
+        if (r is null)
         {
             _info3D.Visibility = SW.Visibility.Collapsed;
+            return;
         }
+
+        List<string> lines = model is not null && MfKey(model, r) is long key
+            ? RebaixoCard(model, r, key)
+            : new List<string> { "REBAIXO " + r.Label };
+        if (RebaixoCenter(r, model) is Point3d cg)
+        {
+            lines.Add("");
+            lines.Add($"Centro do rebaixo:  X {cg.X:0.000}   Y {cg.Y:0.000}   elevacao {cg.Z:0.000}");
+        }
+
+        _info3D.Text = string.Join("\n", lines);
+        _info3D.Visibility = SW.Visibility.Visible;
+    }
+
+    private static string CurbTypeName(string code) => code.ToUpperInvariant() switch
+    {
+        "MF_T30" => "SUDECAP 30",
+        "MF_T40" => "SUDECAP 40",
+        "MF_KASSEL" => "Kassel (guia de atracagem)",
+        "MF_PERS" => "Personalizado",
+        "MF_MOLDADO" => "Moldado no local",
+        _ => code
+    };
+
+    /// <summary>
+    /// Ficha do rebaixo no 3D: identificacao, tipo do meio-fio, comprimento e inclinacao das rampas e
+    /// alturas (dados que vao servir para a federacao do modelo BIM).
+    /// </summary>
+    private static List<string> RebaixoCard(RebaixoModel model, RebaixoInfo r, long key)
+    {
+        ModelSection? At(double st) => model.Sections.Where(s => CurbOf(s, key) is not null).OrderBy(s => Math.Abs(s.Station - st)).FirstOrDefault();
+        double? Height(double st) => At(st) is ModelSection s && Math.Abs(s.Station - st) < 0.05 && CurbOf(s, key) is { } c ? c.Top - c.Flow : null;
+
+        double? h0 = Height(r.S0), h1 = Height(r.S1), h2 = Height(r.S2), h3 = Height(r.S3);
+        ModelSection? before = model.Sections.LastOrDefault(s => s.Station < r.S0 - 1e-4 && CurbOf(s, key) is not null);
+        double? normal = h0 ?? (before is not null && CurbOf(before, key) is { } cb ? cb.Top - cb.Flow : r.NormalHeight);
+        double? final = h1 is double a1 && h2 is double a2 ? (a1 + a2) / 2.0 : r.FinalHeight;
+
+        string type = "";
+        ModelSection? mid = At((r.S1 + r.S2) / 2.0);
+        if (mid is not null && mid.ShapeCodes.TryGetValue(key, out string[]? shapeCodes))
+            type = shapeCodes.FirstOrDefault(c => c.StartsWith("MF_", StringComparison.OrdinalIgnoreCase)) ?? "";
+        string typeText = type.Length > 0 ? $"{CurbTypeName(type)}  ({type})" : "(nao informado pela peca)";
+
+        string Slope(double? from, double? to, double length) =>
+            from is double f && to is double t && length > 1e-4 ? $"{Math.Abs(f - t) / length * 100:0.00}%" : "-";
+
+        return new List<string>
+        {
+            "REBAIXO " + r.Label,
+            $"Corredor: {r.CorridorName}",
+            $"Baseline: {r.BaselineName}   lado {r.SideLabel.ToLowerInvariant()}",
+            $"Peca: {r.SubassemblyName}",
+            "Tipo de meio-fio: " + typeText,
+            "",
+            $"Rampa de entrada: {N(r.EntryLength)} m   inclinacao {Slope(h0, h1, r.EntryLength)}",
+            $"Trecho rebaixado: {N(r.LoweredLength)} m",
+            $"Rampa de saida: {N(r.ExitLength)} m   inclinacao {Slope(h3, h2, r.ExitLength)}",
+            $"Comprimento total: {N(r.TotalLength)} m",
+            "",
+            $"Altura do meio-fio: normal {Cm(normal)}   rebaixado {Cm(final)}" +
+                (normal is double nn && final is double ff ? $"   (desce {Cm(nn - ff)})" : "")
+        };
     }
 
     private static void Quad(W3.MeshGeometry3D mesh, W3.Point3D a, W3.Point3D b, W3.Point3D c, W3.Point3D d)
