@@ -194,6 +194,7 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixo, "Rebaixo de meio-fio", "Cria Transition Sets de rebaixo no Corridor."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoHachura, "Redesenhar hachuras dos rebaixos", "Refaz a hachura em planta de todos os rebaixos do desenho e mostra quantas sairam."),
                     new CommandDefinition(C3DCommands.Corridor.MfTravessia, "Travessia entre rebaixos", "Lombofaixa elevada ou semi-elevada ligando dois rebaixos frente a frente: platô 3D sobre a superfície de topo do corredor, tampa de concreto na sarjeta, hachura, faixa e triângulos em planta; acerta a altura e centraliza os rebaixos."),
+                    new CommandDefinition(C3DCommands.Corridor.MfTravessiaUnir, "Unir travessias do cruzamento", "Une as travessias de um cruzamento num plato so, limitado pelo meio-fio; em cada travessia fica so a rampa de fora. Tambem separa."),
                     new CommandDefinition(C3DCommands.Corridor.MfTravessiaRefazer, "Refazer travessias", "Redesenha as travessias depois de mexer no corredor ou nos rebaixos."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoLimpar, "Limpar rebaixos removidos", "Apaga de vez os Transition Sets de rebaixos removidos ou presos a uma peca que nao existe mais."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoCfg, "Configurar rebaixo", "Configura presets do MFREBAIXO."),

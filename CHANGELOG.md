@@ -1,3 +1,12 @@
+## 2.105.0 - MFREBAIXO v1.15.0 / PassagemRampa v1.8.0: unir travessias do cruzamento, superficie de topo escolhida, solidos da sinalizacao
+
+Pedidos do Heyvid de 11/11/2026, logo depois do 2.104.0.
+
+- Comando novo **`MFTRAVESSIAUNIR`** (botao **Unir travessias do cruzamento** no painel): lance as travessias do cruzamento (ex. as 3 de um T), selecione todas e o plugin faz **um plato so**, limitado pelo meio-fio. Do centro do cruzamento saem raios (a cada 3 graus e na direcao de cada vertice); cada um para na primeira linha: a borda da pista lida do corredor (todas as pecas MF/MFSARJETA em volta, inclusive os cantos) ou a borda de fora da plataforma de uma travessia. O plato e um solido em leque/aneis de 1 m sobre a superficie de topo, na altura das travessias. Em cada travessia fica so a **rampa de fora** (o plato e a rampa de dentro saem), com faixa, tampas e triangulos. Nos cantos a sarjeta fica livre com **tampa de concreto** por cima, como nas travessias. Contorno aberto (falta meio-fio num canto ou faltou uma travessia) da erro explicando. Opcao **Separar** devolve as travessias inteiras. O `MFTRAVESSIAREFAZER` refaz tambem as unioes.
+- **Superficie de topo escolhida**: o `MFTRAVESSIA` lista as superficies do desenho e pede a de topo antes de tudo; a escolha fica como padrao (so pergunta de novo se a superficie nao existir no desenho) e pode ser trocada na opcao `sUperficie`. Fica guardada na travessia para o Refazer. "0 = automatica" continua usando a de topo do corredor.
+- **Solidos da sinalizacao**: cada listra da faixa e cada triangulo das rampas sai tambem como solido de 3 mm por cima do plato (layer `MF-TRAVESSIA-SINALIZACAO`), acompanhando o topo.
+- Os dois rebaixos da travessia sao sempre escolhidos por clique (saiu a escolha automatica do par).
+
 ## 2.104.1 - MFREBAIXO v1.14.1 / PassagemRampa v1.7.1: clicar num ponto para ver a elevacao
 
 Pedido do Heyvid em 11/11/2026 ("clicar no ponto e ver a elevacao, principalmente do topo do mf").

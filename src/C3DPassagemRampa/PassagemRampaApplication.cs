@@ -15,6 +15,7 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.PassagemRampa.PassagemRampaApplication))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.RaisedCrossing.RaisedCrossingCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo.MFTravessiaCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo.MFTravessiaUniaoCommands))]
 
 namespace Civil3D2026Plugin.PassagemRampa;
 
@@ -37,6 +38,7 @@ public sealed class PassagemRampaApplication : IExtensionApplication
         (C3DCommands.Corridor.MfRebaixoPainel, "Painel dos rebaixos (planta, lista, edicao, avisos NBR 9050)."),
         (C3DCommands.Corridor.MfRebaixoHachura, "Redesenhar a hachura em planta de todos os rebaixos."),
         (C3DCommands.Corridor.MfTravessia, "Travessia elevada/semi-elevada (lombofaixa) entre dois rebaixos."),
+        (C3DCommands.Corridor.MfTravessiaUnir, "Unir (ou separar) as travessias de um cruzamento num plato so."),
         (C3DCommands.Corridor.MfTravessiaRefazer, "Redesenhar as travessias depois de mexer no corredor."),
         (C3DCommands.Corridor.MfRebaixoLimpar, "Apagar de vez os Transition Sets de rebaixos removidos."),
         (C3DCommands.Corridor.MfRebaixoCfg, "Configurar presets do MFREBAIXO."),

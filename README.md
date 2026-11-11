@@ -108,7 +108,7 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.7.1)
+## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.8.0)
 
 Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
 sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
@@ -119,7 +119,12 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
   `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
-  `MFTRAVESSIA`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
+  `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
+- `MFTRAVESSIAUNIR` (MFREBAIXO v1.15): depois de lancar as travessias de um cruzamento, **une todas num plato so**,
+  limitado pelo meio-fio (borda da pista lida do corredor; a sarjeta dos cantos fica livre, com tampa de concreto).
+  Em cada travessia fica so a rampa de fora, com a faixa, as tampas e os triangulos. Opcao **Separar** desfaz.
+- v1.15: o `MFTRAVESSIA` pede primeiro a **superficie de topo** (lista as superficies do desenho; a escolha fica
+  como padrao) e gera tambem os **solidos da sinalizacao** (faixa e triangulos, 3 mm por cima do plato).
 - `MFTRAVESSIA` (MFREBAIXO v1.14): **travessia elevada ou semi-elevada (lombofaixa) entre dois rebaixos** frente a
   frente. Clique nos dois rebaixos no desenho (comando ou botao "Travessia entre rebaixos" do painel). Padroes do detalhe de lombofaixa: plataforma 5,00 m, rampas de
   1,50 m, semi-elevada a 12 cm acima da borda da pista (elevada = nivel da calcada). Gera o **plato em solido 3D**

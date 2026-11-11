@@ -51,6 +51,18 @@ public sealed class MFTravessiaCommands
 
             // O Heyvid quer clicar nos dois rebaixos (11/11/2026): nada de escolha automatica.
             _ = pre;
+            // Superficie de topo primeiro (pedido do Heyvid): a escolha fica como padrao.
+            MFRebaixoSettings settings = MFRebaixoSettingsStore.Load();
+            if (!MFTravessia.Surfaces(db).Any(x => x.Name.Equals(settings.TravessiaSuperficie, StringComparison.OrdinalIgnoreCase)))
+            {
+                string? chosen = AskSurface(ed, db, settings.TravessiaSuperficie);
+                if (chosen is null)
+                    return;
+                settings.TravessiaSuperficie = chosen;
+                MFRebaixoSettingsStore.Save(settings);
+            }
+            ed.WriteMessage($"\nSuperficie de topo: {(settings.TravessiaSuperficie.Length > 0 ? settings.TravessiaSuperficie : "automatica (a de topo do corredor)")}.");
+
             RebaixoInfo? a = PickRebaixo(ed, items, "\nClique no primeiro rebaixo: ", null);
             if (a is null)
                 return;
@@ -61,7 +73,6 @@ public sealed class MFTravessiaCommands
                 return;
             ed.WriteMessage($"\nSegundo rebaixo: {Describe(b)}");
 
-            MFRebaixoSettings settings = MFRebaixoSettingsStore.Load();
             var p = new TravessiaParams
             {
                 Tipo = settings.TravessiaTipo == 1 ? TravessiaTipo.Elevada : TravessiaTipo.SemiElevada,
@@ -70,11 +81,13 @@ public sealed class MFTravessiaCommands
                 Rampa = settings.TravessiaRampa,
                 Tampa = settings.TravessiaTampa,
                 TampaEspessura = settings.TravessiaTampaEspessura,
-                Centralizar = settings.TravessiaCentralizar
+                Centralizar = settings.TravessiaCentralizar,
+                Superficie = settings.TravessiaSuperficie
             };
-            if (!AskParams(ed, a, b, p))
+            if (!AskParams(ed, db, a, b, p))
                 return;
 
+            settings.TravessiaSuperficie = p.Superficie;
             settings.TravessiaTipo = (int)p.Tipo;
             settings.TravessiaAltura = p.Altura;
             settings.TravessiaPlataforma = p.Plataforma;
@@ -243,7 +256,7 @@ public sealed class MFTravessiaCommands
                     TravessiaSide s2 = MFTravessia.ReadSide(db, cb, d.BaselineB, d.SubassemblyB, d.LeftB, d.LabelB, d.Origin, stB, stB - span, stB + span);
                     RebaixoInfo? ra = RebaixoAt(rebaixos, ca, d.BaselineA, stA);
                     RebaixoInfo? rb = RebaixoAt(rebaixos, cb, d.BaselineB, stB);
-                    Func<double, double, double?> road = MFTravessia.RoadSurface(db, new[] { ca, cb }, out string roadInfo);
+                    Func<double, double, double?> road = MFTravessia.RoadSurface(db, new[] { ca, cb }, d.Params.Superficie, out string roadInfo);
                     TravessiaGeometry geo = MFTravessia.Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight);
                     (int count, List<string> notes) = MFTravessia.Draw(db, geo, d, settings);
                     ok++;
@@ -269,6 +282,8 @@ public sealed class MFTravessiaCommands
                 }
             }
             ed.WriteMessage($"\n{ok} travessia(s) refeita(s){(fail > 0 ? $", {fail} com erro" : "")}.\n");
+            // Unioes de cruzamento (MFTRAVESSIAUNIR) das travessias refeitas.
+            MFTravessia.RedoUnions(db, ed, all.Select(x => x.Data.UnionId).Where(u => u.Length > 0).Distinct().ToList());
             ed.Regen();
         }
         catch (System.Exception ex)
@@ -287,7 +302,7 @@ public sealed class MFTravessiaCommands
         TravessiaSide s1 = MFTravessia.ReadSide(db, a, stA, stA - span, stA + span);
         TravessiaSide s2 = MFTravessia.ReadSide(db, b, stB, stB - span, stB + span);
         PluginLog.Diag(Mod, $"{a.Label}: {s1.Samples.Count} secoes do meio-fio em {Num(stA - span)}-{Num(stA + span)}; {b.Label}: {s2.Samples.Count} secoes em {Num(stB - span)}-{Num(stB + span)}");
-        Func<double, double, double?> road = MFTravessia.RoadSurface(db, new[] { a.CorridorId, b.CorridorId }, out string roadInfo);
+        Func<double, double, double?> road = MFTravessia.RoadSurface(db, new[] { a.CorridorId, b.CorridorId }, p.Superficie, out string roadInfo);
         TravessiaGeometry geo = MFTravessia.Build(s1, s2, p, road, a.NormalHeight, b.NormalHeight);
         return (s1, s2, geo, roadInfo);
     }
@@ -316,15 +331,16 @@ public sealed class MFTravessiaCommands
         }
     }
 
-    private static bool AskParams(Editor ed, RebaixoInfo a, RebaixoInfo b, TravessiaParams p)
+    private static bool AskParams(Editor ed, AcadDb.Database db, RebaixoInfo a, RebaixoInfo b, TravessiaParams p)
     {
         while (true)
         {
             string alt = p.Tipo == TravessiaTipo.Elevada ? "altura da calcada" : "altura " + MFTravessia.Cm(p.Altura);
             string msg = $"\nTravessia {a.Label}-{b.Label}: {p.TipoTexto}, {alt}, plataforma {MFTravessia.N(p.Plataforma)} m, rampas {MFTravessia.N(p.Rampa)} m, " +
-                         $"tampa {(p.Tampa ? MFTravessia.Cm(p.TampaEspessura) : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}." +
-                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/tAmpa/Centralizar/Seguir]";
-            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa tAmpa Centralizar Seguir") { AllowNone = true };
+                         $"tampa {(p.Tampa ? MFTravessia.Cm(p.TampaEspessura) : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
+                         $"superficie {(p.Superficie.Length > 0 ? p.Superficie : "automatica")}." +
+                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/tAmpa/Centralizar/sUperficie/Seguir]";
+            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa tAmpa Centralizar sUperficie Seguir") { AllowNone = true };
             opt.Keywords.Default = "Seguir";
             PromptResult r = ed.GetKeywords(opt);
             if (r.Status == PromptStatus.Cancel)
@@ -368,6 +384,10 @@ public sealed class MFTravessiaCommands
                         p.TampaEspessura = e;
                     break;
                 }
+                case "sUperficie":
+                    if (AskSurface(ed, db, p.Superficie) is string sn)
+                        p.Superficie = sn;
+                    break;
                 case "Centralizar":
                 {
                     var t = new PromptKeywordOptions("\nMover os rebaixos para o eixo da travessia [Sim/Nao]", "Sim Nao") { AllowNone = true };
@@ -379,6 +399,35 @@ public sealed class MFTravessiaCommands
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Lista as superficies do desenho e pede o numero da de topo. Devolve o nome ("" = automatica,
+    /// a de topo do corredor) ou null se cancelado.
+    /// </summary>
+    internal static string? AskSurface(Editor ed, AcadDb.Database db, string current)
+    {
+        List<(AcadDb.ObjectId Id, string Name)> list = MFTravessia.Surfaces(db);
+        ed.WriteMessage("\nSuperficie de topo do pavimento (base do plato):");
+        ed.WriteMessage("\n   0  automatica: a superficie de topo do corredor dos rebaixos");
+        for (int i = 0; i < list.Count; i++)
+            ed.WriteMessage($"\n  {i + 1,2}  {list[i].Name}");
+        int def = list.FindIndex(x => x.Name.Equals(current, StringComparison.OrdinalIgnoreCase)) + 1;
+        if (def == 0)
+            def = list.FindIndex(x => x.Name.Contains("TOP", StringComparison.OrdinalIgnoreCase)) + 1;
+        var o = new PromptIntegerOptions("\nNumero da superficie de topo")
+        {
+            AllowNone = true,
+            LowerLimit = 0,
+            UpperLimit = list.Count,
+            DefaultValue = def,
+            UseDefaultValue = true
+        };
+        PromptIntegerResult r = ed.GetInteger(o);
+        if (r.Status == PromptStatus.Cancel)
+            return null;
+        int n = r.Status == PromptStatus.OK ? r.Value : def;
+        return n <= 0 || n > list.Count ? "" : list[n - 1].Name;
     }
 
     private static double? AskDouble(Editor ed, string message, double current, double min, double max)

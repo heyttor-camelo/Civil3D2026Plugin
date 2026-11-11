@@ -43,6 +43,9 @@ internal sealed class TravessiaParams
     /// <summary>Move os rebaixos para o eixo da travessia.</summary>
     public bool Centralizar { get; set; } = true;
 
+    /// <summary>Superficie de topo escolhida pelo usuario (nome); vazio = a de topo do corredor.</summary>
+    public string Superficie { get; set; } = "";
+
     public string TipoTexto => Tipo == TravessiaTipo.Elevada ? "elevada" : "semi-elevada";
 }
 
@@ -110,7 +113,7 @@ internal sealed class TravessiaGeometry
     public List<string> Notes { get; } = new();
 }
 
-internal static class MFTravessia
+internal static partial class MFTravessia
 {
     public const string RegApp = "C3D_MFTRAVESSIA";
     public const string Marker = "MFTRAVESSIA";
@@ -674,6 +677,12 @@ internal static class MFTravessia
         public string SubassemblyB { get; set; } = "";
         public bool LeftB { get; set; }
         public string LabelB { get; set; } = "";
+
+        /// <summary>Uniao de travessias num cruzamento (MFTRAVESSIAUNIR); vazio = travessia sozinha.</summary>
+        public string UnionId { get; set; } = "";
+
+        /// <summary>Na uniao: lado de fora do cruzamento no sentido Along (+1/-1); so essa rampa fica.</summary>
+        public int OuterSign { get; set; }
     }
 
     /// <summary>
@@ -701,8 +710,12 @@ internal static class MFTravessia
         var hatches = new AcadDb.ObjectIdCollection();
         var signs = new AcadDb.ObjectIdCollection();
 
-        // Solido do plato.
-        AcadDb.Entity? plato = MeshSolid(tr, ms, g.Top, g.Bottom, layer3d, out string mode);
+        // Na uniao de um cruzamento (MFTRAVESSIAUNIR) so fica a rampa de fora; o plato e da uniao.
+        int outer = string.IsNullOrEmpty(data.UnionId) ? 0 : Math.Sign(data.OuterSign);
+        List<int> keep = Enumerable.Range(0, g.Rows.Count).Where(i => outer == 0 || outer * g.Rows[i] >= g.HalfPlatform - 1e-6).ToList();
+
+        // Solido do plato (ou so da rampa de fora).
+        AcadDb.Entity? plato = MeshSolid(tr, ms, SubRows(g.Top, keep), SubRows(g.Bottom, keep), layer3d, out string mode);
         if (plato is not null)
         {
             plato.XData = PlatoXData(data);
@@ -734,9 +747,12 @@ internal static class MFTravessia
         List<int> plat = Enumerable.Range(0, n).Where(i => Math.Abs(g.Rows[i]) <= g.HalfPlatform + 1e-6).ToList();
         List<int> rampIn = Enumerable.Range(0, n).Where(i => g.Rows[i] <= -g.HalfPlatform + 1e-6).ToList();
         List<int> rampOut = Enumerable.Range(0, n).Where(i => g.Rows[i] >= g.HalfPlatform - 1e-6).ToList();
-        count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, plat), layer, "SOLID", 1, 0, 256, data.Id, "PLANTA_PLATO", hatches);
-        count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, rampIn), layer, "SOLID", 1, 0, 9, data.Id, "PLANTA_RAMPA", hatches);
-        count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, rampOut), layer, "SOLID", 1, 0, 9, data.Id, "PLANTA_RAMPA", hatches);
+        if (outer == 0)
+            count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, plat), layer, "SOLID", 1, 0, 256, data.Id, "PLANTA_PLATO", hatches);
+        if (outer <= 0)
+            count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, rampIn), layer, "SOLID", 1, 0, 9, data.Id, "PLANTA_RAMPA", hatches);
+        if (outer >= 0)
+            count += Hatch(tr, db, ms, Band(g.EdgeA, g.EdgeB, rampOut), layer, "SOLID", 1, 0, 9, data.Id, "PLANTA_RAMPA", hatches);
 
         // Tampas em planta.
         if (g.Lids.Count > 0)
@@ -767,6 +783,7 @@ internal static class MFTravessia
                     Local(g, -len / 2, a0), Local(g, len / 2, a0), Local(g, len / 2, a0 + stripe), Local(g, -len / 2, a0 + stripe)
                 };
                 count += Hatch(tr, db, ms, rect, layerSign, "SOLID", 1, 0, 256, data.Id, "FAIXA", signs);
+                count += PaintSolid(tr, ms, g, -len / 2, len / 2, a0 + (stripe / 2.0), stripe / 2.0, stripe / 2.0, layerSign, data.Id, "FAIXA_3D");
             }
         }
 
@@ -780,6 +797,8 @@ internal static class MFTravessia
             double start = s0 + ((s1 - s0 - used) / 2.0);
             foreach (double sign in new[] { -1.0, 1.0 })
             {
+                if (outer != 0 && Math.Sign(sign) != outer)
+                    continue;
                 double toe = sign * (g.Total - 0.05);
                 double tip = toe - (sign * triH);
                 for (int k = 0; k < tris; k++)
@@ -787,6 +806,7 @@ internal static class MFTravessia
                     double a0 = start + (k * (triB + triGap));
                     var tri = new List<Point3d> { Local(g, toe, a0), Local(g, toe, a0 + triB), Local(g, tip, a0 + (triB / 2.0)) };
                     count += Hatch(tr, db, ms, tri, layerSign, "SOLID", 1, 0, 256, data.Id, "TRIANGULO", signs);
+                    count += PaintSolid(tr, ms, g, toe, tip, a0 + (triB / 2.0), triB / 2.0, 0.01, layerSign, data.Id, "TRIANGULO_3D");
                 }
             }
         }
@@ -806,6 +826,71 @@ internal static class MFTravessia
 
         tr.Commit();
         return (count, notes);
+    }
+
+    // Espessura da pintura (faixa e triangulos) em solido, por cima do plato.
+    private const double PaintThickness = 0.003;
+
+    /// <summary>
+    /// Solido fino da sinalizacao por cima do plato: de t0 a t1 (sentido dos carros), centrado em
+    /// sCenter (de borda a borda), com meia largura h0 em t0 e h1 em t1 (triangulo: h1 quase zero).
+    /// </summary>
+    private static int PaintSolid(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, TravessiaGeometry g,
+        double t0, double t1, double sCenter, double h0, double h1, string layer, string id, string part)
+    {
+        int n = Math.Max(2, (int)Math.Ceiling(Math.Abs(t1 - t0) / Step) + 1);
+        var top = new Point3d[n, 2];
+        var bottom = new Point3d[n, 2];
+        for (int i = 0; i < n; i++)
+        {
+            double f = i / (double)(n - 1);
+            double t = t0 + ((t1 - t0) * f);
+            double h = h0 + ((h1 - h0) * f);
+            for (int c = 0; c < 2; c++)
+            {
+                Point3d q = Local(g, t, sCenter + (c == 0 ? -h : h));
+                double z = TopAt(g, q);
+                bottom[i, c] = new Point3d(q.X, q.Y, z);
+                top[i, c] = new Point3d(q.X, q.Y, z + PaintThickness);
+            }
+        }
+        AcadDb.Entity? e = MeshSolid(tr, ms, top, bottom, layer, out _);
+        if (e is null)
+            return 0;
+        e.XData = PartXData(id, part);
+        return 1;
+    }
+
+    /// <summary>Elevacao do topo do plato no ponto (interpolada na grade do plato).</summary>
+    private static double TopAt(TravessiaGeometry g, Point3d p)
+    {
+        int rows = g.Rows.Count, cols = g.Top.GetLength(1);
+        double t = (p - g.Origin).DotProduct(g.Along);
+        int i = 0;
+        while (i + 2 < rows && g.Rows[i + 1] < t)
+            i++;
+        double RowZ(int r)
+        {
+            Point3d a = g.EdgeA[r], b = g.EdgeB[r];
+            double dx = b.X - a.X, dy = b.Y - a.Y;
+            double w = Math.Clamp((((p.X - a.X) * dx) + ((p.Y - a.Y) * dy)) / Math.Max(1e-9, (dx * dx) + (dy * dy)), 0, 1) * (cols - 1);
+            int c = Math.Min(cols - 2, (int)Math.Floor(w));
+            double u = w - c;
+            return g.Top[r, c].Z + ((g.Top[r, c + 1].Z - g.Top[r, c].Z) * u);
+        }
+        double z0 = RowZ(i), z1 = RowZ(i + 1);
+        double f = Math.Clamp((t - g.Rows[i]) / Math.Max(1e-9, g.Rows[i + 1] - g.Rows[i]), 0, 1);
+        return z0 + ((z1 - z0) * f);
+    }
+
+    private static Point3d[,] SubRows(Point3d[,] grid, List<int> rows)
+    {
+        int cols = grid.GetLength(1);
+        var sub = new Point3d[rows.Count, cols];
+        for (int i = 0; i < rows.Count; i++)
+            for (int c = 0; c < cols; c++)
+                sub[i, c] = grid[rows[i], c];
+        return sub;
     }
 
     private static Point3d Local(TravessiaGeometry g, double t, double s) => g.Origin + (g.Along * t) + (g.Across * s);
@@ -998,7 +1083,10 @@ internal static class MFTravessia
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.BaselineB)),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.SubassemblyB)),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(d.LeftB ? 1 : 0)),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.LabelB)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.LabelB)),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(d.UnionId)),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)d.OuterSign),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataAsciiString, S(p.Superficie)));
     }
 
     /// <summary>Le os dados da travessia gravados no solido do plato (null se nao for um).</summary>
@@ -1024,7 +1112,8 @@ internal static class MFTravessia
                 Plataforma = D(6),
                 Rampa = D(7),
                 Tampa = B(8),
-                TampaEspessura = D(9)
+                TampaEspessura = D(9),
+                Superficie = v.Length >= 25 ? S(24) : ""
             },
             Origin = new Point3d(D(10), D(11), 0),
             CorridorA = S(12),
@@ -1036,7 +1125,9 @@ internal static class MFTravessia
             BaselineB = S(18),
             SubassemblyB = S(19),
             LeftB = B(20),
-            LabelB = S(21)
+            LabelB = S(21),
+            UnionId = v.Length >= 24 ? S(22) : "",
+            OuterSign = v.Length >= 24 ? Convert.ToInt32(v[23].Value, CultureInfo.InvariantCulture) : 0
         };
     }
 

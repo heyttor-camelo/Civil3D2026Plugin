@@ -116,6 +116,10 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 MFTravessiaCommands.PreSelectedSet = p._current?.SetName;
                 p.Send(C3DCommands.Corridor.MfTravessia + " ", "Travessia: siga a linha de comando.");
             }),
+        new("UNIRTRAVESSIAS", "passagem", "Unir travessias do cruzamento", "Rebaixo",
+            "Une as travessias de um cruzamento num plato so, limitado pelo meio-fio (MFTRAVESSIAUNIR). Em cada travessia fica so a rampa de fora. A opcao Separar desfaz.",
+            new[] { "Lance antes as travessias do cruzamento.", "Selecione todas no desenho e confirme." },
+            p => p.Send(C3DCommands.Corridor.MfTravessiaUnir + " ", "Unir travessias: siga a linha de comando.")),
         new("REFAZERTRAVESSIAS", "atualizar", "Refazer travessias", "Rebaixo",
             "Desenha de novo as travessias (MFTRAVESSIAREFAZER) depois de mexer no corredor ou nos rebaixos.",
             new[] { "Todas ou selecionadas no desenho." },
