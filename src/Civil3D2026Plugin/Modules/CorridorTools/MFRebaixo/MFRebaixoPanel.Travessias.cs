@@ -76,7 +76,7 @@ internal sealed partial class MFRebaixoPanel
         var lines = new List<string> { "LOMBOFAIXA " + TravName(t) };
         if (t.Data is { } d)
         {
-            lines.Add($"Tipo: {d.Params.TipoTexto}{(d.Params.Esconsa ? ", esconsa" : "")}   plataforma {N(d.Params.Plataforma, "0.00")} m   rampas {N(d.Params.Rampa, "0.00")} m");
+            lines.Add($"Tipo: {d.Params.TipoTexto}{(d.Params.Esconsa ? (d.Params.RampasPerpendiculares ? ", esconsa (rampas perpendiculares)" : ", esconsa") : "")}   plataforma {N(d.Params.Plataforma, "0.00")} m   rampas {N(d.Params.Rampa, "0.00")} m");
             lines.Add($"Sarjeta: {d.Params.CoberturaTexto}");
             if (d.Params.Vigas)
                 lines.Add($"Vigas baldrame: {Cm(d.Params.VigaLargura)} x {Cm(d.Params.VigaAltura)}, {d.Params.VigaPosicaoTexto}");
@@ -237,6 +237,8 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(EditRow("t_ge", "Grelha alem da plataforma (cada ponta)", N(d.Params.GrelhaExtensao, "0.00"), "m"));
         p.Children.Add(EditRow("t_gf", "Grelha alem do pe do meio-fio", N(d.Params.GrelhaFolgaMF, "0.000"), "m"));
         p.Children.Add(EditRow("t_tampa", "Espessura da tampa de concreto", N(d.Params.TampaEspessura, "0.000"), "m"));
+        var rperp = new WC.CheckBox { Content = "Esconsa: rampas perpendiculares a pista (so a faixa inclinada)", IsChecked = d.Params.RampasPerpendiculares, IsEnabled = d.Params.Esconsa, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
+        p.Children.Add(rperp);
         var vigas = new WC.CheckBox { Content = "Vigas baldrame nas duas pontas", IsChecked = d.Params.Vigas, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
         p.Children.Add(vigas);
         p.Children.Add(EditRow("t_vl", "Largura da viga", N(d.Params.VigaLargura, "0.000"), "m"));
@@ -255,7 +257,7 @@ internal sealed partial class MFRebaixoPanel
                 p.Children.Add(Label(line));
         }
         acts.Children.Add(ActionButton("Conferir meio-fio x lombofaixa", CheckTrav));
-        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true, naPlat.IsChecked == true), true));
+        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true, naPlat.IsChecked == true, rperp.IsChecked == true), true));
         acts.Children.Add(ActionButton("Redesenhar como esta", () => RedrawTrav(null)));
         acts.Children.Add(ActionButton("Zoom no desenho", ZoomTrav));
         if (d.UnionId.Length > 0)
@@ -328,7 +330,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(Prop("Total de concreto", N(concreto, "0.000") + " m3 (plato + tampas + parte enterrada das vigas)"));
     }
 
-    private void ApplyTrav(bool elevada, int cobertura, bool vigas, bool vigaNaPlataforma = true)
+    private void ApplyTrav(bool elevada, int cobertura, bool vigas, bool vigaNaPlataforma = true, bool rampasPerp = false)
     {
         if (_currentTrav?.Data is not { } d)
         {
@@ -365,7 +367,8 @@ internal sealed partial class MFRebaixoPanel
             VigaRecuo = vigaNaPlataforma ? -1 : Math.Max(0, vr.Value),
             Centralizar = d.Params.Centralizar,
             Superficie = d.Params.Superficie,
-            Esconsa = d.Params.Esconsa
+            Esconsa = d.Params.Esconsa,
+            RampasPerpendiculares = d.Params.Esconsa && rampasPerp
         };
         TravessiaParams old = d.Params;
         d.Params = p;

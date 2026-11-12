@@ -69,6 +69,12 @@ internal sealed class TravessiaParams
     /// </summary>
     public bool Esconsa { get; set; }
 
+    /// <summary>
+    /// Esconsa com as rampas perpendiculares a pista (o carro sobe de frente): so a faixa fica inclinada e
+    /// a plataforma cresce o desalinhamento entre os rebaixos. Nao: rampas paralelas ao eixo inclinado.
+    /// </summary>
+    public bool RampasPerpendiculares { get; set; }
+
     /// <summary>Vigas baldrame transversais nas duas pontas da lombofaixa (ancoragem no pavimento).</summary>
     public bool Vigas { get; set; } = true;
 
@@ -176,6 +182,15 @@ internal sealed class TravessiaGeometry
 
     /// <summary>Esconsidade: angulo do eixo da travessia com a perpendicular a pista (graus).</summary>
     public double SkewDeg { get; init; }
+
+    /// <summary>Eixo da faixa de pedestre (o inclinado na esconsa), meia largura da faixa no sentido dos carros e meio comprimento no eixo.</summary>
+    public Vector3d FaixaAxis { get; init; }
+    public double FaixaHalf { get; init; }
+    public double FaixaSpan { get; init; }
+
+    /// <summary>Posicao (t) do centro de cada rebaixo; 0 menos na esconsa com rampas perpendiculares.</summary>
+    public double CenterA { get; init; }
+    public double CenterB { get; init; }
     public double TopElevationAtCenter { get; init; }
     public string RoadSource { get; set; } = "";
     public List<string> Notes { get; } = new();
@@ -649,18 +664,28 @@ internal static partial class MFTravessia
         if (across.DotProduct(ab) < 0)
             across = across.Negate();
         Vector3d perpendicular = across;
-        if (p.Esconsa && ab.Length > 0.05)
+        bool perp = p.Esconsa && p.RampasPerpendiculares && ab.Length > 0.05;
+        if (p.Esconsa && ab.Length > 0.05 && !perp)
             across = ab.GetNormal(); // esconsa: linhas transversais paralelas ao eixo entre os dois rebaixos
+        Vector3d faixaAxis = p.Esconsa && ab.Length > 0.05 ? ab.GetNormal() : across;
         if (ab.Length < 0.05)
             throw new InvalidOperationException($"{a.Label} e {b.Label} estao no mesmo lugar: nao ha largura para o plato.");
         if (ab.Length < 1.0)
             early.Add($"AVISO: {a.Label} e {b.Label} estao a {N(ab.Length)} m um do outro.");
         if (Math.Abs(ab.GetNormal().DotProduct(perpendicular)) < 0.5)
             early.Add($"AVISO: {a.Label} e {b.Label} quase no mesmo lado da pista: a travessia fica muito inclinada.");
-        double skewDeg = Math.Acos(Math.Clamp(Math.Abs(across.DotProduct(perpendicular)), 0, 1)) * 180.0 / Math.PI;
+        double skewDeg = Math.Acos(Math.Clamp(Math.Abs(faixaAxis.DotProduct(perpendicular)), 0, 1)) * 180.0 / Math.PI;
 
         Point3d origin = new((ca.Edge.X + cb.Edge.X) / 2.0, (ca.Edge.Y + cb.Edge.Y) / 2.0, 0);
         double half = p.Plataforma / 2.0;
+        double halfOrig = half, tA0 = 0, tB0 = 0;
+        if (perp)
+        {
+            // Rampas perpendiculares: a plataforma cresce para conter a faixa inclinada inteira.
+            tA0 = Flat(ca.Edge - origin).DotProduct(along);
+            tB0 = Flat(cb.Edge - origin).DotProduct(along);
+            half += Math.Abs(tB0 - tA0) / 2.0;
+        }
         double total = half + p.Rampa;
 
         List<double> rows = Stations(-total, -half);
@@ -797,14 +822,19 @@ internal static partial class MFTravessia
             CurbTopB = eb0.Z + hb,
             WidthAtAxis = Dist2d(ea0, eb0),
             SkewDeg = skewDeg,
+            FaixaAxis = faixaAxis,
+            FaixaHalf = halfOrig,
+            FaixaSpan = Dist2d(ca.Edge, cb.Edge) / 2.0,
+            CenterA = tA0,
+            CenterB = tB0,
             TopElevationAtCenter = top[mid, cols / 2].Z,
             RoadSource = fromSurface > 0
                 ? $"pista pela superficie do corredor ({fromSurface} pontos; maior diferenca para a reta entre as bordas {Cm(maxDev)})"
                 : "pista em linha reta entre as bordas (sem superficie do corredor no local)"
         };
         result.Notes.AddRange(early);
-        result.Notes.AddRange(CurbCheck(a, rows, ea, hA, half, p));
-        result.Notes.AddRange(CurbCheck(b, rows, eb, hB, half, p));
+        result.Notes.AddRange(CurbCheck(a, rows, ea, hA, half, p, tA0, halfOrig));
+        result.Notes.AddRange(CurbCheck(b, rows, eb, hB, half, p, tB0, halfOrig));
         result.Rows.AddRange(rows);
         result.EdgeA.AddRange(ea);
         result.EdgeB.AddRange(eb);
@@ -822,8 +852,8 @@ internal static partial class MFTravessia
         // Tampas de concreto sobre a sarjeta, so na plataforma: topo no nivel do plato na borda da pista.
         if (p.Tampa)
         {
-            AddLid(result, rows, ea, fa, hA, p, half, true, a.Label);
-            AddLid(result, rows, eb, fb, hB, p, half, false, b.Label);
+            AddLid(result, rows, ea, fa, hA, p, half, true, a.Label, tA0, halfOrig);
+            AddLid(result, rows, eb, fb, hB, p, half, false, b.Label, tB0, halfOrig);
         }
         if (p.Vigas)
         {
@@ -835,12 +865,12 @@ internal static partial class MFTravessia
     }
 
     private static void AddLid(TravessiaGeometry geo, List<double> rows, List<Point3d> edge, List<Point3d> foot,
-        double[] heights, TravessiaParams p, double half, bool sideA, string label)
+        double[] heights, TravessiaParams p, double half, bool sideA, string label, double center, double halfSel)
     {
         // Plataforma e mais a extensao em cada ponta (pedido do Heyvid: "estender a grelha um pouco mais").
         double total = half + p.Rampa;
-        double reach = Math.Min(total, half + Math.Max(0, p.GrelhaExtensao));
-        var idx = Enumerable.Range(0, rows.Count).Where(i => Math.Abs(rows[i]) <= reach + 1e-6).ToList();
+        double reach = halfSel + Math.Max(0, p.GrelhaExtensao);
+        var idx = Enumerable.Range(0, rows.Count).Where(i => Math.Abs(rows[i] - center) <= reach + 1e-6 && Math.Abs(rows[i]) <= total + 1e-6).ToList();
         if (idx.Count < 2)
             return;
         double width = idx.Average(i => Dist2d(edge[i], foot[i]));
@@ -912,7 +942,7 @@ internal static partial class MFTravessia
     /// Encontro do meio-fio rebaixado com a lombofaixa/grelha: ao longo da plataforma e da grelha, topo do
     /// meio-fio lido do corredor x topo da lombofaixa na borda da pista; avisa onde passa de 1 cm.
     /// </summary>
-    private static IEnumerable<string> CurbCheck(TravessiaSide s, List<double> rows, List<Point3d> edge, double[] heights, double half, TravessiaParams p)
+    private static IEnumerable<string> CurbCheck(TravessiaSide s, List<double> rows, List<Point3d> edge, double[] heights, double half, TravessiaParams p, double center, double halfSel)
     {
         List<CurbSample> own = s.Samples.Where(x => x.Top is not null).ToList();
         if (own.Count < 2)
@@ -920,13 +950,13 @@ internal static partial class MFTravessia
         double total = half + p.Rampa;
         // So a plataforma: alem dela a lombofaixa desce com a rampa e o meio-fio sobe com a rampa do rebaixo
         // (meio-fio mais alto ao lado da grelha ali e normal).
-        double reach = half;
+        double reach = halfSel;
         double min = double.MaxValue, max = double.MinValue, tMin = 0, tMax = 0;
         int n = 0;
         for (int i = 0; i < rows.Count; i++)
         {
             double ta = Math.Abs(rows[i]);
-            if (ta > reach + 1e-6)
+            if (Math.Abs(rows[i] - center) > reach + 1e-6)
                 continue;
             // Topo do meio-fio no ponto da borda mais perto (interpolado no trecho do meio-fio).
             double? top = null;
@@ -1293,8 +1323,9 @@ internal static partial class MFTravessia
             {
                 List<Point3d> e = sideA ? g.EdgeA : g.EdgeB;
                 List<Point3d> f = sideA ? (g.LidFootA.Count > 0 ? g.LidFootA : g.FootA) : (g.LidFootB.Count > 0 ? g.LidFootB : g.FootB);
-                double reach = Math.Min(g.Total, g.HalfPlatform + Math.Max(0, p.GrelhaExtensao));
-                List<int> lidRows = Enumerable.Range(0, n).Where(i => Math.Abs(g.Rows[i]) <= reach + 1e-6).ToList();
+                double reach = g.FaixaHalf + Math.Max(0, p.GrelhaExtensao);
+                double center = sideA ? g.CenterA : g.CenterB;
+                List<int> lidRows = Enumerable.Range(0, n).Where(i => Math.Abs(g.Rows[i] - center) <= reach + 1e-6 && Math.Abs(g.Rows[i]) <= g.Total + 1e-6).ToList();
                 count += Hatch(tr, db, ms, Band(e, f, lidRows), lidLayer, "ANSI37", 0.03, Angle(g.Along), 256, data.Id, "PLANTA_" + lidPart, hatches);
             }
         }
@@ -1303,22 +1334,29 @@ internal static partial class MFTravessia
         double sa = Oblique(g, g.EdgeA[plat[plat.Count / 2]]).S;
         double sb = Oblique(g, g.EdgeB[plat[plat.Count / 2]]).S;
         double s0 = Math.Min(sa, sb) + 0.30, s1 = Math.Max(sa, sb) - 0.30;
+        // Faixa: no eixo da travessia (inclinado na esconsa); com rampas perpendiculares o eixo da faixa
+        // nao e o das linhas do plato, entao as pontas saem do meio comprimento do eixo.
+        Vector3d fAxis = g.FaixaAxis.Length > 0.5 ? g.FaixaAxis : g.Across;
+        bool ownAxis = !fAxis.IsEqualTo(g.Across, new Tolerance(1e-6, 1e-6));
+        double fs0 = ownAxis ? -g.FaixaSpan + 0.30 : s0, fs1 = ownAxis ? g.FaixaSpan - 0.30 : s1;
+        double fHalf = g.FaixaHalf > 0 ? g.FaixaHalf : g.HalfPlatform;
+        Point3d LF(double t, double s) => g.Origin + (g.Along * t) + (fAxis * s);
         double stripe = settings.TravessiaListra, gap = settings.TravessiaListraEspaco;
-        double len = Math.Max(g.HalfPlatform * 2.0 - 1.0, g.HalfPlatform * 1.2);
-        int stripes = (int)Math.Floor((s1 - s0 + gap) / (stripe + gap));
+        double len = Math.Max(fHalf * 2.0 - 1.0, fHalf * 1.2);
+        int stripes = (int)Math.Floor((fs1 - fs0 + gap) / (stripe + gap));
         if (stripes > 0)
         {
             double used = (stripes * stripe) + ((stripes - 1) * gap);
-            double start = s0 + ((s1 - s0 - used) / 2.0);
+            double start = fs0 + ((fs1 - fs0 - used) / 2.0);
             for (int k = 0; k < stripes; k++)
             {
                 double a0 = start + (k * (stripe + gap));
                 var rect = new List<Point3d>
                 {
-                    Local(g, -len / 2, a0), Local(g, len / 2, a0), Local(g, len / 2, a0 + stripe), Local(g, -len / 2, a0 + stripe)
+                    LF(-len / 2, a0), LF(len / 2, a0), LF(len / 2, a0 + stripe), LF(-len / 2, a0 + stripe)
                 };
                 count += Hatch(tr, db, ms, rect, layerSign, "SOLID", 1, 0, 256, data.Id, "FAIXA", signs);
-                count += PaintSolid(tr, ms, g, -len / 2, len / 2, a0 + (stripe / 2.0), stripe / 2.0, stripe / 2.0, layerSign, data.Id, "FAIXA_3D");
+                count += PaintSolid(tr, ms, g, -len / 2, len / 2, a0 + (stripe / 2.0), stripe / 2.0, stripe / 2.0, layerSign, data.Id, "FAIXA_3D", fAxis);
             }
         }
 
@@ -1478,7 +1516,7 @@ internal static partial class MFTravessia
     /// sCenter (de borda a borda), com meia largura h0 em t0 e h1 em t1 (triangulo: h1 quase zero).
     /// </summary>
     private static int PaintSolid(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, TravessiaGeometry g,
-        double t0, double t1, double sCenter, double h0, double h1, string layer, string id, string part)
+        double t0, double t1, double sCenter, double h0, double h1, string layer, string id, string part, Vector3d? axis = null)
     {
         int n = Math.Max(2, (int)Math.Ceiling(Math.Abs(t1 - t0) / Step) + 1);
         var top = new Point3d[n, 2];
@@ -1490,7 +1528,8 @@ internal static partial class MFTravessia
             double h = h0 + ((h1 - h0) * f);
             for (int c = 0; c < 2; c++)
             {
-                Point3d q = Local(g, t, sCenter + (c == 0 ? -h : h));
+                double sv = sCenter + (c == 0 ? -h : h);
+                Point3d q = axis is Vector3d ax ? g.Origin + (g.Along * t) + (ax * sv) : Local(g, t, sv);
                 double z = TopAt(g, q);
                 bottom[i, c] = new Point3d(q.X, q.Y, z);
                 top[i, c] = new Point3d(q.X, q.Y, z + PaintThickness);
@@ -2017,7 +2056,8 @@ internal static partial class MFTravessia
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorA?.X ?? 0.0),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorA?.Y ?? 0.0),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.X ?? 0.0),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.Y ?? 0.0));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.Y ?? 0.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(p.RampasPerpendiculares ? 1 : 0)));
     }
 
     /// <summary>Le os dados da travessia gravados no solido do plato (null se nao for um).</summary>
@@ -2057,7 +2097,8 @@ internal static partial class MFTravessia
                 GrelhaVao = v.Length >= 34 ? D(33) : 0.03,
                 GrelhaExtensao = v.Length >= 35 ? D(34) : 0.0,
                 GrelhaFolgaMF = v.Length >= 36 ? D(35) : 0.0,
-                Esconsa = v.Length >= 41 && B(36)
+                Esconsa = v.Length >= 41 && B(36),
+                RampasPerpendiculares = v.Length >= 42 && B(41)
             },
             Origin = new Point3d(D(10), D(11), 0),
             CorridorA = S(12),

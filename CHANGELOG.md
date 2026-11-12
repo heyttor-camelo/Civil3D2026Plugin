@@ -1,3 +1,10 @@
+## 2.112.0 - MFREBAIXO v1.22.0 / PassagemRampa v1.15.0: esconsa com rampas paralelas ao eixo ou perpendiculares a pista
+
+Escolha do Heyvid em 12/11/2026 ("deixar as duas como opcao").
+
+- Esconsa: opcao **Rampas da esconsa** [Paralelas/Perpendiculares] no comando (dentro de `esConsa`) e no painel. **Paralelas** (padrao, como na 2.111.0): linhas transversais do plato paralelas ao eixo inclinado. **Perpendiculares**: rampas, vigas e triangulos transversais a pista (o carro sobe de frente); so a faixa de pedestre fica inclinada; a plataforma cresce o desalinhamento entre os rebaixos; cada grelha fica no seu rebaixo. Guardada na travessia e como ultimo padrao.
+- Corrigido: perguntas com explicacao dentro dos colchetes (posicao da viga, desde a 2.108.1, e as da esconsa) faziam o AutoCAD recusar qualquer resposta ("Invalid option keyword"). Agora a explicacao vem antes e os colchetes so tem as opcoes.
+- Teste (copia do DWG, rebaixos desalinhados 2 m, 5 + 2x1,5 m): paralelas 6,58 m3; perpendiculares 8,22 m3 (plataforma 2 m mais comprida), Refazer igual.
 ## 2.111.0 - MFREBAIXO v1.21.0 / PassagemRampa v1.14.0: lombofaixa esconsa, grelha em X, grelha 1 cm alem do pe do meio-fio, duplo clique na roda
 
 Pedidos do Heyvid em 12/11/2026 (teste da 2.110.0).

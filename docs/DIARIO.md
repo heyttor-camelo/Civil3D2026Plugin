@@ -8,6 +8,12 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.112.0: esconsa com rampas paralelas ou perpendiculares
+
+- Opção "Rampas da esconsa" [Paralelas/Perpendiculares] (escolha do Heyvid: as duas). Perpendiculares: linhas do platô transversais à pista, plataforma + desalinhamento, faixa no eixo inclinado (`FaixaAxis`), grelhas e conferência centradas em cada rebaixo (`CenterA/B`).
+- Achado no teste: prompts com explicação dentro dos colchetes travavam ("Invalid option keyword" em laço) — o da posição da viga estava assim desde a 2.108.1. Corrigido nos três.
+- Teste (cópia, rebaixos desalinhados 2 m): paralelas 6,58 m³; perpendiculares 8,22 m³; planta `planta-perp-*.png`; Refazer igual.
+- Entregue 2.112.0 / PassagemRampa 1.15.0 só com versão no nome (Civil aberto); hashes conferidos.
 ## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.111.0: esconsa, grelha em X, duplo clique na roda
 
 - Pedidos do Heyvid de 12/11 15h09. Lombofaixa esconsa (eixo de um rebaixo ao outro, linhas transversais paralelas ao eixo, coordenadas oblíquas `MFTravessia.Oblique`; pontos de cada lado guardados no XData para Refazer/união); padrão quando o desalinhamento passa de 0,30 m, opção `esConsa`. Grelha em X (chapa − losangos numa subtração só, ~3 s por grelha). Grelha +1 cm além do pé do MF. Duplo clique na roda = enquadrar (o esquerdo não mexe mais na vista). Trecho rebaixado = plataforma + 20 cm.

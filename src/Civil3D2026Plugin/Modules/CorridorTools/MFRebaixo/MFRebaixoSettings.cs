@@ -73,6 +73,8 @@ internal sealed class MFRebaixoSettings
     public double TravessiaGrelhaVao { get; set; } = 0.03;
     public double TravessiaGrelhaExtensao { get; set; } = 0.50;
     public double TravessiaGrelhaFolgaMF { get; set; } = 0.01;
+    // Esconsa: rampas perpendiculares a pista (true) ou paralelas ao eixo inclinado (false, padrao).
+    public bool TravessiaRampasPerpendiculares { get; set; }
     public bool TravessiaVigas { get; set; } = true;
     public double TravessiaVigaLargura { get; set; } = 0.15;
     public double TravessiaVigaAltura { get; set; } = 0.30;

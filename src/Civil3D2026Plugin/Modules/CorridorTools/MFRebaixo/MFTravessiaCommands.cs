@@ -96,6 +96,7 @@ public sealed class MFTravessiaCommands
                 GrelhaVao = settings.TravessiaGrelhaVao,
                 GrelhaExtensao = settings.TravessiaGrelhaExtensao,
                 GrelhaFolgaMF = settings.TravessiaGrelhaFolgaMF,
+                RampasPerpendiculares = settings.TravessiaRampasPerpendiculares,
                 Vigas = settings.TravessiaVigas,
                 VigaLargura = settings.TravessiaVigaLargura,
                 VigaAltura = settings.TravessiaVigaAltura,
@@ -125,6 +126,7 @@ public sealed class MFTravessiaCommands
             settings.TravessiaGrelhaVao = p.GrelhaVao;
             settings.TravessiaGrelhaExtensao = p.GrelhaExtensao;
             settings.TravessiaGrelhaFolgaMF = p.GrelhaFolgaMF;
+            settings.TravessiaRampasPerpendiculares = p.RampasPerpendiculares;
             settings.TravessiaVigas = p.Vigas;
             settings.TravessiaVigaLargura = p.VigaLargura;
             settings.TravessiaVigaAltura = p.VigaAltura;
@@ -458,7 +460,7 @@ public sealed class MFTravessiaCommands
                          $"sarjeta {p.CoberturaTexto}, vigas {(p.Vigas ? $"{MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} {p.VigaPosicaoTexto}" : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
                          $"superficie {(p.Superficie.Length > 0 ? p.Superficie : "automatica")}." +
                          "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/cObertura/Vigas/Centralizar/esConsa/sUperficie/Seguir]";
-            msg = msg.Replace("superficie ", $"{(p.Esconsa ? "esconsa" : "reta")}, superficie ");
+            msg = msg.Replace("superficie ", $"{(p.Esconsa ? (p.RampasPerpendiculares ? "esconsa com rampas perpendiculares" : "esconsa") : "reta")}, superficie ");
             var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa cObertura Vigas Centralizar esConsa sUperficie Seguir") { AllowNone = true };
             opt.Keywords.Default = "Seguir";
             PromptResult r = ed.GetKeywords(opt);
@@ -529,7 +531,7 @@ public sealed class MFTravessiaCommands
                         p.VigaLargura = vl;
                     if (AskDouble(ed, "\nAltura da viga (m)", p.VigaAltura, 0.05, 3.0) is double va)
                         p.VigaAltura = va;
-                    var pos = new PromptKeywordOptions("\nPosicao da viga [Plataforma (comeco da plataforma)/Pe (pe da rampa)/Medida (recuo em m a partir do pe)]", "Plataforma Pe Medida") { AllowNone = true };
+                    var pos = new PromptKeywordOptions("\nPlataforma: no comeco da plataforma. Pe: no pe da rampa. Medida: recuo em m a partir do pe.\nPosicao da viga [Plataforma/Pe/Medida]", "Plataforma Pe Medida") { AllowNone = true };
                     pos.Keywords.Default = p.VigaNaPlataforma ? "Plataforma" : p.VigaRecuo < 0.005 ? "Pe" : "Medida";
                     PromptResult pr = ed.GetKeywords(pos);
                     if (pr.Status == PromptStatus.OK)
@@ -545,11 +547,19 @@ public sealed class MFTravessiaCommands
                 }
                 case "esConsa":
                 {
-                    var t = new PromptKeywordOptions("\nTravessia [Esconsa (eixo de um rebaixo ao outro)/Reta (perpendicular a pista; os rebaixos vao para o eixo)]", "Esconsa Reta") { AllowNone = true };
+                    var t = new PromptKeywordOptions("\nEsconsa: eixo de um rebaixo ao outro. Reta: perpendicular a pista, os rebaixos vao para o eixo.\nTravessia [Esconsa/Reta]", "Esconsa Reta") { AllowNone = true };
                     t.Keywords.Default = p.Esconsa ? "Esconsa" : "Reta";
                     PromptResult tr = ed.GetKeywords(t);
                     if (tr.Status == PromptStatus.OK)
                         p.Esconsa = tr.StringResult == "Esconsa";
+                    if (p.Esconsa)
+                    {
+                        var rp = new PromptKeywordOptions("\nParalelas: rampas paralelas ao eixo inclinado. Perpendiculares: rampas de frente para o carro, so a faixa inclinada.\nRampas da esconsa [Paralelas/Perpendiculares]", "Paralelas Perpendiculares") { AllowNone = true };
+                        rp.Keywords.Default = p.RampasPerpendiculares ? "Perpendiculares" : "Paralelas";
+                        PromptResult rr = ed.GetKeywords(rp);
+                        if (rr.Status == PromptStatus.OK)
+                            p.RampasPerpendiculares = rr.StringResult == "Perpendiculares";
+                    }
                     break;
                 }
                 case "sUperficie":
