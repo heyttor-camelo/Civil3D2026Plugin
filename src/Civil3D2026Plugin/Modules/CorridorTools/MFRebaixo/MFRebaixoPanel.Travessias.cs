@@ -134,7 +134,7 @@ internal sealed partial class MFRebaixoPanel
         WC.Grid.SetColumn(tipo, 1);
         tipoRow.Children.Add(tipo);
         p.Children.Add(tipoRow);
-        p.Children.Add(EditRow("t_altura", "Altura (semi-elevada)", N(d.Params.Altura, "0.000"), "m"));
+        p.Children.Add(EditRow("t_altura", "Altura livre do meio-fio (semi)", N(d.Params.Altura, "0.000"), "m"));
         p.Children.Add(EditRow("t_plat", "Plataforma (faixa)", N(d.Params.Plataforma, "0.00"), "m"));
         p.Children.Add(EditRow("t_rampa", "Rampa de cada lado", N(d.Params.Rampa, "0.00"), "m"));
         var cob = new WC.ComboBox { Width = 160, HorizontalAlignment = SW.HorizontalAlignment.Left, Margin = new SW.Thickness(0, 3, 0, 3) };
@@ -150,6 +150,8 @@ internal sealed partial class MFRebaixoPanel
         cobRow.Children.Add(cob);
         p.Children.Add(cobRow);
         p.Children.Add(EditRow("t_grelha", "Espessura da grelha", N(d.Params.GrelhaEspessura, "0.000"), "m"));
+        p.Children.Add(EditRow("t_gb", "Largura das barras da grelha", N(d.Params.GrelhaBarra, "0.000"), "m"));
+        p.Children.Add(EditRow("t_gv", "Vao entre as barras", N(d.Params.GrelhaVao, "0.000"), "m"));
         p.Children.Add(EditRow("t_tampa", "Espessura da tampa de concreto", N(d.Params.TampaEspessura, "0.000"), "m"));
         var vigas = new WC.CheckBox { Content = "Vigas baldrame nas duas pontas", IsChecked = d.Params.Vigas, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
         p.Children.Add(vigas);
@@ -160,7 +162,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(naPlat);
         p.Children.Add(EditRow("t_vr", "Ou recuo a partir do pe da rampa", N(Math.Max(0, d.Params.VigaRecuo), "0.000"), "m"));
         p.Children.Add(Label("A parte de cima da viga vai ate onde a lombofaixa deixa (nunca passa do topo); a altura real fica nas quantidades acima. Aplicar edita as pecas existentes (mesmos objetos no desenho)."));
-        p.Children.Add(Label("A altura final dos rebaixos nao muda aqui. Se mudar a altura ou o tipo, o Redesenhar avisa quando o meio-fio nao bater com o plato; para acertar os rebaixos, apague e lance de novo com Nova travessia."));
+        p.Children.Add(Label("A lombofaixa chega no topo do meio-fio (fundo da sarjeta + altura livre final de cada rebaixo). A altura livre aqui so vale onde o rebaixo nao for lido; para mudar a altura dos rebaixos, edite o rebaixo ou lance de novo com Nova travessia."));
 
         acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true, naPlat.IsChecked == true), true));
         acts.Children.Add(ActionButton("Redesenhar como esta", () => RedrawTrav(null)));
@@ -213,7 +215,8 @@ internal sealed partial class MFRebaixoPanel
                 continue; // pintura: nao entra nas quantidades
             string text = $"{N(vol, "0.000")} m3";
             if (part.StartsWith("GRELHA", StringComparison.Ordinal) || part.StartsWith("TAMPA", StringComparison.Ordinal))
-                text = $"{N(Num(props, "Comprimento"), "0.00")} x {N(Num(props, "Largura"), "0.00")} m, espessura {Cm(Num(props, "Altura_Espessura"))}, area {N(Num(props, "Area"), "0.00")} m2, {text}";
+                text = $"{N(Num(props, "Comprimento"), "0.00")} x {N(Num(props, "Largura"), "0.00")} m, espessura {Cm(Num(props, "Altura_Espessura"))}, area {N(Num(props, "Area"), "0.00")} m2" +
+                       (Num(props, "Barras") > 0 ? $", {Num(props, "Barras"):0} barras, area livre {N(Num(props, "Area_Livre"), "0.00")} m2" : "") + $", {text}";
             else if (part.StartsWith("VIGA", StringComparison.Ordinal))
             {
                 double buried = (t.Data?.Params.VigaAltura ?? 0) * (t.Data?.Params.VigaEnterrada ?? 0.5);
@@ -243,6 +246,7 @@ internal sealed partial class MFRebaixoPanel
         }
         double? h = Number("t_altura"), plat = Number("t_plat"), ramp = Number("t_rampa"), lid = Number("t_tampa"), grid = Number("t_grelha");
         double? vl = Number("t_vl"), va = Number("t_va"), ve = Number("t_ve"), vr = Number("t_vr");
+        double gb = Number("t_gb") ?? d.Params.GrelhaBarra, gv = Number("t_gv") ?? d.Params.GrelhaVao;
         if (h is null || plat is null || ramp is null || lid is null || grid is null || vl is null || va is null || ve is null || vr is null)
         {
             Say("Valores invalidos (use ponto ou virgula).");
@@ -259,6 +263,8 @@ internal sealed partial class MFRebaixoPanel
             Cobertura = cobertura == 1 ? 1 : 0,
             TampaEspessura = Math.Max(0.005, lid.Value),
             GrelhaEspessura = Math.Max(0.002, grid.Value),
+            GrelhaBarra = Math.Max(0.003, gb),
+            GrelhaVao = Math.Max(0.003, gv),
             Vigas = vigas,
             VigaLargura = Math.Max(0.01, vl.Value),
             VigaAltura = Math.Max(0.01, va.Value),

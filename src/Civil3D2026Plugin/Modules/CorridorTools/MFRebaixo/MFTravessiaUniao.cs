@@ -121,7 +121,7 @@ internal static partial class MFTravessia
         TravessiaSide s2 = ReadSide(db, cb, d.BaselineB, d.SubassemblyB, d.LeftB, d.LabelB, d.Origin, stB, stB - span, stB + span);
         RebaixoInfo? ra = NearRebaixo(rebaixos, ca, d.BaselineA, d.LeftA, stA), rb = NearRebaixo(rebaixos, cb, d.BaselineB, d.LeftB, stB);
         Func<double, double, double?> road = RoadSurface(db, new[] { ca, cb }, d.Params.Superficie, out roadInfo);
-        return Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight);
+        return Build(s1, s2, d.Params, road, ra?.NormalHeight, rb?.NormalHeight, ra?.FinalHeight, rb?.FinalHeight);
     }
 
     // Pelo lado tambem: os dois lados da rua costumam estar na mesma baseline (MFSARJETA_ESQ/DIR).

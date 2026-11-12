@@ -1,3 +1,12 @@
+## 2.109.0 - MFREBAIXO v1.19.0 / PassagemRampa v1.12.0: lombofaixa ate o topo do meio-fio, grelha com barras, regions, mais rapida
+
+Pedidos do Heyvid em 12/11/2026 (depois de testar a 2.108.1). Inclui a 2.108.2 da outra frente (dois pontos do rebaixo em qualquer ordem), compilada e testada aqui.
+
+- **Lombofaixa ate o topo do meio-fio**: na semi-elevada, o valor pedido e a **altura livre final** do meio-fio (do fundo da sarjeta ao topo, padrao 0,12 m), a mesma que o MFREBAIXO aplica; a lombofaixa chega no topo do meio-fio que resulta (fundo da sarjeta + altura livre), em cada lado, e nao e mais "borda da pista + 12 cm" com o rebaixo corrigido depois. O resumo mostra a elevacao do topo do meio-fio e a altura do plato sobre a pista em cada lado. Refazer, uniao e painel seguem a altura livre real de cada rebaixo.
+- **Grelha metalica modelada**: solido vazado de verdade (quadro + barras transversais a sarjeta, vaos abertos), num solido so por grelha; padrao barra 2 cm, vao 3 cm, espessura 3 cm (editaveis no comando e no painel). Propriedades: numero de barras e area livre.
+- **Lombofaixa entre regions**: o meio-fio da mesma peca em regions vizinhas (outra assembly, mesmo nome) e lido como um so (antes ficava so o de uma region e o contorno falhava na divisa); ponto da superficie de topo que cai num buraco na divisa usa os vizinhos (0,3 m) antes da reta. O log diz quantos trechos foram juntados.
+- **Mais rapida**: tempos no log por etapa (`tempo:`). R01-R02 no DWG da Waldir: 49 s -> 36 s quando os rebaixos mudam (sem a correcao de altura; os rebaixos sao removidos com um Rebuild so); sem mudar os rebaixos, ~4 s. Sem o Regen do desenho inteiro no fim. O que sobra e o Rebuild do corredor ao reaplicar rebaixos.
+- MFREBAIXO: inicio e fim do trecho em qualquer ordem tambem pelo painel e pelo reposicionar (so a mesma estaca e recusada).
 ## 2.108.2 - MFREBAIXO v1.18.2 / PassagemRampa v1.11.2: os dois pontos do rebaixo em qualquer ordem
 
 Pedido do Heyvid em 12/11/2026 ("o programa pode se virar pra aceitar qualquer sentido do lancamento dos intervalos").

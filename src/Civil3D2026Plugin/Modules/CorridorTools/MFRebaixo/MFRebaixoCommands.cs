@@ -997,10 +997,14 @@ public sealed class MFRebaixoCommands
         double? expectedStart,
         string comment = "REBAIXO MF")
     {
+        // Qualquer ordem (painel e reposicionar tambem): so a mesma estaca e recusada.
+        if (s2 < s1)
+            (s1, s2) = (s2, s1);
+
         if (s2 <= s1 + StationTolerance)
         {
             throw new InvalidOperationException(
-                "O fim do trecho rebaixado deve estar depois do início.");
+                "O início e o fim do trecho rebaixado caíram na mesma estaca.");
         }
 
         double[] existingStations =

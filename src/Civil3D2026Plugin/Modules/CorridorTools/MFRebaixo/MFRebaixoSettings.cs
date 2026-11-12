@@ -69,6 +69,8 @@ internal sealed class MFRebaixoSettings
     // Cobertura da sarjeta (0 grelha metalica, 1 concreto) e vigas baldrame (MFREBAIXO 1.18).
     public int TravessiaCobertura { get; set; }
     public double TravessiaGrelhaEspessura { get; set; } = 0.03;
+    public double TravessiaGrelhaBarra { get; set; } = 0.02;
+    public double TravessiaGrelhaVao { get; set; } = 0.03;
     public bool TravessiaVigas { get; set; } = true;
     public double TravessiaVigaLargura { get; set; } = 0.15;
     public double TravessiaVigaAltura { get; set; } = 0.30;

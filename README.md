@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFTRAVESSIA (MFREBAIXO v1.19.0): na semi-elevada o valor pedido e a **altura livre final do meio-fio** (do fundo da sarjeta ao topo, padrao 0,12 m) e a lombofaixa chega no topo do meio-fio em cada lado; grelha metalica **vazada** (barras de 2 cm, vaos de 3 cm); funciona atravessando a divisa entre regions do corredor.
 - MFTRAVESSIA (MFREBAIXO v1.18.0): a sarjeta da plataforma leva **grelha metalica** (padrao, 3 cm; ou tampa de concreto, ou nada: opcao `cObertura`) e as duas pontas da lombofaixa levam **vigas baldrame** de borda a borda da pista (padrao 15 x 30 cm, 15 cm enterrados, **no comeco da plataforma**, a parte de cima ate onde a lombofaixa deixa; opcao `Vigas`: Plataforma/Pe/Medida). Editar/redesenhar mantem os mesmos objetos (handles). O comando nao recusa medidas: avisa e segue.
 - Painel de rebaixos (MFREBAIXO v1.16): categoria **Travessias** com a lista das travessias do desenho (rebaixos, tipo, altura, plataforma, rampas, tampa, volume, uniao). Selecionar mostra a travessia em amarelo no desenho e leva a planta/3D do painel ate ela; aba Propriedades para **editar** as medidas e **Aplicar e redesenhar**; botoes Nova travessia, Redesenhar a selecionada / todas, Unir, **Separar a uniao**, **Apagar** (com confirmacao; U desfaz) e Zoom. As travessias aparecem na planta geral, na planta do rebaixo e no **3D** do painel (plato, tampas, faixa e triangulos).
 

@@ -8,6 +8,15 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.109.0: lombofaixa até o topo do meio-fio, grelha vazada, regions, tempo
+
+- Pedidos do Heyvid de 12/11 14h02. Compilado junto com o 4f23ef4 da outra frente (2.108.2, pontos do MFREBAIXO em qualquer ordem, feito na nuvem): compilou de primeira; completei a troca no núcleo (painel/reposicionar) e testei (150,5 → 148,0 gravou 148,00–150,50; mesma estaca recusada).
+- Semi-elevada: valor = altura livre final do meio-fio (fundo da sarjeta → topo); a lombofaixa chega no topo do meio-fio (sem a correção de altura). R01-R02: topo do MF x platô −0,1/−0,6 cm; platô sobre a pista 19,7 cm (R01) e 5,2 cm (R02).
+- Grelha vazada (quadro + barras 2 cm, vãos 3 cm, um sólido por grelha): 100 barras, 0,034 m³ de aço, área livre 1,39 m² (5 m de plataforma).
+- Regions: meio-fio da mesma peça em regions vizinhas juntado (antes ficava só uma). Teste com rebaixos de teste na est. ~205 e a travessia passando da divisa 208,396: sólido 4,29 m³, topo do MF +0,3/+0,1 cm.
+- Tempo (log `tempo:`): 49 s → 36 s com rebaixos reaplicados (30 s são Rebuild do corredor); ~4 s quando os rebaixos já estão certos. Desenho 5 s com as grelhas vazadas.
+- Entregue 2.109.0 / PassagemRampa 1.12.0 só com versão no nome (Civil aberto); hashes conferidos.
+- Pendências: teste do Heyvid; um Rebuild só ao reaplicar os dois rebaixos (exige mexer no MFREBAIXO: a hachura é desenhada depois de cada Rebuild).
 ## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.108.1: viga baldrame no começo da plataforma
 
 - Escolha do Heyvid (12/11): viga baldrame por padrão no encontro rampa/plataforma (`VigaRecuo = -1`, acompanha a rampa); comando com posição [Plataforma/Pe/Medida], painel com caixa + recuo. Travessias já desenhadas não mudam sozinhas.
