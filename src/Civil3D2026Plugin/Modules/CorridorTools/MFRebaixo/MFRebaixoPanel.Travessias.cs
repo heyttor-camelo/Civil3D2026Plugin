@@ -156,11 +156,13 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(EditRow("t_vl", "Largura da viga", N(d.Params.VigaLargura, "0.000"), "m"));
         p.Children.Add(EditRow("t_va", "Altura da viga", N(d.Params.VigaAltura, "0.000"), "m"));
         p.Children.Add(EditRow("t_ve", "Parte enterrada da viga", N(d.Params.VigaAltura * d.Params.VigaEnterrada, "0.000"), "m"));
-        p.Children.Add(EditRow("t_vr", "Recuo da viga a partir do pe da rampa", N(d.Params.VigaRecuo, "0.000"), "m"));
+        var naPlat = new WC.CheckBox { Content = "Viga no comeco da plataforma (acompanha a rampa)", IsChecked = d.Params.VigaNaPlataforma, Foreground = T.Text, Margin = new SW.Thickness(0, 4, 0, 3) };
+        p.Children.Add(naPlat);
+        p.Children.Add(EditRow("t_vr", "Ou recuo a partir do pe da rampa", N(Math.Max(0, d.Params.VigaRecuo), "0.000"), "m"));
         p.Children.Add(Label("A parte de cima da viga vai ate onde a lombofaixa deixa (nunca passa do topo); a altura real fica nas quantidades acima. Aplicar edita as pecas existentes (mesmos objetos no desenho)."));
         p.Children.Add(Label("A altura final dos rebaixos nao muda aqui. Se mudar a altura ou o tipo, o Redesenhar avisa quando o meio-fio nao bater com o plato; para acertar os rebaixos, apague e lance de novo com Nova travessia."));
 
-        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true), true));
+        acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true, naPlat.IsChecked == true), true));
         acts.Children.Add(ActionButton("Redesenhar como esta", () => RedrawTrav(null)));
         acts.Children.Add(ActionButton("Zoom no desenho", ZoomTrav));
         if (d.UnionId.Length > 0)
@@ -232,7 +234,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(Prop("Total de concreto", N(concreto, "0.000") + " m3 (plato + tampas + parte enterrada das vigas)"));
     }
 
-    private void ApplyTrav(bool elevada, int cobertura, bool vigas)
+    private void ApplyTrav(bool elevada, int cobertura, bool vigas, bool vigaNaPlataforma = true)
     {
         if (_currentTrav?.Data is not { } d)
         {
@@ -261,7 +263,7 @@ internal sealed partial class MFRebaixoPanel
             VigaLargura = Math.Max(0.01, vl.Value),
             VigaAltura = Math.Max(0.01, va.Value),
             VigaEnterrada = Math.Clamp(ve.Value / Math.Max(0.01, va.Value), 0, 1),
-            VigaRecuo = Math.Max(0, vr.Value),
+            VigaRecuo = vigaNaPlataforma ? -1 : Math.Max(0, vr.Value),
             Centralizar = d.Params.Centralizar,
             Superficie = d.Params.Superficie
         };

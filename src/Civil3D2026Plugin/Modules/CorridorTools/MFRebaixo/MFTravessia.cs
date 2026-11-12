@@ -61,8 +61,15 @@ internal sealed class TravessiaParams
     /// <summary>Fracao da altura da viga abaixo do pavimento (0,5 = metade enterrada).</summary>
     public double VigaEnterrada { get; set; } = 0.5;
 
-    /// <summary>Distancia do pe da rampa ate a face de fora da viga (0 = no pe da rampa).</summary>
-    public double VigaRecuo { get; set; }
+    /// <summary>
+    /// Distancia do pe da rampa ate a face de fora da viga (0 = no pe da rampa). Negativo = no comeco da
+    /// plataforma (fim da rampa), acompanhando a rampa se ela mudar: padrao escolhido pelo Heyvid em 12/11/2026.
+    /// </summary>
+    public double VigaRecuo { get; set; } = -1;
+
+    public bool VigaNaPlataforma => VigaRecuo < 0;
+
+    public string VigaPosicaoTexto => VigaNaPlataforma ? "no comeco da plataforma" : VigaRecuo < 0.005 ? "no pe da rampa" : $"a {MFTravessia.N(VigaRecuo)} m do pe da rampa";
 
     public bool Grelha => Tampa && Cobertura == 0;
 
@@ -807,7 +814,8 @@ internal static partial class MFTravessia
     /// </summary>
     private static void AddBeam(TravessiaGeometry g, TravessiaParams p, int sign)
     {
-        double outer = Math.Max(-g.Total, g.Total - Math.Max(0, p.VigaRecuo));
+        double recuo = p.VigaNaPlataforma ? g.Total - g.HalfPlatform : p.VigaRecuo;
+        double outer = Math.Max(-g.Total, g.Total - Math.Max(0, recuo));
         double inner = Math.Max(-g.Total, outer - Math.Max(0.01, p.VigaLargura));
         if (outer - inner < 0.01)
         {

@@ -1,3 +1,11 @@
+## 2.108.1 - MFREBAIXO v1.18.1 / PassagemRampa v1.11.1: viga baldrame no comeco da plataforma
+
+Escolha do Heyvid em 12/11/2026.
+
+- A viga baldrame passa a ficar, por padrao, no **comeco da plataforma** (encontro rampa/plataforma, nas duas pontas), acompanhando a rampa se o comprimento dela mudar. Ali ela entra a altura toda do plato (12 cm na semi-elevada), com 15 cm enterrados; no pe da rampa entrava so 0,5 a 1,6 cm.
+- Comando (opcao `Vigas`): posicao [Plataforma/Pe/Medida]; painel: caixa "Viga no comeco da plataforma (acompanha a rampa)" ou recuo em metros a partir do pe da rampa. Na uniao, a viga fica no comeco da plataforma do lado da rampa que existe.
+- Travessias ja desenhadas guardam a posicao delas; so mudam se forem editadas.
+- Teste (copia do DWG, R01-R02 5 + 2x1,5 m): vigas de 10,10 e 9,57 m, 15 x 27 cm (15 cm enterrados, 12 cm dentro da lombofaixa), cerca de 0,41 m3 cada; editar a rampa para 1,0 m levou as vigas junto, com os mesmos handles.
 ## 2.108.0 - MFREBAIXO v1.18.0 / PassagemRampa v1.11.0: grelha metalica na sarjeta, vigas baldrame, editar a travessia sem recriar
 
 Pedidos do Heyvid em 11/11/2026, depois de testar a 2.106.0.

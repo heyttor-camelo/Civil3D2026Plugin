@@ -8,6 +8,11 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.108.1: viga baldrame no começo da plataforma
+
+- Escolha do Heyvid (12/11): viga baldrame por padrão no encontro rampa/plataforma (`VigaRecuo = -1`, acompanha a rampa); comando com posição [Plataforma/Pe/Medida], painel com caixa + recuo. Travessias já desenhadas não mudam sozinhas.
+- Teste (cópia do DWG, `v4\travessia`): R01-R02 5 + 2×1,5 m, vigas 10,10 / 9,57 m, 15 × 27 cm (15 enterrados + 12 dentro da lombofaixa), ~0,41 m³ cada; editar a rampa para 1,0 m moveu as vigas e manteve os handles.
+- Entregue 2.108.1 / PassagemRampa 1.11.1 só com versão no nome (Civil aberto); hashes conferidos.
 ## 2026-11-11 — LAPTOP-11TNS6P8 (Remote Control), 2.108.0: grelha metálica, vigas baldrame, editar sem recriar
 
 - Pedidos do Heyvid depois do teste da 2.106.0 (trava da altura final do rebaixo ficou com a outra frente, 2.107.0 / MFSARJETA v1.25).

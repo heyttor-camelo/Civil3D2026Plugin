@@ -73,6 +73,8 @@ internal sealed class MFRebaixoSettings
     public double TravessiaVigaLargura { get; set; } = 0.15;
     public double TravessiaVigaAltura { get; set; } = 0.30;
     public double TravessiaVigaEnterrada { get; set; } = 0.5;
+    // Recuo da viga a partir do pe da rampa; negativo = no comeco da plataforma (padrao, 12/11/2026).
+    public double TravessiaVigaRecuo { get; set; } = -1;
 
     public void MigrarHachura()
     {

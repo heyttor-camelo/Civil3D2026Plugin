@@ -88,7 +88,8 @@ public sealed class MFTravessiaCommands
                 Vigas = settings.TravessiaVigas,
                 VigaLargura = settings.TravessiaVigaLargura,
                 VigaAltura = settings.TravessiaVigaAltura,
-                VigaEnterrada = settings.TravessiaVigaEnterrada
+                VigaEnterrada = settings.TravessiaVigaEnterrada,
+                VigaRecuo = settings.TravessiaVigaRecuo
             };
             if (!AskParams(ed, db, a, b, p))
                 return;
@@ -107,6 +108,7 @@ public sealed class MFTravessiaCommands
             settings.TravessiaVigaLargura = p.VigaLargura;
             settings.TravessiaVigaAltura = p.VigaAltura;
             settings.TravessiaVigaEnterrada = p.VigaEnterrada;
+            settings.TravessiaVigaRecuo = p.VigaRecuo;
             MFRebaixoSettingsStore.Save(settings);
 
             // Eixo: no meio dos dois rebaixos; estaca dele na baseline de cada um.
@@ -163,7 +165,7 @@ public sealed class MFTravessiaCommands
             ed.WriteMessage($"\n  {geo.RoadSource}");
             ed.WriteMessage($"\n  sarjeta: {p.CoberturaTexto}{(p.Tampa ? ", nos dois lados" : "")}");
             if (p.Vigas)
-                ed.WriteMessage($"\n  vigas baldrame {MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} nas duas pontas da lombofaixa, de borda a borda da pista");
+                ed.WriteMessage($"\n  vigas baldrame {MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} {p.VigaPosicaoTexto}, nas duas pontas, de borda a borda da pista");
             foreach (string note in geo.Notes)
                 ed.WriteMessage("\n  " + note);
             if (plan.Count == 0)
@@ -412,7 +414,7 @@ public sealed class MFTravessiaCommands
         {
             string alt = p.Tipo == TravessiaTipo.Elevada ? "altura da calcada" : "altura " + MFTravessia.Cm(p.Altura);
             string msg = $"\nTravessia {a.Label}-{b.Label}: {p.TipoTexto}, {alt}, plataforma {MFTravessia.N(p.Plataforma)} m, rampas {MFTravessia.N(p.Rampa)} m, " +
-                         $"sarjeta {p.CoberturaTexto}, vigas {(p.Vigas ? $"{MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)}" : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
+                         $"sarjeta {p.CoberturaTexto}, vigas {(p.Vigas ? $"{MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} {p.VigaPosicaoTexto}" : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
                          $"superficie {(p.Superficie.Length > 0 ? p.Superficie : "automatica")}." +
                          "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/cObertura/Vigas/Centralizar/sUperficie/Seguir]";
             var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa cObertura Vigas Centralizar sUperficie Seguir") { AllowNone = true };
@@ -477,6 +479,18 @@ public sealed class MFTravessiaCommands
                         p.VigaLargura = vl;
                     if (AskDouble(ed, "\nAltura da viga (m)", p.VigaAltura, 0.05, 3.0) is double va)
                         p.VigaAltura = va;
+                    var pos = new PromptKeywordOptions("\nPosicao da viga [Plataforma (comeco da plataforma)/Pe (pe da rampa)/Medida (recuo em m a partir do pe)]", "Plataforma Pe Medida") { AllowNone = true };
+                    pos.Keywords.Default = p.VigaNaPlataforma ? "Plataforma" : p.VigaRecuo < 0.005 ? "Pe" : "Medida";
+                    PromptResult pr = ed.GetKeywords(pos);
+                    if (pr.Status == PromptStatus.OK)
+                    {
+                        if (pr.StringResult == "Plataforma")
+                            p.VigaRecuo = -1;
+                        else if (pr.StringResult == "Pe")
+                            p.VigaRecuo = 0;
+                        else if (AskDouble(ed, "\nRecuo da viga a partir do pe da rampa (m)", Math.Max(0, p.VigaRecuo), 0.0, 50.0) is double vr)
+                            p.VigaRecuo = vr;
+                    }
                     break;
                 }
                 case "sUperficie":
