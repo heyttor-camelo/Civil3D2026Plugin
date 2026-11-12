@@ -76,7 +76,7 @@ internal sealed partial class MFRebaixoPanel
         var lines = new List<string> { "LOMBOFAIXA " + TravName(t) };
         if (t.Data is { } d)
         {
-            lines.Add($"Tipo: {d.Params.TipoTexto}   plataforma {N(d.Params.Plataforma, "0.00")} m   rampas {N(d.Params.Rampa, "0.00")} m");
+            lines.Add($"Tipo: {d.Params.TipoTexto}{(d.Params.Esconsa ? ", esconsa" : "")}   plataforma {N(d.Params.Plataforma, "0.00")} m   rampas {N(d.Params.Rampa, "0.00")} m");
             lines.Add($"Sarjeta: {d.Params.CoberturaTexto}");
             if (d.Params.Vigas)
                 lines.Add($"Vigas baldrame: {Cm(d.Params.VigaLargura)} x {Cm(d.Params.VigaAltura)}, {d.Params.VigaPosicaoTexto}");
@@ -199,6 +199,8 @@ internal sealed partial class MFRebaixoPanel
         MFTravessia.Stored d = t.Data;
         p.Children.Add(Prop("Rebaixos", $"{d.LabelA} ({(d.LeftA ? "esquerdo" : "direito")})  e  {d.LabelB} ({(d.LeftB ? "esquerdo" : "direito")})"));
         p.Children.Add(Prop("Superficie de topo", d.Params.Superficie.Length > 0 ? d.Params.Superficie : "automatica (a de topo do corredor)"));
+        string skew = t.Solids.FirstOrDefault(s => s.Part == "PLATO").Props?.TryGetValue("Esconsidade", out string? sk) == true ? sk : "";
+        p.Children.Add(Prop("Eixo da travessia", d.Params.Esconsa ? $"esconso (de um rebaixo ao outro){(skew.Length > 0 ? $", {skew} graus com a perpendicular a pista" : "")}" : "perpendicular a pista"));
         if (d.UnionId.Length > 0)
             p.Children.Add(Prop("Uniao do cruzamento", $"{d.UnionId} (so a rampa de fora fica nesta travessia)"));
 
@@ -233,6 +235,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(EditRow("t_gb", "Largura das barras da grelha", N(d.Params.GrelhaBarra, "0.000"), "m"));
         p.Children.Add(EditRow("t_gv", "Vao entre as barras", N(d.Params.GrelhaVao, "0.000"), "m"));
         p.Children.Add(EditRow("t_ge", "Grelha alem da plataforma (cada ponta)", N(d.Params.GrelhaExtensao, "0.00"), "m"));
+        p.Children.Add(EditRow("t_gf", "Grelha alem do pe do meio-fio", N(d.Params.GrelhaFolgaMF, "0.000"), "m"));
         p.Children.Add(EditRow("t_tampa", "Espessura da tampa de concreto", N(d.Params.TampaEspessura, "0.000"), "m"));
         var vigas = new WC.CheckBox { Content = "Vigas baldrame nas duas pontas", IsChecked = d.Params.Vigas, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
         p.Children.Add(vigas);
@@ -334,7 +337,7 @@ internal sealed partial class MFRebaixoPanel
         }
         double? h = Number("t_altura"), plat = Number("t_plat"), ramp = Number("t_rampa"), lid = Number("t_tampa"), grid = Number("t_grelha");
         double? vl = Number("t_vl"), va = Number("t_va"), ve = Number("t_ve"), vr = Number("t_vr");
-        double gb = Number("t_gb") ?? d.Params.GrelhaBarra, gv = Number("t_gv") ?? d.Params.GrelhaVao, ge = Number("t_ge") ?? d.Params.GrelhaExtensao;
+        double gb = Number("t_gb") ?? d.Params.GrelhaBarra, gv = Number("t_gv") ?? d.Params.GrelhaVao, ge = Number("t_ge") ?? d.Params.GrelhaExtensao, gf = Number("t_gf") ?? d.Params.GrelhaFolgaMF;
         if (h is null || plat is null || ramp is null || lid is null || grid is null || vl is null || va is null || ve is null || vr is null)
         {
             Say("Valores invalidos (use ponto ou virgula).");
@@ -354,13 +357,15 @@ internal sealed partial class MFRebaixoPanel
             GrelhaBarra = Math.Max(0.003, gb),
             GrelhaVao = Math.Max(0.003, gv),
             GrelhaExtensao = Math.Max(0, ge),
+            GrelhaFolgaMF = Math.Max(0, gf),
             Vigas = vigas,
             VigaLargura = Math.Max(0.01, vl.Value),
             VigaAltura = Math.Max(0.01, va.Value),
             VigaEnterrada = Math.Clamp(ve.Value / Math.Max(0.01, va.Value), 0, 1),
             VigaRecuo = vigaNaPlataforma ? -1 : Math.Max(0, vr.Value),
             Centralizar = d.Params.Centralizar,
-            Superficie = d.Params.Superficie
+            Superficie = d.Params.Superficie,
+            Esconsa = d.Params.Esconsa
         };
         TravessiaParams old = d.Params;
         d.Params = p;

@@ -8,6 +8,11 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.111.0: esconsa, grelha em X, duplo clique na roda
+
+- Pedidos do Heyvid de 12/11 15h09. Lombofaixa esconsa (eixo de um rebaixo ao outro, linhas transversais paralelas ao eixo, coordenadas oblíquas `MFTravessia.Oblique`; pontos de cada lado guardados no XData para Refazer/união); padrão quando o desalinhamento passa de 0,30 m, opção `esConsa`. Grelha em X (chapa − losangos numa subtração só, ~3 s por grelha). Grelha +1 cm além do pé do MF. Duplo clique na roda = enquadrar (o esquerdo não mexe mais na vista). Trecho rebaixado = plataforma + 20 cm.
+- Teste (cópia, `v4\travessia`): rebaixos de teste desalinhados 2 m (est. 100/102): esconsa ok em planta (`planta-esc-*.png`), platô 6,58 m³, Refazer igual; grelha em X 185 barras / 0,91 m² livres.
+- Entregue 2.111.0 / PassagemRampa 1.14.0 só com versão no nome (Civil aberto); hashes conferidos.
 ## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.110.0: encontro com o meio-fio, cunha na esquina, clique no 3D
 
 - Teste do Heyvid da 2.109.0 no DWG real (travessias R02-R01, R06-R05, R06-R08). Log dele: as alturas finais estranhas (R05/R06/R08 1–2 cm) vieram da 2.108.1 (correção que subia a altura) + corredor com MFSARJETA v1.24 (não sobe acima do normal) + altura normal ~0 lida nas pontas; os códigos R0x mudam de dono quando entram rebaixos novos.

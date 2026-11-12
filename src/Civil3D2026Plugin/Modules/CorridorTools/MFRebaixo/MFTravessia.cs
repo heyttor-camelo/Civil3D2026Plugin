@@ -59,6 +59,16 @@ internal sealed class TravessiaParams
     /// <summary>Quanto a grelha (ou a tampa) passa da plataforma em cada ponta, descendo com a rampa.</summary>
     public double GrelhaExtensao { get; set; } = 0.50;
 
+    /// <summary>Quanto a grelha entra alem do pe do meio-fio (encosta/entra na face), em m.</summary>
+    public double GrelhaFolgaMF { get; set; } = 0.01;
+
+    /// <summary>
+    /// Esconsa: o eixo da travessia liga o centro de um rebaixo ao do outro, inclinado em relacao a
+    /// perpendicular da pista; as linhas transversais do plato (pes e topos das rampas, vigas, faixa)
+    /// ficam paralelas a esse eixo (plataforma em paralelogramo). Nao: eixo perpendicular a pista.
+    /// </summary>
+    public bool Esconsa { get; set; }
+
     /// <summary>Vigas baldrame transversais nas duas pontas da lombofaixa (ancoragem no pavimento).</summary>
     public bool Vigas { get; set; } = true;
 
@@ -145,6 +155,10 @@ internal sealed class TravessiaGeometry
     public List<Point3d> EdgeB { get; } = new();
     public List<Point3d> FootA { get; } = new();
     public List<Point3d> FootB { get; } = new();
+
+    /// <summary>Lado de fora da cobertura da sarjeta (pe do meio-fio + folga), uma por linha; vazio = o pe.</summary>
+    public List<Point3d> LidFootA { get; } = new();
+    public List<Point3d> LidFootB { get; } = new();
     public List<double> Rows { get; } = new();
 
     public double HeightA { get; init; }
@@ -159,6 +173,9 @@ internal sealed class TravessiaGeometry
     public double CurbTopB { get; init; }
 
     public double WidthAtAxis { get; init; }
+
+    /// <summary>Esconsidade: angulo do eixo da travessia com a perpendicular a pista (graus).</summary>
+    public double SkewDeg { get; init; }
     public double TopElevationAtCenter { get; init; }
     public string RoadSource { get; set; } = "";
     public List<string> Notes { get; } = new();
@@ -631,12 +648,16 @@ internal static partial class MFTravessia
         Vector3d ab = Flat(cb.Edge - ca.Edge);
         if (across.DotProduct(ab) < 0)
             across = across.Negate();
+        Vector3d perpendicular = across;
+        if (p.Esconsa && ab.Length > 0.05)
+            across = ab.GetNormal(); // esconsa: linhas transversais paralelas ao eixo entre os dois rebaixos
         if (ab.Length < 0.05)
             throw new InvalidOperationException($"{a.Label} e {b.Label} estao no mesmo lugar: nao ha largura para o plato.");
         if (ab.Length < 1.0)
             early.Add($"AVISO: {a.Label} e {b.Label} estao a {N(ab.Length)} m um do outro.");
-        if (Math.Abs(ab.GetNormal().DotProduct(across)) < 0.5)
-            early.Add($"AVISO: {a.Label} e {b.Label} nao estao bem um de frente para o outro (mesmo lado da pista?): o plato sai torto.");
+        if (Math.Abs(ab.GetNormal().DotProduct(perpendicular)) < 0.5)
+            early.Add($"AVISO: {a.Label} e {b.Label} quase no mesmo lado da pista: a travessia fica muito inclinada.");
+        double skewDeg = Math.Acos(Math.Clamp(Math.Abs(across.DotProduct(perpendicular)), 0, 1)) * 180.0 / Math.PI;
 
         Point3d origin = new((ca.Edge.X + cb.Edge.X) / 2.0, (ca.Edge.Y + cb.Edge.Y) / 2.0, 0);
         double half = p.Plataforma / 2.0;
@@ -775,6 +796,7 @@ internal static partial class MFTravessia
             CurbTopA = ea0.Z + ha,
             CurbTopB = eb0.Z + hb,
             WidthAtAxis = Dist2d(ea0, eb0),
+            SkewDeg = skewDeg,
             TopElevationAtCenter = top[mid, cols / 2].Z,
             RoadSource = fromSurface > 0
                 ? $"pista pela superficie do corredor ({fromSurface} pontos; maior diferenca para a reta entre as bordas {Cm(maxDev)})"
@@ -827,6 +849,15 @@ internal static partial class MFTravessia
             geo.Notes.Add($"{label}: sem sarjeta lida entre a pista e o meio-fio; cobertura da sarjeta nao desenhada.");
             return;
         }
+        // A grelha entra um pouco alem do pe do meio-fio (pedido do Heyvid: +1 cm em direcao ao meio-fio).
+        double folga = p.Grelha ? Math.Max(0, p.GrelhaFolgaMF) : 0;
+        List<Point3d> outer = sideA ? geo.LidFootA : geo.LidFootB;
+        outer.Clear();
+        for (int i = 0; i < rows.Count; i++)
+        {
+            Vector3d d = Flat(foot[i] - edge[i]);
+            outer.Add(d.Length > 1e-6 && folga > 0 ? foot[i] + (d.GetNormal() * folga) : foot[i]);
+        }
         var top = new Point3d[idx.Count, 2];
         var bottom = new Point3d[idx.Count, 2];
         double minGap = double.MaxValue;
@@ -838,9 +869,9 @@ internal static partial class MFTravessia
             double z = edge[i].Z + Math.Max(heights[i] * f, p.LidThickness);
             double zb = z - p.LidThickness;
             top[k, 0] = new Point3d(edge[i].X, edge[i].Y, z);
-            top[k, 1] = new Point3d(foot[i].X, foot[i].Y, z);
+            top[k, 1] = new Point3d(outer[i].X, outer[i].Y, z);
             bottom[k, 0] = new Point3d(edge[i].X, edge[i].Y, zb);
-            bottom[k, 1] = new Point3d(foot[i].X, foot[i].Y, zb);
+            bottom[k, 1] = new Point3d(outer[i].X, outer[i].Y, zb);
             minGap = Math.Min(minGap, zb - foot[i].Z);
         }
         geo.Lids.Add((top, bottom, sideA));
@@ -1124,6 +1155,10 @@ internal static partial class MFTravessia
 
         /// <summary>Na uniao: lado de fora do cruzamento no sentido Along (+1/-1); so essa rampa fica.</summary>
         public int OuterSign { get; set; }
+
+        /// <summary>Esconsa: pontos dos rebaixos onde o eixo encosta (centro de cada um); sem eles, a projecao de Origin.</summary>
+        public Point3d? AnchorA { get; set; }
+        public Point3d? AnchorB { get; set; }
     }
 
     /// <summary>
@@ -1180,7 +1215,7 @@ internal static partial class MFTravessia
             int bars = 0;
             double freeArea = 0;
             AcadDb.Entity? lid = p.Grelha
-                ? GratingSolid(tr, ms, top, bottom, p.GrelhaBarra, p.GrelhaVao, lidLayer, out string lidMode, out bars, out freeArea)
+                ? GratingX(tr, ms, top, bottom, p.GrelhaBarra, p.GrelhaVao, lidLayer, out string lidMode, out bars, out freeArea)
                 : MeshSolid(tr, ms, top, bottom, lidLayer, out lidMode);
             if (lid is null)
                 continue;
@@ -1256,7 +1291,8 @@ internal static partial class MFTravessia
         {
             foreach (bool sideA in g.Lids.Select(l => l.SideA))
             {
-                List<Point3d> e = sideA ? g.EdgeA : g.EdgeB, f = sideA ? g.FootA : g.FootB;
+                List<Point3d> e = sideA ? g.EdgeA : g.EdgeB;
+                List<Point3d> f = sideA ? (g.LidFootA.Count > 0 ? g.LidFootA : g.FootA) : (g.LidFootB.Count > 0 ? g.LidFootB : g.FootB);
                 double reach = Math.Min(g.Total, g.HalfPlatform + Math.Max(0, p.GrelhaExtensao));
                 List<int> lidRows = Enumerable.Range(0, n).Where(i => Math.Abs(g.Rows[i]) <= reach + 1e-6).ToList();
                 count += Hatch(tr, db, ms, Band(e, f, lidRows), lidLayer, "ANSI37", 0.03, Angle(g.Along), 256, data.Id, "PLANTA_" + lidPart, hatches);
@@ -1264,8 +1300,8 @@ internal static partial class MFTravessia
         }
 
         // Faixa zebrada: listras no sentido dos carros, empilhadas de borda a borda.
-        double sa = (g.EdgeA[plat[plat.Count / 2]] - g.Origin).DotProduct(g.Across);
-        double sb = (g.EdgeB[plat[plat.Count / 2]] - g.Origin).DotProduct(g.Across);
+        double sa = Oblique(g, g.EdgeA[plat[plat.Count / 2]]).S;
+        double sb = Oblique(g, g.EdgeB[plat[plat.Count / 2]]).S;
         double s0 = Math.Min(sa, sb) + 0.30, s1 = Math.Max(sa, sb) - 0.30;
         double stripe = settings.TravessiaListra, gap = settings.TravessiaListraEspaco;
         double len = Math.Max(g.HalfPlatform * 2.0 - 1.0, g.HalfPlatform * 1.2);
@@ -1474,7 +1510,7 @@ internal static partial class MFTravessia
     private static double GridAt(TravessiaGeometry g, Point3d[,] grid, Point3d p)
     {
         int rows = g.Rows.Count, cols = g.Top.GetLength(1);
-        double t = (p - g.Origin).DotProduct(g.Along);
+        double t = Oblique(g, p).T;
         int i = 0;
         while (i + 2 < rows && g.Rows[i + 1] < t)
             i++;
@@ -1503,6 +1539,17 @@ internal static partial class MFTravessia
     }
 
     private static Point3d Local(TravessiaGeometry g, double t, double s) => g.Origin + (g.Along * t) + (g.Across * s);
+
+    /// <summary>Coordenadas (t no sentido dos carros, s no eixo da travessia) de um ponto; vale tambem na esconsa.</summary>
+    internal static (double T, double S) Oblique(TravessiaGeometry g, Point3d p)
+    {
+        double dx = p.X - g.Origin.X, dy = p.Y - g.Origin.Y;
+        double ux = g.Along.X, uy = g.Along.Y, vx = g.Across.X, vy = g.Across.Y;
+        double det = (ux * vy) - (uy * vx);
+        if (Math.Abs(det) < 1e-9)
+            return ((dx * ux) + (dy * uy), (dx * vx) + (dy * vy));
+        return (((dx * vy) - (dy * vx)) / det, ((ux * dy) - (uy * dx)) / det);
+    }
 
     private static double Angle(Vector3d v) => Math.Atan2(v.Y, v.X);
 
@@ -1561,6 +1608,126 @@ internal static partial class MFTravessia
         hatch.XData = PartXData(id, part);
         created.Add(hatch.ObjectId);
         return 1;
+    }
+
+    /// <summary>
+    /// Grelha em X, como a hachura da planta (ANSI37 girada com a sarjeta: barras a +-45 graus): chapa
+    /// com quadro em volta menos os vaos em losango, numa subtracao so (os losangos sao um solido de
+    /// varias pecas). Se a subtracao falhar, fica a grelha de barras transversais.
+    /// </summary>
+    private static AcadDb.Entity? GratingX(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, Point3d[,] top, Point3d[,] bottom,
+        double bar, double gap, string layer, out string mode, out int bars, out double freeArea)
+    {
+        mode = "";
+        bars = 0;
+        freeArea = 0;
+        int rows = top.GetLength(0);
+        if (rows < 2)
+            return null;
+        bar = Math.Max(0.005, bar);
+        gap = Math.Max(0.005, gap);
+        var acc = new double[rows];
+        for (int k = 1; k < rows; k++)
+            acc[k] = acc[k - 1] + Dist2d(top[k - 1, 0], top[k, 0]);
+        double length = acc[^1];
+        double width = Enumerable.Range(0, rows).Average(k => Dist2d(top[k, 0], top[k, 1]));
+        double frame = bar;
+        double pitch = bar + gap;
+        double hd = gap / Math.Sqrt(2.0); // meia diagonal do vao (quadrado girado 45 graus)
+        if (length < 4 * pitch || width < 2 * frame + (2 * hd) + 0.002)
+            return GratingSolid(tr, ms, top, bottom, bar, gap, layer, out mode, out bars, out freeArea);
+
+        Point3d At(Point3d[,] g, double u, double v)
+        {
+            int k = 0;
+            while (k + 2 < rows && acc[k + 1] < u)
+                k++;
+            double f = Math.Clamp((u - acc[k]) / Math.Max(1e-9, acc[k + 1] - acc[k]), 0, 1);
+            Point3d e = Lerp(g[k, 0], g[k + 1, 0], f), ft = Lerp(g[k, 1], g[k + 1, 1], f);
+            return Lerp(e, ft, Math.Clamp(v / Math.Max(1e-6, Dist2d(e, ft)), 0, 1));
+        }
+
+        // Centros dos vaos: grade nas direcoes a = (u+v)/raiz2 e c = (u-v)/raiz2 (as barras).
+        var centers = new List<(double U, double V)>();
+        double r2 = Math.Sqrt(2.0);
+        double aMax = (length + width) / r2, cMin = -width / r2, cMax = length / r2;
+        for (double a = pitch / 2.0; a < aMax; a += pitch)
+        {
+            for (double c = (Math.Floor(cMin / pitch) * pitch) + (pitch / 2.0); c < cMax; c += pitch)
+            {
+                double u = (a + c) / r2, v = (a - c) / r2;
+                if (u - hd >= frame && u + hd <= length - frame && v - hd >= frame && v + hd <= width - frame)
+                    centers.Add((u, v));
+            }
+        }
+        if (centers.Count == 0)
+            return GratingSolid(tr, ms, top, bottom, bar, gap, layer, out mode, out bars, out freeArea);
+        bars = (int)Math.Round((2.0 * (length + width)) / (pitch * r2));
+        freeArea = centers.Count * gap * gap;
+
+        AcadDb.Entity? plate = MeshSolid(tr, ms, top, bottom, layer, out string plateMode);
+        if (plate is not AcadDb.Solid3d plateSolid)
+            return GratingSolid(tr, ms, top, bottom, bar, gap, layer, out mode, out bars, out freeArea);
+
+        Point3d o = top[0, 0];
+        Vector3d shift = new(o.X, o.Y, Math.Floor(o.Z));
+        var verts = new Point3dCollection();
+        var index = new Int32Collection();
+        foreach ((double u, double v) in centers)
+        {
+            Point3d ct = At(top, u, v), cb = At(bottom, u, v);
+            double zt = ct.Z + 0.005, zb = cb.Z - 0.005;
+            var ring = new[] { At(top, u + hd, v), At(top, u, v + hd), At(top, u - hd, v), At(top, u, v - hd) };
+            // Giro anti-horario visto de cima.
+            double area = 0;
+            for (int i = 0; i < 4; i++)
+                area += (ring[i].X * ring[(i + 1) % 4].Y) - (ring[(i + 1) % 4].X * ring[i].Y);
+            if (area < 0)
+                Array.Reverse(ring);
+            int b0 = verts.Count;
+            foreach (Point3d q in ring)
+                verts.Add(new Point3d(q.X, q.Y, zt) - shift);
+            foreach (Point3d q in ring)
+                verts.Add(new Point3d(q.X, q.Y, zb) - shift);
+            void Tri(int x0, int x1, int x2)
+            {
+                index.Add(3);
+                index.Add(b0 + x0);
+                index.Add(b0 + x1);
+                index.Add(b0 + x2);
+            }
+            Tri(0, 1, 2);
+            Tri(0, 2, 3);
+            Tri(4, 6, 5);
+            Tri(4, 7, 6);
+            for (int i = 0; i < 4; i++)
+            {
+                int j = (i + 1) % 4;
+                Tri(i, 4 + i, 4 + j);
+                Tri(i, 4 + j, j);
+            }
+        }
+        var mesh = new AcadDb.SubDMesh();
+        try
+        {
+            mesh.SetDatabaseDefaults();
+            mesh.SetSubDMesh(verts, index, 0);
+            using AcadDb.Solid3d holes = mesh.ConvertToSolid(false, true);
+            holes.TransformBy(Matrix3d.Displacement(shift));
+            plateSolid.BooleanOperation(AcadDb.BooleanOperationType.BoolSubtract, holes);
+            mode = $"solido (grelha em X, {centers.Count} vaos)";
+            return plateSolid;
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("MFTRAVESSIA", "Grelha em X nao saiu (" + ex.Message + "); feita a de barras transversais.");
+            plateSolid.Erase();
+            return GratingSolid(tr, ms, top, bottom, bar, gap, layer, out mode, out bars, out freeArea);
+        }
+        finally
+        {
+            mesh.Dispose();
+        }
     }
 
     /// <summary>
@@ -1844,7 +2011,13 @@ internal static partial class MFTravessia
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.VigaRecuo),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaBarra),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaVao),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaExtensao));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaExtensao),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, p.GrelhaFolgaMF),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(p.Esconsa ? 1 : 0)),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorA?.X ?? 0.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorA?.Y ?? 0.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.X ?? 0.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.Y ?? 0.0));
     }
 
     /// <summary>Le os dados da travessia gravados no solido do plato (null se nao for um).</summary>
@@ -1882,7 +2055,9 @@ internal static partial class MFTravessia
                 VigaRecuo = v.Length >= 32 ? D(31) : 0.0,
                 GrelhaBarra = v.Length >= 34 ? D(32) : 0.02,
                 GrelhaVao = v.Length >= 34 ? D(33) : 0.03,
-                GrelhaExtensao = v.Length >= 35 ? D(34) : 0.0
+                GrelhaExtensao = v.Length >= 35 ? D(34) : 0.0,
+                GrelhaFolgaMF = v.Length >= 36 ? D(35) : 0.0,
+                Esconsa = v.Length >= 41 && B(36)
             },
             Origin = new Point3d(D(10), D(11), 0),
             CorridorA = S(12),
@@ -1896,7 +2071,9 @@ internal static partial class MFTravessia
             LeftB = B(20),
             LabelB = S(21),
             UnionId = v.Length >= 24 ? S(22) : "",
-            OuterSign = v.Length >= 24 ? Convert.ToInt32(v[23].Value, CultureInfo.InvariantCulture) : 0
+            OuterSign = v.Length >= 24 ? Convert.ToInt32(v[23].Value, CultureInfo.InvariantCulture) : 0,
+            AnchorA = v.Length >= 41 && B(36) ? new Point3d(D(37), D(38), 0) : null,
+            AnchorB = v.Length >= 41 && B(36) ? new Point3d(D(39), D(40), 0) : null
         };
     }
 
@@ -2000,7 +2177,8 @@ internal static partial class MFTravessia
         ["Elevacao_Topo_Centro"] = Math.Round(g.TopElevationAtCenter, 3),
         ["Tampa_Sarjeta"] = d.Params.Tampa ? (d.Params.Grelha ? $"Grelha metalica, {N(d.Params.GrelhaEspessura)} m" : $"Concreto, {N(d.Params.TampaEspessura)} m") : "Sem cobertura",
         ["Rebaixo_A"] = d.LabelA,
-        ["Rebaixo_B"] = d.LabelB
+        ["Rebaixo_B"] = d.LabelB,
+        ["Esconsidade"] = Math.Round(g.SkewDeg, 1)
     };
 
     private static readonly (string Name, AecPropData.DataType Type)[] PsFields =
@@ -2012,7 +2190,7 @@ internal static partial class MFTravessia
         ("Rebaixo_A", AecPropData.DataType.Text), ("Rebaixo_B", AecPropData.DataType.Text),
         ("Material", AecPropData.DataType.Text), ("Comprimento", AecPropData.DataType.Real), ("Largura", AecPropData.DataType.Real),
         ("Altura_Espessura", AecPropData.DataType.Real), ("Area", AecPropData.DataType.Real), ("Volume", AecPropData.DataType.Real),
-        ("Quantidade", AecPropData.DataType.Integer), ("Barras", AecPropData.DataType.Integer), ("Area_Livre", AecPropData.DataType.Real)
+        ("Quantidade", AecPropData.DataType.Integer), ("Barras", AecPropData.DataType.Integer), ("Area_Livre", AecPropData.DataType.Real), ("Esconsidade", AecPropData.DataType.Real)
     };
 
     /// <summary>Property Set C3D_TRAVESSIA (para a federacao BIM). Falha nao cancela o desenho.</summary>

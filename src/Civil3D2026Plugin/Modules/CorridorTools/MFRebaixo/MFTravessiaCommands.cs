@@ -95,12 +95,19 @@ public sealed class MFTravessiaCommands
                 GrelhaBarra = settings.TravessiaGrelhaBarra,
                 GrelhaVao = settings.TravessiaGrelhaVao,
                 GrelhaExtensao = settings.TravessiaGrelhaExtensao,
+                GrelhaFolgaMF = settings.TravessiaGrelhaFolgaMF,
                 Vigas = settings.TravessiaVigas,
                 VigaLargura = settings.TravessiaVigaLargura,
                 VigaAltura = settings.TravessiaVigaAltura,
                 VigaEnterrada = settings.TravessiaVigaEnterrada,
                 VigaRecuo = settings.TravessiaVigaRecuo
             };
+            // Desalinhamento dos dois rebaixos ao longo da pista: acima de 0,30 m a travessia sai esconsa
+            // por padrao (pedido do Heyvid, 12/11/2026); da para trocar na opcao esConsa.
+            double desal = Misalignment(a, b);
+            p.Esconsa = desal > 0.30;
+            if (desal > 0.30)
+                ed.WriteMessage($"\nOs rebaixos estao desalinhados {MFTravessia.N(desal)} m ao longo da pista: travessia esconsa (eixo de um rebaixo ao outro). Opcao esConsa troca para reta (os rebaixos vao para o mesmo eixo).");
             if (!AskParams(ed, db, a, b, p))
                 return;
 
@@ -117,6 +124,7 @@ public sealed class MFTravessiaCommands
             settings.TravessiaGrelhaBarra = p.GrelhaBarra;
             settings.TravessiaGrelhaVao = p.GrelhaVao;
             settings.TravessiaGrelhaExtensao = p.GrelhaExtensao;
+            settings.TravessiaGrelhaFolgaMF = p.GrelhaFolgaMF;
             settings.TravessiaVigas = p.Vigas;
             settings.TravessiaVigaLargura = p.VigaLargura;
             settings.TravessiaVigaAltura = p.VigaAltura;
@@ -124,11 +132,12 @@ public sealed class MFTravessiaCommands
             settings.TravessiaVigaRecuo = p.VigaRecuo;
             MFRebaixoSettingsStore.Save(settings);
 
-            // Eixo: no meio dos dois rebaixos; estaca dele na baseline de cada um.
+            // Eixo: no meio dos dois rebaixos. Reta: estaca do meio na baseline de cada um (os rebaixos
+            // vao para o eixo). Esconsa: cada lado fica no centro do proprio rebaixo e o eixo inclina.
             Point3d ca = Center(a), cb = Center(b);
             Point3d mid = new((ca.X + cb.X) / 2.0, (ca.Y + cb.Y) / 2.0, 0);
-            double stA = StationOrMiddle(db, a, mid);
-            double stB = StationOrMiddle(db, b, mid);
+            double stA = p.Esconsa ? StationOrMiddle(db, a, ca) : StationOrMiddle(db, a, mid);
+            double stB = p.Esconsa ? StationOrMiddle(db, b, cb) : StationOrMiddle(db, b, mid);
 
             var (side1, side2, geo, roadInfo) = Compute(db, a, b, stA, stB, p);
             Lap("meio-fio, superficie e geometria");
@@ -143,7 +152,7 @@ public sealed class MFTravessiaCommands
                 {
                     // Trecho rebaixado pelo menos do tamanho da plataforma: o meio-fio fica rente a
                     // lombofaixa e a grelha na plataforma inteira (encontro conferido em 12/11/2026).
-                    double len = Math.Max(r.LoweredLength, p.Plataforma);
+                    double len = Math.Max(r.LoweredLength, p.Plataforma + 0.20); // 10 cm de folga em cada ponta
                     s1 = st - (len / 2.0);
                     s2 = st + (len / 2.0);
                 }
@@ -164,7 +173,7 @@ public sealed class MFTravessiaCommands
             }
             // Confirmacao (regra do Heyvid: acao que mexe em varias pecas explica o que muda e como desfazer).
             ed.WriteMessage($"\n\nTravessia {p.TipoTexto} entre {a.Label} e {b.Label}:");
-            ed.WriteMessage($"\n  plataforma {MFTravessia.N(p.Plataforma)} m + rampas de {MFTravessia.N(p.Rampa)} m, {MFTravessia.N(geo.WidthAtAxis)} m de borda a borda");
+            ed.WriteMessage($"\n  plataforma {MFTravessia.N(p.Plataforma)} m + rampas de {MFTravessia.N(p.Rampa)} m, {MFTravessia.N(geo.WidthAtAxis)} m de borda a borda" + (p.Esconsa ? $", esconsa {MFTravessia.N(geo.SkewDeg, "0.0")} graus" : ""));
             ed.WriteMessage($"\n  topo do meio-fio (onde a lombofaixa chega): {a.Label} elevacao {MFTravessia.N(geo.CurbTopA, "0.000")}, plato {MFTravessia.Cm(geo.HeightA)} sobre a pista; {b.Label} elevacao {MFTravessia.N(geo.CurbTopB, "0.000")}, plato {MFTravessia.Cm(geo.HeightB)} sobre a pista");
             ed.WriteMessage($"\n  {geo.RoadSource}");
             ed.WriteMessage($"\n  sarjeta: {p.CoberturaTexto}{(p.Tampa ? ", nos dois lados" : "")}");
@@ -213,7 +222,9 @@ public sealed class MFTravessiaCommands
                 BaselineB = side2.BaselineKey,
                 SubassemblyB = side2.SubassemblyName,
                 LeftB = side2.Left,
-                LabelB = b.Label
+                LabelB = b.Label,
+                AnchorA = p.Esconsa ? ca : null,
+                AnchorB = p.Esconsa ? cb : null
             };
             int count;
             List<string> notes;
@@ -296,8 +307,8 @@ public sealed class MFTravessiaCommands
                     AcadDb.ObjectId ca = CorridorId(db, d.CorridorA), cb = CorridorId(db, d.CorridorB);
                     if (ca.IsNull || cb.IsNull)
                         throw new InvalidOperationException("corredor nao existe mais");
-                    double stA = Station(db, ca, d.BaselineA, d.Origin) ?? throw new InvalidOperationException($"eixo fora da baseline de {d.LabelA}");
-                    double stB = Station(db, cb, d.BaselineB, d.Origin) ?? throw new InvalidOperationException($"eixo fora da baseline de {d.LabelB}");
+                    double stA = Station(db, ca, d.BaselineA, d.AnchorA ?? d.Origin) ?? throw new InvalidOperationException($"eixo fora da baseline de {d.LabelA}");
+                    double stB = Station(db, cb, d.BaselineB, d.AnchorB ?? d.Origin) ?? throw new InvalidOperationException($"eixo fora da baseline de {d.LabelB}");
                     double span = (d.Params.Plataforma / 2.0) + d.Params.Rampa + 4.0;
                     TravessiaSide s1 = MFTravessia.ReadSide(db, ca, d.BaselineA, d.SubassemblyA, d.LeftA, d.LabelA, d.Origin, stA, stA - span, stA + span);
                     TravessiaSide s2 = MFTravessia.ReadSide(db, cb, d.BaselineB, d.SubassemblyB, d.LeftB, d.LabelB, d.Origin, stB, stB - span, stB + span);
@@ -446,8 +457,9 @@ public sealed class MFTravessiaCommands
             string msg = $"\nTravessia {a.Label}-{b.Label}: {p.TipoTexto}, {alt}, plataforma {MFTravessia.N(p.Plataforma)} m, rampas {MFTravessia.N(p.Rampa)} m, " +
                          $"sarjeta {p.CoberturaTexto}, vigas {(p.Vigas ? $"{MFTravessia.Cm(p.VigaLargura)} x {MFTravessia.Cm(p.VigaAltura)} {p.VigaPosicaoTexto}" : "nao")}, centralizar rebaixos {(p.Centralizar ? "sim" : "nao")}, " +
                          $"superficie {(p.Superficie.Length > 0 ? p.Superficie : "automatica")}." +
-                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/cObertura/Vigas/Centralizar/sUperficie/Seguir]";
-            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa cObertura Vigas Centralizar sUperficie Seguir") { AllowNone = true };
+                         "\nMudar algo ou Enter para seguir [Tipo/Altura/Plataforma/Rampa/cObertura/Vigas/Centralizar/esConsa/sUperficie/Seguir]";
+            msg = msg.Replace("superficie ", $"{(p.Esconsa ? "esconsa" : "reta")}, superficie ");
+            var opt = new PromptKeywordOptions(msg, "Tipo Altura Plataforma Rampa cObertura Vigas Centralizar esConsa sUperficie Seguir") { AllowNone = true };
             opt.Keywords.Default = "Seguir";
             PromptResult r = ed.GetKeywords(opt);
             if (r.Status == PromptStatus.Cancel)
@@ -498,6 +510,8 @@ public sealed class MFTravessiaCommands
                         p.GrelhaVao = gv;
                     if (p.Tampa && AskDouble(ed, "\nQuanto a cobertura passa da plataforma em cada ponta (m)", p.GrelhaExtensao, 0.001, 20.0) is double ge)
                         p.GrelhaExtensao = ge;
+                    if (p.Grelha && AskDouble(ed, "\nQuanto a grelha entra alem do pe do meio-fio (m)", p.GrelhaFolgaMF, 0.0005, 0.50) is double gf)
+                        p.GrelhaFolgaMF = gf;
                     else if (p.Tampa && p.Cobertura == 1 && AskDouble(ed, "\nEspessura da tampa de concreto (m)", p.TampaEspessura, 0.01, 0.50) is double e)
                         p.TampaEspessura = e;
                     break;
@@ -527,6 +541,15 @@ public sealed class MFTravessiaCommands
                         else if (AskDouble(ed, "\nRecuo da viga a partir do pe da rampa (m)", Math.Max(0, p.VigaRecuo), 0.0, 50.0) is double vr)
                             p.VigaRecuo = vr;
                     }
+                    break;
+                }
+                case "esConsa":
+                {
+                    var t = new PromptKeywordOptions("\nTravessia [Esconsa (eixo de um rebaixo ao outro)/Reta (perpendicular a pista; os rebaixos vao para o eixo)]", "Esconsa Reta") { AllowNone = true };
+                    t.Keywords.Default = p.Esconsa ? "Esconsa" : "Reta";
+                    PromptResult tr = ed.GetKeywords(t);
+                    if (tr.Status == PromptStatus.OK)
+                        p.Esconsa = tr.StringResult == "Esconsa";
                     break;
                 }
                 case "sUperficie":
@@ -620,6 +643,17 @@ public sealed class MFTravessiaCommands
                 return best;
             ed.WriteMessage("\nNenhum rebaixo perto do clique (ate 15 m). Clique mais perto do meio-fio rebaixado.");
         }
+    }
+
+    /// <summary>Quanto o centro de um rebaixo esta deslocado do outro no sentido da pista (m).</summary>
+    private static double Misalignment(RebaixoInfo a, RebaixoInfo b)
+    {
+        Vector3d dir = a.Path.Count >= 2 ? a.Path[^1] - a.Path[0] : a.P3 - a.P0;
+        dir = new Vector3d(dir.X, dir.Y, 0);
+        if (dir.Length < 1e-6)
+            return 0;
+        Vector3d d = Center(b) - Center(a);
+        return Math.Abs(new Vector3d(d.X, d.Y, 0).DotProduct(dir.GetNormal()));
     }
 
     private static Point3d Center(RebaixoInfo r)

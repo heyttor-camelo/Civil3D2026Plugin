@@ -332,7 +332,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         _plan.MouseMove += OnPlanMove;
         _plan.MouseDown += (_, e) =>
         {
-            if (e.ClickCount == 2)
+            // Duplo clique na RODA (botao do meio) enquadra tudo, como no AutoCAD; o esquerdo nao (12/11/2026).
+            if (e.ClickCount == 2 && e.ChangedButton == WI.MouseButton.Middle)
             {
                 _zoom = 1;
                 _panX = _panY = 0;

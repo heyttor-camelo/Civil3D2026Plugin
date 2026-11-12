@@ -1,3 +1,13 @@
+## 2.111.0 - MFREBAIXO v1.21.0 / PassagemRampa v1.14.0: lombofaixa esconsa, grelha em X, grelha 1 cm alem do pe do meio-fio, duplo clique na roda
+
+Pedidos do Heyvid em 12/11/2026 (teste da 2.110.0).
+
+- **Lombofaixa esconsa**: os dois rebaixos nao precisam estar frente a frente. Se estiverem desalinhados mais de 0,30 m ao longo da pista, a travessia sai esconsa por padrao (opcao `esConsa` [Esconsa/Reta]): o eixo liga o centro de um rebaixo ao do outro e as linhas transversais (pes e topos das rampas, vigas, faixa, triangulos) ficam paralelas a ele; a plataforma vira um paralelogramo, as listras da faixa seguem o sentido dos carros com as pontas no eixo inclinado, e cada rebaixo (e a grelha dele) fica no proprio centro. Esconsidade em graus nas propriedades (Property Set) e no painel; Refazer, editar e uniao usam os pontos guardados de cada lado.
+- **Grelha em X**, como a hachura da planta (barras a +-45 graus com a sarjeta, vaos em losango), num solido so por grelha (chapa menos os vaos numa subtracao so); se a subtracao falhar, fica a de barras transversais. Custa ~3 s por grelha no desenho.
+- **Grelha 1 cm alem do pe do meio-fio** (encosta na face): parametro "grelha alem do pe do meio-fio", padrao 0,01 m, editavel; hachura em planta junto.
+- Trecho rebaixado com 10 cm de folga em cada ponta alem da plataforma (o meio-fio comecava a subir exatamente na ponta).
+- **Duplo clique na roda (botao do meio)** enquadra tudo nas vistas do painel (3D, planta, perfil, secao), como no AutoCAD; o duplo clique esquerdo nao mexe mais na vista.
+- Teste (copia do DWG): rebaixos desalinhados 2 m (est. 100 e 102), 5 + 2x1,5 m: travessia esconsa, plato 6,58 m3, refeita igual; grelha em X com 185 barras e 0,91 m2 de area livre.
 ## 2.110.0 - MFREBAIXO v1.20.0 / PassagemRampa v1.13.0: lombofaixa rente ao meio-fio em toda a plataforma, clique no 3D, grelha mais longa, sem cunha na esquina
 
 Pedidos do Heyvid em 12/11/2026 (teste da 2.109.0 no DWG dele).

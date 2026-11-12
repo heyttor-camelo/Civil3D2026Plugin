@@ -112,9 +112,9 @@ internal static partial class MFTravessia
         AcadDb.ObjectId ca = CorridorOf(db, d.CorridorA), cb = CorridorOf(db, d.CorridorB);
         if (ca.IsNull || cb.IsNull)
             throw new InvalidOperationException("corredor nao existe mais");
-        if (!MFRebaixoCommands.TryStationAt(db, ca, d.BaselineA, d.Origin, out double stA))
+        if (!MFRebaixoCommands.TryStationAt(db, ca, d.BaselineA, d.AnchorA ?? d.Origin, out double stA))
             throw new InvalidOperationException($"eixo fora da baseline de {d.LabelA}");
-        if (!MFRebaixoCommands.TryStationAt(db, cb, d.BaselineB, d.Origin, out double stB))
+        if (!MFRebaixoCommands.TryStationAt(db, cb, d.BaselineB, d.AnchorB ?? d.Origin, out double stB))
             throw new InvalidOperationException($"eixo fora da baseline de {d.LabelB}");
         double span = (d.Params.Plataforma / 2.0) + d.Params.Rampa + 4.0;
         TravessiaSide s1 = ReadSide(db, ca, d.BaselineA, d.SubassemblyA, d.LeftA, d.LabelA, d.Origin, stA, stA - span, stA + span);

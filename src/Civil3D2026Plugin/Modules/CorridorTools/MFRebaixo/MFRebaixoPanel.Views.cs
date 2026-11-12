@@ -1107,7 +1107,7 @@ internal sealed partial class MFRebaixoPanel
 
         _host3D.Children.Add(new WC.TextBlock
         {
-            Text = "arrastar: girar   |   botao do meio ou direito: mover   |   Shift + botao do meio: girar   |   roda: zoom no cursor   |   duplo clique: centralizar ali   |   clique num rebaixo: selecionar",
+            Text = "arrastar: girar   |   botao do meio ou direito: mover   |   Shift + botao do meio: girar   |   roda: zoom no cursor   |   duplo clique na roda: enquadrar tudo   |   clique num rebaixo ou lombofaixa: selecionar",
             Foreground = ToolTheme.GraphicText,
             Background = ToolTheme.Brush(30, 32, 36, 190),
             Padding = new SW.Thickness(6, 2, 6, 2),
@@ -1121,19 +1121,17 @@ internal sealed partial class MFRebaixoPanel
         _host3D.MouseDown += (_, e) =>
         {
             SW.Point p = e.GetPosition(_host3D);
-            if (e.ClickCount == 2 && e.ChangedButton == WI.MouseButton.Left)
+            // Duplo clique na RODA (botao do meio): enquadra tudo, como no AutoCAD (pedido do Heyvid, 12/11/2026).
+            // O duplo clique esquerdo nao mexe mais na camera (fica so o clique de selecionar).
+            if (e.ClickCount == 2 && e.ChangedButton == WI.MouseButton.Middle)
             {
-                // Duplo clique: o ponto clicado vira o centro do giro; no vazio, enquadra tudo.
-                if (Hit3D(p) is { } hit)
-                {
-                    _target = hit.Point;
-                    UpdateCamera();
-                }
-                else
-                {
-                    FitAll3D();
-                }
+                FitAll3D();
+                _orbitFrom = null;
+                return;
+            }
 
+            if (e.ClickCount == 2)
+            {
                 _orbitFrom = null;
                 return;
             }
