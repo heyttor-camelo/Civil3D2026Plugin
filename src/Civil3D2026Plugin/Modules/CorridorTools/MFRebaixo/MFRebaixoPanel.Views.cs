@@ -1292,6 +1292,8 @@ internal sealed partial class MFRebaixoPanel
     /// <summary>Acende as pecas do rebaixo selecionado e mostra a identificacao dele (nome e centro).</summary>
     private void ApplySelection3D()
     {
+        if (_category == "TRAVESSIAS" && _currentTrav is not null && ShowTravCard3D())
+            return;
         RebaixoInfo? r = _current;
         foreach (KeyValuePair<W3.GeometryModel3D, Face3D> kv in _faces)
         {
@@ -1818,6 +1820,13 @@ internal sealed partial class MFRebaixoPanel
 
             // Qualquer ponto clicado mostra a elevacao dele no quadro (topo do meio-fio, pista, sarjeta...).
             _picked3D = World(hit.Point);
+            // Lombofaixa (plato, rampa, grelha, viga, faixa): seleciona a travessia e mostra a ficha dela.
+            if (_travFaces.TryGetValue(hit.Model, out (TravessiaView T, string Part) tf))
+            {
+                SelectTravFrom3D(tf.T, tf.Part);
+                return;
+            }
+
             if (!_faces.TryGetValue(hit.Model, out Face3D? face) ||
                 face.Owner < 0 || face.Model >= _owners3D.Count || face.Owner >= _owners3D[face.Model].Count)
             {

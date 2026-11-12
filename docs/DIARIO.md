@@ -8,6 +8,13 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.110.0: encontro com o meio-fio, cunha na esquina, clique no 3D
+
+- Teste do Heyvid da 2.109.0 no DWG real (travessias R02-R01, R06-R05, R06-R08). Log dele: as alturas finais estranhas (R05/R06/R08 1–2 cm) vieram da 2.108.1 (correção que subia a altura) + corredor com MFSARJETA v1.24 (não sobe acima do normal) + altura normal ~0 lida nas pontas; os códigos R0x mudam de dono quando entram rebaixos novos.
+- Corrigido: altura do platô linha a linha (topo do MF = fundo da sarjeta + altura livre em cada ponto; antes uma só por lado descolava até 14 cm); trecho rebaixado ≥ plataforma ao centralizar (com volta ao comprimento original se não couber na region); conferência MF x lombofaixa (comando e botão no painel); cunha na esquina (para a curva em ~50° e limita a 1 m do alinhamento); grelha +0,50 m em cada ponta; clique no 3D seleciona a travessia e mostra a ficha (peça clicada) nas duas categorias.
+- Teste (cópia, `v4\travessia`): R01-R02 5 + 2×1,5 m: dentro da plataforma o MF fica rente (R01 −2,5 a +1,6 cm; R02 até 11,3 cm só onde o rebaixo não pôde crescer por causa da region); planta sem cunha; clique 3D na grelha mostrou a ficha (121 barras, 1,68 m² livres).
+- Entregue 2.110.0 / PassagemRampa 1.13.0 só com versão no nome (Civil aberto); hashes conferidos.
+- Pendência: o Heyvid importar o MFSARJETA v1.25 no desenho dele (sem isso o meio-fio não sobe acima do normal).
 ## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.109.0: lombofaixa até o topo do meio-fio, grelha vazada, regions, tempo
 
 - Pedidos do Heyvid de 12/11 14h02. Compilado junto com o 4f23ef4 da outra frente (2.108.2, pontos do MFREBAIXO em qualquer ordem, feito na nuvem): compilou de primeira; completei a troca no núcleo (painel/reposicionar) e testei (150,5 → 148,0 gravou 148,00–150,50; mesma estaca recusada).

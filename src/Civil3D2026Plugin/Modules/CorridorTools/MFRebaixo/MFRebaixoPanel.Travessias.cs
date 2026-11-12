@@ -23,6 +23,86 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 internal sealed partial class MFRebaixoPanel
 {
     private List<TravessiaView> _travs = new();
+    private readonly Dictionary<W3.GeometryModel3D, (TravessiaView T, string Part)> _travFaces = new();
+    private string? _travPart;
+
+    private static string PartName(string part) => part switch
+    {
+        "PLATO" => "Lombofaixa (plato e rampas)",
+        "UNIAO_PLATO" => "Plato do cruzamento",
+        "GRELHA_A" or "GRELHA_B" => "Grelha metalica",
+        "TAMPA_A" or "TAMPA_B" or "UNIAO_TAMPA" => "Tampa de concreto",
+        "VIGA_A" => "Viga baldrame (tras)",
+        "VIGA_B" => "Viga baldrame (frente)",
+        "FAIXA_3D" => "Faixa (pintura)",
+        "TRIANGULO_3D" => "Triangulo (pintura)",
+        _ => part
+    };
+
+    /// <summary>Clique numa travessia no 3D (das duas categorias): seleciona, mostra a ficha e as Propriedades.</summary>
+    private void SelectTravFrom3D(TravessiaView t, string part)
+    {
+        _currentTrav = t;
+        _keepCamera3D = true;
+        if (_category != "TRAVESSIAS")
+        {
+            _category = "TRAVESSIAS";
+            _tab = "Propriedades";
+            FillCategories();
+        }
+        FillList();
+        foreach (object o in _list.Items)
+        {
+            if (o is WC.ListViewItem { Tag: Row { Data: TravessiaView x } } item && ReferenceEquals(x, t))
+            {
+                _list.ScrollIntoView(item);
+                break;
+            }
+        }
+        _travPart = part;
+        BuildTabs();
+        HighlightTrav();
+        RenderGraphic();
+        _keepCamera3D = false;
+        ShowTravCard3D();
+    }
+
+    /// <summary>Ficha da travessia (e da peca clicada) no quadro do 3D.</summary>
+    private bool ShowTravCard3D()
+    {
+        TravessiaView? t = _currentTrav;
+        if (t is null)
+            return false;
+        var lines = new List<string> { "LOMBOFAIXA " + TravName(t) };
+        if (t.Data is { } d)
+        {
+            lines.Add($"Tipo: {d.Params.TipoTexto}   plataforma {N(d.Params.Plataforma, "0.00")} m   rampas {N(d.Params.Rampa, "0.00")} m");
+            lines.Add($"Sarjeta: {d.Params.CoberturaTexto}");
+            if (d.Params.Vigas)
+                lines.Add($"Vigas baldrame: {Cm(d.Params.VigaLargura)} x {Cm(d.Params.VigaAltura)}, {d.Params.VigaPosicaoTexto}");
+        }
+        lines.Add($"Volume do plato: {N(t.Volume, "0.000")} m3   elevacao {N(t.MinZ, "0.000")} a {N(t.MaxZ, "0.000")}");
+        if (_travPart is string part && t.Solids.Where(s => s.Part == part).ToList() is { Count: > 0 } solids)
+        {
+            lines.Add("");
+            double vol = solids.Sum(s => s.Volume);
+            lines.Add($"Peca clicada: {PartName(part)}" + (solids.Count > 1 ? $" ({solids.Count} pecas)" : "") + $", {N(vol, "0.000")} m3");
+            Dictionary<string, string> pr = solids[0].Props;
+            string Get(string k) => pr.TryGetValue(k, out string? s) ? s : "";
+            if (Get("Comprimento").Length > 0)
+                lines.Add($"  comprimento {Get("Comprimento")} m, largura {Get("Largura")} m, altura/espessura {Get("Altura_Espessura")} m");
+            if (Get("Barras").Length > 0 && Get("Barras") != "0")
+                lines.Add($"  {Get("Barras")} barras, area livre {Get("Area_Livre")} m2");
+        }
+        if (_picked3D is Point3d pk)
+        {
+            lines.Add("");
+            lines.Add($"Ponto clicado: elevacao {pk.Z:0.000}");
+        }
+        _info3D.Text = string.Join("\n", lines);
+        _info3D.Visibility = SW.Visibility.Visible;
+        return true;
+    }
     private TravessiaView? _currentTrav;
     private string _travSig = "";
 
@@ -152,6 +232,7 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(EditRow("t_grelha", "Espessura da grelha", N(d.Params.GrelhaEspessura, "0.000"), "m"));
         p.Children.Add(EditRow("t_gb", "Largura das barras da grelha", N(d.Params.GrelhaBarra, "0.000"), "m"));
         p.Children.Add(EditRow("t_gv", "Vao entre as barras", N(d.Params.GrelhaVao, "0.000"), "m"));
+        p.Children.Add(EditRow("t_ge", "Grelha alem da plataforma (cada ponta)", N(d.Params.GrelhaExtensao, "0.00"), "m"));
         p.Children.Add(EditRow("t_tampa", "Espessura da tampa de concreto", N(d.Params.TampaEspessura, "0.000"), "m"));
         var vigas = new WC.CheckBox { Content = "Vigas baldrame nas duas pontas", IsChecked = d.Params.Vigas, Foreground = T.Text, Margin = new SW.Thickness(0, 6, 0, 3) };
         p.Children.Add(vigas);
@@ -164,6 +245,13 @@ internal sealed partial class MFRebaixoPanel
         p.Children.Add(Label("A parte de cima da viga vai ate onde a lombofaixa deixa (nunca passa do topo); a altura real fica nas quantidades acima. Aplicar edita as pecas existentes (mesmos objetos no desenho)."));
         p.Children.Add(Label("A lombofaixa chega no topo do meio-fio (fundo da sarjeta + altura livre final de cada rebaixo). A altura livre aqui so vale onde o rebaixo nao for lido; para mudar a altura dos rebaixos, edite o rebaixo ou lance de novo com Nova travessia."));
 
+        if (_travCheck is { } chk && chk.Id == t.Id)
+        {
+            p.Children.Add(Label("Conferencia do meio-fio x lombofaixa", true));
+            foreach (string line in chk.Lines)
+                p.Children.Add(Label(line));
+        }
+        acts.Children.Add(ActionButton("Conferir meio-fio x lombofaixa", CheckTrav));
         acts.Children.Add(ActionButton("Aplicar e redesenhar", () => ApplyTrav(tipo.SelectedIndex == 1, cob.SelectedIndex, vigas.IsChecked == true, naPlat.IsChecked == true), true));
         acts.Children.Add(ActionButton("Redesenhar como esta", () => RedrawTrav(null)));
         acts.Children.Add(ActionButton("Zoom no desenho", ZoomTrav));
@@ -246,7 +334,7 @@ internal sealed partial class MFRebaixoPanel
         }
         double? h = Number("t_altura"), plat = Number("t_plat"), ramp = Number("t_rampa"), lid = Number("t_tampa"), grid = Number("t_grelha");
         double? vl = Number("t_vl"), va = Number("t_va"), ve = Number("t_ve"), vr = Number("t_vr");
-        double gb = Number("t_gb") ?? d.Params.GrelhaBarra, gv = Number("t_gv") ?? d.Params.GrelhaVao;
+        double gb = Number("t_gb") ?? d.Params.GrelhaBarra, gv = Number("t_gv") ?? d.Params.GrelhaVao, ge = Number("t_ge") ?? d.Params.GrelhaExtensao;
         if (h is null || plat is null || ramp is null || lid is null || grid is null || vl is null || va is null || ve is null || vr is null)
         {
             Say("Valores invalidos (use ponto ou virgula).");
@@ -265,6 +353,7 @@ internal sealed partial class MFRebaixoPanel
             GrelhaEspessura = Math.Max(0.002, grid.Value),
             GrelhaBarra = Math.Max(0.003, gb),
             GrelhaVao = Math.Max(0.003, gv),
+            GrelhaExtensao = Math.Max(0, ge),
             Vigas = vigas,
             VigaLargura = Math.Max(0.01, vl.Value),
             VigaAltura = Math.Max(0.01, va.Value),
@@ -290,6 +379,36 @@ internal sealed partial class MFRebaixoPanel
         });
         if (info.Length > 0)
             Say($"Travessia redesenhada. {info}");
+    }
+
+    private (string Id, List<string> Lines)? _travCheck;
+
+    /// <summary>So le e calcula (nao muda o desenho): encontro do meio-fio com a lombofaixa/grelha e avisos.</summary>
+    private void CheckTrav()
+    {
+        if (_currentTrav?.Data is not { } d || Doc is not Document doc)
+        {
+            Say("Selecione uma travessia.");
+            return;
+        }
+        try
+        {
+            TravessiaGeometry g;
+            using (doc.LockDocument())
+                g = MFTravessia.GeometryFor(doc.Database, d, MFRebaixoData.ReadAll(doc.Database), out _);
+            var lines = new List<string>
+            {
+                $"Topo do meio-fio no eixo: elevacao {N(g.CurbTopA, "0.000")} ({d.LabelA}) e {N(g.CurbTopB, "0.000")} ({d.LabelB}); plato sobre a pista {Cm(g.HeightA)} e {Cm(g.HeightB)}."
+            };
+            lines.AddRange(g.Notes.Where(x => x.Contains("meio-fio", StringComparison.OrdinalIgnoreCase) || x.Contains("grelha", StringComparison.OrdinalIgnoreCase) || x.StartsWith("AVISO", StringComparison.Ordinal)));
+            _travCheck = (_currentTrav.Id, lines);
+            BuildTabs();
+            Say("Conferencia feita (nada foi mudado no desenho).");
+        }
+        catch (System.Exception ex)
+        {
+            Say("Conferencia falhou: " + ex.Message);
+        }
     }
 
     private void RedrawTrav(TravessiaView? which)
@@ -417,6 +536,7 @@ internal sealed partial class MFRebaixoPanel
     private void FollowTrav(TravessiaView t)
     {
         _currentTrav = t;
+        _travPart = null;
         MFTravessia.Stored? d = t.Data ?? _travs.FirstOrDefault(x => x.Data?.UnionId == t.Id)?.Data;
         if (d is null)
             return;
@@ -474,6 +594,7 @@ internal sealed partial class MFRebaixoPanel
     /// <summary>Triangulos das travessias perto do trecho do 3D, uma malha por (travessia, parte).</summary>
     private void AddTravessias3D(W3.Model3DGroup group, double minX, double minY, double maxX, double maxY)
     {
+        _travFaces.Clear();
         const double margin = 15.0;
         foreach (TravessiaView t in _travs)
         {
@@ -501,6 +622,7 @@ internal sealed partial class MFRebaixoPanel
                 var gm = new W3.GeometryModel3D(mesh, material) { BackMaterial = material };
                 group.Children.Add(gm);
                 _faces[gm] = new Face3D(-1, 0, 0, -1, color);
+                _travFaces[gm] = (t, g.Key);
             }
         }
     }

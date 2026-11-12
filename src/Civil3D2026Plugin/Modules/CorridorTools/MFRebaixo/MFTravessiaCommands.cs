@@ -94,6 +94,7 @@ public sealed class MFTravessiaCommands
                 GrelhaEspessura = settings.TravessiaGrelhaEspessura,
                 GrelhaBarra = settings.TravessiaGrelhaBarra,
                 GrelhaVao = settings.TravessiaGrelhaVao,
+                GrelhaExtensao = settings.TravessiaGrelhaExtensao,
                 Vigas = settings.TravessiaVigas,
                 VigaLargura = settings.TravessiaVigaLargura,
                 VigaAltura = settings.TravessiaVigaAltura,
@@ -115,6 +116,7 @@ public sealed class MFTravessiaCommands
             settings.TravessiaGrelhaEspessura = p.GrelhaEspessura;
             settings.TravessiaGrelhaBarra = p.GrelhaBarra;
             settings.TravessiaGrelhaVao = p.GrelhaVao;
+            settings.TravessiaGrelhaExtensao = p.GrelhaExtensao;
             settings.TravessiaVigas = p.Vigas;
             settings.TravessiaVigaLargura = p.VigaLargura;
             settings.TravessiaVigaAltura = p.VigaAltura;
@@ -139,12 +141,15 @@ public sealed class MFTravessiaCommands
                 double s1 = r.S1, s2 = r.S2;
                 if (p.Centralizar && p.Tipo == TravessiaTipo.SemiElevada)
                 {
-                    s1 = st - (r.LoweredLength / 2.0);
-                    s2 = st + (r.LoweredLength / 2.0);
+                    // Trecho rebaixado pelo menos do tamanho da plataforma: o meio-fio fica rente a
+                    // lombofaixa e a grelha na plataforma inteira (encontro conferido em 12/11/2026).
+                    double len = Math.Max(r.LoweredLength, p.Plataforma);
+                    s1 = st - (len / 2.0);
+                    s2 = st + (len / 2.0);
                 }
                 double h = r.FinalHeight ?? p.Altura;
                 var changes = new List<string>();
-                if (Math.Abs(s1 - r.S1) > 0.02)
+                if (Math.Abs(s1 - r.S1) > 0.02 || Math.Abs(s2 - r.S2) > 0.02)
                     changes.Add($"trecho rebaixado {Num(r.S1)}-{Num(r.S2)} -> {Num(s1)}-{Num(s2)}");
                 if (p.Tipo == TravessiaTipo.SemiElevada)
                 {
@@ -186,7 +191,9 @@ public sealed class MFTravessiaCommands
             }
 
             // 1) Rebaixos: remove todos com um Rebuild so (antes era um por rebaixo) e aplica de novo.
-            ReapplyAll(db, ed, plan.Select(x => (x.R, x.S1, x.S2, x.H)).ToList());
+            List<string> reapplyNotes = ReapplyAll(db, ed, plan.Select(x => (x.R, x.S1, x.S2, x.H)).ToList());
+            foreach (string w in reapplyNotes)
+                ed.WriteMessage("\n  " + w);
             if (plan.Count > 0)
                 Lap("reaplicar rebaixos");
             // 2) Desenho (o meio-fio e a pista nao dependem do REB; relido so se os rebaixos mudaram).
@@ -220,6 +227,8 @@ public sealed class MFTravessiaCommands
                 // Os rebaixos ja foram mexidos: dizer isso, senao parece que nada mudou.
                 throw new InvalidOperationException($"{ex.Message} Os rebaixos ja tinham sido reaplicados ({string.Join("; ", plan.Select(x => x.R.Label))}): use U para voltar como estavam.", ex);
             }
+            notes.AddRange(reapplyNotes);
+            notes.AddRange(geo.Notes.Where(x => x.Contains("meio-fio", StringComparison.OrdinalIgnoreCase) && x.Contains("lombofaixa", StringComparison.OrdinalIgnoreCase)));
             string fim = $"Travessia {data.Id} ({p.TipoTexto}, {a.Label}-{b.Label}): {count} objeto(s) desenhado(s); {string.Join("; ", notes)}.";
             string gravado = MFTravessia.Summary(db, data.Id);
             Lap("conferencia do gravado");
@@ -359,10 +368,11 @@ public sealed class MFTravessiaCommands
     /// Remove os rebaixos com um Rebuild so por corredor (no ultimo de cada um) e lanca de novo cada um
     /// (mesmo caminho do painel); se um falhar, o antigo dele volta.
     /// </summary>
-    private static void ReapplyAll(AcadDb.Database db, Editor ed, List<(RebaixoInfo R, double S1, double S2, double H)> items)
+    private static List<string> ReapplyAll(AcadDb.Database db, Editor ed, List<(RebaixoInfo R, double S1, double S2, double H)> items)
     {
+        var warnings = new List<string>();
         if (items.Count == 0)
-            return;
+            return warnings;
         var old = items.Select(x => (x.R, OldH: x.R.FinalHeight ?? x.H)).ToList();
         for (int i = 0; i < items.Count; i++)
         {
@@ -373,26 +383,35 @@ public sealed class MFTravessiaCommands
         for (int i = 0; i < items.Count; i++)
         {
             (RebaixoInfo r, double s1, double s2, double h) = items[i];
-            try
-            {
-                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1, s2, h, MFRebaixoData.CommentFor(r.CustomName));
-                PluginLog.Info(Mod, $"{r.Label} reaplicado: {Num(s1)}-{Num(s2)}, altura livre final {MFTravessia.Cm(h)}.");
-            }
-            catch (System.Exception ex)
+            // Tentativas: o trecho pedido; o comprimento original no mesmo centro; o rebaixo antigo.
+            double mid = (s1 + s2) / 2.0, len0 = r.LoweredLength;
+            var tries = new List<(double A, double B, double H, string What)> { (s1, s2, h, "") };
+            if (Math.Abs((s2 - s1) - len0) > 0.02)
+                tries.Add((mid - (len0 / 2.0), mid + (len0 / 2.0), h, "com o comprimento original"));
+            tries.Add((r.S1, r.S2, old[i].OldH, "o rebaixo antigo foi mantido"));
+            string? firstError = null;
+            foreach ((double ta, double tb, double th, string what) in tries)
             {
                 try
                 {
-                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, old[i].OldH, MFRebaixoData.CommentFor(r.CustomName));
-                    errors.Add($"{r.Label}: {ex.Message} (o rebaixo antigo foi mantido)");
+                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, ta, tb, th, MFRebaixoData.CommentFor(r.CustomName));
+                    PluginLog.Info(Mod, $"{r.Label} reaplicado: {Num(ta)}-{Num(tb)}, altura livre final {MFTravessia.Cm(th)}" + (what.Length > 0 ? $" ({what})." : "."));
+                    if (firstError is not null)
+                        warnings.Add($"AVISO {r.Label}: {firstError} Ficou {what} ({Num(ta)}-{Num(tb)}).");
+                    firstError = null;
+                    break;
                 }
-                catch
+                catch (System.Exception ex)
                 {
-                    errors.Add($"{r.Label}: {ex.Message} (o rebaixo antigo tambem nao voltou; use U para desfazer)");
+                    firstError ??= ex.Message;
                 }
             }
+            if (firstError is not null)
+                errors.Add($"{r.Label}: {firstError} (o rebaixo antigo tambem nao voltou; use U para desfazer)");
         }
         if (errors.Count > 0)
             throw new InvalidOperationException(string.Join(" ", errors));
+        return warnings;
     }
 
     /// <summary>Remove e lanca de novo o rebaixo (mesmo caminho do painel); se falhar, volta o antigo.</summary>
@@ -477,6 +496,8 @@ public sealed class MFTravessiaCommands
                         p.GrelhaBarra = gb;
                     if (p.Grelha && AskDouble(ed, "\nVao entre as barras da grelha (m)", p.GrelhaVao, 0.003, 0.50) is double gv)
                         p.GrelhaVao = gv;
+                    if (p.Tampa && AskDouble(ed, "\nQuanto a cobertura passa da plataforma em cada ponta (m)", p.GrelhaExtensao, 0.001, 20.0) is double ge)
+                        p.GrelhaExtensao = ge;
                     else if (p.Tampa && p.Cobertura == 1 && AskDouble(ed, "\nEspessura da tampa de concreto (m)", p.TampaEspessura, 0.01, 0.50) is double e)
                         p.TampaEspessura = e;
                     break;

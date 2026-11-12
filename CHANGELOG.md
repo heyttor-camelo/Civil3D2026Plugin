@@ -1,3 +1,13 @@
+## 2.110.0 - MFREBAIXO v1.20.0 / PassagemRampa v1.13.0: lombofaixa rente ao meio-fio em toda a plataforma, clique no 3D, grelha mais longa, sem cunha na esquina
+
+Pedidos do Heyvid em 12/11/2026 (teste da 2.109.0 no DWG dele).
+
+- **Encontro com o meio-fio rebaixado**: a altura do plato sobre a pista passa a ser calculada linha a linha (topo do meio-fio = fundo da sarjeta + altura livre, em cada ponto), e nao uma so por lado: com o fundo da sarjeta nao paralelo a borda da pista a lombofaixa descolava ate 14 cm do meio-fio na ponta da plataforma. Com "centralizar", o trecho rebaixado fica pelo menos do tamanho da plataforma (se a rampa do rebaixo nao couber na region, fica o comprimento original, com aviso). Conferencia no comando e no painel (botao **Conferir meio-fio x lombofaixa**): topo do meio-fio x lombofaixa ao longo da plataforma, aviso acima de 1 cm.
+- **Sem cunha na esquina**: a rampa que acompanha a curva da esquina para quando a curva vira mais de ~50 graus e nao se afasta mais de 1 m do alinhamento do meio-fio (antes formava um triangulo comprido sobre a rua transversal, no 3D e na hachura).
+- **Grelha mais longa**: passa 0,50 m da plataforma em cada ponta (editavel, "extensao"), descendo com a rampa; hachura em planta junto.
+- **Clique no 3D do painel** (nas duas categorias): clicar na lombofaixa (plato, rampa, grelha, viga, faixa) seleciona a travessia, mostra a ficha dela e da peca clicada no quadro do 3D e as Propriedades embaixo; clicar num rebaixo continua mostrando o rebaixo.
+- Reaplicar os rebaixos nao para a travessia: se um rebaixo nao couber, o comando tenta o comprimento original e, se precisar, mantem o antigo, com aviso.
+- Alturas estranhas nos rebaixos do DWG dele (R05/R06/R08 com 1 a 2 cm): vieram da 2.108.1 (correcao de altura que subia o valor pedido) e do corredor ainda com o MFSARJETA v1.24, que nao deixa o meio-fio subir acima do normal (o log avisa). Na 2.109.0 em diante a correcao nao existe mais; para o meio-fio subir, importar o MFSARJETA v1.25 no desenho.
 ## 2.109.0 - MFREBAIXO v1.19.0 / PassagemRampa v1.12.0: lombofaixa ate o topo do meio-fio, grelha com barras, regions, mais rapida
 
 Pedidos do Heyvid em 12/11/2026 (depois de testar a 2.108.1). Inclui a 2.108.2 da outra frente (dois pontos do rebaixo em qualquer ordem), compilada e testada aqui.

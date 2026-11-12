@@ -71,6 +71,7 @@ internal sealed class MFRebaixoSettings
     public double TravessiaGrelhaEspessura { get; set; } = 0.03;
     public double TravessiaGrelhaBarra { get; set; } = 0.02;
     public double TravessiaGrelhaVao { get; set; } = 0.03;
+    public double TravessiaGrelhaExtensao { get; set; } = 0.50;
     public bool TravessiaVigas { get; set; } = true;
     public double TravessiaVigaLargura { get; set; } = 0.15;
     public double TravessiaVigaAltura { get; set; } = 0.30;
