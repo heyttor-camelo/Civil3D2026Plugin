@@ -1,3 +1,10 @@
+## 2.108.2 - MFREBAIXO v1.18.2 / PassagemRampa v1.11.2: os dois pontos do rebaixo em qualquer ordem
+
+Pedido do Heyvid em 12/11/2026 ("o programa pode se virar pra aceitar qualquer sentido do lancamento dos intervalos").
+
+- `MFREBAIXO`: o 2o ponto pode ser clicado antes ou depois do 1o no sentido da baseline; o comando troca sozinho. Saiu o erro "O 2o ponto deve estar depois do 1o ponto no sentido crescente da Baseline". So recusa quando os dois cliques caem na mesma estaca.
+- A linha de comando diz que a altura livre final e medida do fundo da sarjeta (pe do meio-fio) ate o topo do meio-fio. A conta ja era essa; so o texto mudou.
+
 ## 2.108.1 - MFREBAIXO v1.18.1 / PassagemRampa v1.11.1: viga baldrame no comeco da plataforma
 
 Escolha do Heyvid em 12/11/2026.

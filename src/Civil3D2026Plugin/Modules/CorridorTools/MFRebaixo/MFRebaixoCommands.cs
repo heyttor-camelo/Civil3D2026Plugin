@@ -21,7 +21,7 @@ namespace Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 
 public sealed class MFRebaixoCommands
 {
-    public const string Versao = "1.17.0";
+    public const string Versao = "1.18.2";
 
     private const string MfMacroOrClassName =
         "Subassembly.MF";
@@ -300,8 +300,8 @@ public sealed class MFRebaixoCommands
                         $"\n1º={firstInfo.Station:0.000}" +
                         $" | {GetValueModeLabel(valueMode)}" +
                         $" | Abaixa={reduction:0.###} m" +
-                        $" | Altura livre final={finalHeight:0.###} m" +
-                        "\nClique no 2º PONTO REBAIXADO " +
+                        $" | Altura livre final={finalHeight:0.###} m (do fundo da sarjeta ao topo do meio-fio)" +
+                        "\nClique no 2º PONTO REBAIXADO (antes ou depois do 1º) " +
                         "[Cancelar] <Cancelar par>: ")
                     {
                         AllowNone = true
@@ -940,11 +940,22 @@ public sealed class MFRebaixoCommands
         double s2 =
             secondHit.Value.Station;
 
-        if (s2 <= s1 + StationTolerance)
+        if (Math.Abs(s2 - s1) <= StationTolerance)
         {
             throw new InvalidOperationException(
-                "O 2º ponto deve estar depois do 1º ponto " +
-                "no sentido crescente da Baseline.");
+                "O 2º ponto caiu na mesma estaca do 1º ponto. " +
+                "Clique o outro extremo do trecho rebaixado.");
+        }
+
+        // Os dois pontos valem em qualquer ordem (pedido do Heyvid em 12/11/2026): se o 2º clique
+        // veio antes do 1º no sentido da Baseline, o trecho é o mesmo, só trocado.
+        bool invertido =
+            s2 < s1;
+
+        if (invertido)
+        {
+            (s1, s2) =
+                (s2, s1);
         }
 
         ApplyRebaixoCore(
@@ -959,7 +970,10 @@ public sealed class MFRebaixoCommands
             finalHeight,
             GetSideOriginLabel(sideMode),
             firstInfo.NominalNormalHeight,
-            firstInfo.NormalHeight);
+            // A conferência da altura lida no 1º clique só vale quando ele é o início do trecho.
+            invertido
+                ? null
+                : firstInfo.NormalHeight);
     }
 
     /// <summary>
