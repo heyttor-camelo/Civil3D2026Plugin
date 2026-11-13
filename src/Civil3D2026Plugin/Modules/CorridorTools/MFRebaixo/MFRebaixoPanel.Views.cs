@@ -1842,7 +1842,7 @@ internal sealed partial class MFRebaixoPanel
             }
 
             RebaixoInfo owner = _owners3D[face.Model][face.Owner].R;
-            if (_current is not null && FocusKey(_current) == FocusKey(owner))
+            if (_current is not null && FocusKey(_current) == FocusKey(owner) && !AddToSelection)
             {
                 ApplySelection3D();
                 return;
@@ -1873,11 +1873,21 @@ internal sealed partial class MFRebaixoPanel
             FillList();
         }
 
+        bool add = AddToSelection;
         foreach (object o in _list.Items)
         {
             if (o is WC.ListViewItem { Tag: Row { Data: RebaixoInfo x } } item && FocusKey(x) == FocusKey(r))
             {
-                if (!ReferenceEquals(_list.SelectedItem, item))
+                if (add)
+                {
+                    // Ctrl/Shift + clique no monitor: soma ou tira da selecao da lista (edicao em lote).
+                    item.IsSelected = !item.IsSelected;
+                    _list.ScrollIntoView(item);
+                    HighlightCurrent();
+                    Say($"{_list.SelectedItems.Count} rebaixo(s) selecionado(s). Edite uma celula da lista para mudar todos.");
+                    return;
+                }
+                if (!ReferenceEquals(_list.SelectedItem, item) || _list.SelectedItems.Count > 1)
                 {
                     _list.SelectedItem = item;
                     _list.ScrollIntoView(item);

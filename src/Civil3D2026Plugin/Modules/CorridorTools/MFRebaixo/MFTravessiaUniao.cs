@@ -532,6 +532,14 @@ internal static partial class MFTravessia
                 {
                     var order = (AcadDb.DrawOrderTable)tr.GetObject(ms.DrawOrderTableId, AcadDb.OpenMode.ForWrite);
                     order.MoveToTop(hatches);
+                    if (MFRebaixoSettingsStore.Load().TravessiaPlantaOculta)
+                    {
+                        foreach (AcadDb.ObjectId hid in hatches)
+                        {
+                            if (tr.GetObject(hid, AcadDb.OpenMode.ForWrite) is AcadDb.Hatch hh)
+                                hh.Visible = false;
+                        }
+                    }
                 }
             }
             catch

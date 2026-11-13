@@ -42,6 +42,21 @@ internal sealed partial class MFRebaixoPanel
     /// <summary>Clique numa travessia no 3D (das duas categorias): seleciona, mostra a ficha e as Propriedades.</summary>
     private void SelectTravFrom3D(TravessiaView t, string part)
     {
+        // Ctrl/Shift + clique: soma ou tira da selecao da lista (edicao em lote), sem trocar a ficha.
+        if (AddToSelection && _category == "TRAVESSIAS")
+        {
+            foreach (object o in _list.Items)
+            {
+                if (o is WC.ListViewItem { Tag: Row { Data: TravessiaView x } } item && ReferenceEquals(x, t))
+                {
+                    item.IsSelected = !item.IsSelected;
+                    _list.ScrollIntoView(item);
+                    HighlightTrav();
+                    Say($"{_list.SelectedItems.Count} travessia(s) selecionada(s). Edite uma celula da lista para mudar todas.");
+                    return;
+                }
+            }
+        }
         _currentTrav = t;
         _keepCamera3D = true;
         if (_category != "TRAVESSIAS")
@@ -264,6 +279,7 @@ internal sealed partial class MFRebaixoPanel
             acts.Children.Add(ActionButton("Separar a uniao", () => SeparateUnion(d.UnionId)));
         acts.Children.Add(ActionButton("Apagar", DeleteTrav));
         acts.Children.Add(ActionButton("Copiar tudo", () => CopyProps(TravName(t))));
+        acts.Children.Add(ActionButton(MFRebaixoSettingsStore.Load().TravessiaPlantaOculta ? "Mostrar lombofaixas em planta" : "Ocultar lombofaixas em planta", ToggleTravPlan));
         p.Children.Add(acts);
         return p;
     }
@@ -271,6 +287,23 @@ internal sealed partial class MFRebaixoPanel
     // ------------------------------------------------------------------
     // Acoes
     // ------------------------------------------------------------------
+
+    /// <summary>Oculta/mostra as lombofaixas em planta (so as hachuras; o 3D fica). Mesmo do MFTRAVESSIAPLANTA.</summary>
+    private void ToggleTravPlan()
+    {
+        MFRebaixoSettings s = MFRebaixoSettingsStore.Load();
+        bool hide = !s.TravessiaPlantaOculta;
+        int n = 0;
+        Edit(hide ? "Lombofaixas ocultas em planta (o 3D fica; clique de novo para mostrar)." : "Lombofaixas visiveis em planta.", (db, ed) =>
+        {
+            n = MFTravessia.SetPlanVisible(db, !hide);
+            s.TravessiaPlantaOculta = hide;
+            MFRebaixoSettingsStore.Save(s);
+            _settings.TravessiaPlantaOculta = hide;
+            ed.Regen();
+        });
+        Say((hide ? "Lombofaixas ocultas em planta" : "Lombofaixas visiveis em planta") + $" ({n} hachura(s)). O 3D nao muda; clique de novo para voltar.");
+    }
 
     private void NewTravessia() => Send(C3DCommands.Corridor.MfTravessia + " ", "Nova travessia: escolha a superficie de topo (so na primeira vez) e clique nos dois rebaixos.");
 
@@ -525,14 +558,19 @@ internal sealed partial class MFRebaixoPanel
     {
         try
         {
-            TravessiaView? t = _currentTrav;
-            List<Point2d>? loop = t?.Plan.Where(x => x.Part is "PLANTA_PLATO" or "UNIAO_PLANTA").OrderByDescending(x => x.Loop.Count).Select(x => x.Loop).FirstOrDefault();
-            if (loop is null || Doc is null)
-            {
-                MFRebaixoHighlight.Clear();
+            MFRebaixoHighlight.Clear();
+            if (Doc is null)
                 return;
+            // A atual e as outras selecionadas na lista (Ctrl/Shift).
+            var all = _list.SelectedItems.OfType<WC.ListViewItem>().Select(i => (i.Tag as Row)?.Data).OfType<TravessiaView>().ToList();
+            if (_currentTrav is { } cur && !all.Contains(cur))
+                all.Insert(0, cur);
+            foreach (TravessiaView t in all)
+            {
+                List<Point2d>? loop = t.Plan.Where(x => x.Part is "PLANTA_PLATO" or "UNIAO_PLANTA").OrderByDescending(x => x.Loop.Count).Select(x => x.Loop).FirstOrDefault();
+                if (loop is not null)
+                    MFRebaixoHighlight.ShowLine(loop.Select(q => new Point3d(q.X, q.Y, 0)).ToList(), true, append: true);
             }
-            MFRebaixoHighlight.ShowLine(loop.Select(q => new Point3d(q.X, q.Y, 0)).ToList(), true);
             AcApp.UpdateScreen();
         }
         catch

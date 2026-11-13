@@ -202,6 +202,73 @@ internal sealed class TravessiaGeometry
 internal static partial class MFTravessia
 {
     public const string RegApp = "C3D_MFTRAVESSIA";
+
+    /// <summary>
+    /// Mostra ou oculta a representacao das travessias em planta: todas as hachuras com o XData da
+    /// travessia (plato, rampas, faixa, triangulos, uniao). Nada e apagado e os solidos 3D nao mudam.
+    /// </summary>
+    public static string? TravessiaAt(AcadDb.Database db, Point3d p)
+    {
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        RXClass hatchClass = RXObject.GetClass(typeof(AcadDb.Hatch));
+        string? found = null;
+        foreach (AcadDb.ObjectId oid in ms)
+        {
+            if (oid.IsErased || !oid.ObjectClass.IsDerivedFrom(hatchClass) || tr.GetObject(oid, AcadDb.OpenMode.ForRead) is not AcadDb.Hatch h)
+                continue;
+            if (PartOf(h) is not { } part || part.Part is not ("PLANTA_PLATO" or "PLANTA_RAMPA"))
+                continue;
+            try
+            {
+                for (int i = 0; i < h.NumberOfLoops && found is null; i++)
+                {
+                    AcadDb.HatchLoop loop = h.GetLoopAt(i);
+                    if (!loop.IsPolyline)
+                        continue;
+                    var pts = loop.Polyline.Cast<AcadDb.BulgeVertex>().Select(v => v.Vertex).ToList();
+                    bool inside = false;
+                    for (int a = 0, b = pts.Count - 1; a < pts.Count; b = a++)
+                    {
+                        if (((pts[a].Y > p.Y) != (pts[b].Y > p.Y)) && p.X < ((pts[b].X - pts[a].X) * (p.Y - pts[a].Y) / (pts[b].Y - pts[a].Y)) + pts[a].X)
+                            inside = !inside;
+                    }
+                    if (inside)
+                        found = part.Id;
+                }
+            }
+            catch
+            {
+                // Contorno ilegivel: segue.
+            }
+            if (found is not null)
+                break;
+        }
+        tr.Commit();
+        return found;
+    }
+
+    public static int SetPlanVisible(AcadDb.Database db, bool visible)
+    {
+        int n = 0;
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        RXClass hatchClass = RXObject.GetClass(typeof(AcadDb.Hatch));
+        foreach (AcadDb.ObjectId id in ms)
+        {
+            if (id.IsErased || !id.ObjectClass.IsDerivedFrom(hatchClass))
+                continue;
+            if (tr.GetObject(id, AcadDb.OpenMode.ForRead) is not AcadDb.Hatch h || h.GetXDataForApplication(RegApp) is null || h.Visible == visible)
+                continue;
+            h.UpgradeOpen();
+            h.Visible = visible;
+            n++;
+        }
+        tr.Commit();
+        return n;
+    }
     public const string Marker = "MFTRAVESSIA";
     public const string PartPlato = "PLATO";
     public const string PropertySetName = "C3D_TRAVESSIA";
@@ -1428,6 +1495,9 @@ internal static partial class MFTravessia
                 {
                     if (!oid.ObjectClass.IsDerivedFrom(RXObject.GetClass(typeof(AcadDb.Hatch))))
                         continue;
+                    // Representacao em planta oculta (botao do painel / MFTRAVESSIAPLANTA): a nova tambem fica oculta.
+                    if (settings.TravessiaPlantaOculta && tr.GetObject(oid, AcadDb.OpenMode.ForWrite) is AcadDb.Hatch hidden)
+                        hidden.Visible = false;
                     (part is "FAIXA" or "TRIANGULO" ? signIds : hatchIds).Add(oid);
                 }
             }

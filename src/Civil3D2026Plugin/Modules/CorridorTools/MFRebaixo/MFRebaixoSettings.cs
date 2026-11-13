@@ -65,6 +65,10 @@ internal sealed class MFRebaixoSettings
     public double TravessiaTampaEspessura { get; set; } = 0.10;
     public bool TravessiaCentralizar { get; set; } = true;
     public string TravessiaLayer { get; set; } = "MF-TRAVESSIA";
+
+    // Representacao das lombofaixas em planta (hachuras do plato, rampas, faixa e triangulos) oculta;
+    // os solidos 3D nao mudam. Travessias novas e Refazer seguem o estado (13/11/2026).
+    public bool TravessiaPlantaOculta { get; set; }
     // Superficie de topo padrao (nome), escolhida no MFTRAVESSIA; vazio = a de topo do corredor.
     public string TravessiaSuperficie { get; set; } = "";
     public double TravessiaListra { get; set; } = 0.40;

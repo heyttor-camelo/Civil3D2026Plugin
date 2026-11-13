@@ -310,7 +310,8 @@ internal static class MFRebaixoData
                     if (!name.StartsWith(PairPrefix, StringComparison.OrdinalIgnoreCase) ||
                         name.Contains(HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
                         name.Contains(PartSuffix, StringComparison.OrdinalIgnoreCase) ||
-                        set.TransitionCount < 3)
+                        set.TransitionCount == 0 ||
+                        (set.TransitionCount < 3 && TokenOf(set.Comment) is null))
                     {
                         continue;
                     }
@@ -341,17 +342,27 @@ internal static class MFRebaixoData
         try
         {
             var t0 = set.GetTransitionAt(0);
-            var t1 = set.GetTransitionAt(1);
-            var t2 = set.GetTransitionAt(2);
+            bool tokened = TryParseToken(set.Comment, out double[] ts, out double[] tv);
+            var t1 = tokened ? t0 : set.GetTransitionAt(1);
+            var t2 = tokened ? t0 : set.GetTransitionAt(2);
 
             double s0 = t0.StartStation, s1 = t0.EndStation, s2 = t1.EndStation, s3 = t2.EndStation;
             string param = t0.ParameterName ?? "";
             double valueStart = Convert.ToDouble((object)t0.StartValue, CultureInfo.InvariantCulture);
             double valueEnd = Convert.ToDouble((object)t2.EndValue, CultureInfo.InvariantCulture);
+            double valueIn = Convert.ToDouble((object)t0.EndValue, CultureInfo.InvariantCulture);
+            double valueOut = Convert.ToDouble((object)t1.EndValue, CultureInfo.InvariantCulture);
+            if (tokened)
+            {
+                // Rebaixo em pedacos: as estacas e valores do rebaixo inteiro vem do comentario.
+                (s0, s1, s2, s3) = (ts[0], ts[1], ts[2], ts[3]);
+                (valueStart, valueIn, valueOut, valueEnd) = (tv[0], tv[1], tv[2], tv[3]);
+            }
 
             // Rampa que continua na Region vizinha (pedacos _PARTE_): o rebaixo vai de ponta a ponta.
             string partPrefix = set.Name + PartSuffix;
-            foreach (CivilDb.CorridorTransitionSet part in all.Where(x => (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase) && x.TransitionCount > 0))
+            // (2.113.0, sem o comentario com o rebaixo inteiro: estende pelas partes da mesma baseline)
+            foreach (CivilDb.CorridorTransitionSet part in all.Where(x => !tokened && (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase) && x.TransitionCount > 0))
             {
                 var pt = part.GetTransitionAt(0);
                 bool same = (pt.ParameterName ?? "").Equals(param, StringComparison.OrdinalIgnoreCase);
@@ -390,8 +401,8 @@ internal static class MFRebaixoData
                 S3 = s3,
                 Parameter = param,
                 ValueStart = valueStart,
-                ValueIn = Convert.ToDouble((object)t0.EndValue, CultureInfo.InvariantCulture),
-                ValueOut = Convert.ToDouble((object)t1.EndValue, CultureInfo.InvariantCulture),
+                ValueIn = valueIn,
+                ValueOut = valueOut,
                 ValueEnd = valueEnd,
                 PartSetNames = all.Where(x => (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase)).Select(x => x.Name ?? "").ToList()
             };
@@ -1245,6 +1256,8 @@ internal static class MFRebaixoData
         List<CivilDb.CorridorTransitionSet> sets = baseline.getTransitions();
         int own = sets.Count(x => IsOwnSet(x, r));
         int deleted = 0;
+        // Pontas de todas as Transitions do rebaixo (secoes que o comando criou, inclusive nos pedacos).
+        List<double> ownEnds = Ends(sets.Where(x => IsOwnSet(x, r)));
         if (own > 0)
         {
             // Set orfao: a subassembly dele (ex. MF_DIR antigo) nao existe mais nas assemblies do
@@ -1282,34 +1295,45 @@ internal static class MFRebaixoData
                 PluginLog.Info("MFREBAIXO", $"Remover {r.SetName}: {deleted} set(s) orfao(s) apagado(s) {sets.Count} -> {after.Count} sets.");
         }
 
-        int sections = 0;
-        double[] ownStations = { r.S0 - 0.001, r.S0, r.S0 + 0.001, r.S1, r.S2, r.S3 - 0.001, r.S3, r.S3 + 0.001 };
-        foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
-        {
-            double[] extra;
-            try
-            {
-                extra = region.AdditionalStations();
-            }
-            catch
-            {
-                continue;
-            }
+        double[] ownStations = new[] { r.S0 - 0.001, r.S0, r.S0 + 0.001, r.S1, r.S2, r.S3 - 0.001, r.S3, r.S3 + 0.001 }.Concat(ownEnds).ToArray();
+        int sections = DeleteStations(baseline, ownStations);
 
-            foreach (double st in extra)
+        // Pedacos do rebaixo em outras baselines (meio-fio que continua na baseline vizinha).
+        string partPrefix = r.SetName + PartSuffix;
+        foreach (AcadDb.ObjectId cid in CorridorIds(db, tr))
+        {
+            if (tr.GetObject(cid, AcadDb.OpenMode.ForRead) is not CivilCorridor other)
+                continue;
+            bool touched = false;
+            foreach (CivilDb.Baseline b2 in other.Baselines)
             {
-                if (!ownStations.Any(o => Math.Abs(o - st) < 0.0002))
+                if (cid == r.CorridorId && MFRebaixoCommands.GetBaselineKey(b2) == r.BaselineKey)
                     continue;
+                List<CivilDb.CorridorTransitionSet> s2;
                 try
                 {
-                    region.DeleteStation(st);
-                    sections++;
+                    s2 = b2.getTransitions();
                 }
                 catch
                 {
-                    // Estaca que nao e adicional (frequencia): fica.
+                    continue;
                 }
+                List<CivilDb.CorridorTransitionSet> parts = s2.Where(x => (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+                if (parts.Count == 0)
+                    continue;
+                if (!other.IsWriteEnabled)
+                    other.UpgradeOpen();
+                List<double> ends = Ends(parts);
+                List<CivilDb.CorridorTransitionSet> keep = s2.Where(x => !parts.Contains(x)).ToList();
+                // O Civil nao apaga o ultimo set da baseline: nesse caso o pedaco fica so desligado.
+                b2.SetTransitions(keep.Count > 0 ? keep : parts.Select(x => Neutral(b2, x)).ToList());
+                own += parts.Count;
+                deleted += keep.Count > 0 ? parts.Count : 0;
+                sections += DeleteStations(b2, ends.ToArray());
+                touched = true;
             }
+            if (touched && rebuild && cid != r.CorridorId)
+                other.Rebuild();
         }
 
         if (rebuild)
@@ -1332,6 +1356,62 @@ internal static class MFRebaixoData
                 : $"{own} Transition Set(s) desligado(s) (REB/DESTAQUE = 0)";
         string tail = own > deleted ? "; era o unico set da baseline, entao ficou so desligado (o Civil nao apaga o ultimo): use Limpar removidos depois de lancar outro rebaixo" : "";
         return $"{setsText}, {sections} secao(oes) e {hatches} hachura(s) removida(s){tail}";
+    }
+
+    private static List<double> Ends(IEnumerable<CivilDb.CorridorTransitionSet> sets)
+    {
+        var ends = new List<double>();
+        foreach (CivilDb.CorridorTransitionSet s in sets)
+        {
+            try
+            {
+                for (int i = 0; i < s.TransitionCount; i++)
+                {
+                    var t = s.GetTransitionAt(i);
+                    ends.Add(t.StartStation);
+                    ends.Add(t.EndStation);
+                }
+            }
+            catch
+            {
+                // Set sem transitions legiveis.
+            }
+        }
+        return ends;
+    }
+
+    /// <summary>Apaga as secoes adicionais nessas estacas (as que o comando criou); as de frequencia ficam.</summary>
+    private static int DeleteStations(CivilDb.Baseline baseline, double[] stations)
+    {
+        int n = 0;
+        foreach (CivilDb.BaselineRegion region in baseline.BaselineRegions)
+        {
+            double[] extra;
+            try
+            {
+                extra = region.AdditionalStations();
+            }
+            catch
+            {
+                continue;
+            }
+
+            foreach (double st in extra)
+            {
+                if (!stations.Any(o => Math.Abs(o - st) < 0.0002))
+                    continue;
+                try
+                {
+                    region.DeleteStation(st);
+                    n++;
+                }
+                catch
+                {
+                    // Estaca que nao e adicional (frequencia): fica.
+                }
+            }
+        }
+        return n;
     }
 
     /// <summary>Nomes das subassemblies das assemblies usadas nas regions da baseline.</summary>
@@ -1364,6 +1444,53 @@ internal static class MFRebaixoData
 
     public const string BaseComment = "REBAIXO MF";
 
+    // Rebaixo em pedacos (cadeia de meio-fio): o set principal guarda o rebaixo inteiro no comentario,
+    // "REBAIXO MF {S=s0;s1;s2;s3;V=v0;v1;v2;v3} | nome" (estacas da baseline dele e valores do parametro).
+    private const string TokenOpen = "{S=";
+
+    public static string MakeToken(double s0, double s1, double s2, double s3, double v0, double v1, double v2, double v3) =>
+        TokenOpen + string.Join(";", new[] { s0, s1, s2, s3 }.Select(v => v.ToString("0.####", CultureInfo.InvariantCulture))) +
+        ";V=" + string.Join(";", new[] { v0, v1, v2, v3 }.Select(v => v.ToString("0.#####", CultureInfo.InvariantCulture))) + "}";
+
+    public static string? TokenOf(string? comment)
+    {
+        string c = comment ?? "";
+        int i = c.IndexOf(TokenOpen, StringComparison.Ordinal);
+        int j = i < 0 ? -1 : c.IndexOf('}', i);
+        return i < 0 || j < 0 ? null : c.Substring(i, j - i + 1);
+    }
+
+    /// <summary>Comentario com o token (antes do "| nome"); token null tira o que houver.</summary>
+    public static string WithToken(string comment, string? token)
+    {
+        string c = comment ?? BaseComment;
+        if (TokenOf(c) is string old)
+            c = c.Replace(" " + old, "").Replace(old, "");
+        if (token is null)
+            return c;
+        int bar = c.IndexOf('|');
+        return bar < 0 ? c.TrimEnd() + " " + token : c[..bar].TrimEnd() + " " + token + " " + c[bar..];
+    }
+
+    private static bool TryParseToken(string? comment, out double[] s, out double[] v)
+    {
+        s = v = Array.Empty<double>();
+        if (TokenOf(comment) is not string tk)
+            return false;
+        try
+        {
+            string body = tk[TokenOpen.Length..^1];
+            string[] halves = body.Split(";V=");
+            s = halves[0].Split(';').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
+            v = halves[1].Split(';').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
+            return s.Length == 4 && v.Length == 4;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static string CommentFor(string? name) =>
         string.IsNullOrWhiteSpace(name) ? BaseComment : BaseComment + " | " + name.Trim().Replace('|', '/');
 
@@ -1380,6 +1507,8 @@ internal static class MFRebaixoData
         List<CivilDb.CorridorTransitionSet> sets = baseline.getTransitions();
         CivilDb.CorridorTransitionSet set = sets.FirstOrDefault(x => (x.Name ?? "").Equals(r.SetName, StringComparison.OrdinalIgnoreCase))
             ?? throw new InvalidOperationException("O Transition Set do rebaixo nao foi encontrado.");
+        // Mantem o rebaixo inteiro guardado no comentario (rebaixo em pedacos).
+        comment = WithToken(comment, TokenOf(set.Comment));
         set.Comment = comment;
         baseline.SetTransitions(sets);
 

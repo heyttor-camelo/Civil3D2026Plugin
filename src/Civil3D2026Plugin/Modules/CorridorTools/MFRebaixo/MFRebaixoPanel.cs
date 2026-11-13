@@ -162,6 +162,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 else
                     p.SeparateUnion(u);
             }),
+        new("PLANTATRAVESSIA", "planta", "Ocultar/mostrar lombofaixas em planta", "Travessia",
+            "Oculta ou mostra a representacao das travessias em planta (hachuras do plato, rampas, faixa e triangulos). Nada e apagado e os solidos 3D (plato, grelha, vigas, faixa 3D) ficam. Travessias novas e Redesenhar seguem o estado. Clique de novo para voltar.",
+            new[] { "Sem perguntas." }, p => p.ToggleTravPlan()),
         new("APAGARTRAVESSIA", "excluir", "Apagar travessia", "Travessia",
             "Apaga a travessia selecionada (plato, tampas, hachuras, faixa e triangulos). Os rebaixos nao mudam. Pede confirmacao; U desfaz.",
             new[] { "Selecione a travessia na lista." }, p => p.DeleteTrav()),
@@ -767,12 +770,21 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             }
 
             RebaixoInfo? r = _category is "CORREDORES" or "CONFIG" ? null : _current;
-            if (r is null || Doc is null)
-                MFRebaixoHighlight.Clear();
-            else if (r.Band.Count >= 2)
-                MFRebaixoHighlight.Show(r.Band);
-            else
-                MFRebaixoHighlight.ShowLine(r.Path, false); // sem a faixa do meio-fio: linha no eixo do rebaixo
+            MFRebaixoHighlight.Clear();
+            if (r is not null && Doc is not null)
+            {
+                // Todos os selecionados (Ctrl/Shift na lista ou no monitor), o atual primeiro.
+                List<RebaixoInfo> all = SelectedRebaixos();
+                if (!all.Contains(r))
+                    all.Insert(0, r);
+                foreach (RebaixoInfo x in all)
+                {
+                    if (x.Band.Count >= 2)
+                        MFRebaixoHighlight.Show(x.Band, append: true);
+                    else
+                        MFRebaixoHighlight.ShowLine(x.Path, false, append: true); // sem a faixa do meio-fio: linha no eixo
+                }
+            }
             Autodesk.AutoCAD.ApplicationServices.Core.Application.UpdateScreen();
             Doc?.Editor.UpdateScreen();
         }
@@ -781,6 +793,12 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             // Destaque e so visual: nao atrapalha o painel.
         }
     }
+
+    private List<RebaixoInfo> SelectedRebaixos() =>
+        _list.SelectedItems.OfType<WC.ListViewItem>().Select(i => (i.Tag as Row)?.Data).OfType<RebaixoInfo>().ToList();
+
+    /// <summary>Ctrl ou Shift apertado: o clique no monitor soma/tira da selecao (13/11/2026).</summary>
+    private static bool AddToSelection => (WI.Keyboard.Modifiers & (WI.ModifierKeys.Control | WI.ModifierKeys.Shift)) != 0;
 
     private int CountFor(string category) => category switch
     {
@@ -1256,6 +1274,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         try
         {
+            // Estado mudado pelo comando (MFTRAVESSIAPLANTA) sem o painel: nao volta o valor velho.
+            _settings.TravessiaPlantaOculta = MFRebaixoSettingsStore.Load().TravessiaPlantaOculta;
             MFRebaixoSettingsStore.Save(_settings);
         }
         catch
@@ -2281,6 +2301,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         actions.Children.Add(ActionButton("Zoom no desenho", ZoomCurrent));
         actions.Children.Add(ActionButton("Selecionar corredor", SelectCorridor));
         actions.Children.Add(ActionButton("Remover", RemoveCurrent));
+        actions.Children.Add(ActionButton("Apagar clicando no desenho", () => Send(C3DCommands.Corridor.MfRebaixoApagar + " ", "Clique em cima dos rebaixos no desenho e confirme na linha de comando.")));
         actions.Children.Add(ActionButton("Copiar tudo", () => CopyProps($"Rebaixo {r.Label}")));
         p.Children.Add(actions);
         return p;
@@ -2618,8 +2639,27 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             return;
         }
 
+        // Varios selecionados (Ctrl/Shift na lista ou no monitor): remove todos, com uma confirmacao.
+        List<RebaixoInfo> all = SelectedRebaixos();
+        if (!all.Contains(r))
+            all.Insert(0, r);
+        if (all.Count > 1)
+        {
+            SW.MessageBoxResult many = SW.MessageBox.Show(this,
+                $"Remover {all.Count} rebaixos ({string.Join(", ", all.Select(x => x.Label))})?\n\nSaem os Transition Sets (inclusive os pedacos nas regions/baselines vizinhas), as secoes que o comando criou e as hachuras. Para desfazer: U no desenho logo em seguida.",
+                "Remover rebaixos", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Warning);
+            if (many != SW.MessageBoxResult.Yes)
+                return;
+            Edit($"{all.Count} rebaixos removidos.", (db, _) =>
+            {
+                for (int i = 0; i < all.Count; i++)
+                    MFRebaixoData.Remove(db, all[i], rebuild: !all.Skip(i + 1).Any(x => x.CorridorId == all[i].CorridorId));
+            });
+            return;
+        }
+
         SW.MessageBoxResult answer = SW.MessageBox.Show(this,
-            $"Remover o rebaixo {r.Label} de {r.CorridorName}?\n\nSaem os Transition Sets ({r.SetName}{(r.HighlightSetName is null ? "" : " e " + r.HighlightSetName)}), as secoes que o comando criou e a hachura em planta.",
+            $"Remover o rebaixo {r.Label} de {r.CorridorName}?\n\nSaem os Transition Sets ({r.SetName}{(r.HighlightSetName is null ? "" : " e " + r.HighlightSetName)}{(r.PartSetNames.Count > 0 ? " e os pedacos nas regions vizinhas" : "")}), as secoes que o comando criou e a hachura em planta. U desfaz.",
             "Remover rebaixo", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Warning);
         if (answer != SW.MessageBoxResult.Yes)
             return;

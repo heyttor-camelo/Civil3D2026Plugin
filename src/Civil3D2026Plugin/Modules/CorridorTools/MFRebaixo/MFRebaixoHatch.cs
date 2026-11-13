@@ -563,7 +563,8 @@ internal static class MFRebaixoHighlight
     // Espessura do contorno = esta fracao da altura da vista (uns 4 px numa tela comum).
     private const double ScreenFraction = 0.0045;
 
-    private static AcadDb.Polyline? _shown;
+    // Varios contornos ao mesmo tempo (selecao multipla no painel, 13/11/2026).
+    private static readonly List<AcadDb.Polyline> _shown = new();
     private static Autodesk.AutoCAD.ApplicationServices.Document? _doc;
 
     public static void Clear()
@@ -580,33 +581,35 @@ internal static class MFRebaixoHighlight
             }
             _doc = null;
         }
-        if (_shown is null)
-            return;
-        try
+        foreach (AcadDb.Polyline pl in _shown)
         {
-            Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.EraseTransient(_shown, new IntegerCollection());
+            try
+            {
+                Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.EraseTransient(pl, new IntegerCollection());
+            }
+            catch
+            {
+                // Vista ja fechada.
+            }
+            try
+            {
+                pl.Dispose();
+            }
+            catch
+            {
+                // Ja liberado.
+            }
         }
-        catch
-        {
-            // Vista ja fechada.
-        }
-        try
-        {
-            _shown.Dispose();
-        }
-        catch
-        {
-            // Ja liberado.
-        }
-        _shown = null;
+        _shown.Clear();
     }
 
     /// <summary>Mostra o contorno da faixa (pontos internos na ida, externos na volta).</summary>
-    public static void Show(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band)
+    public static void Show(IReadOnlyList<(double Station, Point3d Inner, Point3d Outer)> band, bool append = false)
     {
         if (band.Count < 2)
         {
-            Clear();
+            if (!append)
+                Clear();
             return;
         }
         var pts = new List<Point3d>();
@@ -614,13 +617,14 @@ internal static class MFRebaixoHighlight
             pts.Add(inner);
         for (int i = band.Count - 1; i >= 0; i--)
             pts.Add(band[i].Outer);
-        ShowLine(pts, true);
+        ShowLine(pts, true, append);
     }
 
     /// <summary>Mostra uma linha amarela (rebaixo sem faixa lida: fica no eixo dele).</summary>
-    public static void ShowLine(IReadOnlyList<Point3d> points, bool closed)
+    public static void ShowLine(IReadOnlyList<Point3d> points, bool closed, bool append = false)
     {
-        Clear();
+        if (!append)
+            Clear();
         if (points.Count < 2)
             return;
         var pl = new AcadDb.Polyline();
@@ -634,10 +638,13 @@ internal static class MFRebaixoHighlight
         {
             Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.AddTransient(
                 pl, Autodesk.AutoCAD.GraphicsInterface.TransientDrawingMode.DirectTopmost, 128, new IntegerCollection());
-            _shown = pl;
-            _doc = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
-            if (_doc is not null)
-                _doc.ViewChanged += OnViewChanged;
+            _shown.Add(pl);
+            if (_doc is null)
+            {
+                _doc = Autodesk.AutoCAD.ApplicationServices.Core.Application.DocumentManager.MdiActiveDocument;
+                if (_doc is not null)
+                    _doc.ViewChanged += OnViewChanged;
+            }
         }
         catch (System.Exception ex)
         {
@@ -667,13 +674,16 @@ internal static class MFRebaixoHighlight
     {
         try
         {
-            if (_shown is null)
+            if (_shown.Count == 0)
                 return;
             double width = ScreenWidth();
-            if (Math.Abs(width - _shown.ConstantWidth) < width * 0.02)
+            if (Math.Abs(width - _shown[0].ConstantWidth) < width * 0.02)
                 return;
-            _shown.ConstantWidth = width;
-            Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.UpdateTransient(_shown, new IntegerCollection());
+            foreach (AcadDb.Polyline pl in _shown)
+            {
+                pl.ConstantWidth = width;
+                Autodesk.AutoCAD.GraphicsInterface.TransientManager.CurrentTransientManager.UpdateTransient(pl, new IntegerCollection());
+            }
         }
         catch
         {
