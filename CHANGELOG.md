@@ -1,3 +1,7 @@
+## 2.114.1 - MFREBAIXO v1.24.1 / PassagemRampa v1.17.1: hachura tambem no pedaco do rebaixo na baseline vizinha
+
+- O pedaco do rebaixo que continua na baseline vizinha (ex. "SARJETA 15", "SARJETA 14" das esquinas) ganha a hachura em planta com as mesmas regras (layer MF-REBAIXO, rampa ou trecho rebaixado conforme a Transition do pedaco), lendo a faixa daquela baseline. Redesenhar hachuras (MFREBAIXOHACHURA e painel), Remover e MFREBAIXOAPAGAR tratam o pedaco junto (a hachura dele leva o nome do rebaixo).
+- Teste (copia do DWG): estaca 358,079 com altura 0: 4 hachuras (antes 3; a rampa na "SARJETA 15" agora tem a dela); trecho 356,8-360,2 atravessando a divisa: 4 (antes 2); travessia R01-R02 com centralizar: R01 e R02 com 4 cada (pedacos na "SARJETA 14" e "SARJETA 08"); MFREBAIXOHACHURA redesenhou 8; Remover apagou as 4.
 ## 2.114.0 - MFREBAIXO v1.24.0 / PassagemRampa v1.17.0: rebaixo atravessando regions e baselines, apagar clicando, selecao com Ctrl no monitor, lombofaixas ocultas em planta
 
 Pedidos do Heyvid em 13/11/2026 ("e so invadir a outra regiao tambem"; "selecao multipla com ctrl no monitor"; "comando para deletar rebaixo clicando em cima pelo model"; "funcionar entre duas regioes tambem"; "botao para ocultar representacao da lombofaixa em planta").

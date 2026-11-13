@@ -78,6 +78,7 @@ internal static class MFRebaixoHatch
                     drawn += DrawPart(tr, db, owner, edges, s0, s1, Part.RampaEntrada, setName, settings, created);
                     drawn += DrawPart(tr, db, owner, edges, s1, s2, Part.Rebaixado, setName, settings, created);
                     drawn += DrawPart(tr, db, owner, edges, s2, s3, Part.RampaSaida, setName, settings, created);
+                    drawn += DrawOtherBaselineParts(tr, db, owner, setName, settings, created);
                     // Por cima do corredor (a hachura e um destaque com transparencia).
                     if (created.Count > 0 && settings.HachuraNaFrente)
                     {
@@ -191,6 +192,61 @@ internal static class MFRebaixoHatch
     // ------------------------------------------------------------------
     // Internos
     // ------------------------------------------------------------------
+
+    /// <summary>
+    /// Pedacos do rebaixo na baseline vizinha (`..._PARTE_..._BL`, meio-fio que continua na sarjeta da
+    /// esquina, 13/11/2026): hachura com as mesmas regras, lendo a faixa daquela baseline. Cada Transition
+    /// do pedaco vira rampa (valores diferentes) ou trecho rebaixado (valor igual nas pontas).
+    /// </summary>
+    private static int DrawOtherBaselineParts(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord owner,
+        string setName, MFRebaixoSettings settings, AcadDb.ObjectIdCollection created)
+    {
+        int drawn = 0;
+        string prefix = setName + MFRebaixoData.PartSuffix;
+        foreach (AcadDb.ObjectId cid in MFRebaixoData.CorridorIds(db, tr))
+        {
+            if (tr.GetObject(cid, AcadDb.OpenMode.ForRead) is not CivilCorridor c)
+                continue;
+            foreach (CivilDb.Baseline b in c.Baselines)
+            {
+                List<CivilDb.CorridorTransitionSet> sets;
+                try
+                {
+                    sets = b.getTransitions();
+                }
+                catch
+                {
+                    continue;
+                }
+                foreach (CivilDb.CorridorTransitionSet s in sets)
+                {
+                    string name = s.Name ?? "";
+                    if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !name.Contains("_BL", StringComparison.OrdinalIgnoreCase) ||
+                        s.TransitionCount == 0 || MFRebaixoData.IsNeutral(s))
+                        continue;
+                    bool entry = name.Contains("ENTRADA", StringComparison.OrdinalIgnoreCase);
+                    var spans = new List<(double A, double B, bool Lowered)>();
+                    for (int i = 0; i < s.TransitionCount; i++)
+                    {
+                        var t = s.GetTransitionAt(i);
+                        double va = Convert.ToDouble((object)t.StartValue, System.Globalization.CultureInfo.InvariantCulture);
+                        double vb = Convert.ToDouble((object)t.EndValue, System.Globalization.CultureInfo.InvariantCulture);
+                        spans.Add((Math.Min(t.StartStation, t.EndStation), Math.Max(t.StartStation, t.EndStation), Math.Abs(va - vb) < 0.0005 && Math.Abs(va) > 0.0005));
+                    }
+                    double from = spans.Min(x => x.A), to = spans.Max(x => x.B);
+                    List<(double Station, Point3d Inner, Point3d Outer)> edges = Edges(tr, b, s.SubassemblyName ?? "", from, to, settings.HachuraAteCalcada, null, null);
+                    if (edges.Count < 2)
+                    {
+                        PluginLog.Aviso("MFREBAIXO", $"Hachura de {setName}: pedaco {name} na baseline '{b.Name}' sem secoes do meio-fio ({from:0.000}-{to:0.000}).");
+                        continue;
+                    }
+                    foreach ((double a, double z, bool lowered) in spans)
+                        drawn += DrawPart(tr, db, owner, edges, a, z, lowered ? Part.Rebaixado : entry ? Part.RampaEntrada : Part.RampaSaida, setName, settings, created);
+                }
+            }
+        }
+        return drawn;
+    }
 
     private static int DrawPart(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord owner,
         List<(double Station, Point3d Inner, Point3d Outer)> edges, double from, double to, Part part, string setName, MFRebaixoSettings settings, AcadDb.ObjectIdCollection created)
