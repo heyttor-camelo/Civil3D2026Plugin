@@ -8,7 +8,15 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
-## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.113.0: monitor dos painéis, lista editável, declividade, rampa na region vizinha
+## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.114.0: cadeia de meio-fio, apagar clicando, Ctrl no monitor, lombofaixa oculta em planta
+
+- `MFRebaixoChain.cs`: `ApplyRebaixoCore` reescrito sobre uma cadeia (Region do rebaixo + Regions coladas + baseline vizinha cujo meio-fio encosta na ponta ≤ 2 m e segue no mesmo sentido, |cos| ≥ 0,85). Rampas e trecho rebaixado atravessam; um set por pedaço (`_PARTE_ENTRADA/_SAIDA[_BL]`), set principal com token `{S=s0;s1;s2;s3;V=...}` no comentário (lido em `MFRebaixoData.Build`, mantido no Rename). Profundidade por pedaço a partir da altura normal dele. `Remove` tira partes em outras baselines e as seções nas pontas de todas as transitions.
+- Achado: na cópia, a region "190 [Copy]" (assembly ST_LD_KASSEL) lado direito tem MF a 25 cm e não responde ao REB (target?); degrau lá é do corredor. As divisas 358,079 (→ SARJETA 15) e 49,106 (→ SARJETA 14) são baselines de sarjeta de esquina.
+- R01-R02 com centralizar: R02 de 5,7–11,2 cm de degrau para rente; R01 até 1,7 cm.
+- Novos: `MFREBAIXOAPAGAR` (clique na faixa/hachura; avisa travessias), `MFTRAVESSIAAPAGAR` (clique no platô/rampa em planta), `MFTRAVESSIAPLANTA` (Visible das hachuras com XData da travessia; `TravessiaPlantaOculta` na config; Draw/união respeitam). Ctrl/Shift + clique no monitor soma seleção; destaque amarelo com vários contornos.
+- Teste: ZZTeste6.cs local (ZZT6CADEIA, ZZT6DIV, ZZT6CONF, ZZT6VIS). Config do Heyvid ficou com `TravessiaPlantaOculta=false`.
+- Pendente: hachura do pedaço na outra baseline; pedaço que é o único set da baseline vizinha fica só desligado ao remover.
+- Entregue 2.114.0 / PassagemRampa 1.17.0 só com versão no nome (Civil aberto); hashes conferidos.## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.113.0: monitor dos painéis, lista editável, declividade, rampa na region vizinha
 
 - Faixa escura vazia entre a vista e a lista (Rebaixo, Hydro, Viário, Seção): o GridSplitter redimensionava a linha da barra das vistas (Auto) ou uma linha vazia de altura 0, não a vista. Vista + barra agora num DockPanel na mesma linha estrela. No 3D do rebaixo a ajuda fica numa linha própria (não cobre o cartão); cartão do 3D é TextBox só leitura (copiável); legenda de cores com fundo (`ColorLegend`).
 - Propriedades sem estacas; valores em TextBox só leitura (`Prop`/`SelectableText`), botão Copiar tudo. Declividade das rampas editável (`slopeIn/slopeOut` em `ApplyRebaixoCore`/`ApplyFromPanel`; lida de volta das Transitions: `RebaixoInfo.EntrySlope/ExitSlope`); opção `Declividade` no MFREBAIXO (`UltimaDeclividade`). Lista editável: `MFRebaixoPanel.ListEdit.cs` (popup em cima da célula, lote com confirmação).
