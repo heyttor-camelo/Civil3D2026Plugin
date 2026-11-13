@@ -263,6 +263,7 @@ internal sealed partial class MFRebaixoPanel
         if (d.UnionId.Length > 0)
             acts.Children.Add(ActionButton("Separar a uniao", () => SeparateUnion(d.UnionId)));
         acts.Children.Add(ActionButton("Apagar", DeleteTrav));
+        acts.Children.Add(ActionButton("Copiar tudo", () => CopyProps(TravName(t))));
         p.Children.Add(acts);
         return p;
     }

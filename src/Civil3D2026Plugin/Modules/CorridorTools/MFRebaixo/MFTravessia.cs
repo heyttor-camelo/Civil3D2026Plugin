@@ -24,6 +24,9 @@ internal enum TravessiaTipo
 /// <summary>Parametros da travessia (lombofaixa) entre dois rebaixos.</summary>
 internal sealed class TravessiaParams
 {
+    /// <summary>Copia rasa (todos os campos sao valores): para editar sem mexer no original.</summary>
+    public TravessiaParams Copy() => (TravessiaParams)MemberwiseClone();
+
     public TravessiaTipo Tipo { get; set; } = TravessiaTipo.SemiElevada;
 
     /// <summary>Altura do plato acima da borda da pista (semi-elevada). Na elevada sai da altura do meio-fio.</summary>

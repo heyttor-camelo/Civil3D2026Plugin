@@ -21,6 +21,10 @@ internal sealed class MFRebaixoSettings
     public double UltimaReducao { get; set; } = 0.18;
     public double UltimaAlturaFinal { get; set; } = 0.12;
 
+    // Declividade das rampas do meio-fio no MFREBAIXO (fração, ex. 0.0833). 0 = a do iRampa da peça.
+    // Última usada fica como padrão (pedido do Heyvid em 13/11/2026).
+    public double UltimaDeclividade { get; set; }
+
     // Painel (MFREBAIXOPAINEL).
     public double PainelMargem { get; set; } = 6.0;
     // "GERAL" (todos os rebaixos) ou "PLANTA" (trecho do rebaixo).

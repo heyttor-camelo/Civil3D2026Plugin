@@ -1042,7 +1042,8 @@ internal sealed partial class MFRebaixoPanel
 
     private readonly WC.Grid _host3D = new() { Visibility = SW.Visibility.Collapsed };
     private readonly WC.Viewport3D _viewport = new() { ClipToBounds = true };
-    private readonly WC.TextBlock _info3D = new();
+    // Cartao do 3D: caixa de texto so de leitura, para poder selecionar e copiar (Ctrl+C) as informacoes (13/11/2026).
+    private readonly WC.TextBox _info3D = new() { IsReadOnly = true, BorderThickness = new SW.Thickness(0), TextWrapping = SW.TextWrapping.NoWrap, IsUndoEnabled = false };
     private readonly Dictionary<W3.GeometryModel3D, Face3D> _faces = new();
     private bool _built3D;
     private double _exagero3D = 1.0;
@@ -1091,32 +1092,40 @@ internal sealed partial class MFRebaixoPanel
 
         _built3D = true;
         _host3D.Background = ToolTheme.GraphicBack;
+        // Duas linhas: em cima o 3D com o cartao; embaixo, numa faixa propria, a ajuda do mouse.
+        // Assim a ajuda nunca cobre o cartao (antes ela ficava por cima da ultima linha; 13/11/2026).
+        _host3D.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star) });
+        _host3D.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         _viewport.Camera = new W3.PerspectiveCamera { FieldOfView = 40, NearPlaneDistance = 0.05, FarPlaneDistance = 100000 };
         _host3D.Children.Add(_viewport);
 
         _info3D.Foreground = ToolTheme.GraphicText;
-        _info3D.Background = ToolTheme.Brush(30, 32, 36, 215);
-        _info3D.Padding = new SW.Thickness(8, 6, 8, 6);
+        _info3D.Background = ToolTheme.Brush(30, 32, 36, 225);
+        _info3D.SelectionBrush = ToolTheme.Brush(90, 140, 220, 255);
+        _info3D.CaretBrush = ToolTheme.GraphicText;
+        _info3D.Padding = new SW.Thickness(6, 4, 6, 4);
         _info3D.Margin = new SW.Thickness(8);
         _info3D.FontSize = 11.5;
         _info3D.HorizontalAlignment = SW.HorizontalAlignment.Right;
         _info3D.VerticalAlignment = SW.VerticalAlignment.Top;
-        _info3D.IsHitTestVisible = false;
+        _info3D.VerticalScrollBarVisibility = WC.ScrollBarVisibility.Auto;
+        _info3D.Cursor = WI.Cursors.IBeam;
+        _info3D.ToolTip = "Selecione com o mouse e Ctrl+C para copiar";
         _info3D.Visibility = SW.Visibility.Collapsed;
         _host3D.Children.Add(_info3D);
 
-        _host3D.Children.Add(new WC.TextBlock
+        WC.TextBlock help = new()
         {
             Text = "arrastar: girar   |   botao do meio ou direito: mover   |   Shift + botao do meio: girar   |   roda: zoom no cursor   |   duplo clique na roda: enquadrar tudo   |   clique num rebaixo ou lombofaixa: selecionar",
             Foreground = ToolTheme.GraphicText,
-            Background = ToolTheme.Brush(30, 32, 36, 190),
-            Padding = new SW.Thickness(6, 2, 6, 2),
+            Background = ToolTheme.Brush(30, 32, 36, 235),
+            Padding = new SW.Thickness(8, 3, 8, 3),
             FontSize = 10.5,
-            Margin = new SW.Thickness(8, 0, 0, 6),
-            HorizontalAlignment = SW.HorizontalAlignment.Left,
-            VerticalAlignment = SW.VerticalAlignment.Bottom,
+            TextWrapping = SW.TextWrapping.Wrap,
             IsHitTestVisible = false
-        });
+        };
+        WC.Grid.SetRow(help, 1);
+        _host3D.Children.Add(help);
 
         _host3D.MouseDown += (_, e) =>
         {

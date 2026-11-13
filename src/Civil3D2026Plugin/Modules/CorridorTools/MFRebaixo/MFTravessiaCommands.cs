@@ -407,7 +407,7 @@ public sealed class MFTravessiaCommands
             {
                 try
                 {
-                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, ta, tb, th, MFRebaixoData.CommentFor(r.CustomName));
+                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, ta, tb, th, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
                     PluginLog.Info(Mod, $"{r.Label} reaplicado: {Num(ta)}-{Num(tb)}, altura livre final {MFTravessia.Cm(th)}" + (what.Length > 0 ? $" ({what})." : "."));
                     if (firstError is not null)
                         warnings.Add($"AVISO {r.Label}: {firstError} Ficou {what} ({Num(ta)}-{Num(tb)}).");
@@ -434,14 +434,14 @@ public sealed class MFTravessiaCommands
         MFRebaixoData.Remove(db, r, rebuild: true);
         try
         {
-            MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1, s2, h, MFRebaixoData.CommentFor(r.CustomName));
+            MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, s1, s2, h, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
             PluginLog.Info(Mod, $"{r.Label} reaplicado: {Num(s1)}-{Num(s2)}, altura final {MFTravessia.Cm(h)}.");
         }
         catch (System.Exception ex)
         {
             try
             {
-                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName));
+                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
             }
             catch
             {

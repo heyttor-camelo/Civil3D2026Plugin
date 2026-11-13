@@ -307,7 +307,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1.0, SW.GridUnitType.Star), MinHeight = 160 });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(0) });
+        // (sem linha vazia entre a vista e o divisor: o divisor a esticava e abria uma faixa escura; 13/11/2026)
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(5) });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 160 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
@@ -372,7 +372,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         root.Children.Add(graphicPane);
 
         WC.GridSplitter splitH = new() { Height = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
-        WC.Grid.SetRow(splitH, 4);
+        WC.Grid.SetRow(splitH, 3);
         root.Children.Add(splitH);
 
         WC.Grid bottom = new() { Margin = new SW.Thickness(4, 0, 4, 0) };
@@ -380,7 +380,13 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(5) });
         bottom.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star), MinWidth = 300 });
         _list.SelectionChanged += (_, _) => OnRowSelected();
-        _list.MouseDoubleClick += (_, _) => ZoomCurrent();
+        _list.MouseDoubleClick += (_, e) =>
+        {
+            // Duplo clique numa celula editavel edita ali mesmo; nas outras, zoom no desenho (13/11/2026).
+            if (!TryEditOnDoubleClick(e))
+                ZoomCurrent();
+        };
+        AttachListEditing();
         bottom.Children.Add(_list);
         WC.GridSplitter splitV = new() { Width = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
         WC.Grid.SetColumn(splitV, 1);
@@ -393,7 +399,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         right.Children.Add(new WC.Border { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1, 0, 1, 1), Background = T.Pane, Child = _tabContent });
         WC.Grid.SetColumn(right, 2);
         bottom.Children.Add(right);
-        WC.Grid.SetRow(bottom, 5);
+        WC.Grid.SetRow(bottom, 4);
         root.Children.Add(bottom);
 
         WC.DockPanel footer = new() { Margin = new SW.Thickness(4, 4, 4, 4) };
@@ -403,7 +409,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         WC.DockPanel.SetDock(leftButtons, WC.Dock.Left);
         footer.Children.Add(leftButtons);
         footer.Children.Add(_status);
-        WC.Grid.SetRow(footer, 6);
+        WC.Grid.SetRow(footer, 5);
         root.Children.Add(footer);
 
         BuildCommandBar();
@@ -600,6 +606,53 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private static string Cm(double? v) => v.HasValue ? (v.Value * 100).ToString("0.#", CultureInfo.InvariantCulture) + " cm" : "-";
 
     private static string Pct(double? v) => v.HasValue ? (Math.Abs(v.Value) * 100).ToString("0.##", CultureInfo.InvariantCulture) + "%" : "-";
+
+    /// <summary>Declividade das rampas para editar, em %: "8.33" ou, separadas, "8.33/6".</summary>
+    private static string SlopeText(RebaixoInfo r)
+    {
+        static string P(double v) => (v * 100).ToString("0.##", CultureInfo.InvariantCulture);
+        if (r.SplitSlope && r.EntrySlope is double a && r.ExitSlope is double b)
+            return P(a) + "/" + P(b);
+        return r.DesignSlope is double s ? P(s) : "";
+    }
+
+    /// <summary>Mesma coisa para a lista: "8.33%" ou "8.33% / 6%".</summary>
+    private static string SlopeCell(RebaixoInfo r) =>
+        r.SplitSlope ? $"{Pct(r.EntrySlope)} / {Pct(r.ExitSlope)}" : Pct(r.DesignSlope);
+
+    /// <summary>
+    /// Le a declividade digitada em % ("8.33", "8,33%", "8.33/6" = entrada/saida). Vazio = manter a atual.
+    /// Aceita de 0,5 % a 50 %; acima de 8,33 % so avisa (NBR 9050), quem decide e o projetista.
+    /// </summary>
+    private static bool TryParseSlopes(string text, out double? slopeIn, out double? slopeOut, out string why)
+    {
+        slopeIn = slopeOut = null;
+        why = "";
+        string t = (text ?? "").Trim().Replace("%", "").Replace(" ", "");
+        if (t.Length == 0)
+            return true;
+        string[] parts = t.Split(new[] { '/', ';' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length is < 1 or > 2)
+        {
+            why = "Declividade invalida: use por exemplo 8.33 ou 8.33/6 (entrada/saida, em %).";
+            return false;
+        }
+
+        var values = new List<double>();
+        foreach (string part in parts)
+        {
+            if (!double.TryParse(part.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || !double.IsFinite(v) || v < 0.5 || v > 50)
+            {
+                why = $"Declividade invalida ({part}): use um valor em % entre 0,5 e 50 (ex. 8.33).";
+                return false;
+            }
+            values.Add(v / 100.0);
+        }
+
+        slopeIn = values[0];
+        slopeOut = values.Count > 1 ? values[1] : values[0];
+        return true;
+    }
 
     // ------------------------------------------------------------------
     // Dados
@@ -885,7 +938,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
             default:
                 headers = new[] { "Rebaixo", "Corredor", "Lado", "Comprimento", "Altura final", "Rampa", "Avisos" };
-                widths = new[] { 160.0, 150, 70, 85, 80, 60, 50 };
+                widths = new[] { 160.0, 150, 70, 85, 80, 75, 50 };
                 rows = _items.Where(r => Match(r.Label, r.Stations, r.CorridorName, r.BaselineName, r.RegionName)).Select(r =>
                 {
                     int w = _warnings.Count(x => ReferenceEquals(x.Item, r));
@@ -897,7 +950,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                         Cells = new[]
                         {
                             r.Label, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m",
-                            Cm(r.FinalHeight), Pct(r.RampSlope), w == 0 ? "" : w.ToString()
+                            Cm(r.FinalHeight), SlopeCell(r), w == 0 ? "" : w.ToString()
                         }
                     };
                 }).ToList();
@@ -1413,6 +1466,37 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         return cur.Count > best.Count ? cur : best;
     }
 
+    /// <summary>
+    /// Legenda de cores no canto de cima da vista: caixa com fundo semitransparente, sempre por cima do
+    /// desenho (antes o meio-fio passava por cima do texto; 13/11/2026). Reserva o canto para os rotulos.
+    /// </summary>
+    private void ColorLegend(IEnumerable<(string Text, WM.Brush Brush)> items)
+    {
+        WC.StackPanel stack = new();
+        foreach ((string text, WM.Brush brush) in items)
+        {
+            WC.StackPanel row = new() { Orientation = WC.Orientation.Horizontal, Margin = new SW.Thickness(0, 1, 0, 1) };
+            row.Children.Add(new WS.Rectangle { Width = 14, Height = 8, Fill = brush, Stroke = ToolTheme.GraphicLine, StrokeThickness = 0.5, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 6, 0) });
+            row.Children.Add(new WC.TextBlock { Text = text, FontSize = 11, Foreground = ToolTheme.GraphicText, VerticalAlignment = SW.VerticalAlignment.Center });
+            stack.Children.Add(row);
+        }
+
+        WC.Border box = new()
+        {
+            Child = stack,
+            Background = ToolTheme.Brush(30, 32, 36, 215),
+            BorderBrush = ToolTheme.GraphicLine,
+            BorderThickness = new SW.Thickness(0.5),
+            Padding = new SW.Thickness(6, 4, 8, 4),
+            IsHitTestVisible = false
+        };
+        box.Measure(new SW.Size(double.PositiveInfinity, double.PositiveInfinity));
+        WC.Canvas.SetLeft(box, 6);
+        WC.Canvas.SetTop(box, 6);
+        WC.Panel.SetZIndex(box, 1000);
+        _plan.Children.Add(box);
+        _labelRects.Add(new SW.Rect(0, 0, box.DesiredSize.Width + 12, box.DesiredSize.Height + 12));
+    }
     /// <summary>Planta geral: baselines dos corredores (com nomes) e os rebaixos identificados por codigo e nome.</summary>
     private void RenderOverview()
     {
@@ -1447,20 +1531,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         _oy = h / 2.0;
 
         // Legenda e escala primeiro: reservam o espaco dos cantos.
-        double ly = 8;
-        foreach ((string text, WM.Brush b) in Show("LEGENDA") ? new[] { ("rampa do rebaixo", RampBrush), ("trecho rebaixado", RebaixoBrush), ("selecionado", SelectedBrush), ("meio-fio", CurbBrush), ("sarjeta", (WM.Brush)new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color)), ("calcada", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Calcada" }).Color)), ("pista", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Top" }).Color)) } : Array.Empty<(string, WM.Brush)>())
-        {
-            var sw = new WS.Rectangle { Width = 14, Height = 6, Fill = b, IsHitTestVisible = false };
-            WC.Canvas.SetLeft(sw, 8);
-            WC.Canvas.SetTop(sw, ly + 5);
-            _plan.Children.Add(sw);
-            PlanLabel(text, 26, ly, 11);
-            ly += 15;
-        }
-
         if (Show("LEGENDA"))
-            _labelRects.Add(new SW.Rect(0, 0, 130, ly + 4));
-        if (Show("ESCALA"))
+            ColorLegend(new[] { ("rampa do rebaixo", RampBrush), ("trecho rebaixado", RebaixoBrush), ("selecionado", SelectedBrush), ("meio-fio", CurbBrush), ("sarjeta", (WM.Brush)new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color)), ("calcada", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Calcada" }).Color)), ("pista", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Top" }).Color)) });        if (Show("ESCALA"))
         {
             double step = NiceStep(Math.Max(w, h) / _scale / 8.0);
             double len = step * _scale;
@@ -1766,26 +1838,17 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 PlanLabel(model.MarkNames.Length > i ? model.MarkNames[i] : "", s.X + 5, s.Y - 16, 11, ToolTheme.Brush(255, 205, 80));
         }
 
-        // Legenda.
-        double ly = 8;
-        foreach ((string text, WM.Color color) in !Show("LEGENDA") ? Array.Empty<(string, WM.Color)>() : new[]
-                 {
-                     ("Rampa do rebaixo", WM.Color.FromRgb(245, 160, 40)),
-                     ("Trecho rebaixado", RebaixoStyle.Of(new[] { "REBAIXO" }).Color),
-                     ("Meio-fio", RebaixoStyle.Of(new[] { "Curb", "Top" }).Color),
-                     ("Sarjeta", RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color),
-                     ("Calcada", RebaixoStyle.Of(new[] { "Calcada" }).Color),
-                     ("Pista", RebaixoStyle.Of(new[] { "Top" }).Color)
-                 })
-        {
-            var sw = new WS.Rectangle { Width = 12, Height = 10, Fill = new WM.SolidColorBrush(color), Stroke = ToolTheme.GraphicLine, StrokeThickness = 0.5, IsHitTestVisible = false };
-            WC.Canvas.SetLeft(sw, 8);
-            WC.Canvas.SetTop(sw, ly + 2);
-            _plan.Children.Add(sw);
-            PlanLabel(text, 24, ly, 11);
-            ly += 15;
-        }
-
+        // Legenda (com fundo, por cima do desenho).
+        if (Show("LEGENDA"))
+            ColorLegend(new[]
+            {
+                ("Rampa do rebaixo", (WM.Brush)new WM.SolidColorBrush(WM.Color.FromRgb(245, 160, 40))),
+                ("Trecho rebaixado", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "REBAIXO" }).Color)),
+                ("Meio-fio", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Curb", "Top" }).Color)),
+                ("Sarjeta", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Sarjeta", "Top" }).Color)),
+                ("Calcada", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Calcada" }).Color)),
+                ("Pista", new WM.SolidColorBrush(RebaixoStyle.Of(new[] { "Top" }).Color))
+            });
         // Escala grafica.
         if (!Show("ESCALA"))
             return;
@@ -1995,12 +2058,54 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         TextWrapping = SW.TextWrapping.Wrap
     };
 
-    private WC.TextBlock Prop(string name, string value)
+    // Linhas "nome: valor" das propriedades mostradas (botao Copiar tudo).
+    private readonly List<string> _propLines = new();
+
+    /// <summary>
+    /// Uma propriedade: nome em cinza e o valor numa caixa so de leitura, sem borda, para poder
+    /// selecionar com o mouse e copiar (Ctrl+C). Pedido do Heyvid em 13/11/2026.
+    /// </summary>
+    private SW.FrameworkElement Prop(string name, string value)
     {
-        var tb = new WC.TextBlock { Margin = new SW.Thickness(0, 2, 0, 2), TextWrapping = SW.TextWrapping.Wrap, Foreground = T.Text };
-        tb.Inlines.Add(new SW.Documents.Run(name + ": ") { Foreground = T.Muted });
-        tb.Inlines.Add(new SW.Documents.Run(value));
-        return tb;
+        _propLines.Add(name + ": " + value);
+        WC.Grid g = new() { Margin = new SW.Thickness(0, 1, 0, 1) };
+        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
+        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
+        g.Children.Add(new WC.TextBlock { Text = name + ": ", Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Top, Margin = new SW.Thickness(0, 1, 0, 0) });
+        WC.TextBox box = SelectableText(value);
+        WC.Grid.SetColumn(box, 1);
+        g.Children.Add(box);
+        return g;
+    }
+
+    /// <summary>Texto que parece rotulo mas pode ser selecionado e copiado.</summary>
+    private WC.TextBox SelectableText(string value) => new()
+    {
+        Text = value,
+        IsReadOnly = true,
+        IsUndoEnabled = false,
+        BorderThickness = new SW.Thickness(0),
+        Background = WM.Brushes.Transparent,
+        Foreground = T.Text,
+        Padding = new SW.Thickness(0),
+        Margin = new SW.Thickness(0),
+        TextWrapping = SW.TextWrapping.Wrap,
+        Cursor = WI.Cursors.IBeam,
+        CaretBrush = T.Text
+    };
+
+    /// <summary>Copia todas as propriedades mostradas (nome: valor), uma por linha.</summary>
+    private void CopyProps(string title)
+    {
+        try
+        {
+            SW.Clipboard.SetText(title + Environment.NewLine + string.Join(Environment.NewLine, _propLines));
+            Say("Propriedades copiadas (Ctrl+V para colar).");
+        }
+        catch (System.Exception ex)
+        {
+            Say("Nao deu para copiar: " + ex.Message);
+        }
     }
 
     private WC.Grid EditRow(string key, string label, string value, string unit)
@@ -2046,6 +2151,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private SW.UIElement BuildProperties()
     {
         _fields.Clear();
+        _propLines.Clear();
         WC.StackPanel p = Form();
 
         if (_category == "CORREDORES")
@@ -2098,32 +2204,34 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         WC.Grid.SetColumn(saveName, 2);
         nameRow.Children.Add(saveName);
         p.Children.Add(nameRow);
-        p.Children.Add(Prop("Codigo / estacas", $"{r.Code} / {r.Stations}"));
+        // Sem estacas (pedido do Heyvid em 13/11/2026): so o codigo e os comprimentos.
+        p.Children.Add(Prop("Codigo", r.Code));
         p.Children.Add(Prop("Nome no Corridor Transition", r.SetName + (r.HighlightSetName is null ? "" : "  e  " + r.HighlightSetName)));
         p.Children.Add(Prop("Corredor / baseline / region", $"{r.CorridorName} / {r.BaselineName} / {r.RegionName}"));
         p.Children.Add(Prop("Lado / subassembly", $"{r.SideLabel} / {r.SubassemblyName}"));
         if (RebaixoCenter(r, _model) is Point3d cg)
             p.Children.Add(Prop("Centro do rebaixo (X, Y, elevacao)", $"{cg.X:0.000}   {cg.Y:0.000}   {cg.Z:0.000}"));
-        p.Children.Add(Prop("Rampa de entrada", $"{N(r.S0)} -> {N(r.S1)}  ({N(r.EntryLength, "0.00")} m)"));
-        p.Children.Add(Prop("Trecho rebaixado", $"{N(r.S1)} -> {N(r.S2)}  ({N(r.LoweredLength, "0.00")} m)"));
-        p.Children.Add(Prop("Rampa de saida", $"{N(r.S2)} -> {N(r.S3)}  ({N(r.ExitLength, "0.00")} m)"));
+        p.Children.Add(Prop("Rampa de entrada", $"{N(r.EntryLength, "0.00")} m" + (r.EntrySlope is double se ? $", declividade {Pct(se)}" : "")));
+        p.Children.Add(Prop("Trecho rebaixado", $"{N(r.LoweredLength, "0.00")} m"));
+        p.Children.Add(Prop("Rampa de saida", $"{N(r.ExitLength, "0.00")} m" + (r.ExitSlope is double sx ? $", declividade {Pct(sx)}" : "")));
+        p.Children.Add(Prop("Comprimento total", $"{N(r.TotalLength, "0.00")} m"));
         p.Children.Add(Prop("Altura livre normal / final", $"{Cm(r.NormalHeight)} / {Cm(r.FinalHeight)}"));
         p.Children.Add(Prop("Transition", r.ByDepth
             ? $"REB (profundidade): {Cm(r.ValueIn)} na entrada, {Cm(r.ValueOut)} na saida"
             : $"AMF_LIVRE (altura livre): {Cm(r.ValueStart)} -> {Cm(r.ValueIn)} -> {Cm(r.ValueEnd)}"));
         p.Children.Add(Prop("Destaque (code REBAIXO)", r.HighlightSetName ?? (r.HasHighlightParameter ? "falta o Transition" : "subassembly sem DESTAQUE")));
-        p.Children.Add(Prop("Declividade da rampa do MF", Pct(r.RampSlope)));
+        if (r.RampSlope is double rs)
+            p.Children.Add(Prop("iRampa da peca (padrao)", Pct(Math.Abs(rs))));
         if (r.RampOk.HasValue || r.FreeWidth.HasValue)
             p.Children.Add(Prop("Calcada", $"rampa {(r.RampOk is double ok && ok > 0.5 ? "ok" : "nao cabe")}, faixa livre {N(r.FreeWidth, "0.00")} m"));
 
-        p.Children.Add(Label("Posicao e tamanho", true));
-        p.Children.Add(EditRow("s1", "Inicio do trecho rebaixado (S1)", N(r.S1), "m"));
+        p.Children.Add(Label("Tamanho e rampas", true));
         p.Children.Add(EditRow("comp", "Comprimento do trecho rebaixado", N(r.LoweredLength, "0.000"), "m"));
-        p.Children.Add(EditRow("s2", "Fim do trecho rebaixado (S2)", N(r.S2), "m"));
+        p.Children.Add(EditRow("decl", "Declividade das rampas do meio-fio", SlopeText(r), "%"));
         p.Children.Add(Label("Valor do rebaixo", true));
         p.Children.Add(EditRow("red", "Rebaixo (quanto desce; negativo sobe)", r.NormalHeight is double nh0 && r.FinalHeight is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
         p.Children.Add(EditRow("h", "Altura livre final", N(r.FinalHeight ?? 0, "0.000"), "m"));
-        p.Children.Add(Label("Mudou o inicio: o fim acompanha (o comprimento fica). Mudou o comprimento: o fim muda. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). As rampas (S0 e S3) saem de novo da altura normal das secoes vizinhas e da declividade iRampa. O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta."));
+        p.Children.Add(Label("Mudou o comprimento: o inicio fica e o fim muda (para mudar de lugar use Reposicionar no desenho). Declividade: um valor vale para as duas rampas; para separar, escreva entrada/saida (ex. 8.33/6). Acima de 8,33 % o plugin so avisa (NBR 9050). O comprimento das rampas sai do desnivel dividido pela declividade. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta. Tambem da para editar direto na lista (duplo clique na celula ou F2)."));
 
         // Campos ligados: so reage ao campo que esta sendo digitado.
         bool linking = false;
@@ -2153,21 +2261,6 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 box.Text = N(v);
         }
 
-        When("s1", () =>
-        {
-            if (Number("s1") is double a && Number("comp") is double c)
-                Put("s2", a + c);
-        });
-        When("comp", () =>
-        {
-            if (Number("s1") is double a && Number("comp") is double c)
-                Put("s2", a + c);
-        });
-        When("s2", () =>
-        {
-            if (Number("s1") is double a && Number("s2") is double z)
-                Put("comp", z - a);
-        });
         if (r.NormalHeight is double normal)
         {
             When("red", () =>
@@ -2188,6 +2281,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         actions.Children.Add(ActionButton("Zoom no desenho", ZoomCurrent));
         actions.Children.Add(ActionButton("Selecionar corredor", SelectCorridor));
         actions.Children.Add(ActionButton("Remover", RemoveCurrent));
+        actions.Children.Add(ActionButton("Copiar tudo", () => CopyProps($"Rebaixo {r.Label}")));
         p.Children.Add(actions);
         return p;
     }
@@ -2392,16 +2486,16 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
     private void ApplyEdit(RebaixoInfo r)
     {
-        double? s1 = Number("s1"), s2 = Number("s2"), h = Number("h");
-        if (s1 is null || s2 is null || h is null)
+        double? comp = Number("comp"), h = Number("h");
+        if (comp is null || h is null)
         {
             Say("Valores invalidos (use ponto ou virgula).");
             return;
         }
 
-        if (s2 <= s1 + 0.01)
+        if (comp < 0.01)
         {
-            Say("O fim do trecho rebaixado tem que vir depois do inicio.");
+            Say("O comprimento do trecho rebaixado tem que ser maior que zero.");
             return;
         }
 
@@ -2411,7 +2505,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             return;
         }
 
-        Reapply(r, s1.Value, s2.Value, h.Value);
+        string declText = _fields.TryGetValue("decl", out WC.TextBox? db) ? db.Text : "";
+        if (!TryParseSlopes(declText, out double? sIn, out double? sOut, out string why))
+        {
+            Say(why);
+            return;
+        }
+
+        Reapply(r, r.S1, r.S1 + comp.Value, h.Value, sIn, sOut);
     }
 
     /// <summary>
@@ -2471,8 +2572,10 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         Reapply(r, station, station + length, h);
     }
 
-    private void Reapply(RebaixoInfo r, double newS1, double newS2, double newH)
+    private void Reapply(RebaixoInfo r, double newS1, double newS2, double newH, double? slopeIn = null, double? slopeOut = null)
     {
+        // A declividade das rampas fica a do rebaixo (ou a nova, se mudou): o comprimento das rampas sai dela.
+        double? sIn = slopeIn ?? r.EntrySlope, sOut = slopeIn is not null && slopeOut is null ? slopeIn : slopeOut ?? r.ExitSlope;
         if (r.FinalHeight is not double oldH)
         {
             Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
@@ -2487,14 +2590,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             MFRebaixoData.Remove(db, r, rebuild: true);
             try
             {
-                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, newS1, newS2, newH, MFRebaixoData.CommentFor(r.CustomName));
+                MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, newS1, newS2, newH, MFRebaixoData.CommentFor(r.CustomName), sIn, sOut);
             }
             catch (System.Exception ex)
             {
                 // Volta o rebaixo antigo.
                 try
                 {
-                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName));
+                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
                 }
                 catch
                 {

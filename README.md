@@ -1,6 +1,8 @@
 # Civil3D2026Plugin
 
 ```
+- Painel de rebaixos (MFREBAIXO v1.23.0): **edicao direto na lista** (duplo clique na celula ou F2; Enter aplica, Esc cancela; varias linhas selecionadas = muda todas, com confirmacao): rebaixos (nome, comprimento, altura final, rampa) e travessias (tipo, altura, plataforma, rampas, sarjeta). **Declividade das rampas do meio-fio editavel** por rebaixo (uma para as duas ou entrada/saida, ex. 8.33/6; acima de 8,33 % so avisa), tambem no MFREBAIXO (opcao `Declividade`, fica gravada). Propriedades sem estacas, selecionaveis (Ctrl+C) e botao **Copiar tudo**. Rampa que passa da ponta da region **continua na region vizinha** colada (sem vizinha: rampa cortada na divisa com aviso, sem erro).
+- Paineis (Rebaixo, Hydro, Viario, Secao): sem a faixa escura entre a vista e a lista ao arrastar o divisor; no 3D a ajuda do mouse fica numa faixa propria e nao cobre o cartao; legenda de cores com fundo.
 - MFTRAVESSIA (MFREBAIXO v1.21.0): travessia **esconsa** entre rebaixos desalinhados (opcao `esConsa`; padrao acima de 0,30 m de desalinhamento), **grelha em X** como na planta, 1 cm alem do pe do meio-fio. Painel: duplo clique na roda enquadra tudo.
 - MFTRAVESSIA (MFREBAIXO v1.19.0): na semi-elevada o valor pedido e a **altura livre final do meio-fio** (do fundo da sarjeta ao topo, padrao 0,12 m) e a lombofaixa chega no topo do meio-fio em cada lado; grelha metalica **vazada** (barras de 2 cm, vaos de 3 cm); funciona atravessando a divisa entre regions do corredor.
 - MFTRAVESSIA (MFREBAIXO v1.18.0): a sarjeta da plataforma leva **grelha metalica** (padrao, 3 cm; ou tampa de concreto, ou nada: opcao `cObertura`) e as duas pontas da lombofaixa levam **vigas baldrame** de borda a borda da pista (padrao 15 x 30 cm, 15 cm enterrados, **no comeco da plataforma**, a parte de cima ate onde a lombofaixa deixa; opcao `Vigas`: Plataforma/Pe/Medida). Editar/redesenhar mantem os mesmos objetos (handles). O comando nao recusa medidas: avisa e segue.
@@ -307,7 +309,7 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Rede viaria (C3DVIARIO v0.15.5)
+## Rede viaria (C3DVIARIO v0.15.6)
 
 Modulo em `Modules/Viario`. Linhas da secao (bordo da pista, face e costas do meio-fio, alinhamento, canteiro central, ilhas) geradas a partir dos eixos, com intersecoes automaticas, esquinas concordadas, rotatorias e elementos de canalizacao.
 
@@ -361,7 +363,7 @@ Atrativos turisticos (`C3DVIARIOATRATIVOS`): pontos de um KML/KMZ viram blocos `
 
 O motor geometrico (`ViarioGeometry`, `ViarioEngine`, `ViarioElements`, `ViarioTemplates`, `ViarioSignage`) e C# puro, testavel fora do Civil 3D.
 
-## Visualizador de secao (C3DSECAO v0.3.0)
+## Visualizador de secao (C3DSECAO v0.3.1)
 
 Janela propria (nao ocupa a viewport) com a secao de uma **caixa de corte**: linha em
 planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + exagero.

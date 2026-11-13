@@ -300,29 +300,31 @@ internal static class MFRebaixoHatch
     {
         var all = EdgesBySubassembly(tr, baseline, s0, s3, toSidewalk,
             sa => sa.Name.Equals(subassemblyName, StringComparison.OrdinalIgnoreCase), diag);
-        List<(double Station, Point3d Inner, Point3d Outer)>? best = null;
-        foreach (var list in all.Values)
+        // Cada Region tem a sua copia da peca (ids diferentes, mesmo nome): o rebaixo que passa da
+        // divisa (rampa na Region vizinha, 13/11/2026) junta as secoes de todas, em ordem de estaca.
+        List<(double Station, Point3d Inner, Point3d Outer)> best = new();
+        foreach (var e in all.Values.SelectMany(x => x).OrderBy(x => x.Station))
         {
-            if (best is null || list.Count > best.Count)
-                best = list;
+            if (best.Count == 0 || e.Station - best[^1].Station > 1e-5)
+                best.Add(e);
         }
-        if (best is not null && best.Count >= 2)
+        if (best.Count >= 2)
             return best;
 
         // Nome nao bateu: qualquer MF/MFSARJETA do trecho, do lado do rebaixo quando ha mais de um.
         all = EdgesBySubassembly(tr, baseline, s0, s3, toSidewalk, MFRebaixoCommands.IsMfSubassemblyPublic, diag);
-        best = null;
+        List<(double Station, Point3d Inner, Point3d Outer)>? fallback = null;
         foreach (var list in all.Values)
         {
             if (list.Count < 2)
                 continue;
             if (left is bool wantLeft && all.Count > 1 && IsLeft(list) != wantLeft)
                 continue;
-            if (best is null || list.Count > best.Count)
-                best = list;
+            if (fallback is null || list.Count > fallback.Count)
+                fallback = list;
         }
-        diag?.Add("nome da subassembly nao encontrado; usado o MF do trecho: " + (best is null ? "nenhum" : best.Count + " secoes"));
-        return best ?? new List<(double Station, Point3d Inner, Point3d Outer)>();
+        diag?.Add("nome da subassembly nao encontrado; usado o MF do trecho: " + (fallback is null ? "nenhum" : fallback.Count + " secoes"));
+        return fallback ?? new List<(double Station, Point3d Inner, Point3d Outer)>();
     }
 
     /// <summary>A faixa fica a esquerda da baseline (no sentido das estacas)?</summary>

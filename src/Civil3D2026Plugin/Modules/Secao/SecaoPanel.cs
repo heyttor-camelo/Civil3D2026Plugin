@@ -315,8 +315,9 @@ internal sealed class SecaoPanel : SW.Window
         WC.Grid root = new();
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
+        // Vista + barra das vistas numa linha so: o divisor fica entre as duas linhas estrela (antes ele
+        // esticava a linha da barra e abria uma faixa vazia entre a barra e a lista; 13/11/2026).
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1.3, SW.GridUnitType.Star), MinHeight = 160 });
-        root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(5) });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = new SW.GridLength(1, SW.GridUnitType.Star), MinHeight = 140 });
         root.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
@@ -348,10 +349,7 @@ internal sealed class SecaoPanel : SW.Window
         _graphic.MouseMove += OnMouseMove;
         _graphic.MouseUp += (_, _) => { _dragging = false; EndLabelDrag(); _graphic.ReleaseMouseCapture(); };
         _graphic.MouseLeave += (_, _) => { _dragging = false; };
-        WC.Grid.SetRow(graphic, 2);
-        root.Children.Add(graphic);
-
-        WC.DockPanel graphicBar = new() { Margin = new SW.Thickness(4, 0, 4, 0), Background = T.Hover, Height = 26 };
+                WC.DockPanel graphicBar = new() { Margin = new SW.Thickness(4, 0, 4, 0), Background = T.Hover, Height = 26 };
         _stationBar = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, Visibility = SW.Visibility.Collapsed };
         _stationBar.Children.Add(Link("<", () => StepStation(-1), "Estaca anterior (seta esquerda)"));
         _stationSlider = new WC.Slider { Width = 220, Minimum = 0, Maximum = 1, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(6, 0, 6, 0), IsSnapToTickEnabled = true, TickFrequency = 1 };
@@ -375,11 +373,15 @@ internal sealed class SecaoPanel : SW.Window
         WC.DockPanel.SetDock(_textButton, WC.Dock.Right);
         graphicBar.Children.Add(_textButton);
         graphicBar.Children.Add(_graphicInfo);
-        WC.Grid.SetRow(graphicBar, 3);
-        root.Children.Add(graphicBar);
+        WC.DockPanel graphicPane = new();
+        WC.DockPanel.SetDock(graphicBar, WC.Dock.Bottom);
+        graphicPane.Children.Add(graphicBar);
+        graphicPane.Children.Add(graphic);
+        WC.Grid.SetRow(graphicPane, 2);
+        root.Children.Add(graphicPane);
 
         WC.GridSplitter splitH = new() { Height = 5, HorizontalAlignment = SW.HorizontalAlignment.Stretch, Background = T.Back };
-        WC.Grid.SetRow(splitH, 4);
+        WC.Grid.SetRow(splitH, 3);
         root.Children.Add(splitH);
 
         WC.Grid bottom = new() { Margin = new SW.Thickness(4, 0, 4, 0) };
@@ -421,7 +423,7 @@ internal sealed class SecaoPanel : SW.Window
         right.Children.Add(new WC.Border { BorderBrush = T.Line, BorderThickness = new SW.Thickness(1, 0, 1, 1), Background = T.Pane, Child = _tabContent });
         WC.Grid.SetColumn(right, 2);
         bottom.Children.Add(right);
-        WC.Grid.SetRow(bottom, 5);
+        WC.Grid.SetRow(bottom, 4);
         root.Children.Add(bottom);
 
         WC.DockPanel footer = new() { Margin = new SW.Thickness(4, 4, 4, 4) };
@@ -431,7 +433,7 @@ internal sealed class SecaoPanel : SW.Window
         WC.DockPanel.SetDock(leftButtons, WC.Dock.Left);
         footer.Children.Add(leftButtons);
         footer.Children.Add(_status);
-        WC.Grid.SetRow(footer, 6);
+        WC.Grid.SetRow(footer, 5);
         root.Children.Add(footer);
 
         BuildCommandBar();

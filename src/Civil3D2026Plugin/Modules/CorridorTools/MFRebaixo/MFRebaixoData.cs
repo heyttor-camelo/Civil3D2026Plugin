@@ -21,6 +21,9 @@ internal sealed class RebaixoInfo
     public string RegionName { get; init; } = "";
     public string SetName { get; init; } = "";
     public string? HighlightSetName { get; init; }
+
+    /// <summary>Pedacos da rampa em Regions vizinhas (mesmo rebaixo).</summary>
+    public List<string> PartSetNames { get; init; } = new();
     public string SubassemblyName { get; init; } = "";
     public string Comment { get; init; } = "";
     public bool Left { get; init; }
@@ -66,6 +69,21 @@ internal sealed class RebaixoInfo
     public double LoweredLength => S2 - S1;
     public double ExitLength => S3 - S2;
     public double TotalLength => S3 - S0;
+
+    /// <summary>Declividade real da rampa de entrada do meio-fio (desnivel / comprimento), lida das Transitions.</summary>
+    public double? EntrySlope => SlopeOf(ByDepth ? ValueIn : ValueStart - ValueIn, EntryLength);
+
+    /// <summary>Declividade real da rampa de saida do meio-fio.</summary>
+    public double? ExitSlope => SlopeOf(ByDepth ? ValueOut : ValueEnd - ValueOut, ExitLength);
+
+    /// <summary>Declividade das rampas usada no painel: a real (editavel desde 2.113.0); sem ela, o iRampa da peca.</summary>
+    public double? DesignSlope => EntrySlope ?? ExitSlope ?? (RampSlope is double rs ? Math.Abs(rs) : null);
+
+    /// <summary>As duas rampas com declividades diferentes (mais de 0,01 %).</summary>
+    public bool SplitSlope => EntrySlope is double a && ExitSlope is double b && Math.Abs(a - b) > 0.0001;
+
+    private static double? SlopeOf(double drop, double length) =>
+        length > 0.005 && Math.Abs(drop) > 0.0005 ? Math.Round(Math.Abs(drop) / length, 5) : null;
 
     /// <summary>Altura livre do MF no trecho rebaixado.</summary>
     public double? FinalHeight =>
@@ -183,6 +201,9 @@ internal static class MFRebaixoData
     public const string PairPrefix = "MF_REBAIXO_";
     public const string HighlightSuffix = "_DESTAQUE";
 
+    /// <summary>Pedaco da rampa numa Region vizinha (_PARTE_ENTRADA/_PARTE_SAIDA): faz parte do mesmo rebaixo.</summary>
+    public const string PartSuffix = "_PARTE_";
+
     private const string ExposedOutput = "EXPOSTO";
     private const string RampOkOutput = "RAMPA_OK";
     private const string FreeWidthOutput = "FAIXA_LIVRE";
@@ -288,6 +309,7 @@ internal static class MFRebaixoData
                     string name = set.Name ?? "";
                     if (!name.StartsWith(PairPrefix, StringComparison.OrdinalIgnoreCase) ||
                         name.Contains(HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
+                        name.Contains(PartSuffix, StringComparison.OrdinalIgnoreCase) ||
                         set.TransitionCount < 3)
                     {
                         continue;
@@ -323,6 +345,28 @@ internal static class MFRebaixoData
             var t2 = set.GetTransitionAt(2);
 
             double s0 = t0.StartStation, s1 = t0.EndStation, s2 = t1.EndStation, s3 = t2.EndStation;
+            string param = t0.ParameterName ?? "";
+            double valueStart = Convert.ToDouble((object)t0.StartValue, CultureInfo.InvariantCulture);
+            double valueEnd = Convert.ToDouble((object)t2.EndValue, CultureInfo.InvariantCulture);
+
+            // Rampa que continua na Region vizinha (pedacos _PARTE_): o rebaixo vai de ponta a ponta.
+            string partPrefix = set.Name + PartSuffix;
+            foreach (CivilDb.CorridorTransitionSet part in all.Where(x => (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase) && x.TransitionCount > 0))
+            {
+                var pt = part.GetTransitionAt(0);
+                bool same = (pt.ParameterName ?? "").Equals(param, StringComparison.OrdinalIgnoreCase);
+                if (pt.StartStation < s0 - 1e-6)
+                {
+                    s0 = pt.StartStation;
+                    valueStart = same ? Convert.ToDouble((object)pt.StartValue, CultureInfo.InvariantCulture) : param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ? 0 : valueStart;
+                }
+                if (pt.EndStation > s3 + 1e-6)
+                {
+                    s3 = pt.EndStation;
+                    valueEnd = same ? Convert.ToDouble((object)pt.EndValue, CultureInfo.InvariantCulture) : param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ? 0 : valueEnd;
+                }
+            }
+
             string highlightPrefix = set.Name + HighlightSuffix;
             string? highlight = all.FirstOrDefault(x => (x.Name ?? "").StartsWith(highlightPrefix, StringComparison.OrdinalIgnoreCase))?.Name;
 
@@ -344,11 +388,12 @@ internal static class MFRebaixoData
                 S1 = s1,
                 S2 = s2,
                 S3 = s3,
-                Parameter = t0.ParameterName ?? "",
-                ValueStart = Convert.ToDouble((object)t0.StartValue, CultureInfo.InvariantCulture),
+                Parameter = param,
+                ValueStart = valueStart,
                 ValueIn = Convert.ToDouble((object)t0.EndValue, CultureInfo.InvariantCulture),
                 ValueOut = Convert.ToDouble((object)t1.EndValue, CultureInfo.InvariantCulture),
-                ValueEnd = Convert.ToDouble((object)t2.EndValue, CultureInfo.InvariantCulture)
+                ValueEnd = valueEnd,
+                PartSetNames = all.Where(x => (x.Name ?? "").StartsWith(partPrefix, StringComparison.OrdinalIgnoreCase)).Select(x => x.Name ?? "").ToList()
             };
 
             info.P0 = Xyz(baseline, s0, 0, 0);
@@ -1043,7 +1088,8 @@ internal static class MFRebaixoData
     {
         string n = x.Name ?? "";
         return n.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) ||
-               n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase);
+               n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
+               n.StartsWith(r.SetName + PartSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1364,7 +1410,7 @@ internal static class MFRebaixoData
         {
             if (setsWithHatch is not null && !setsWithHatch.Contains(r.SetName))
                 list.Add(new RebaixoWarning { Item = r, Serious = false, Text = "Sem hachura em planta.", Reference = "Use Redesenhar hachuras no painel (a hachura e desenhada pelo plugin desde o MFREBAIXO 1.8)" });
-            double slope = Math.Abs(r.RampSlope ?? 0.0833);
+            double slope = Math.Max(r.EntrySlope ?? Math.Abs(r.RampSlope ?? 0.0833), r.ExitSlope ?? 0);
             if (slope > 0.0834)
                 list.Add(new RebaixoWarning { Item = r, Serious = true, Text = $"Rampa do meio-fio com {slope * 100:0.##}% (acima de 8,33%).", Reference = "NBR 9050 - rampas: inclinacao maxima 8,33%" });
 

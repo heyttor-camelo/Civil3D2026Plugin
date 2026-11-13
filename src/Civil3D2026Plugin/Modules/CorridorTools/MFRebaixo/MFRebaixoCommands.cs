@@ -57,6 +57,10 @@ public sealed class MFRebaixoCommands
     private const double DefaultRampSlope =
         0.0833;
 
+    // NBR 9050: acima disso o plugin avisa (nao impede).
+    internal const double MaxRampSlopeNbr =
+        0.0833;
+
     internal const string ParameterName =
         "AMF_LIVRE";
 
@@ -171,7 +175,8 @@ public sealed class MFRebaixoCommands
                 new PromptPointOptions(
                     $"\nClique no 1º PONTO REBAIXADO " +
                     $"| Lado={GetSideModeLabel(sideMode)} " +
-                    "[Auto/Esquerda/Direita] <Encerrar>: ")
+                    $"| Declividade das rampas={SlopeLabel(settings.UltimaDeclividade)} " +
+                    "[Auto/Esquerda/Direita/Declividade] <Encerrar>: ")
                 {
                     AllowNone = true
                 };
@@ -184,6 +189,9 @@ public sealed class MFRebaixoCommands
 
             firstOptions.Keywords.Add(
                 "Direita");
+
+            firstOptions.Keywords.Add(
+                "Declividade");
 
             PromptPointResult firstResult =
                 ed.GetPoint(
@@ -202,6 +210,18 @@ public sealed class MFRebaixoCommands
             {
                 string keyword =
                     firstResult.StringResult;
+
+                if (
+                    keyword.Equals(
+                        "Declividade",
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    AskSlope(
+                        ed,
+                        settings);
+
+                    continue;
+                }
 
                 if (
                     keyword.Equals(
@@ -360,7 +380,10 @@ public sealed class MFRebaixoCommands
                         secondPoint,
                         firstInfo,
                         finalHeight,
-                        sideMode);
+                        sideMode,
+                        settings.UltimaDeclividade > 1e-6
+                            ? settings.UltimaDeclividade
+                            : null);
 
                     break;
                 }
@@ -496,7 +519,9 @@ public sealed class MFRebaixoCommands
         double s1,
         double s2,
         double finalHeight,
-        string comment = "REBAIXO MF")
+        string comment = "REBAIXO MF",
+        double? slopeIn = null,
+        double? slopeOut = null)
     {
         using var tr =
             db.TransactionManager
@@ -564,7 +589,9 @@ public sealed class MFRebaixoCommands
             "painel",
             null,
             null,
-            comment);
+            comment,
+            slopeIn,
+            slopeOut);
     }
 
     [CommandMethod(
@@ -851,7 +878,8 @@ public sealed class MFRebaixoCommands
         Point3d secondPoint,
         FirstPointInfo firstInfo,
         double finalHeight,
-        SideSelectionMode sideMode)
+        SideSelectionMode sideMode,
+        double? slope = null)
     {
         using var tr =
             db.TransactionManager
@@ -973,7 +1001,186 @@ public sealed class MFRebaixoCommands
             // A conferência da altura lida no 1º clique só vale quando ele é o início do trecho.
             invertido
                 ? null
-                : firstInfo.NormalHeight);
+                : firstInfo.NormalHeight,
+            "REBAIXO MF",
+            slope,
+            slope);
+    }
+
+    /// <summary>
+    /// Altura livre normal quando a seção de referência cai bem na divisa da Region (lá o Civil não
+    /// devolve a peça): tenta a Region vizinha colada (última seção dela antes da divisa, ou a primeira
+    /// depois) e, sem ela, a próxima seção desta Region entre a divisa e o trecho rebaixado.
+    /// </summary>
+    private static bool TryReferenceHeightNearBoundary(
+        Transaction tr,
+        Baseline baseline,
+        BaselineRegion region,
+        SubassemblySideType side,
+        double[] stations,
+        double reference,
+        double limit,
+        bool before,
+        out double height,
+        out string source)
+    {
+        height = 0;
+        source = "";
+
+        BaselineRegion? neighbor =
+            NeighborRegion(
+                baseline,
+                region,
+                before);
+
+        if (neighbor is not null)
+        {
+            ObjectId sa =
+                FindMfSubassemblyId(
+                    tr,
+                    neighbor,
+                    side,
+                    out _);
+
+            if (!sa.IsNull)
+            {
+                double[] other =
+                    GetExistingStations(
+                        neighbor);
+
+                IEnumerable<double> candidates =
+                    before
+                        ? other.Where(x => x < reference - 1e-4).OrderByDescending(x => x)
+                        : other.Where(x => x > reference + 1e-4).OrderBy(x => x);
+
+                foreach (double st in candidates.Take(3))
+                {
+                    if (TryGetEffectiveFreeHeightAtStation(
+                            baseline,
+                            neighbor,
+                            st,
+                            sa,
+                            out height,
+                            out source))
+                    {
+                        source += $" (Region vizinha '{neighbor.Name}', {st:0.000})";
+                        return true;
+                    }
+                }
+            }
+        }
+
+        ObjectId own =
+            FindMfSubassemblyId(
+                tr,
+                region,
+                side,
+                out _);
+
+        IEnumerable<double> inside =
+            before
+                ? stations.Where(x => x > reference + 1e-4 && x < limit - 1e-4).OrderBy(x => x)
+                : stations.Where(x => x < reference - 1e-4 && x > limit + 1e-4).OrderByDescending(x => x);
+
+        foreach (double st in inside.Take(3))
+        {
+            if (TryGetEffectiveFreeHeightAtStation(
+                    baseline,
+                    region,
+                    st,
+                    own,
+                    out height,
+                    out source))
+            {
+                source += $" (seção {st:0.000})";
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>Region da mesma Baseline colada antes (ou depois) desta, com folga de 5 cm na divisa.</summary>
+    private static BaselineRegion? NeighborRegion(
+        Baseline baseline,
+        BaselineRegion region,
+        bool before)
+    {
+        BaselineRegion? best = null;
+        double bestGap = 0.05;
+
+        foreach (BaselineRegion candidate in baseline.BaselineRegions)
+        {
+            if (candidate.Name == region.Name && Math.Abs(candidate.StartStation - region.StartStation) < 1e-6)
+                continue;
+
+            double gap =
+                before
+                    ? Math.Abs(candidate.EndStation - region.StartStation)
+                    : Math.Abs(candidate.StartStation - region.EndStation);
+
+            if (gap <= bestGap)
+            {
+                bestGap = gap;
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    private static string SlopeLabel(double slope) =>
+        slope > 1e-6
+            ? $"{slope * 100.0:0.##}%"
+            : "iRampa da peça";
+
+    /// <summary>
+    /// Opção Declividade do MFREBAIXO: declividade das rampas do meio-fio em %, para as duas rampas
+    /// (0 = usar o iRampa da peça). Fica gravada como padrão. Acima de 8,33 % só avisa (NBR 9050).
+    /// </summary>
+    private static void AskSlope(
+        Editor ed,
+        MFRebaixoSettings settings)
+    {
+        var options =
+            new PromptDoubleOptions(
+                "\nDeclividade das rampas do meio-fio em %, 0 = iRampa da peça: ")
+            {
+                AllowNegative = false,
+                AllowZero = true,
+                DefaultValue = Math.Round(settings.UltimaDeclividade * 100.0, 4),
+                UseDefaultValue = true
+            };
+
+        PromptDoubleResult result =
+            ed.GetDouble(
+                options);
+
+        if (result.Status != PromptStatus.OK)
+            return;
+
+        double pct =
+            result.Value;
+
+        if (pct > 50.0)
+        {
+            ed.WriteMessage(
+                "\nDeclividade acima de 50% não foi aceita; ficou a anterior.");
+
+            return;
+        }
+
+        settings.UltimaDeclividade =
+            pct / 100.0;
+
+        MFRebaixoSettingsStore.Save(
+            settings);
+
+        ed.WriteMessage(
+            $"\nDeclividade das rampas = {SlopeLabel(settings.UltimaDeclividade)}." +
+            (settings.UltimaDeclividade > MaxRampSlopeNbr + 1e-6
+                ? " Aviso: acima de 8,33% (NBR 9050)."
+                : ""));
     }
 
     /// <summary>
@@ -995,7 +1202,9 @@ public sealed class MFRebaixoCommands
         string sideOrigin,
         double? expectedNominal,
         double? expectedStart,
-        string comment = "REBAIXO MF")
+        string comment = "REBAIXO MF",
+        double? slopeIn = null,
+        double? slopeOut = null)
     {
         // Qualquer ordem (painel e reposicionar tambem): so a mesma estaca e recusada.
         if (s2 < s1)
@@ -1102,9 +1311,12 @@ public sealed class MFRebaixoCommands
             rampSlope =
                 DefaultRampSlope;
 
-            ed.WriteMessage(
-                $"\n[AVISO] Subassembly sem '{RampSlopeParameterName}'; " +
-                $"usando {DefaultRampSlope * 100.0:0.##}% nas rampas do MF.");
+            if (slopeIn is null)
+            {
+                ed.WriteMessage(
+                    $"\n[AVISO] Subassembly sem '{RampSlopeParameterName}'; " +
+                    $"usando {DefaultRampSlope * 100.0:0.##}% nas rampas do MF.");
+            }
         }
 
         double rampSlopeAbs =
@@ -1122,7 +1334,19 @@ public sealed class MFRebaixoCommands
                 referenceStartStation,
                 subassemblyId,
                 out double startEffectiveHeight,
-                out string startEffectiveSource))
+                out string startEffectiveSource)
+            &&
+            !TryReferenceHeightNearBoundary(
+                tr,
+                baseline,
+                region,
+                side,
+                existingStations,
+                referenceStartStation,
+                s1,
+                before: true,
+                out startEffectiveHeight,
+                out startEffectiveSource))
         {
             throw new InvalidOperationException(
                 $"Não foi possível ler a altura livre efetiva na seção de referência " +
@@ -1146,7 +1370,19 @@ public sealed class MFRebaixoCommands
                 referenceEndStation,
                 subassemblyId,
                 out double endEffectiveHeight,
-                out string endEffectiveSource))
+                out string endEffectiveSource)
+            &&
+            !TryReferenceHeightNearBoundary(
+                tr,
+                baseline,
+                region,
+                side,
+                existingStations,
+                referenceEndStation,
+                s2,
+                before: false,
+                out endEffectiveHeight,
+                out endEffectiveSource))
         {
             throw new InvalidOperationException(
                 $"Não foi possível ler a altura livre efetiva na seção de referência " +
@@ -1187,13 +1423,39 @@ public sealed class MFRebaixoCommands
             }
         }
 
+        // Declividade escolhida pelo usuario (comando, painel ou lista; 13/11/2026): vale no lugar do
+        // iRampa da peca. Uma para as duas rampas ou uma para cada. Acima de 8,33 % so avisa (NBR 9050).
+        double slopeEntry =
+            slopeIn is double si && Math.Abs(si) > 1e-6 ? Math.Abs(si) : rampSlopeAbs;
+
+        double slopeExit =
+            slopeOut is double so && Math.Abs(so) > 1e-6 ? Math.Abs(so) : slopeIn is double si2 && Math.Abs(si2) > 1e-6 ? Math.Abs(si2) : rampSlopeAbs;
+
+        if (Math.Max(slopeEntry, slopeExit) > MaxRampSlopeNbr + 1e-6)
+        {
+            string aviso =
+                $"Declividade da rampa do meio-fio de {Math.Max(slopeEntry, slopeExit) * 100.0:0.##}% (acima de 8,33%, NBR 9050).";
+            PluginLog.Aviso("MFREBAIXO", aviso);
+            try
+            {
+                ed.WriteMessage("\n[MFREBAIXO] Aviso: " + aviso);
+            }
+            catch
+            {
+                // Sem linha de comando: fica so no log.
+            }
+        }
+
+        rampSlopeAbs =
+            slopeEntry;
+
         double entryRampLength =
             Math.Abs(startEffectiveHeight - finalHeight) /
-            rampSlopeAbs;
+            slopeEntry;
 
         double exitRampLength =
             Math.Abs(endEffectiveHeight - finalHeight) /
-            rampSlopeAbs;
+            slopeExit;
 
         if (entryRampLength <= StationTolerance || exitRampLength <= StationTolerance)
         {
@@ -1210,19 +1472,196 @@ public sealed class MFRebaixoCommands
         double s3 =
             s2 + exitRampLength;
 
+        // Rampa que passa da ponta da Region (pedido do Heyvid em 13/11/2026: "é só invadir a outra
+        // região também"): o pedaço de fora vira um Transition Set na Region vizinha da mesma Baseline
+        // (nome do rebaixo + _PARTE_ENTRADA/_PARTE_SAIDA), com os valores da mesma rampa, e o set
+        // principal começa/termina na divisa com o valor do meio da rampa. Sem vizinha com a peça MF
+        // do mesmo lado, a rampa é cortada na divisa (fica mais curta e mais íngreme) com aviso.
+        var outsidePieces =
+            new List<(BaselineRegion Region, ObjectId SubassemblyId, string SubassemblyName, double From, double To, string Suffix)>();
+
+        var notes =
+            new List<string>();
+
         if (s0 < region.StartStation - StationTolerance)
         {
-            throw new InvalidOperationException(
-                $"A rampa de entrada calculada ({entryRampLength:0.###} m) ultrapassa " +
-                $"o início da Region '{region.Name}'.");
+            BaselineRegion? before =
+                NeighborRegion(
+                    baseline,
+                    region,
+                    before: true);
+
+            ObjectId beforeSa =
+                before is null
+                    ? ObjectId.Null
+                    : FindMfSubassemblyId(
+                        tr,
+                        before,
+                        side,
+                        out _);
+
+            if (before is not null && !beforeSa.IsNull)
+            {
+                double from =
+                    Math.Max(
+                        s0,
+                        before.StartStation);
+
+                if (from > s0 + StationTolerance)
+                {
+                    notes.Add(
+                        $"rampa de entrada cortada no início da Region '{before.Name}' ({s1 - from:0.##} m em vez de {entryRampLength:0.##} m)");
+
+                    s0 = from;
+                }
+
+                outsidePieces.Add(
+                    (before, beforeSa, ((Subassembly)tr.GetObject(beforeSa, OpenMode.ForRead)).Name, s0, region.StartStation, "_PARTE_ENTRADA"));
+
+                notes.Add(
+                    $"rampa de entrada continua na Region '{before.Name}' ({region.StartStation - s0:0.##} m)");
+            }
+            else
+            {
+                notes.Add(
+                    $"rampa de entrada cortada na divisa da Region '{region.Name}' ({s1 - region.StartStation:0.##} m em vez de {entryRampLength:0.##} m): " +
+                    (before is null
+                        ? "não há Region vizinha colada nesta Baseline"
+                        : $"a Region '{before.Name}' não tem a peça MF do mesmo lado"));
+
+                s0 = region.StartStation;
+            }
         }
 
         if (s3 > region.EndStation + StationTolerance)
         {
-            throw new InvalidOperationException(
-                $"A rampa de saída calculada ({exitRampLength:0.###} m) ultrapassa " +
-                $"o fim da Region '{region.Name}'.");
+            BaselineRegion? after =
+                NeighborRegion(
+                    baseline,
+                    region,
+                    before: false);
+
+            ObjectId afterSa =
+                after is null
+                    ? ObjectId.Null
+                    : FindMfSubassemblyId(
+                        tr,
+                        after,
+                        side,
+                        out _);
+
+            if (after is not null && !afterSa.IsNull)
+            {
+                double to =
+                    Math.Min(
+                        s3,
+                        after.EndStation);
+
+                if (to < s3 - StationTolerance)
+                {
+                    notes.Add(
+                        $"rampa de saída cortada no fim da Region '{after.Name}' ({to - s2:0.##} m em vez de {exitRampLength:0.##} m)");
+
+                    s3 = to;
+                }
+
+                outsidePieces.Add(
+                    (after, afterSa, ((Subassembly)tr.GetObject(afterSa, OpenMode.ForRead)).Name, region.EndStation, s3, "_PARTE_SAIDA"));
+
+                notes.Add(
+                    $"rampa de saída continua na Region '{after.Name}' ({s3 - region.EndStation:0.##} m)");
+            }
+            else
+            {
+                notes.Add(
+                    $"rampa de saída cortada na divisa da Region '{region.Name}' ({region.EndStation - s2:0.##} m em vez de {exitRampLength:0.##} m): " +
+                    (after is null
+                        ? "não há Region vizinha colada nesta Baseline"
+                        : $"a Region '{after.Name}' não tem a peça MF do mesmo lado"));
+
+                s3 = region.EndStation;
+            }
         }
+
+        if (s1 - s0 <= StationTolerance || s3 - s2 <= StationTolerance)
+        {
+            throw new InvalidOperationException(
+                "O trecho rebaixado encosta na ponta da Region e não sobra lugar para a rampa. " +
+                "Afaste o trecho da divisa ou estenda a Region.");
+        }
+
+        foreach (string note in notes)
+        {
+            PluginLog.Aviso(
+                "MFREBAIXO",
+                note);
+
+            try
+            {
+                ed.WriteMessage(
+                    "\n[MFREBAIXO] " + note + ".");
+            }
+            catch
+            {
+                // Sem linha de comando: fica só no log.
+            }
+        }
+
+        // Perfil da rampa ao longo das estacas: profundidade (REB) ou altura livre (AMF_LIVRE).
+        double depthInProfile =
+            startEffectiveHeight - finalHeight;
+
+        double depthOutProfile =
+            endEffectiveHeight - finalHeight;
+
+        double ProfileAt(
+            bool depth,
+            double st)
+        {
+            if (st <= s1)
+            {
+                double k =
+                    Math.Clamp(
+                        (st - s0) / Math.Max(s1 - s0, 1e-9),
+                        0.0,
+                        1.0);
+
+                return depth
+                    ? k * depthInProfile
+                    : startEffectiveHeight + (k * (finalHeight - startEffectiveHeight));
+            }
+
+            if (st >= s2)
+            {
+                double k =
+                    Math.Clamp(
+                        (s3 - st) / Math.Max(s3 - s2, 1e-9),
+                        0.0,
+                        1.0);
+
+                return depth
+                    ? k * depthOutProfile
+                    : endEffectiveHeight + (k * (finalHeight - endEffectiveHeight));
+            }
+
+            double m =
+                (st - s1) / Math.Max(s2 - s1, 1e-9);
+
+            return depth
+                ? depthInProfile + (m * (depthOutProfile - depthInProfile))
+                : finalHeight;
+        }
+
+        // Pontas do set principal: dentro da Region dele.
+        double mainStart =
+            Math.Max(
+                s0,
+                region.StartStation);
+
+        double mainEnd =
+            Math.Min(
+                s3,
+                region.EndStation);
 
         List<CorridorTransitionSet> sets =
             baseline.getTransitions();
@@ -1265,8 +1704,8 @@ public sealed class MFRebaixoCommands
 
             SetTransition(
                 d1,
-                s0,
-                0.0,
+                mainStart,
+                ProfileAt(true, mainStart),
                 s1,
                 depthIn);
 
@@ -1287,8 +1726,8 @@ public sealed class MFRebaixoCommands
                 d3,
                 s2,
                 depthOut,
-                s3,
-                0.0);
+                mainEnd,
+                ProfileAt(true, mainEnd));
         }
         else
         {
@@ -1298,8 +1737,8 @@ public sealed class MFRebaixoCommands
 
             SetTransition(
                 t1,
-                s0,
-                startEffectiveHeight,
+                mainStart,
+                ProfileAt(false, mainStart),
                 s1,
                 finalHeight);
 
@@ -1320,8 +1759,8 @@ public sealed class MFRebaixoCommands
                 t3,
                 s2,
                 finalHeight,
-                s3,
-                endEffectiveHeight);
+                mainEnd,
+                ProfileAt(false, mainEnd));
         }
 
         set.StationLocked =
@@ -1329,6 +1768,52 @@ public sealed class MFRebaixoCommands
 
         sets.Add(
             set);
+
+        // Pedaços da rampa nas Regions vizinhas (mesmo rebaixo; o painel junta pelo nome).
+        foreach ((BaselineRegion pieceRegion, ObjectId pieceSa, string _, double from, double to, string suffix) in outsidePieces)
+        {
+            var pieceSubassembly =
+                (Subassembly)
+                tr.GetObject(
+                    pieceSa,
+                    OpenMode.ForRead);
+
+            bool pieceDepth =
+                HasDoubleParameter(
+                    pieceSubassembly,
+                    DepthParameterName);
+
+            var piece =
+                new CorridorTransitionSet(
+                    MakeUniqueName(
+                        sets,
+                        setName + suffix),
+                    pieceRegion,
+                    pieceSa,
+                    CorridorTransitionNameType.SubassemblyName);
+
+            piece.Comment =
+                "REBAIXO MF - PARTE (" + setName + ")";
+
+            CorridorTransition pt =
+                piece.AddTransition(
+                    pieceDepth
+                        ? DepthParameterName
+                        : ParameterName);
+
+            SetTransition(
+                pt,
+                from,
+                ProfileAt(pieceDepth, from),
+                to,
+                ProfileAt(pieceDepth, to));
+
+            piece.StationLocked =
+                true;
+
+            sets.Add(
+                piece);
+        }
 
         // DESTAQUE (MFSARJETA): segundo conjunto de Transitions só para os codes
         // de hachura em planta. Ver faixas em HighlightParameterName.
@@ -1359,7 +1844,7 @@ public sealed class MFRebaixoCommands
                 h1,
                 Math.Max(
                     region.StartStation,
-                    s0 - HighlightLead),
+                    mainStart - HighlightLead),
                 1.0,
                 s1,
                 2.0);
@@ -1381,7 +1866,7 @@ public sealed class MFRebaixoCommands
                 h3,
                 s2,
                 3.0,
-                s3,
+                mainEnd,
                 4.0);
 
             highlightSet.StationLocked =
@@ -1403,7 +1888,9 @@ public sealed class MFRebaixoCommands
 
         addedSections +=
             EnsureStation(
-                region,
+                s0 < region.StartStation - StationTolerance && outsidePieces.Any(x => x.Suffix == "_PARTE_ENTRADA")
+                    ? outsidePieces.First(x => x.Suffix == "_PARTE_ENTRADA").Region
+                    : region,
                 s0,
                 "REBAIXO MF - INICIO RAMPA ENTRADA");
 
@@ -1421,7 +1908,9 @@ public sealed class MFRebaixoCommands
 
         addedSections +=
             EnsureStation(
-                region,
+                s3 > region.EndStation + StationTolerance && outsidePieces.Any(x => x.Suffix == "_PARTE_SAIDA")
+                    ? outsidePieces.First(x => x.Suffix == "_PARTE_SAIDA").Region
+                    : region,
                 s3,
                 "REBAIXO MF - FIM RAMPA SAIDA");
 
@@ -1501,7 +1990,8 @@ public sealed class MFRebaixoCommands
             $"({endEffectiveSource}, ref. {referenceEndStation:0.000})");
 
         ed.WriteMessage(
-            $"\n     iRampa={rampSlopeAbs * 100.0:0.###}%" +
+            $"\n     Declividade das rampas={slopeEntry * 100.0:0.###}%" +
+            (Math.Abs(slopeExit - slopeEntry) > 1e-6 ? $" / {slopeExit * 100.0:0.###}%" : "") +
             $" | L entrada={entryRampLength:0.###} m" +
             $" | L saída={exitRampLength:0.###} m");
 
