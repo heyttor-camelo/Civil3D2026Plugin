@@ -1171,7 +1171,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         ("NOME", "Etiqueta do rebaixo", "Nome", "Nome dado na aba Propriedades"),
         ("ESTACAS", "Etiqueta do rebaixo", "Estacas", "Estacas inicial e final do trecho rebaixado"),
         ("TODOS", "Etiqueta do rebaixo", "Em todos os rebaixos", "Desligado: etiqueta so no rebaixo selecionado"),
-        ("CHAMADA", "Etiqueta do rebaixo", "Linha de chamada", "Linha ligando a etiqueta ao rebaixo"),
+        ("CHAMADA", "Etiqueta do rebaixo", "Linha de chamada", "Linha ligando a etiqueta ao rebaixo (com a etiqueta afastada, aparece sempre)"),
+        ("TRAVESSIAS", "Etiqueta da travessia", "Etiqueta das travessias (T01 R19-R20)", "Codigo e rebaixos de cada travessia na planta (arrastavel)"),
         ("CORREDOR", "Planta", "Nome do corredor", "Nome do corredor ao longo do eixo (planta geral)"),
         ("BASELINE", "Planta", "Nome das baselines", "Nome de cada baseline ao longo do eixo (planta geral)"),
         ("MARCOS", "Planta", "Marcos S0-S3", "Inicio/fim das rampas e do trecho rebaixado (planta do rebaixo)"),
@@ -1234,6 +1235,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         quick.Children.Add(Link("Tudo", () => SetAll(_ => true), "Ligar todos os textos"));
         quick.Children.Add(Link("Nada", () => SetAll(_ => false), "Desligar todos os textos"));
         quick.Children.Add(Link("Padrao", () => SetAll(k => k is not ("ESTACAS" or "BASELINE")), "Codigo, nome, corredor, marcos, legenda, escala e barra"));
+        quick.Children.Add(Link("Repor etiquetas", ResetTags, "Etiquetas arrastadas voltam para a posicao automatica"));
         list.Children.Add(quick);
 
         if (_textPopup is not null)
@@ -1590,6 +1592,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current)))
             DrawRebaixo(r, ReferenceEquals(r, _current), 3.5);
 
+        // Travessias reservam o lugar delas: nenhuma etiqueta de rebaixo cai em cima (13/11/2026).
+        ReserveTravAreas();
+
         // Etiquetas dos rebaixos: o selecionado primeiro (sempre aparece), depois os demais na ordem.
         bool showCode = Show("CODIGO"), showName = Show("NOME"), showStations = Show("ESTACAS");
         foreach (RebaixoInfo r in _items.OrderBy(x => ReferenceEquals(x, _current) ? 0 : 1).ThenBy(x => x.Code))
@@ -1635,24 +1640,25 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                           $"altura final {Cm(r.FinalHeight)}\nclique: selecionar   duplo clique: planta do rebaixo"
             };
             RebaixoInfo item = r;
-            tag.MouseLeftButtonDown += (_, e) =>
+            // Lado de fora (calcada): da borda da pista para o fundo do meio-fio, no meio do rebaixo.
+            SW.Vector? outward = null;
+            if (r.Band.Count >= 2)
             {
-                e.Handled = true;
+                var e0 = r.Band[r.Band.Count / 2];
+                outward = ToScreen(e0.Outer.X, e0.Outer.Y) - ToScreen(e0.Inner.X, e0.Inner.Y);
+            }
+            // Arrastavel (posicao guardada no desenho); clique seleciona, duplo clique abre a planta do rebaixo.
+            PlaceTag(tag, anchor, TagKey(r), selected, outward, e =>
+            {
                 SelectRebaixo(item);
                 if (e.ClickCount == 2)
                     SetMode("PLANTA");
-            };
-
-            if (Place(tag, anchor, force: selected) is SW.Rect box && Show("CHAMADA"))
-            {
-                SW.Point end = Nearest(box, anchor);
-                var leader = new WS.Line { X1 = anchor.X, Y1 = anchor.Y, X2 = end.X, Y2 = end.Y, Stroke = tag.Background, StrokeThickness = 1.2, IsHitTestVisible = false };
-                _plan.Children.Insert(Math.Max(0, _plan.Children.Count - 1), leader);
-            }
+            });
         }
 
         // Travessias por cima dos rebaixos.
         DrawTravessiasPlan();
+        DrawTravLabels();
 
         // Nomes dos corredores ao longo da baseline mais comprida de cada um (por ultimo: so onde sobra espaco).
         foreach (IGrouping<AcadDb.ObjectId, (AcadDb.ObjectId Corridor, string Name, List<Point3d> Points)> g in _overview.GroupBy(o => o.Corridor))
@@ -1820,6 +1826,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         }
 
         DrawTravessiasPlan();
+        DrawTravLabels();
 
         // Linhas das secoes.
         WM.Brush sectionBrush = ToolTheme.Brush(255, 255, 255, 70);
@@ -2131,10 +2138,11 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private WC.Grid EditRow(string key, string label, string value, string unit)
     {
         WC.Grid g = new() { Margin = new SW.Thickness(0, 3, 0, 3) };
-        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(190) });
+        // Rotulo com largura e quebra de linha: os longos ("Declividade das rampas do meio-fio") nao cortam mais.
+        g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(250) });
         g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(110) });
         g.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = SW.GridLength.Auto });
-        g.Children.Add(new WC.TextBlock { Text = label, Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center });
+        g.Children.Add(new WC.TextBlock { Text = label, Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, TextWrapping = SW.TextWrapping.Wrap, Margin = new SW.Thickness(0, 0, 8, 0) });
         var box = new WC.TextBox { Text = value, VerticalContentAlignment = SW.VerticalAlignment.Center };
         WC.Grid.SetColumn(box, 1);
         g.Children.Add(box);
@@ -2229,7 +2237,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(Prop("Nome no Corridor Transition", r.SetName + (r.HighlightSetName is null ? "" : "  e  " + r.HighlightSetName)));
         p.Children.Add(Prop("Corredor / baseline / region", $"{r.CorridorName} / {r.BaselineName} / {r.RegionName}"));
         p.Children.Add(Prop("Lado / subassembly", $"{r.SideLabel} / {r.SubassemblyName}"));
-        if (RebaixoCenter(r, _model) is Point3d cg)
+        // Elevacao: com o modelo do proprio rebaixo (na planta geral ele ainda nao estava lido e saia 0.000).
+        if (RebaixoCenter(r, CurrentModel()) is Point3d cg)
             p.Children.Add(Prop("Centro do rebaixo (X, Y, elevacao)", $"{cg.X:0.000}   {cg.Y:0.000}   {cg.Z:0.000}"));
         p.Children.Add(Prop("Rampa de entrada", $"{N(r.EntryLength, "0.00")} m" + (r.EntrySlope is double se ? $", declividade {Pct(se)}" : "")));
         p.Children.Add(Prop("Trecho rebaixado", $"{N(r.LoweredLength, "0.00")} m"));
@@ -2241,7 +2250,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             : $"AMF_LIVRE (altura livre): {Cm(r.ValueStart)} -> {Cm(r.ValueIn)} -> {Cm(r.ValueEnd)}"));
         p.Children.Add(Prop("Destaque (code REBAIXO)", r.HighlightSetName ?? (r.HasHighlightParameter ? "falta o Transition" : "subassembly sem DESTAQUE")));
         if (r.RampSlope is double rs)
-            p.Children.Add(Prop("iRampa da peca (padrao)", Pct(Math.Abs(rs))));
+            p.Children.Add(Prop("Declividade padrao da peca (parametro iRampa)", Pct(Math.Abs(rs))));
         if (r.RampOk.HasValue || r.FreeWidth.HasValue)
             p.Children.Add(Prop("Calcada", $"rampa {(r.RampOk is double ok && ok > 0.5 ? "ok" : "nao cabe")}, faixa livre {N(r.FreeWidth, "0.00")} m"));
 
@@ -2301,6 +2310,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         actions.Children.Add(ActionButton("Zoom no desenho", ZoomCurrent));
         actions.Children.Add(ActionButton("Selecionar corredor", SelectCorridor));
         actions.Children.Add(ActionButton("Remover", RemoveCurrent));
+        actions.Children.Add(ActionButton("Selecionar no desenho", () => SelectInDrawing()));
         actions.Children.Add(ActionButton("Apagar clicando no desenho", () => Send(C3DCommands.Corridor.MfRebaixoApagar + " ", "Clique em cima dos rebaixos no desenho e confirme na linha de comando.")));
         actions.Children.Add(ActionButton("Copiar tudo", () => CopyProps($"Rebaixo {r.Label}")));
         p.Children.Add(actions);

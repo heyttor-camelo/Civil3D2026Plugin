@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFREBAIXO v1.25.0: etiquetas arrastaveis (guardadas no desenho; Textos > Repor etiquetas), etiqueta das travessias (T01...), **Selecionar no desenho** no painel e `MFTRAVESSIASELECIONAR` (filtro de pecas; depois `IFCInfraExportSelected` exporta IFC 4.3).
 - MFREBAIXO v1.24.1: o pedaco do rebaixo na baseline vizinha tambem tem hachura em planta (Redesenhar/Remover/MFREBAIXOAPAGAR incluem).
 - MFREBAIXO v1.24.0: o rebaixo inteiro (rampas **e trecho rebaixado**) pode atravessar a divisa: continua nas regions coladas e, onde a baseline acaba, na **baseline vizinha** cujo meio-fio encosta na ponta e segue no mesmo sentido (sarjeta da esquina; o retorno que vira de lado nao entra), com a altura continua na divisa e gravado como um rebaixo so. O 2o clique do MFREBAIXO pode cair noutra region da mesma baseline. Sem continuacao, a rampa e cortada com aviso. Novos: `MFREBAIXOAPAGAR` e `MFTRAVESSIAAPAGAR` (apagar clicando no desenho), `MFTRAVESSIAPLANTA` (ocultar/mostrar as lombofaixas em planta; o 3D fica); Ctrl/Shift + clique no monitor do painel soma a selecao.
 - Painel de rebaixos (MFREBAIXO v1.23.0): **edicao direto na lista** (duplo clique na celula ou F2; Enter aplica, Esc cancela; varias linhas selecionadas = muda todas, com confirmacao): rebaixos (nome, comprimento, altura final, rampa) e travessias (tipo, altura, plataforma, rampas, sarjeta). **Declividade das rampas do meio-fio editavel** por rebaixo (uma para as duas ou entrada/saida, ex. 8.33/6; acima de 8,33 % so avisa), tambem no MFREBAIXO (opcao `Declividade`, fica gravada). Propriedades sem estacas, selecionaveis (Ctrl+C) e botao **Copiar tudo**. Rampa que passa da ponta da region **continua na region vizinha** colada (sem vizinha: rampa cortada na divisa com aviso, sem erro).
@@ -130,7 +131,7 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
   `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
 - `MFTRAVESSIAUNIR` (MFREBAIXO v1.15): depois de lancar as travessias de um cruzamento, **une todas num plato so**,
   limitado pelo meio-fio (borda da pista lida do corredor; a sarjeta dos cantos fica livre, com tampa de concreto).

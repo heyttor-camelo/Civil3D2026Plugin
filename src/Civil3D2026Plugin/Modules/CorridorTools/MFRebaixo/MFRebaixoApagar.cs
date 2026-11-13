@@ -208,6 +208,88 @@ public sealed partial class MFRebaixoCommands
         }
     }
 
+    /// <summary>
+    /// Seleciona no desenho (pickfirst, com grips) as pecas das travessias: todas ou clicando, com filtro.
+    /// Depois e so usar qualquer comando do Civil (IFCInfraExportSelected, LAYMCH, ISOLATEOBJECTS...).
+    /// </summary>
+    [CommandMethod(C3DCommands.Corridor.MfTravessiaSelecionar, CommandFlags.Modal | CommandFlags.Redraw)]
+    public void TravessiaSelecionar()
+    {
+        var doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        Database db = doc.Database;
+        var ko = new PromptKeywordOptions("\nQuais travessias [Todas/Clicar] <Todas>: ") { AppendKeywordsToMessage = false, AllowNone = true };
+        ko.Keywords.Add("Todas");
+        ko.Keywords.Add("Clicar");
+        PromptResult kr = ed.GetKeywords(ko);
+        if (kr.Status == PromptStatus.Cancel)
+            return;
+        var ids = new HashSet<string>();
+        if (kr.Status == PromptStatus.OK && kr.StringResult == "Clicar")
+        {
+            while (true)
+            {
+                var po = new PromptPointOptions($"\nClique dentro da lombofaixa (plato ou rampa) - {ids.Count} marcada(s) [Pronto] <Pronto>: ") { AllowNone = true, AppendKeywordsToMessage = false };
+                po.Keywords.Add("Pronto");
+                PromptPointResult pr = ed.GetPoint(po);
+                if (pr.Status == PromptStatus.Cancel)
+                    return;
+                if (pr.Status != PromptStatus.OK)
+                    break;
+                if (MFTravessia.TravessiaAt(db, pr.Value.TransformBy(ed.CurrentUserCoordinateSystem)) is string id)
+                {
+                    if (!ids.Add(id))
+                        ids.Remove(id);
+                    ed.WriteMessage($"\n{ids.Count} travessia(s) marcada(s).");
+                }
+                else
+                {
+                    ed.WriteMessage("\nNenhuma travessia neste ponto.");
+                }
+            }
+            if (ids.Count == 0)
+                return;
+        }
+        var fo = new PromptKeywordOptions("\nQuais pecas [Tudo/Solidos/Plato/Grelhas/Vigas/Sinalizacao/Planta] <Tudo>: ") { AppendKeywordsToMessage = false, AllowNone = true };
+        foreach (string f in MFTravessia.PartFilters)
+            fo.Keywords.Add(f);
+        PromptResult fr = ed.GetKeywords(fo);
+        if (fr.Status == PromptStatus.Cancel)
+            return;
+        string filter = fr.Status == PromptStatus.OK ? fr.StringResult : "Tudo";
+        List<ObjectId> objs = MFTravessia.Objects(db, ids, filter);
+        if (objs.Count == 0)
+        {
+            ed.WriteMessage("\nNenhuma peca de travessia com esse filtro.\n");
+            return;
+        }
+        ed.SetImpliedSelection(objs.ToArray());
+        ed.WriteMessage($"\n{objs.Count} objeto(s) selecionado(s) ({filter}). Agora use o comando que quiser (ex. IFCInfraExportSelected para IFC 4.3).\n");
+    }
+
+    /// <summary>Objetos que o painel pediu para selecionar (botao Selecionar no desenho).</summary>
+    internal static ObjectId[] PendingSelection = Array.Empty<ObjectId>();
+
+    /// <summary>Faz, dentro de um comando (jeito seguro do AutoCAD), a selecao pedida pelo painel.</summary>
+    [CommandMethod(C3DCommands.Corridor.MfRebaixoSelecionarPainel, CommandFlags.Modal | CommandFlags.Redraw)]
+    public void SelecionarDoPainel()
+    {
+        var doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        ObjectId[] ids = PendingSelection.Where(x => !x.IsNull && !x.IsErased).ToArray();
+        PendingSelection = Array.Empty<ObjectId>();
+        if (ids.Length == 0)
+        {
+            doc.Editor.WriteMessage("\nNada marcado no painel para selecionar.\n");
+            return;
+        }
+        doc.Editor.SetImpliedSelection(ids);
+        doc.Editor.WriteMessage($"\n{ids.Length} objeto(s) selecionado(s) no desenho. Use o comando que quiser (ex. IFCInfraExportSelected para IFC 4.3).\n");
+    }
+
     [CommandMethod(C3DCommands.Corridor.MfTravessiaPlanta, CommandFlags.Modal)]
     public void TravessiaPlanta()
     {

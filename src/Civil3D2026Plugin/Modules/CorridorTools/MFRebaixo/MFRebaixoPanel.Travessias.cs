@@ -149,12 +149,12 @@ internal sealed partial class MFRebaixoPanel
         {
             MFTravessia.Stored? d = t.Data;
             string[] cells = t.IsUnion
-                ? new[] { TravName(t), "cruzamento", "", "", "", "", N(t.Volume, "0.00") + " m3", t.Id }
+                ? new[] { TravCode(t) + "  " + TravName(t), "cruzamento", "", "", "", "", N(t.Volume, "0.00") + " m3", t.Id }
                 : d is null
                     ? new[] { TravName(t), "(sem o solido do plato)", "", "", "", "", "", "" }
                     : new[]
                     {
-                        TravName(t),
+                        TravCode(t) + "  " + TravName(t),
                         d.Params.Tipo == TravessiaTipo.Elevada ? "elevada" : "semi-elevada",
                         d.Params.Tipo == TravessiaTipo.Elevada ? "calcada" : Cm(d.Params.Altura),
                         N(d.Params.Plataforma, "0.00") + " m",
@@ -278,6 +278,9 @@ internal sealed partial class MFRebaixoPanel
         if (d.UnionId.Length > 0)
             acts.Children.Add(ActionButton("Separar a uniao", () => SeparateUnion(d.UnionId)));
         acts.Children.Add(ActionButton("Apagar", DeleteTrav));
+        WC.Button selBtn = ActionButton("Selecionar no desenho...", () => { });
+        selBtn.Click += (_, _) => SelectTravInDrawingMenu(selBtn);
+        acts.Children.Add(selBtn);
         acts.Children.Add(ActionButton("Copiar tudo", () => CopyProps(TravName(t))));
         acts.Children.Add(ActionButton(MFRebaixoSettingsStore.Load().TravessiaPlantaOculta ? "Mostrar lombofaixas em planta" : "Ocultar lombofaixas em planta", ToggleTravPlan));
         p.Children.Add(acts);

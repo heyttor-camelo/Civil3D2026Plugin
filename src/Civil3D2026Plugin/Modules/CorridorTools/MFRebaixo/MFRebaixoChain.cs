@@ -111,12 +111,32 @@ public sealed partial class MFRebaixoCommands
                 "(sem Region colada nem Baseline de meio-fio encostando na ponta).");
         }
 
+        // Trechos ja rebaixados por outros rebaixos do mesmo lado nesta baseline: as secoes ali nao servem de
+        // altura "normal" (senao a rampa some: "rampa de saida 0,00 m", visto no R19 do Heyvid, 13/11/2026).
+        var busy = new List<(double From, double To)>();
+        string sideTag = side == SubassemblySideType.Left ? "_ESQ_" : "_DIR_";
+        foreach (CorridorTransitionSet other in baseline.getTransitions())
+        {
+            string on = other.Name ?? "";
+            if (!on.StartsWith(MFRebaixoData.PairPrefix, StringComparison.OrdinalIgnoreCase) || !on.Contains(sideTag, StringComparison.OrdinalIgnoreCase) ||
+                on.Contains(MFRebaixoData.HighlightSuffix, StringComparison.OrdinalIgnoreCase) || other.TransitionCount == 0 || MFRebaixoData.IsNeutral(other))
+                continue;
+            double a = double.MaxValue, z = double.MinValue;
+            for (int i = 0; i < other.TransitionCount; i++)
+            {
+                var t = other.GetTransitionAt(i);
+                a = Math.Min(a, Math.Min(t.StartStation, t.EndStation));
+                z = Math.Max(z, Math.Max(t.StartStation, t.EndStation));
+            }
+            busy.Add((a + 0.001, z - 0.001));
+        }
+
         // Altura livre normal: seção existente antes do trecho e depois dele, em qualquer pedaço da cadeia.
-        if (!TryReferenceHeight(chain, s1, before: true, out double startEffectiveHeight, out string startEffectiveSource, out double referenceStartStation, out CurbSeg? startRefSeg))
+        if (!TryReferenceHeight(chain, busy, s1, before: true, out double startEffectiveHeight, out string startEffectiveSource, out double referenceStartStation, out CurbSeg? startRefSeg))
             throw new InvalidOperationException("Não existe Corridor Section antes do trecho rebaixado (nesta Region ou nas vizinhas) para ler a altura normal efetiva.");
         if (expectedStart.HasValue && Math.Abs(startEffectiveHeight - expectedStart.Value) > 1e-4)
             throw new InvalidOperationException("A altura livre efetiva da seção anterior mudou entre os cliques. Reinicie este par para recalcular o rebaixo.");
-        if (!TryReferenceHeight(chain, s2, before: false, out double endEffectiveHeight, out string endEffectiveSource, out double referenceEndStation, out CurbSeg? endRefSeg))
+        if (!TryReferenceHeight(chain, busy, s2, before: false, out double endEffectiveHeight, out string endEffectiveSource, out double referenceEndStation, out CurbSeg? endRefSeg))
             throw new InvalidOperationException("Não existe Corridor Section depois do trecho rebaixado (nesta Region ou nas vizinhas) para ler a altura normal efetiva.");
 
         if (finalHeight < -StationTolerance)
@@ -571,7 +591,7 @@ public sealed partial class MFRebaixoCommands
     private static double Dist2(Point3d a, Point3d b) => Math.Sqrt(((a.X - b.X) * (a.X - b.X)) + ((a.Y - b.Y) * (a.Y - b.Y)));
 
     /// <summary>Altura livre efetiva numa seção existente antes (ou depois) da estaca, em qualquer pedaço da cadeia.</summary>
-    private static bool TryReferenceHeight(List<CurbSeg> chain, double station, bool before, out double height, out string source, out double ourStation, out CurbSeg? refSeg)
+    private static bool TryReferenceHeight(List<CurbSeg> chain, List<(double From, double To)> busy, double station, bool before, out double height, out string source, out double ourStation, out CurbSeg? refSeg)
     {
         refSeg = null;
         height = 0;
@@ -585,11 +605,17 @@ public sealed partial class MFRebaixoCommands
                 double our = seg.Our(t);
                 if (our < seg.OurFrom - 0.001 || our > seg.OurTo + 0.001)
                     continue;
+                if (seg.Main || (!seg.OtherBaseline))
+                {
+                    // Secao dentro de outro rebaixo desta baseline: pula.
+                    if (busy.Any(x => our > x.From && our < x.To))
+                        continue;
+                }
                 if (before ? our < station - 0.001 : our > station + 0.001)
                     candidates.Add((our, seg, t));
             }
         }
-        foreach ((double our, CurbSeg seg, double t) in (before ? candidates.OrderByDescending(x => x.Our) : candidates.OrderBy(x => x.Our)).Take(4))
+        foreach ((double our, CurbSeg seg, double t) in (before ? candidates.OrderByDescending(x => x.Our) : candidates.OrderBy(x => x.Our)).Take(8))
         {
             if (TryGetEffectiveFreeHeightAtStation(seg.Baseline, seg.Region, t, seg.SubassemblyId, out height, out source))
             {

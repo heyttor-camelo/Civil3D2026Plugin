@@ -249,6 +249,40 @@ internal static partial class MFTravessia
         return found;
     }
 
+    /// <summary>Filtros de pecas para selecionar no desenho.</summary>
+    public static readonly string[] PartFilters = { "Tudo", "Solidos", "Plato", "Grelhas", "Vigas", "Sinalizacao", "Planta" };
+
+    public static bool MatchesFilter(string part, bool isHatch, string filter) => filter switch
+    {
+        "Solidos" => !isHatch,
+        "Plato" => part is "PLATO" or "UNIAO_PLATO",
+        "Grelhas" => !isHatch && (part.StartsWith("GRELHA", StringComparison.Ordinal) || part.StartsWith("TAMPA", StringComparison.Ordinal) || part == "UNIAO_TAMPA"),
+        "Vigas" => part.StartsWith("VIGA", StringComparison.Ordinal),
+        "Sinalizacao" => part.EndsWith("_3D", StringComparison.Ordinal),
+        "Planta" => isHatch,
+        _ => true
+    };
+
+    /// <summary>Objetos das travessias (ids; vazio = todas) que passam no filtro de pecas.</summary>
+    public static List<AcadDb.ObjectId> Objects(AcadDb.Database db, ICollection<string>? travIds, string filter)
+    {
+        var ids = new List<AcadDb.ObjectId>();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId oid in ms)
+        {
+            if (oid.IsErased || tr.GetObject(oid, AcadDb.OpenMode.ForRead) is not AcadDb.Entity e || PartOf(e) is not { } p)
+                continue;
+            if (travIds is { Count: > 0 } && !travIds.Contains(p.Id))
+                continue;
+            if (MatchesFilter(p.Part, e is AcadDb.Hatch, filter))
+                ids.Add(oid);
+        }
+        tr.Commit();
+        return ids;
+    }
+
     public static int SetPlanVisible(AcadDb.Database db, bool visible)
     {
         int n = 0;

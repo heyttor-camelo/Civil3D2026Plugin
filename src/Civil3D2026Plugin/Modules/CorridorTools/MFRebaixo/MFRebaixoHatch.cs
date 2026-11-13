@@ -527,6 +527,21 @@ internal static class MFRebaixoHatch
         return n;
     }
 
+    /// <summary>Hachuras dos rebaixos (pelos nomes dos sets), para selecionar no desenho.</summary>
+    public static List<AcadDb.ObjectId> HatchIds(AcadDb.Database db, IEnumerable<string> setNames)
+    {
+        var names = new HashSet<string>(setNames, StringComparer.OrdinalIgnoreCase);
+        var ids = new List<AcadDb.ObjectId>();
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        foreach (AcadDb.Hatch h in OwnHatches(tr, db, null))
+        {
+            if (SetNameOf(h) is string n && names.Contains(n))
+                ids.Add(h.ObjectId);
+        }
+        tr.Commit();
+        return ids;
+    }
+
     private static IEnumerable<AcadDb.Hatch> OwnHatches(AcadDb.Transaction tr, AcadDb.Database db, string? setName)
     {
         var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);

@@ -40,6 +40,8 @@ public sealed class PassagemRampaApplication : IExtensionApplication
         (C3DCommands.Corridor.MfTravessia, "Travessia elevada/semi-elevada (lombofaixa) entre dois rebaixos."),
         (C3DCommands.Corridor.MfTravessiaUnir, "Unir (ou separar) as travessias de um cruzamento num plato so."),
         (C3DCommands.Corridor.MfTravessiaApagar, "Apagar travessias clicando nelas no desenho."),
+        (C3DCommands.Corridor.MfTravessiaSelecionar, "Selecionar no desenho as pecas das lombofaixas (para IFC, layer, isolar)."),
+        (C3DCommands.Corridor.MfRebaixoSelecionarPainel, "Selecionar no desenho o que esta marcado no painel (botao do painel)."),
         (C3DCommands.Corridor.MfTravessiaPlanta, "Ocultar ou mostrar as lombofaixas em planta (o 3D fica)."),
         (C3DCommands.Corridor.MfTravessiaRefazer, "Redesenhar as travessias depois de mexer no corredor."),
         (C3DCommands.Corridor.MfRebaixoLimpar, "Apagar de vez os Transition Sets de rebaixos removidos."),
