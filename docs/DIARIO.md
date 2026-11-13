@@ -8,7 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
-## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.112.0: esconsa com rampas paralelas ou perpendiculares
+## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.113.0: monitor dos painéis, lista editável, declividade, rampa na region vizinha
+
+- Faixa escura vazia entre a vista e a lista (Rebaixo, Hydro, Viário, Seção): o GridSplitter redimensionava a linha da barra das vistas (Auto) ou uma linha vazia de altura 0, não a vista. Vista + barra agora num DockPanel na mesma linha estrela. No 3D do rebaixo a ajuda fica numa linha própria (não cobre o cartão); cartão do 3D é TextBox só leitura (copiável); legenda de cores com fundo (`ColorLegend`).
+- Propriedades sem estacas; valores em TextBox só leitura (`Prop`/`SelectableText`), botão Copiar tudo. Declividade das rampas editável (`slopeIn/slopeOut` em `ApplyRebaixoCore`/`ApplyFromPanel`; lida de volta das Transitions: `RebaixoInfo.EntrySlope/ExitSlope`); opção `Declividade` no MFREBAIXO (`UltimaDeclividade`). Lista editável: `MFRebaixoPanel.ListEdit.cs` (popup em cima da célula, lote com confirmação).
+- Rampa que passa da ponta da region: set `_PARTE_ENTRADA/_PARTE_SAIDA` na region colada (`NeighborRegion`, folga 5 cm), altura de referência lida na vizinha (`TryReferenceHeightNearBoundary`); sem vizinha: rampa cortada na divisa com aviso. Hachura/faixa juntam seções de todas as regions (mesmo nome de peça).
+- Teste (cópia `v4\travessia`, ZZTeste6.cs local): divisa 203 sem region colada antes (267 → 357,569): corta com aviso; divisa 190/190 [Copy]: entrada e saída continuam (REB 0,155 dos dois lados), 3 hachuras, Remover tira 3 sets; PNGs `z6-*.png`.
+- Pendente: rampa para outra baseline (caso do 203 do Heyvid, se a esquina for de outra baseline) e trecho rebaixado atravessando a divisa (degrau do R01-R02 ao centralizar).
+- Entregue 2.113.0 / PassagemRampa 1.16.0 só com versão no nome (Civil aberto); hashes conferidos (Drive, versões, FDX, hydro-build).## 2026-11-12 — LAPTOP-11TNS6P8 (Remote Control), 2.112.0: esconsa com rampas paralelas ou perpendiculares
 
 - Opção "Rampas da esconsa" [Paralelas/Perpendiculares] (escolha do Heyvid: as duas). Perpendiculares: linhas do platô transversais à pista, plataforma + desalinhamento, faixa no eixo inclinado (`FaixaAxis`), grelhas e conferência centradas em cada rebaixo (`CenterA/B`).
 - Achado no teste: prompts com explicação dentro dos colchetes travavam ("Invalid option keyword" em laço) — o da posição da viga estava assim desde a 2.108.1. Corrigido nos três.
