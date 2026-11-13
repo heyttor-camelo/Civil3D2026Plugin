@@ -8,7 +8,12 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
-## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.114.1: hachura do pedaço na baseline vizinha
+## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.115.0: etiquetas arrastáveis, selecionar no desenho, IFC 4.3
+
+- `MFRebaixoPanel.Labels.cs`: etiquetas arrastáveis (posição em metros no dicionário do desenho C3D_MFREBAIXO_ETIQUETAS), posição padrão do lado da calçada, travessias reservam a área; etiquetas T01 das travessias (código também na lista). "Selecionar no desenho": painel guarda `MFRebaixoCommands.PendingSelection` e manda `MFREBAIXOSELECIONARPAINEL` (SetImpliedSelection dentro de comando; direto da janela + SetFocusToDwgView derrubou o accoreconsole). `MFTRAVESSIASELECIONAR` (Todas/Clicar + filtro).
+- IFC 4.3: extensão instalada (`Civil3D_IFC-2026.bundle`: IFCInfraExport, IFCInfraExportSelected, mapeamento por layer em xlsx, pode ficar ao lado do DWG). Teste exportou 18 sólidos como IfcBuiltElement com Pset C3D_TRAVESSIA (só plato/grelhas/vigas; a sinalização 3D sai sem pset). Proposta de mapeamento por layer no CHANGELOG.
+- Referência de altura normal pula seções dentro de outros rebaixos do mesmo lado (caso "rampa de saída 0,00" do R19).
+- Entregue 2.115.0 / PassagemRampa 1.18.0 só com versão no nome; hashes conferidos.## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.114.1: hachura do pedaço na baseline vizinha
 
 - `MFRebaixoHatch.DrawOtherBaselineParts`: sets `..._PARTE_..._BL` em qualquer corredor/baseline ganham hachura (Edges daquela baseline; Transition com valor igual nas pontas = trecho rebaixado, senão rampa). Hachura leva o nome do rebaixo, então Erase/Remover/MFREBAIXOAPAGAR/MFREBAIXOHACHURA já incluem.
 - Teste (cópia): 358,079 → 4 hachuras (antes 3); trecho atravessando → 4 (antes 2); R01/R02 centralizados → 4 cada; MFREBAIXOHACHURA 8.
