@@ -8,6 +8,11 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.114.1: hachura do pedaço na baseline vizinha
+
+- `MFRebaixoHatch.DrawOtherBaselineParts`: sets `..._PARTE_..._BL` em qualquer corredor/baseline ganham hachura (Edges daquela baseline; Transition com valor igual nas pontas = trecho rebaixado, senão rampa). Hachura leva o nome do rebaixo, então Erase/Remover/MFREBAIXOAPAGAR/MFREBAIXOHACHURA já incluem.
+- Teste (cópia): 358,079 → 4 hachuras (antes 3); trecho atravessando → 4 (antes 2); R01/R02 centralizados → 4 cada; MFREBAIXOHACHURA 8.
+- Entregue 2.114.1 / PassagemRampa 1.17.1 só com versão no nome; hashes conferidos.
 ## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.114.0: cadeia de meio-fio, apagar clicando, Ctrl no monitor, lombofaixa oculta em planta
 
 - `MFRebaixoChain.cs`: `ApplyRebaixoCore` reescrito sobre uma cadeia (Region do rebaixo + Regions coladas + baseline vizinha cujo meio-fio encosta na ponta ≤ 2 m e segue no mesmo sentido, |cos| ≥ 0,85). Rampas e trecho rebaixado atravessam; um set por pedaço (`_PARTE_ENTRADA/_SAIDA[_BL]`), set principal com token `{S=s0;s1;s2;s3;V=...}` no comentário (lido em `MFRebaixoData.Build`, mantido no Rename). Profundidade por pedaço a partir da altura normal dele. `Remove` tira partes em outras baselines e as seções nas pontas de todas as transitions.
