@@ -8,6 +8,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.117.1: painel C3DQTO, QTOTODOS, teste sem tela do QTO
+
+- QTO 0.18/0.18.1: painel `C3DQTO` (`QtoPanel.cs`, manda `QTOESTUDO`/`QTOTODOS` via `QtoCommands.PedidoDoPainel`), opções em `QtoConfig.cs` (`%APPDATA%\Civil3D2026Plugin\qto.txt`, tolerância padrão 5%), `QTOTODOS` (um relatório DrawingExtent repartido por corredor pelo Handle, conferência contra o `estimatedQuantity` do Civil com folga de 0,005 por item), alerta de quantidade fora do eixo e de Pay Item em m³ sem fórmula, testes fora da Ribbon.
+- Contexto antigo do QTO (handoff do Heyvid) guardado nos arquivos do projeto: `qto/CONTEXTO_QTO_PARA_CLAUDE.md`. Não regredir filtro por Handle nem reparo LT/RT; "OK <= 5%" é só consistência interna.
+- **Teste sem tela do QTO** (funciona): a DLL principal derruba o accoreconsole (inicializa janelas), então montar uma DLL de teste só com os arquivos de `Modules/QTO` + `PluginLog` fora do repo, cópia do DWG em `C:\Temp\hydro-build\teste-qto`, `QTOTODOS` e `QTOESTUDO` por script. Saídas guardadas lá (`QTO_via__TODOS`, `QTO_via__MARGINAL DIREITA`, `reteste.txt`).
+- Resultado na cópia de `C3D_PB_VIA_SS_GEO_V0 - Copia(1).dwg` (5 corredores): QTOTODOS 9 de 9 FECHA (349 itens, todos pelo Handle); totais por corredor iguais ao "Takeoff Desenho" do QTOESTUDO; planilhas abrem e recalculam sem reparo. No relatório do desenho inteiro `baselineName`/`side`/estacas vêm vazios (só o Handle identifica o corredor).
+- Achados do desenho (não do plugin): 03.01.02 Reforço de subleito em m³ sem fórmula (sai a área, 5844,17); Limpeza do MARGINAL DIREITA diverge 16,4% entre soma por estaca (3595,89) e total (4300,19): link Datum LT offset 0 de 738 m² perto de 238 m, e trecho 280–300 zerado.
+- Entrega: 2.117.0 em `atual` (Civil fechado); 2.117.1 só com número no nome (Civil aberto) em `atual`, `versoes\2.117.1`, `C:\Temp\hydro-build` e FDX.
+- Pendências: teste do painel pelo Heyvid; ele ficou de mandar as memórias isoladas (`referencias_isoladas`) e dizer o DWG do Viaduto/Acessos e a espessura de Pave1/2/3; ideia de botão "Comparar com memória anterior"; tubos/blocos com Pay Item ficam para o futuro.
+
 ## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.116.0: revisão do QTO (QTO 0.17)
 
 - `Modules/QTO/QTOCommands.cs` (`QTOESTUDO`): eixo de referência vem das baselines do corredor (lista numerada se houver mais de um, não clica mais no Alignment); limites dos trechos em múltiplos do intervalo (estacas inteiras), por índice (`MontarLimitesIntervalos`); Esc cancela entre trechos sem gravar memória parcial; pergunta se abre a pasta no fim; aviso de desenho não salvo; erros e resumo no `PluginLog` (módulo "QTO"). Motor nativo e filtro por corredor iguais à 0.16. README ganhou a seção do QTO.
