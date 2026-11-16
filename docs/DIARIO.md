@@ -8,6 +8,12 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.116.0: revisão do QTO (QTO 0.17)
+
+- `Modules/QTO/QTOCommands.cs` (`QTOESTUDO`): eixo de referência vem das baselines do corredor (lista numerada se houver mais de um, não clica mais no Alignment); limites dos trechos em múltiplos do intervalo (estacas inteiras), por índice (`MontarLimitesIntervalos`); Esc cancela entre trechos sem gravar memória parcial; pergunta se abre a pasta no fim; aviso de desenho não salvo; erros e resumo no `PluginLog` (módulo "QTO"). Motor nativo e filtro por corredor iguais à 0.16. README ganhou a seção do QTO.
+- Compilado na CAMELO (net8, sem avisos novos, ValidateProject OK), Civil fechado: entregue em `atual` (com e sem número), `versoes\2.116.0`, `C:\Temp\hydro-build` e pasta dll da FDX.
+- Pendências: não testado no Civil (aguarda teste do Heyvid). Perguntas em aberto para ele: memória por eixo em corredor com vários eixos, vários corredores de uma vez com resumo único, incluir tubos/blocos com Pay Item, tolerância de 5% configurável, tirar `TESTEQTO`/`QTOGEOTESTE` da Ribbon, painel no lugar da linha de comando.
+
 ## 2026-11-13 — LAPTOP-11TNS6P8 (Remote Control), 2.115.0: etiquetas arrastáveis, selecionar no desenho, IFC 4.3
 
 - `MFRebaixoPanel.Labels.cs`: etiquetas arrastáveis (posição em metros no dicionário do desenho C3D_MFREBAIXO_ETIQUETAS), posição padrão do lado da calçada, travessias reservam a área; etiquetas T01 das travessias (código também na lista). "Selecionar no desenho": painel guarda `MFRebaixoCommands.PendingSelection` e manda `MFREBAIXOSELECIONARPAINEL` (SetImpliedSelection dentro de comando; direto da janela + SetFocusToDwgView derrubou o accoreconsole). `MFTRAVESSIASELECIONAR` (Todas/Clicar + filtro).
