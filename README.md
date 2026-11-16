@@ -259,7 +259,7 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Quantitativos (C3DQTO, QTO v0.18)
+## Quantitativos (C3DQTO, QTO v0.18.1)
 
 Quantitativos dos **Pay Items** dos corredores, usando o Takeoff do proprio Civil 3D (o mesmo do comando Takeoff). So conta o que tem Pay Item atribuido no Code Set Style do corredor (links = area, shapes = volume, feature lines = comprimento). Nao le tubos, blocos nem volumes de terraplenagem. Nao altera o desenho.
 

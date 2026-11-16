@@ -1301,6 +1301,25 @@ namespace Civil3D2026Plugin.Modules.QTO
                         totalAlignment,
                         totalDesenho);
 
+                // Serviços em m³ que vieram sem fórmula: o Civil devolve a área.
+                string avisoSemFormula =
+                    string.Concat(
+                        totalAlignment.PayItems.Values
+                            .Where(x => x.SemFormula && NormalizarUnidade(x.Unidade) == "m3")
+                            .OrderBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                            .Select(x =>
+                                "\n[ATENÇÃO] " + x.Id + " " + x.Descricao +
+                                " está em m³ mas veio SEM FÓRMULA no relatório do Civil:" +
+                                "\n          o valor é a ÁREA, não o volume. Confira a fórmula do Pay Item no QTO Manager."));
+
+                if (avisoSemFormula.Length > 0)
+                {
+                    PluginLog.Aviso(
+                        ModuloLog,
+                        "QTOESTUDO: Pay Item em m³ sem fórmula no corredor '" + corridor.Name + "'." +
+                        avisoSemFormula.Replace("\n", " "));
+                }
+
                 // Serviços em que o total do corredor no desenho inteiro é
                 // diferente do total deste eixo: há quantidade fora do eixo.
                 int foraDoEixo =
@@ -1396,6 +1415,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                         : (totalDesenho != null
                             ? "\nTotal do eixo = total do corredor no desenho (nada ficou fora do eixo)."
                             : string.Empty)) +
+                    avisoSemFormula +
                     "\nFiltro por Corridor: VALIDADO" +
                     "\nHandle: " + corridorHandle +
                     "\nItens usados: " + totalAlignment.ItensCorrespondentes +
@@ -1917,6 +1937,9 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                 item.Quantidade +=
                     quantidade;
+
+                if (detalhesFiltrados.Any(DetalheSemFormula))
+                    item.SemFormula = true;
 
                 foreach (KeyValuePair<string, double> lado in quantidadePorLado)
                 {
@@ -4723,6 +4746,17 @@ namespace Civil3D2026Plugin.Modules.QTO
             /// <summary>Total do Pay Item informado pelo próprio Civil no relatório (se houver).</summary>
             public double? TotalCivil { get; set; }
 
+            /// <summary>Quantos itens detalhados (arredondados a 2 casas pelo Civil) formam o total.</summary>
+            public int Detalhes { get; set; }
+
+            /// <summary>Itens detalhados cuja origem não traz fórmula (ver VolumeSemFormula).</summary>
+            public int DetalhesSemFormula { get; set; }
+
+            /// <summary>Serviço em m³ sem fórmula no relatório: o Civil devolve a ÁREA como se fosse volume.</summary>
+            public bool VolumeSemFormula =>
+                DetalhesSemFormula > 0 &&
+                NormalizarUnidade(Unidade) == "m3";
+
             public double TotalRelatorio => SomaCorredores + ForaDeCorredor;
 
             public double? Diferenca =>
@@ -4737,10 +4771,14 @@ namespace Civil3D2026Plugin.Modules.QTO
                     if (!TotalCivil.HasValue)
                         return "SEM TOTAL DO CIVIL";
 
+                    // 0,01% do total, com folga para o arredondamento do Civil:
+                    // cada item detalhado vem com 2 casas (erro de até 0,005).
                     double limite =
                         Math.Max(
-                            0.001,
-                            Math.Abs(TotalCivil.Value) * 0.0001);
+                            Math.Max(
+                                0.001,
+                                Math.Abs(TotalCivil.Value) * 0.0001),
+                            0.005 * Detalhes);
 
                     return Math.Abs(Diferenca ?? 0.0) <= limite
                         ? "FECHA"
@@ -4977,6 +5015,14 @@ namespace Civil3D2026Plugin.Modules.QTO
                         " " + item.Unidade);
                 }
 
+                foreach (QtoTodosItem item in ctx.Itens.Where(x => x.VolumeSemFormula))
+                {
+                    sb.Append(
+                        "\n[ATENÇÃO] " + item.Id + " " + item.Descricao +
+                        " está em m³ mas veio SEM FÓRMULA no relatório do Civil:" +
+                        "\n          o valor é a ÁREA, não o volume. Confira a fórmula do Pay Item no QTO Manager.");
+                }
+
                 if (comFora > 0)
                 {
                     sb.Append(
@@ -5135,6 +5181,10 @@ namespace Civil3D2026Plugin.Modules.QTO
                     }
 
                     ctx.ItensDetalhados++;
+                    item.Detalhes++;
+
+                    if (DetalheSemFormula(detalhe))
+                        item.DetalhesSemFormula++;
 
                     QtoTodosCorredor? dono = null;
 
@@ -5201,6 +5251,25 @@ namespace Civil3D2026Plugin.Modules.QTO
                     .ToList();
 
             return ctx;
+        }
+
+
+        /// <summary>
+        /// Item detalhado cuja origem (remarks) não cita fórmula. Em Pay Item de
+        /// volume isso significa que o Civil devolveu a área do link sem
+        /// multiplicar pela espessura (fórmula ausente ou quebrada no DWG).
+        /// </summary>
+        private static bool DetalheSemFormula(
+            XElement detalhe)
+        {
+            string remarks =
+                ObterValorDescendente(
+                    detalhe,
+                    "remarks");
+
+            return
+                remarks.IndexOf("Link Code", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                remarks.IndexOf("Formula", StringComparison.OrdinalIgnoreCase) < 0;
         }
 
 
@@ -5346,6 +5415,9 @@ namespace Civil3D2026Plugin.Modules.QTO
             public string CodigoFonte { get; set; } = string.Empty;
 
             public double Quantidade { get; set; }
+
+            /// <summary>Algum item detalhado veio sem fórmula (em m³ = área no lugar do volume).</summary>
+            public bool SemFormula { get; set; }
 
             public Dictionary<string, double> QuantidadePorLado { get; set; } =
                 new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
@@ -5689,7 +5761,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             int ultimaLinhaDados)
         {
             StringBuilder sb = SheetStart(1);
-            sb.Append(Columns(new double[] { 16, 48, 11, 20, 18, 20, 20, 16, 22 }));
+            sb.Append(Columns(new double[] { 16, 48, 11, 20, 18, 20, 20, 16, 22, 10, 60 }));
             sb.Append("<sheetData>");
 
             RowBuilder row = new RowBuilder(sb);
@@ -5703,6 +5775,8 @@ namespace Civil3D2026Plugin.Modules.QTO
                 .Text(7, "Total do Civil", StyleHeader)
                 .Text(8, "Diferença", StyleHeader)
                 .Text(9, "Conferência", StyleHeader)
+                .Text(10, "Itens", StyleHeader)
+                .Text(11, "Observação", StyleHeader)
                 .End();
 
             // Intervalo fixo (não a coluna inteira) para o SOMASES ficar leve.
@@ -5730,7 +5804,7 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                 string fConf =
                     "IF($G" + excelRow + "=\"\",\"SEM TOTAL DO CIVIL\",IF(ABS($H" + excelRow +
-                    ")<=MAX(0.001,ABS($G" + excelRow + ")*0.0001),\"FECHA\",\"CONFERIR\"))";
+                    ")<=MAX(0.001,ABS($G" + excelRow + ")*0.0001,0.005*$J" + excelRow + "),\"FECHA\",\"CONFERIR\"))";
 
                 string conferencia = item.Conferencia;
 
@@ -5749,6 +5823,11 @@ namespace Civil3D2026Plugin.Modules.QTO
                     .NullableNumber(7, item.TotalCivil, numberStyle, textStyle)
                     .FormulaNumber(8, fDif, item.Diferenca, numberStyle)
                     .FormulaText(9, fConf, conferencia, statusStyle)
+                    .Number(10, item.Detalhes, textStyle)
+                    .Text(11, item.VolumeSemFormula
+                        ? "SEM FÓRMULA: em m³, mas o Civil devolveu a área. Confira a fórmula no QTO Manager."
+                        : string.Empty,
+                        item.VolumeSemFormula ? StyleStatusBad : textStyle)
                     .End();
 
                 excelRow++;
@@ -5758,7 +5837,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             sb.Append("</sheetData>");
 
             if (excelRow > 2)
-                sb.Append("<autoFilter ref=\"A1:I").Append(excelRow - 1).Append("\"/>");
+                sb.Append("<autoFilter ref=\"A1:K").Append(excelRow - 1).Append("\"/>");
 
             sb.Append(PageSetupLandscape());
             sb.Append(SheetEnd());
@@ -5785,7 +5864,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             Meta(row, r++, "Origem dos números", "Takeoff do próprio Civil 3D (QTOUtility, Detailed Report) do desenho inteiro, num relatório só, sem dividir por estaca e sem nenhuma correção");
             Meta(row, r++, "Separação por corredor", "Cada item do relatório é atribuído ao corredor pelo identificador (Handle) do objeto; item sem Handle entra pelo nome do eixo, só quando o nome pertence a um único corredor");
             Meta(row, r++, "Fora de corredor", "Itens do relatório que não são de nenhum corredor (tubos, blocos, item sem identificação). Não entram no resumo por corredor, mas aparecem na aba Total do Desenho");
-            Meta(row, r++, "Conferência", "Soma dos corredores + Fora de corredor comparada com o total do Pay Item informado pelo Civil no mesmo relatório. FECHA = diferença até 0,01% (mínimo 0,001)");
+            Meta(row, r++, "Conferência", "Soma dos corredores + Fora de corredor comparada com o total do Pay Item informado pelo Civil no mesmo relatório. FECHA = diferença até 0,01% do total, com folga de 0,005 por item do relatório (o Civil arredonda cada item a 2 casas)");
             Meta(row, r++, "Corredores no desenho", ctx.Corredores.Count.ToString(CultureInfo.InvariantCulture));
             Meta(row, r++, "Itens detalhados no relatório", ctx.ItensDetalhados.ToString(CultureInfo.InvariantCulture));
             Meta(row, r++, "Atribuídos pelo Handle do corredor", ctx.ItensPorHandle.ToString(CultureInfo.InvariantCulture));

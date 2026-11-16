@@ -1,3 +1,10 @@
+## 2.117.1 - QTO v0.18.1: aviso de volume sem formula e folga de arredondamento na conferencia
+
+Resultado do teste sem tela da 2.117.0 (copia de C3D_PB_VIA_SS_GEO_V0, 5 corredores, 16/11/2026): QTOTODOS fechou 9 de 9 servicos com o total do proprio Civil (349 itens, todos pelo Handle do corredor) e os totais por corredor bateram com o "Takeoff Desenho" do QTOESTUDO.
+
+- **Aviso de volume sem formula**: quando um Pay Item em m3 vem do Civil sem formula (origem "Corridor Link Code: ..." sem "Formula"), o valor e a AREA do link, nao o volume (caso do 03.01.02 Reforco de subleito no teste: 5844,17 "m3" igual a area). `QTOESTUDO` e `QTOTODOS` avisam na linha de comando; o `QTOTODOS` marca tambem na coluna "Observacao" da aba Total do Desenho. A correcao e no QTO Manager do DWG (formula do Pay Item).
+- **Conferencia do QTOTODOS com folga de arredondamento**: o Civil arredonda cada item do relatorio a 2 casas, entao a soma pode diferir do total dele em ate 0,005 por item. O limite do FECHA passou a ser o maior entre 0,001, 0,01% do total e 0,005 x numero de itens (antes um servico pequeno com muitos itens podia sair CONFERIR sem motivo). Coluna nova "Itens" na planilha; a formula do Excel usa a mesma regra.
+
 ## 2.117.0 - QTO v0.18: painel C3DQTO, total de todos os corredores (QTOTODOS), tolerancia ajustavel
 
 Respostas do Heyvid em 16/11/2026: comando para todos os corredores ("minha maior preocupacao e a certeza de que ele esta exportando corretamente os valores"), menu de opcoes com a tolerancia ajustavel (padrao 5%), tirar os testes da Ribbon, painel no lugar da linha de comando. Um eixo por vez na memoria por estaca continua como esta. Tubos/blocos com Pay Item ficam para o futuro.
