@@ -259,6 +259,24 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
+## Quantitativos por estaca (QTOESTUDO, QTO v0.17)
+
+Gera a memoria de calculo dos **Pay Items** de um corredor, trecho a trecho. Usa o Takeoff do proprio Civil 3D (o mesmo do comando Takeoff), entao so conta o que tem Pay Item atribuido no Code Set Style do corredor (links = area, shapes = volume, feature lines = comprimento). Nao le tubos, blocos nem volumes de terraplenagem. Nao altera o desenho.
+
+1. `QTOESTUDO`, clique no Corridor.
+2. O eixo de referencia das estacas vem da baseline do corredor; com mais de um eixo o comando lista e pede o numero.
+3. Informe o intervalo (20 m padrao). Os trechos fecham em estacas inteiras; Esc cancela.
+
+Saida na pasta `QTO_<DWG>__<CORREDOR>`, ao lado do DWG:
+
+- `...__MEMORIA_CALCULO.xlsx`: aba "QTO por Estaca" (uma linha por trecho e servico, com coluna Chave para PROCX), aba "Resumo QTO" (totais, conferencia e geometria do eixo) e aba "Metadados";
+- `...__RESUMO_ORCAMENTO.csv`: servico, unidade e quantidade total, para juntar varios corredores;
+- `...__INTERVALOS.csv`, `...__AUDITORIA.csv`, `...__RESUMO.txt` e a pasta `XML` (relatorios originais do Civil).
+
+Conferencia: a soma dos trechos e comparada com o Takeoff do eixo inteiro; ate 5% de diferenca = OK. Em desenho com varios corredores so entram as quantidades do corredor escolhido. Se a planilha estiver aberta no Excel, a nova sai com `__ATUALIZADA_<data_hora>` no nome.
+
+Outros comandos: `QTOHELP` (ajuda), `QTOGEOTESTE` e `TESTEQTO` (testes de desenvolvimento).
+
 ## Modulos na Ribbon (C3DMODULOS)
 
 `C3DMODULOS` (ou o botao Modulos no painel Plugin) abre a lista dos modulos por categoria; so os marcados aparecem na Ribbon e na arvore do `C3DHELP`, e so eles iniciam seus servicos de fundo na proxima carga da DLL (reatores do viario, tooltip dos estais, solidos so no 3D, autoload das LISPs). A escolha fica em `%APPDATA%\Civil3D2026Plugin\modulos.txt`. Os comandos continuam registrados (digitar o nome funciona): a DLL .NET nao descarrega por partes.

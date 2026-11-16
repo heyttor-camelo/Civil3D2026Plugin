@@ -1,3 +1,17 @@
+## 2.116.0 - QTO v0.17: eixo escolhido sozinho, trechos em estacas inteiras, Esc cancela, abre a pasta no fim
+
+Pedido do Heyvid em 16/11/2026 ("consegue entender o que faz o comando do QTO? ... ja aproveita para melhorar, aprimorar e resolver possiveis problemas"). Revisao do `QTOESTUDO`; o motor (Takeoff nativo do Civil filtrado pelo corredor) nao mudou.
+
+- **Eixo de referencia sem clicar**: depois de escolher o Corridor, o comando usa o Alignment da baseline dele. Se o corredor tem mais de um eixo, lista os nomes numerados e pede o numero (antes era preciso clicar no Alignment no desenho, por baixo do corredor, e dava erro se clicasse num eixo de fora).
+- **Trechos fechando em estacas inteiras**: os limites passam a ser multiplos do intervalo contados da estacao 0. Eixo que comeca em 0+7,35 gera 0+7,35 -> 1+0,00, depois 1+0,00 -> 2+0,00... (antes saia 0+7,35 -> 1+7,35, 1+7,35 -> 2+7,35...). Eixo que comeca em estaca inteira nao muda. Os totais sao os mesmos; muda so a divisao por trecho.
+- Limites calculados por indice, sem somar o intervalo repetidamente (com intervalo quebrado, ex. 0,1 m, podia sobrar um trecho final minusculo).
+- **Esc cancela** entre um trecho e outro (o Civil gera um relatorio por trecho e em eixo longo demora). Cancelado, nao grava memoria parcial.
+- No fim pergunta se abre a pasta (Enter = Sim) ja com a planilha selecionada.
+- Avisa quando o desenho nao foi salvo (a saida vai para a pasta temporaria do Windows).
+- Erros e resumo da execucao vao para o log do plugin (`C3DLOG`), com o detalhe tecnico do erro.
+- Textos de resultado e do RESUMO.txt mostram a versao real do modulo (estavam fixos em "v0.16").
+- README ganhou a secao do QTO (nao tinha).
+
 ## 2.115.0 - MFREBAIXO v1.25.0 / PassagemRampa v1.18.0: etiquetas arrastaveis, etiqueta das travessias, selecionar no desenho, IFC 4.3
 
 Pedidos do Heyvid em 13/11/2026 ("arrastar a label da identificacao do rebaixo"; "selecionar pelo painel os elementos que bem entender"; "label para as travessias tambem"; pergunta sobre o IFC 4.3).

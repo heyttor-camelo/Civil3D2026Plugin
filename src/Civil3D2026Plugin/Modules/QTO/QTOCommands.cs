@@ -2,8 +2,16 @@
 ===============================================================================
 QTO.cs
 Civil 3D 2026
-QTO - v0.16 | SAÍDA POR DWG/CORREDOR + MEMÓRIA VINTAGE + CONSOLIDAÇÃO
+QTO - v0.17 | SAÍDA POR DWG/CORREDOR + MEMÓRIA VINTAGE + CONSOLIDAÇÃO
 ===============================================================================
+
+NOVIDADES DA v0.17
+------------------
+- o Alignment de referência vem das baselines do Corridor (lista numerada se
+  houver mais de um); não é mais clicado no desenho;
+- limites dos trechos em múltiplos do intervalo (estacas inteiras), por índice;
+- Esc cancela entre trechos; pergunta se abre a pasta no fim; erros no PluginLog.
+- o motor nativo e o filtro por Corridor da v0.16 permanecem iguais.
 
 OBJETIVO DESTA VERSÃO
 ---------------------
@@ -124,6 +132,8 @@ using Autodesk.AutoCAD.EditorInput;
 using Autodesk.Civil.ApplicationServices;
 using Autodesk.Civil.DatabaseServices;
 
+using Civil3D2026Plugin.Infrastructure;
+
 using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using AcRuntime = Autodesk.AutoCAD.Runtime;
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
@@ -149,6 +159,8 @@ namespace Civil3D2026Plugin.Modules.QTO
         private const double ToleranciaOffset = 0.000001;
 
         private const double ToleranciaAuditoriaPercentual = 5.0;
+
+        private const string ModuloLog = "QTO";
 
         // =====================================================================
         // TESTE DE CARREGAMENTO
@@ -542,26 +554,10 @@ namespace Civil3D2026Plugin.Modules.QTO
                     return;
 
                 // -------------------------------------------------------------
-                // 2. Selecionar Alignment de referência.
-                //    Ele precisa pertencer a uma baseline do Corridor.
+                // 2. Alignment de referência.
+                //    Vem das baselines do próprio Corridor: com um só eixo ele
+                //    é usado direto; com vários, o comando lista e pede o número.
                 // -------------------------------------------------------------
-
-                PromptEntityOptions peAlignment =
-                    new PromptEntityOptions(
-                        "\nSelecione o Alignment de referência das estacas: ");
-
-                peAlignment.SetRejectMessage(
-                    "\nSelecione um Alignment do Civil 3D.");
-
-                peAlignment.AddAllowedClass(
-                    typeof(Alignment),
-                    true);
-
-                PromptEntityResult prAlignment =
-                    ed.GetEntity(peAlignment);
-
-                if (prAlignment.Status != PromptStatus.OK)
-                    return;
 
                 using Transaction tr =
                     db.TransactionManager.StartTransaction();
@@ -575,14 +571,6 @@ namespace Civil3D2026Plugin.Modules.QTO
                     NormalizarHandle(
                         corridor.Handle.ToString());
 
-                Alignment alignment =
-                    (Alignment)tr.GetObject(
-                        prAlignment.ObjectId,
-                        OpenMode.ForRead);
-
-                bool alignmentPertenceAoCorridor =
-                    false;
-
                 int totalBaselines = 0;
                 List<string> baselinesInfo =
                     new List<string>();
@@ -590,6 +578,12 @@ namespace Civil3D2026Plugin.Modules.QTO
                 HashSet<string> nomesBaselinesCorridor =
                     new HashSet<string>(
                         StringComparer.OrdinalIgnoreCase);
+
+                List<ObjectId> alinhamentosCorridor =
+                    new List<ObjectId>();
+
+                List<string> nomesAlinhamentosCorridor =
+                    new List<string>();
 
                 foreach (Baseline baseline in corridor.Baselines)
                 {
@@ -622,12 +616,12 @@ namespace Civil3D2026Plugin.Modules.QTO
                                     nomesBaselinesCorridor.Add(
                                         al.Name.Trim());
                                 }
-                            }
 
-                            if (id == prAlignment.ObjectId)
-                            {
-                                alignmentPertenceAoCorridor =
-                                    true;
+                                if (!alinhamentosCorridor.Contains(id))
+                                {
+                                    alinhamentosCorridor.Add(id);
+                                    nomesAlinhamentosCorridor.Add(al.Name);
+                                }
                             }
                         }
                         else
@@ -643,14 +637,61 @@ namespace Civil3D2026Plugin.Modules.QTO
                     }
                 }
 
-                if (!alignmentPertenceAoCorridor)
+                if (alinhamentosCorridor.Count == 0)
                 {
                     ed.WriteMessage(
-                        "\n[ERRO] O Alignment selecionado não é uma baseline " +
-                        "do Corridor selecionado.\n");
+                        "\n[ERRO] O Corridor selecionado não tem nenhuma baseline " +
+                        "apoiada em Alignment (só Feature Line). O QTO por estaca " +
+                        "precisa de um Alignment.\n");
 
                     return;
                 }
+
+                ObjectId alignmentId =
+                    alinhamentosCorridor[0];
+
+                if (alinhamentosCorridor.Count > 1)
+                {
+                    StringBuilder lista =
+                        new StringBuilder(
+                            "\nO Corridor tem " +
+                            alinhamentosCorridor.Count +
+                            " eixos (Alignments). As estacas serão contadas em UM deles:");
+
+                    for (int i = 0; i < alinhamentosCorridor.Count; i++)
+                    {
+                        lista.Append(
+                            "\n  " +
+                            (i + 1).ToString(CultureInfo.InvariantCulture) +
+                            " - " +
+                            nomesAlinhamentosCorridor[i]);
+                    }
+
+                    ed.WriteMessage(lista.ToString());
+
+                    PromptIntegerOptions pioAlignment =
+                        new PromptIntegerOptions(
+                            "\nNúmero do Alignment de referência das estacas <1>: ");
+
+                    pioAlignment.LowerLimit = 1;
+                    pioAlignment.UpperLimit = alinhamentosCorridor.Count;
+                    pioAlignment.DefaultValue = 1;
+                    pioAlignment.UseDefaultValue = true;
+
+                    PromptIntegerResult pirAlignment =
+                        ed.GetInteger(pioAlignment);
+
+                    if (pirAlignment.Status != PromptStatus.OK)
+                        return;
+
+                    alignmentId =
+                        alinhamentosCorridor[pirAlignment.Value - 1];
+                }
+
+                Alignment alignment =
+                    (Alignment)tr.GetObject(
+                        alignmentId,
+                        OpenMode.ForRead);
 
                 if (!string.IsNullOrWhiteSpace(alignment.Name))
                 {
@@ -726,10 +767,18 @@ namespace Civil3D2026Plugin.Modules.QTO
                         alignment,
                         "Description");
 
-                int numeroIntervalos =
-                    (int)Math.Ceiling(
-                        (fim - inicio) /
+                // Limites dos trechos em múltiplos do passo contados da
+                // estação 0 (estacas inteiras). Se o eixo não começa numa
+                // estaca inteira, o primeiro trecho é parcial (ex.: 0+7.35 ->
+                // 1+0.00) e os demais ficam em estacas cheias.
+                List<double> limites =
+                    MontarLimitesIntervalos(
+                        inicio,
+                        fim,
                         passo);
+
+                int numeroIntervalos =
+                    limites.Count - 1;
 
                 // -------------------------------------------------------------
                 // 5. Pasta do estudo.
@@ -797,6 +846,23 @@ namespace Civil3D2026Plugin.Modules.QTO
                     "\nTolerância de auditoria: " +
                     ToleranciaAuditoriaPercentual.ToString("0.##", CultureInfo.InvariantCulture) + "%");
 
+                if (string.IsNullOrWhiteSpace(db.Filename))
+                {
+                    ed.WriteMessage(
+                        "\n[AVISO] O desenho ainda não foi salvo: a saída vai para a pasta temporária do Windows.");
+                }
+
+                ed.WriteMessage(
+                    "\nO Civil gera um relatório por trecho; em eixo longo isso demora." +
+                    " Esc cancela.");
+
+                PluginLog.Info(
+                    ModuloLog,
+                    "QTOESTUDO: corredor '" + corridor.Name +
+                    "', eixo '" + alignment.Name +
+                    "', passo " + passo.ToString("0.###", CultureInfo.InvariantCulture) +
+                    " m, " + numeroIntervalos + " trechos, saída " + pastaSaida);
+
                 ed.WriteMessage(
                     "\n\n[MOTOR] QTO nativo por AlignmentId + StartStation + EndStation." +
                     " A opção de largura lateral foi removida porque não alterava" +
@@ -821,7 +887,7 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                 QtoReportData totalAlignment =
                     GerarRelatorioNativoPorEstacao(
-                        prAlignment.ObjectId,
+                        alignmentId,
                         inicio,
                         fim,
                         xmlTotalAlignment,
@@ -909,14 +975,28 @@ namespace Civil3D2026Plugin.Modules.QTO
                 double acrescimoCorrecoesLineares = 0.0;
 
                 for (
-                    double s0 = inicio;
-                    s0 < fim - ToleranciaEstacao;
-                    s0 += passo)
+                    int iLimite = 0;
+                    iLimite < limites.Count - 1;
+                    iLimite++)
                 {
-                    double s1 =
-                        Math.Min(
-                            s0 + passo,
-                            fim);
+                    double s0 = limites[iLimite];
+                    double s1 = limites[iLimite + 1];
+
+                    if (HostApplicationServices.Current.UserBreak())
+                    {
+                        ed.WriteMessage(
+                            "\n\n[CANCELADO] Esc pressionado no trecho " +
+                            (indice + 1) + " de " + numeroIntervalos +
+                            ". Nenhuma memória foi gerada (uma memória parcial" +
+                            " teria totais errados).\n");
+
+                        PluginLog.Aviso(
+                            ModuloLog,
+                            "QTOESTUDO cancelado pelo usuário no trecho " +
+                            (indice + 1) + "/" + numeroIntervalos + ".");
+
+                        return;
+                    }
 
                     indice++;
 
@@ -941,7 +1021,7 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                     QtoReportData relatorio =
                         GerarRelatorioNativoPorEstacao(
-                            prAlignment.ObjectId,
+                            alignmentId,
                             s0,
                             s1,
                             caminhoXml,
@@ -1155,7 +1235,7 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                 ed.WriteMessage(
                     "\n\n====================================================" +
-                    "\n QTOESTUDO v0.16 - RESULTADO" +
+                    $"\n QTOESTUDO v{Versao} - RESULTADO" +
                     "\n====================================================" +
                     "\nPay Items auditados: " + auditoria.TotalItens +
                     "\nOK (<= 5%): " + auditoria.Ok +
@@ -1192,17 +1272,111 @@ namespace Civil3D2026Plugin.Modules.QTO
                     "\n====================================================\n");
 
                 tr.Commit();
+
+                PluginLog.Info(
+                    ModuloLog,
+                    "QTOESTUDO concluído: " + auditoria.TotalItens + " Pay Items, " +
+                    auditoria.Ok + " OK, " + auditoria.Divergentes + " divergentes, " +
+                    auditoria.SemReferencia + " sem referência. Memória: " + xlsxMemoria);
+
+                // -------------------------------------------------------------
+                // 12. Abrir a pasta de saída (Enter = Sim).
+                // -------------------------------------------------------------
+
+                PromptKeywordOptions pkoAbrir =
+                    new PromptKeywordOptions(
+                        "\nAbrir a pasta com a memória de cálculo? [Sim/Nao] <Sim>: ");
+
+                pkoAbrir.Keywords.Add("Sim");
+                pkoAbrir.Keywords.Add("Nao");
+                pkoAbrir.Keywords.Default = "Sim";
+                pkoAbrir.AllowNone = true;
+
+                PromptResult prAbrir =
+                    ed.GetKeywords(pkoAbrir);
+
+                bool abrirPasta =
+                    prAbrir.Status == PromptStatus.None ||
+                    (prAbrir.Status == PromptStatus.OK &&
+                     !string.Equals(prAbrir.StringResult, "Nao", StringComparison.OrdinalIgnoreCase));
+
+                if (abrirPasta)
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(
+                            new System.Diagnostics.ProcessStartInfo(
+                                "explorer.exe",
+                                "/select,\"" + xlsxMemoria + "\"")
+                            {
+                                UseShellExecute = true
+                            });
+                    }
+                    catch (System.Exception exAbrir)
+                    {
+                        PluginLog.Aviso(
+                            ModuloLog,
+                            "Não foi possível abrir a pasta de saída: " + exAbrir.Message);
+                    }
+                }
             }
             catch (System.Exception ex)
             {
+                PluginLog.Erro(
+                    ModuloLog,
+                    "QTOESTUDO falhou",
+                    ex);
+
                 ed.WriteMessage(
                     "\n\n====================================================" +
                     "\n QTOESTUDO - ERRO" +
                     "\n====================================================" +
                     "\n" + ex.Message +
                     "\nTipo: " + ex.GetType().FullName +
+                    "\nDetalhes no log do plugin (comando C3DLOG)." +
                     "\n====================================================\n");
             }
+        }
+
+
+        // =====================================================================
+        // LIMITES DOS TRECHOS
+        //
+        // Devolve inicio, os múltiplos do passo que caem dentro do eixo e fim.
+        // Calculado por índice (sem somar o passo repetidamente), para não
+        // acumular erro de ponto flutuante nem criar um trecho final minúsculo.
+        // =====================================================================
+
+        private static List<double> MontarLimitesIntervalos(
+            double inicio,
+            double fim,
+            double passo)
+        {
+            // Folga para não criar trechos de menos de 1 mm nas pontas.
+            const double folga = 0.001;
+
+            List<double> limites =
+                new List<double> { inicio };
+
+            long k =
+                (long)Math.Floor(inicio / passo) + 1;
+
+            while (true)
+            {
+                double limite = k * passo;
+
+                if (limite >= fim - folga)
+                    break;
+
+                if (limite > inicio + folga)
+                    limites.Add(limite);
+
+                k++;
+            }
+
+            limites.Add(fim);
+
+            return limites;
         }
 
 
@@ -2514,7 +2688,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             StringBuilder sb =
                 new StringBuilder();
 
-            sb.AppendLine("QTO v0.16 - MEMÓRIA DE CÁLCULO / AUDITORIA");
+            sb.AppendLine("QTO v" + Versao + " - MEMÓRIA DE CÁLCULO / AUDITORIA");
             sb.AppendLine("=================================================");
             sb.AppendLine("Corredor: " + corredor);
             sb.AppendLine("Alignment de referência: " + alignment);
@@ -4289,8 +4463,10 @@ namespace Civil3D2026Plugin.Modules.QTO
                 "\n====================================================" +
                 "\n" +
                 "\n" + C3DCommands.Qto.Estudo +
-                "\n  Comando principal da v0.16." +
-                "\n  Seleciona Corridor + Alignment de referência." +
+                "\n  Comando principal do módulo." +
+                "\n  Seleciona o Corridor; o Alignment de referência vem das baselines dele" +
+                "\n  (com mais de um eixo, o comando lista e pede o número)." +
+                "\n  Os trechos fecham em estacas inteiras (múltiplos do intervalo); Esc cancela." +
                 "\n  Pergunta o intervalo em metros (20 m padrão)." +
                 "\n  Gera Takeoff NATIVO detalhado para cada intervalo." +
                 "\n  Filtra cada item do XML prioritariamente pelo AutoCADObjectHandle do Corridor selecionado." +
@@ -4324,10 +4500,10 @@ namespace Civil3D2026Plugin.Modules.QTO
                 "\n  Quando o item não traz Handle, usa-se baselineName como fallback controlado." +
                 "\n  Itens lineares de Corridor Feature Line usam reparo conservador de continuidade LT/RT" +
                 "\n  quando um lado desaparece isoladamente entre intervalos com os dois lados." +
-                "\n  Nesta v0.16, cada execução gera somente o Corridor selecionado." +
+                "\n  Cada execução gera somente o Corridor selecionado." +
                 "\n" +
                 "\nDIMENSÃO" +
-                "\n  A v0.16 não força 2D/3D." +
+                "\n  O comando não força 2D/3D." +
                 "\n  Total e intervalos usam o mesmo QTOUtility e, portanto," +
                 "\n  são comparados na mesma dimensão nativa." +
                 "\n" +

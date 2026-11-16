@@ -168,7 +168,7 @@ public static class CommandCatalog
                 C3DVersions.Qto,
                 new[]
                 {
-                    new CommandDefinition(C3DCommands.Qto.Estudo, "Estudo QTO", "Executa o estudo/relatorio QTO por estaca."),
+                    new CommandDefinition(C3DCommands.Qto.Estudo, "Quantitativos por estaca", "Memoria de calculo dos Pay Items do corredor, trecho a trecho, em Excel."),
                     new CommandDefinition(C3DCommands.Qto.GeoTeste, "Teste geometrico QTO", "Executa diagnostico geometrico do QTO."),
                     new CommandDefinition(C3DCommands.Qto.Teste, "Teste QTO", "Executa teste de carga do modulo QTO."),
                     new CommandDefinition(C3DCommands.Qto.Help, "Ajuda QTO", "Mostra a ajuda do modulo QTO.")
