@@ -1,3 +1,14 @@
+## 2.117.0 - QTO v0.18: painel C3DQTO, total de todos os corredores (QTOTODOS), tolerancia ajustavel
+
+Respostas do Heyvid em 16/11/2026: comando para todos os corredores ("minha maior preocupacao e a certeza de que ele esta exportando corretamente os valores"), menu de opcoes com a tolerancia ajustavel (padrao 5%), tirar os testes da Ribbon, painel no lugar da linha de comando. Um eixo por vez na memoria por estaca continua como esta. Tubos/blocos com Pay Item ficam para o futuro.
+
+- **`C3DQTO` (painel novo)**: lista os corredores do desenho com caixa de marcar e o eixo das estacas de cada um (lista suspensa quando o corredor tem mais de um), campos Intervalo e Tolerancia, "Abrir a pasta no fim" e os botoes **Gerar por estaca (marcados)**, **Total de todos os corredores** e Ajuda. Os botoes mandam os comandos `QTOESTUDO` / `QTOTODOS` ja com tudo escolhido (o trabalho roda dentro do comando). "Reler corredores" so le o desenho. Com varios marcados, gera uma memoria por corredor em sequencia; Esc para tudo.
+- **`QTOTODOS` (comando novo)**: quantitativos de todos os corredores de uma vez. Pede ao Civil UM relatorio do desenho inteiro (sem dividir por estaca e sem nenhuma correcao) e reparte cada item pelo corredor dono (identificador do objeto; item sem identificador entra pelo nome do eixo, so quando o nome e de um unico corredor). Saida em `QTO_<DWG>__TODOS`: planilha `...__QUANTITATIVOS.xlsx` (abas "Por Corredor", "Total do Desenho" e "Metadados") e `...__RESUMO_ORCAMENTO.csv`.
+- **Conferencia de fechamento** no QTOTODOS, por servico: soma dos corredores + "Fora de corredor" comparada com o total do Pay Item informado pelo proprio Civil no relatorio; sai FECHA ou CONFERIR (limite 0,01%). Nada some: o que nao e de corredor nenhum (tubos, blocos, item sem identificacao) aparece na coluna "Fora de corredor" e e avisado na linha de comando.
+- **Alerta de quantidade fora do eixo** no `QTOESTUDO`: quando o total do corredor no desenho inteiro e diferente do total do eixo escolhido (corredor com outro eixo ou trecho fora das estacas), o resultado avisa quantos servicos estao nessa situacao e indica o `QTOTODOS`. Quando bate, diz que nada ficou fora do eixo.
+- **Opcoes guardadas** em `%APPDATA%\Civil3D2026Plugin\qto.txt`: intervalo, tolerancia (padrao 5%) e abrir pasta. A tolerancia deixou de ser fixa no codigo; a linha de comando usa e guarda o ultimo intervalo.
+- `TESTEQTO` e `QTOGEOTESTE` sairam da Ribbon (continuam funcionando pela linha de comando).
+
 ## 2.116.0 - QTO v0.17: eixo escolhido sozinho, trechos em estacas inteiras, Esc cancela, abre a pasta no fim
 
 Pedido do Heyvid em 16/11/2026 ("consegue entender o que faz o comando do QTO? ... ja aproveita para melhorar, aprimorar e resolver possiveis problemas"). Revisao do `QTOESTUDO`; o motor (Takeoff nativo do Civil filtrado pelo corredor) nao mudou.

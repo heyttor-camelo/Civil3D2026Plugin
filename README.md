@@ -259,23 +259,21 @@ C3DQUADRORUAS  -> [Adicionar/Listar/Remover/Exportar/Config]
 
 As ruas ficam guardadas no DWG; a exportacao rele eixos, textos e cotas. Coordenadas pela geolocalizacao do desenho ou UTM SIRGAS 2000 (fuso do Civil 3D ou informado).
 
-## Quantitativos por estaca (QTOESTUDO, QTO v0.17)
+## Quantitativos (C3DQTO, QTO v0.18)
 
-Gera a memoria de calculo dos **Pay Items** de um corredor, trecho a trecho. Usa o Takeoff do proprio Civil 3D (o mesmo do comando Takeoff), entao so conta o que tem Pay Item atribuido no Code Set Style do corredor (links = area, shapes = volume, feature lines = comprimento). Nao le tubos, blocos nem volumes de terraplenagem. Nao altera o desenho.
+Quantitativos dos **Pay Items** dos corredores, usando o Takeoff do proprio Civil 3D (o mesmo do comando Takeoff). So conta o que tem Pay Item atribuido no Code Set Style do corredor (links = area, shapes = volume, feature lines = comprimento). Nao le tubos, blocos nem volumes de terraplenagem. Nao altera o desenho.
 
-1. `QTOESTUDO`, clique no Corridor.
-2. O eixo de referencia das estacas vem da baseline do corredor; com mais de um eixo o comando lista e pede o numero.
-3. Informe o intervalo (20 m padrao). Os trechos fecham em estacas inteiras; Esc cancela.
+**Painel `C3DQTO`**: lista os corredores do desenho, com o eixo das estacas de cada um (lista suspensa quando ha mais de um), Intervalo, Tolerancia (padrao 5%) e "Abrir a pasta no fim". Botoes:
 
-Saida na pasta `QTO_<DWG>__<CORREDOR>`, ao lado do DWG:
+- **Gerar por estaca (marcados)** = comando `QTOESTUDO`: memoria de calculo trecho a trecho de cada corredor marcado. Os trechos fecham em estacas inteiras; Esc cancela. Saida em `QTO_<DWG>__<CORREDOR>`, ao lado do DWG:
+  - `...__MEMORIA_CALCULO.xlsx`: aba "QTO por Estaca" (uma linha por trecho e servico, com coluna Chave para PROCX), aba "Resumo QTO" (totais, conferencia e geometria do eixo) e aba "Metadados";
+  - `...__RESUMO_ORCAMENTO.csv`, `...__INTERVALOS.csv`, `...__AUDITORIA.csv`, `...__RESUMO.txt` e a pasta `XML` (relatorios originais do Civil).
+  - Conferencia: a soma dos trechos e comparada com o Takeoff do eixo inteiro (ate a tolerancia = OK) e com o total do corredor no desenho inteiro; se houver quantidade do corredor fora do eixo escolhido, o comando avisa.
+- **Total de todos os corredores** = comando `QTOTODOS`: um relatorio so do Civil para o desenho inteiro, repartido por corredor. Saida em `QTO_<DWG>__TODOS`: `...__QUANTITATIVOS.xlsx` (abas "Por Corredor", "Total do Desenho", "Metadados") e `...__RESUMO_ORCAMENTO.csv`. Conferencia por servico: soma dos corredores + "Fora de corredor" contra o total do proprio Civil (FECHA / CONFERIR).
 
-- `...__MEMORIA_CALCULO.xlsx`: aba "QTO por Estaca" (uma linha por trecho e servico, com coluna Chave para PROCX), aba "Resumo QTO" (totais, conferencia e geometria do eixo) e aba "Metadados";
-- `...__RESUMO_ORCAMENTO.csv`: servico, unidade e quantidade total, para juntar varios corredores;
-- `...__INTERVALOS.csv`, `...__AUDITORIA.csv`, `...__RESUMO.txt` e a pasta `XML` (relatorios originais do Civil).
+Pela linha de comando, `QTOESTUDO` pede o corredor (clique), o eixo (se houver mais de um) e o intervalo. Se a planilha estiver aberta no Excel, a nova sai com `__ATUALIZADA_<data_hora>` no nome. Opcoes ficam em `%APPDATA%\Civil3D2026Plugin\qto.txt`.
 
-Conferencia: a soma dos trechos e comparada com o Takeoff do eixo inteiro; ate 5% de diferenca = OK. Em desenho com varios corredores so entram as quantidades do corredor escolhido. Se a planilha estiver aberta no Excel, a nova sai com `__ATUALIZADA_<data_hora>` no nome.
-
-Outros comandos: `QTOHELP` (ajuda), `QTOGEOTESTE` e `TESTEQTO` (testes de desenvolvimento).
+Outros comandos: `QTOHELP` (ajuda), `QTOGEOTESTE` e `TESTEQTO` (testes de desenvolvimento, fora da Ribbon).
 
 ## Modulos na Ribbon (C3DMODULOS)
 

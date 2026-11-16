@@ -168,9 +168,11 @@ public static class CommandCatalog
                 C3DVersions.Qto,
                 new[]
                 {
+                    new CommandDefinition(C3DCommands.Qto.Painel, "Painel QTO", "Abre o painel de quantitativos: corredores, eixo, intervalo, tolerancia e botoes de gerar."),
                     new CommandDefinition(C3DCommands.Qto.Estudo, "Quantitativos por estaca", "Memoria de calculo dos Pay Items do corredor, trecho a trecho, em Excel."),
-                    new CommandDefinition(C3DCommands.Qto.GeoTeste, "Teste geometrico QTO", "Executa diagnostico geometrico do QTO."),
-                    new CommandDefinition(C3DCommands.Qto.Teste, "Teste QTO", "Executa teste de carga do modulo QTO."),
+                    new CommandDefinition(C3DCommands.Qto.Todos, "Total de todos os corredores", "Quantitativos de todos os corredores do desenho, com conferencia contra o total do Civil."),
+                    new CommandDefinition(C3DCommands.Qto.GeoTeste, "Teste geometrico QTO", "Executa diagnostico geometrico do QTO.", ShowInRibbon: false),
+                    new CommandDefinition(C3DCommands.Qto.Teste, "Teste QTO", "Executa teste de carga do modulo QTO.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Qto.Help, "Ajuda QTO", "Mostra a ajuda do modulo QTO.")
                 }),
 

@@ -2,8 +2,16 @@
 ===============================================================================
 QTO.cs
 Civil 3D 2026
-QTO - v0.17 | SAÍDA POR DWG/CORREDOR + MEMÓRIA VINTAGE + CONSOLIDAÇÃO
+QTO - v0.18 | SAÍDA POR DWG/CORREDOR + MEMÓRIA VINTAGE + CONSOLIDAÇÃO
 ===============================================================================
+
+NOVIDADES DA v0.18
+------------------
+- painel C3DQTO (QtoPanel.cs) manda QTOESTUDO/QTOTODOS com tudo escolhido
+  (QtoCommands.PedidoDoPainel); opções em QtoConfig.cs (tolerância ajustável);
+- QTOTODOS: um relatório DrawingExtent repartido por corredor, com conferência
+  de fechamento contra o estimatedQuantity do próprio Civil;
+- QTOESTUDO avisa quando o corredor tem quantidade fora do eixo escolhido.
 
 NOVIDADES DA v0.17
 ------------------
@@ -158,7 +166,13 @@ namespace Civil3D2026Plugin.Modules.QTO
 
         private const double ToleranciaOffset = 0.000001;
 
-        private const double ToleranciaAuditoriaPercentual = 5.0;
+        private static double ToleranciaAuditoriaPercentual =>
+            QtoConfig.Atual.Tolerancia;
+
+        private static string ToleranciaTexto =>
+            ToleranciaAuditoriaPercentual.ToString(
+                "0.##",
+                CultureInfo.GetCultureInfo("pt-BR")) + "%";
 
         private const string ModuloLog = "QTO";
 
@@ -516,6 +530,77 @@ namespace Civil3D2026Plugin.Modules.QTO
             if (doc == null)
                 return;
 
+            Editor ed = doc.Editor;
+
+            // Pedido vindo do painel (C3DQTO): corredores, eixos e intervalo
+            // já escolhidos na janela, sem perguntas na linha de comando.
+            QtoPedido? pedido = PedidoDoPainel;
+            PedidoDoPainel = null;
+
+            if (pedido != null &&
+                ReferenceEquals(pedido.Documento, doc) &&
+                pedido.Itens.Count > 0)
+            {
+                string? ultimaMemoria = null;
+                int feitos = 0;
+
+                foreach (QtoPedidoItem item in pedido.Itens)
+                {
+                    _cancelado = false;
+
+                    string? saida =
+                        ExecutarEstudo(
+                            doc,
+                            item.Corridor,
+                            item.Alignment,
+                            pedido.Intervalo);
+
+                    if (_cancelado)
+                        break;
+
+                    if (saida != null)
+                    {
+                        ultimaMemoria = saida;
+                        feitos++;
+                    }
+                }
+
+                if (pedido.Itens.Count > 1)
+                {
+                    ed.WriteMessage(
+                        "\nQTO: " + feitos + " de " + pedido.Itens.Count +
+                        " corredores com memória gerada.\n");
+                }
+
+                if (ultimaMemoria != null && QtoConfig.Atual.AbrirPasta)
+                    AbrirNoExplorer(ultimaMemoria);
+
+                return;
+            }
+
+            string? memoria =
+                ExecutarEstudo(
+                    doc,
+                    ObjectId.Null,
+                    ObjectId.Null,
+                    null);
+
+            if (memoria != null && PerguntarAbrirPasta(ed))
+                AbrirNoExplorer(memoria);
+        }
+
+
+        /// <summary>
+        /// Núcleo do QTOESTUDO. Com corridorPedido/alignmentPedido/passoPedido
+        /// preenchidos (painel) não pergunta nada; vazios, pergunta na linha de
+        /// comando. Devolve o caminho da memória XLSX ou null (cancelado/erro).
+        /// </summary>
+        private static string? ExecutarEstudo(
+            Document doc,
+            ObjectId corridorPedido,
+            ObjectId alignmentPedido,
+            double? passoPedido)
+        {
             Database db = doc.Database;
             Editor ed = doc.Editor;
 
@@ -536,22 +621,31 @@ namespace Civil3D2026Plugin.Modules.QTO
                 // 1. Selecionar Corridor.
                 // -------------------------------------------------------------
 
-                PromptEntityOptions peCorridor =
-                    new PromptEntityOptions(
-                        "\nSelecione o Corridor a estudar: ");
+                ObjectId corridorId =
+                    corridorPedido;
 
-                peCorridor.SetRejectMessage(
-                    "\nSelecione um Corridor do Civil 3D.");
+                if (corridorId.IsNull)
+                {
+                    PromptEntityOptions peCorridor =
+                        new PromptEntityOptions(
+                            "\nSelecione o Corridor a estudar: ");
 
-                peCorridor.AddAllowedClass(
-                    typeof(CivilCorridor),
-                    true);
+                    peCorridor.SetRejectMessage(
+                        "\nSelecione um Corridor do Civil 3D.");
 
-                PromptEntityResult prCorridor =
-                    ed.GetEntity(peCorridor);
+                    peCorridor.AddAllowedClass(
+                        typeof(CivilCorridor),
+                        true);
 
-                if (prCorridor.Status != PromptStatus.OK)
-                    return;
+                    PromptEntityResult prCorridor =
+                        ed.GetEntity(peCorridor);
+
+                    if (prCorridor.Status != PromptStatus.OK)
+                        return null;
+
+                    corridorId =
+                        prCorridor.ObjectId;
+                }
 
                 // -------------------------------------------------------------
                 // 2. Alignment de referência.
@@ -564,7 +658,7 @@ namespace Civil3D2026Plugin.Modules.QTO
 
                 CivilCorridor corridor =
                     (CivilCorridor)tr.GetObject(
-                        prCorridor.ObjectId,
+                        corridorId,
                         OpenMode.ForRead);
 
                 string corridorHandle =
@@ -644,13 +738,19 @@ namespace Civil3D2026Plugin.Modules.QTO
                         "apoiada em Alignment (só Feature Line). O QTO por estaca " +
                         "precisa de um Alignment.\n");
 
-                    return;
+                    return null;
                 }
 
                 ObjectId alignmentId =
                     alinhamentosCorridor[0];
 
-                if (alinhamentosCorridor.Count > 1)
+                if (!alignmentPedido.IsNull &&
+                    alinhamentosCorridor.Contains(alignmentPedido))
+                {
+                    alignmentId =
+                        alignmentPedido;
+                }
+                else if (alinhamentosCorridor.Count > 1)
                 {
                     StringBuilder lista =
                         new StringBuilder(
@@ -682,7 +782,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                         ed.GetInteger(pioAlignment);
 
                     if (pirAlignment.Status != PromptStatus.OK)
-                        return;
+                        return null;
 
                     alignmentId =
                         alinhamentosCorridor[pirAlignment.Value - 1];
@@ -703,23 +803,52 @@ namespace Civil3D2026Plugin.Modules.QTO
                 // 3. Intervalo padrão = 20 m.
                 // -------------------------------------------------------------
 
-                PromptDoubleOptions pdoIntervalo =
-                    new PromptDoubleOptions(
-                        "\nIntervalo entre estacas <20.00>: ");
+                double passo;
 
-                pdoIntervalo.AllowNegative = false;
-                pdoIntervalo.AllowZero = false;
-                pdoIntervalo.DefaultValue = 20.0;
-                pdoIntervalo.UseDefaultValue = true;
+                if (passoPedido.HasValue)
+                {
+                    passo = passoPedido.Value;
+                }
+                else
+                {
+                    double passoPadrao =
+                        QtoConfig.Atual.Intervalo;
 
-                PromptDoubleResult pdrIntervalo =
-                    ed.GetDouble(pdoIntervalo);
+                    PromptDoubleOptions pdoIntervalo =
+                        new PromptDoubleOptions(
+                            "\nIntervalo entre estacas <" +
+                            passoPadrao.ToString("0.00", CultureInfo.InvariantCulture) +
+                            ">: ");
 
-                if (pdrIntervalo.Status != PromptStatus.OK)
-                    return;
+                    pdoIntervalo.AllowNegative = false;
+                    pdoIntervalo.AllowZero = false;
+                    pdoIntervalo.DefaultValue = passoPadrao;
+                    pdoIntervalo.UseDefaultValue = true;
 
-                double passo =
-                    pdrIntervalo.Value;
+                    PromptDoubleResult pdrIntervalo =
+                        ed.GetDouble(pdoIntervalo);
+
+                    if (pdrIntervalo.Status != PromptStatus.OK)
+                        return null;
+
+                    passo =
+                        pdrIntervalo.Value;
+
+                    if (QtoConfig.IntervaloValido(passo) &&
+                        Math.Abs(passo - passoPadrao) > 0.000001)
+                    {
+                        QtoConfig.Atual.Intervalo = passo;
+                        QtoConfig.Atual.Salvar();
+                    }
+                }
+
+                if (!QtoConfig.IntervaloValido(passo))
+                {
+                    ed.WriteMessage(
+                        "\n[ERRO] Intervalo fora do aceito (de 0,5 m a 10000 m).\n");
+
+                    return null;
+                }
 
                 // -------------------------------------------------------------
                 // 4. Intervalo efetivo do Alignment.
@@ -741,7 +870,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                     ed.WriteMessage(
                         "\n[ERRO] O Alignment não possui intervalo de estação válido.\n");
 
-                    return;
+                    return null;
                 }
 
                 List<QtoAlignmentElementInfo> elementosAlinhamento =
@@ -990,12 +1119,14 @@ namespace Civil3D2026Plugin.Modules.QTO
                             ". Nenhuma memória foi gerada (uma memória parcial" +
                             " teria totais errados).\n");
 
+                        _cancelado = true;
+
                         PluginLog.Aviso(
                             ModuloLog,
                             "QTOESTUDO cancelado pelo usuário no trecho " +
                             (indice + 1) + "/" + numeroIntervalos + ".");
 
-                        return;
+                        return null;
                     }
 
                     indice++;
@@ -1170,6 +1301,22 @@ namespace Civil3D2026Plugin.Modules.QTO
                         totalAlignment,
                         totalDesenho);
 
+                // Serviços em que o total do corredor no desenho inteiro é
+                // diferente do total deste eixo: há quantidade fora do eixo.
+                int foraDoEixo =
+                    linhasAuditoria.Count(
+                        x => x.TakeoffDesenho.HasValue &&
+                             Math.Abs(x.TakeoffDesenho.Value - (x.TakeoffAlignment ?? 0.0)) >
+                             Math.Max(0.01, Math.Abs(x.TakeoffDesenho.Value) * 0.005));
+
+                if (foraDoEixo > 0)
+                {
+                    PluginLog.Aviso(
+                        ModuloLog,
+                        "QTOESTUDO: " + foraDoEixo + " serviço(s) do corredor '" + corridor.Name +
+                        "' têm quantidade fora do eixo '" + alignment.Name + "'.");
+                }
+
                 // ---------------------------------------------------------
                 // 10.1. Interface limpa para consolidação/orçamento.
                 //
@@ -1238,9 +1385,17 @@ namespace Civil3D2026Plugin.Modules.QTO
                     $"\n QTOESTUDO v{Versao} - RESULTADO" +
                     "\n====================================================" +
                     "\nPay Items auditados: " + auditoria.TotalItens +
-                    "\nOK (<= 5%): " + auditoria.Ok +
-                    "\nDIVERGÊNCIA (> 5%): " + auditoria.Divergentes +
+                    "\nOK (<= " + ToleranciaTexto + "): " + auditoria.Ok +
+                    "\nDIVERGÊNCIA (> " + ToleranciaTexto + "): " + auditoria.Divergentes +
                     "\nSem referência: " + auditoria.SemReferencia +
+                    (foraDoEixo > 0
+                        ? "\n[ATENÇÃO] " + foraDoEixo + " serviço(s) têm quantidade do corredor FORA deste eixo" +
+                          "\n          (total do corredor no desenho diferente do total do eixo). O corredor" +
+                          "\n          tem outro eixo ou trecho fora das estacas. Para o total do corredor" +
+                          "\n          inteiro use " + C3DCommands.Qto.Todos + "."
+                        : (totalDesenho != null
+                            ? "\nTotal do eixo = total do corredor no desenho (nada ficou fora do eixo)."
+                            : string.Empty)) +
                     "\nFiltro por Corridor: VALIDADO" +
                     "\nHandle: " + corridorHandle +
                     "\nItens usados: " + totalAlignment.ItensCorrespondentes +
@@ -1279,46 +1434,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                     auditoria.Ok + " OK, " + auditoria.Divergentes + " divergentes, " +
                     auditoria.SemReferencia + " sem referência. Memória: " + xlsxMemoria);
 
-                // -------------------------------------------------------------
-                // 12. Abrir a pasta de saída (Enter = Sim).
-                // -------------------------------------------------------------
-
-                PromptKeywordOptions pkoAbrir =
-                    new PromptKeywordOptions(
-                        "\nAbrir a pasta com a memória de cálculo? [Sim/Nao] <Sim>: ");
-
-                pkoAbrir.Keywords.Add("Sim");
-                pkoAbrir.Keywords.Add("Nao");
-                pkoAbrir.Keywords.Default = "Sim";
-                pkoAbrir.AllowNone = true;
-
-                PromptResult prAbrir =
-                    ed.GetKeywords(pkoAbrir);
-
-                bool abrirPasta =
-                    prAbrir.Status == PromptStatus.None ||
-                    (prAbrir.Status == PromptStatus.OK &&
-                     !string.Equals(prAbrir.StringResult, "Nao", StringComparison.OrdinalIgnoreCase));
-
-                if (abrirPasta)
-                {
-                    try
-                    {
-                        System.Diagnostics.Process.Start(
-                            new System.Diagnostics.ProcessStartInfo(
-                                "explorer.exe",
-                                "/select,\"" + xlsxMemoria + "\"")
-                            {
-                                UseShellExecute = true
-                            });
-                    }
-                    catch (System.Exception exAbrir)
-                    {
-                        PluginLog.Aviso(
-                            ModuloLog,
-                            "Não foi possível abrir a pasta de saída: " + exAbrir.Message);
-                    }
-                }
+                return xlsxMemoria;
             }
             catch (System.Exception ex)
             {
@@ -1335,6 +1451,76 @@ namespace Civil3D2026Plugin.Modules.QTO
                     "\nTipo: " + ex.GetType().FullName +
                     "\nDetalhes no log do plugin (comando C3DLOG)." +
                     "\n====================================================\n");
+
+                return null;
+            }
+        }
+
+
+        // =====================================================================
+        // PEDIDO DO PAINEL / ABRIR PASTA
+        // =====================================================================
+
+        internal sealed class QtoPedidoItem
+        {
+            public ObjectId Corridor { get; set; }
+            public ObjectId Alignment { get; set; }
+        }
+
+        internal sealed class QtoPedido
+        {
+            public Document? Documento { get; set; }
+            public double Intervalo { get; set; } = QtoConfig.IntervaloPadrao;
+            public List<QtoPedidoItem> Itens { get; } = new List<QtoPedidoItem>();
+        }
+
+        /// <summary>Preenchido pelo painel logo antes de mandar o QTOESTUDO.</summary>
+        internal static QtoPedido? PedidoDoPainel { get; set; }
+
+        /// <summary>O painel liga antes de mandar o QTOTODOS (sem pergunta no fim).</summary>
+        internal static bool TodosPeloPainel { get; set; }
+
+        private static bool _cancelado;
+
+        private static bool PerguntarAbrirPasta(
+            Editor ed)
+        {
+            PromptKeywordOptions pkoAbrir =
+                new PromptKeywordOptions(
+                    "\nAbrir a pasta com a planilha? [Sim/Nao] <Sim>: ");
+
+            pkoAbrir.Keywords.Add("Sim");
+            pkoAbrir.Keywords.Add("Nao");
+            pkoAbrir.Keywords.Default = "Sim";
+            pkoAbrir.AllowNone = true;
+
+            PromptResult prAbrir =
+                ed.GetKeywords(pkoAbrir);
+
+            return
+                prAbrir.Status == PromptStatus.None ||
+                (prAbrir.Status == PromptStatus.OK &&
+                 !string.Equals(prAbrir.StringResult, "Nao", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static void AbrirNoExplorer(
+            string arquivo)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(
+                    new System.Diagnostics.ProcessStartInfo(
+                        "explorer.exe",
+                        "/select,\"" + arquivo + "\"")
+                    {
+                        UseShellExecute = true
+                    });
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Aviso(
+                    ModuloLog,
+                    "Não foi possível abrir a pasta de saída: " + ex.Message);
             }
         }
 
@@ -1435,6 +1621,26 @@ namespace Civil3D2026Plugin.Modules.QTO
             string corridorHandle,
             ISet<string> nomesBaselinesCorridor)
         {
+            string[] generatedPayItemIds =
+                GerarXmlNativo(
+                    detalhe,
+                    destinoXml);
+
+            return LerRelatorioQto(
+                destinoXml,
+                generatedPayItemIds,
+                corridorHandle,
+                nomesBaselinesCorridor);
+        }
+
+
+        /// <summary>
+        /// Pede o relatório ao Civil (QTOUtility) e deixa o XML em destinoXml.
+        /// </summary>
+        private static string[] GerarXmlNativo(
+            QTOGenerateDetail detalhe,
+            string destinoXml)
+        {
             string? pasta =
                 Path.GetDirectoryName(destinoXml);
 
@@ -1489,11 +1695,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                     true);
             }
 
-            return LerRelatorioQto(
-                destinoXml,
-                generatedPayItemIds,
-                corridorHandle,
-                nomesBaselinesCorridor);
+            return generatedPayItemIds ?? Array.Empty<string>();
         }
 
 
@@ -2695,7 +2897,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             sb.AppendLine("Início: " + FormatarEstaca(inicio));
             sb.AppendLine("Fim: " + FormatarEstaca(fim));
             sb.AppendLine("Intervalo: " + passo.ToString("0.###", CultureInfo.InvariantCulture) + " m");
-            sb.AppendLine("Tolerância: 5%");
+            sb.AppendLine("Tolerância: " + ToleranciaTexto);
             sb.AppendLine("Formato das estacas: padrão brasileiro de 20 m (ex.: 1+0.00).");
             sb.AppendLine("Dimensão: nativa do QTOUtility; total e intervalos gerados na mesma execução.");
             sb.AppendLine();
@@ -2740,8 +2942,8 @@ namespace Civil3D2026Plugin.Modules.QTO
             sb.AppendLine("AUDITORIA PRINCIPAL");
             sb.AppendLine("-------------------");
             sb.AppendLine("Pay Items: " + auditoria.TotalItens);
-            sb.AppendLine("OK <= 5%: " + auditoria.Ok);
-            sb.AppendLine("DIVERGÊNCIA > 5%: " + auditoria.Divergentes);
+            sb.AppendLine("OK <= " + ToleranciaTexto + ": " + auditoria.Ok);
+            sb.AppendLine("DIVERGÊNCIA > " + ToleranciaTexto + ": " + auditoria.Divergentes);
             sb.AppendLine("Sem referência: " + auditoria.SemReferencia);
 
             if (!string.IsNullOrWhiteSpace(erroGlobal))
@@ -4442,6 +4644,610 @@ namespace Civil3D2026Plugin.Modules.QTO
 
 
         // =====================================================================
+        // PAINEL (C3DQTO)
+        // =====================================================================
+
+        [AcRuntime.CommandMethod(C3DCommands.Qto.Painel, AcRuntime.CommandFlags.Modal)]
+        public void Painel()
+        {
+            QtoPanel.ShowPanel();
+        }
+
+
+        // =====================================================================
+        // QTOTODOS - TOTAL DE TODOS OS CORREDORES
+        //
+        // Um único relatório nativo do desenho inteiro (DrawingExtent), sem
+        // fracionar por estaca. Cada item detalhado é atribuído ao corredor
+        // pelo AutoCADObjectHandle (ou, sem Handle, pelo baselineName quando
+        // ele pertence a um único corredor). O que não é de corredor nenhum
+        // não some: fica na coluna "Fora de corredor".
+        //
+        // Conferência de fechamento, por Pay Item:
+        //   soma dos corredores + fora de corredor  x  total informado pelo Civil
+        // =====================================================================
+
+        [AcRuntime.CommandMethod(C3DCommands.Qto.Todos)]
+        public void QtoTodos()
+        {
+            Document? doc =
+                AcApp.DocumentManager.MdiActiveDocument;
+
+            if (doc == null)
+                return;
+
+            bool peloPainel = TodosPeloPainel;
+            TodosPeloPainel = false;
+
+            string? planilha =
+                ExecutarTodos(doc);
+
+            if (planilha == null)
+                return;
+
+            bool abrir =
+                peloPainel
+                    ? QtoConfig.Atual.AbrirPasta
+                    : PerguntarAbrirPasta(doc.Editor);
+
+            if (abrir)
+                AbrirNoExplorer(planilha);
+        }
+
+
+        internal sealed class QtoTodosCorredor
+        {
+            public string Nome { get; set; } = string.Empty;
+            public string Handle { get; set; } = string.Empty;
+            public List<string> Eixos { get; } = new List<string>();
+            public HashSet<string> Nomes { get; } =
+                new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, double> Quantidades { get; } =
+                new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+            public Dictionary<string, string> Fontes { get; } =
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        internal sealed class QtoTodosItem
+        {
+            public string Id { get; set; } = string.Empty;
+            public string Descricao { get; set; } = string.Empty;
+            public string Unidade { get; set; } = string.Empty;
+
+            /// <summary>Soma do que foi atribuído a algum corredor.</summary>
+            public double SomaCorredores { get; set; }
+
+            /// <summary>Itens do relatório que não são de nenhum corredor do desenho.</summary>
+            public double ForaDeCorredor { get; set; }
+
+            /// <summary>Total do Pay Item informado pelo próprio Civil no relatório (se houver).</summary>
+            public double? TotalCivil { get; set; }
+
+            public double TotalRelatorio => SomaCorredores + ForaDeCorredor;
+
+            public double? Diferenca =>
+                TotalCivil.HasValue
+                    ? TotalRelatorio - TotalCivil.Value
+                    : null;
+
+            public string Conferencia
+            {
+                get
+                {
+                    if (!TotalCivil.HasValue)
+                        return "SEM TOTAL DO CIVIL";
+
+                    double limite =
+                        Math.Max(
+                            0.001,
+                            Math.Abs(TotalCivil.Value) * 0.0001);
+
+                    return Math.Abs(Diferenca ?? 0.0) <= limite
+                        ? "FECHA"
+                        : "CONFERIR";
+                }
+            }
+        }
+
+        internal sealed class QtoTodosContexto
+        {
+            public string Versao { get; set; } = string.Empty;
+            public string Dwg { get; set; } = string.Empty;
+            public DateTime GeradoEm { get; set; }
+            public List<QtoTodosCorredor> Corredores { get; set; } = new List<QtoTodosCorredor>();
+            public List<QtoTodosItem> Itens { get; set; } = new List<QtoTodosItem>();
+            public int ItensDetalhados { get; set; }
+            public int ItensPorHandle { get; set; }
+            public int ItensPorBaseline { get; set; }
+            public int ItensForaDeCorredor { get; set; }
+        }
+
+
+        private static string? ExecutarTodos(
+            Document doc)
+        {
+            Database db = doc.Database;
+            Editor ed = doc.Editor;
+
+            try
+            {
+                CivilDocument civilDoc =
+                    CivilDocument.GetCivilDocument(db);
+
+                ed.WriteMessage(
+                    "\n\n====================================================" +
+                    $"\n {C3DCommands.Qto.Todos} v{Versao}" +
+                    "\n TOTAL DE TODOS OS CORREDORES DO DESENHO" +
+                    "\n====================================================");
+
+                if (civilDoc.CorridorCollection.Count == 0)
+                {
+                    ed.WriteMessage(
+                        "\n[ERRO] Nenhum Corridor encontrado no desenho.\n");
+
+                    return null;
+                }
+
+                List<QtoTodosCorredor> corredores =
+                    new List<QtoTodosCorredor>();
+
+                using (Transaction tr = db.TransactionManager.StartTransaction())
+                {
+                    foreach (ObjectId id in civilDoc.CorridorCollection)
+                    {
+                        CivilCorridor? corridor =
+                            tr.GetObject(id, OpenMode.ForRead) as CivilCorridor;
+
+                        if (corridor == null)
+                            continue;
+
+                        QtoTodosCorredor info =
+                            new QtoTodosCorredor
+                            {
+                                Nome = corridor.Name,
+                                Handle = NormalizarHandle(corridor.Handle.ToString())
+                            };
+
+                        foreach (Baseline baseline in corridor.Baselines)
+                        {
+                            if (!string.IsNullOrWhiteSpace(baseline.Name))
+                                info.Nomes.Add(baseline.Name.Trim());
+
+                            try
+                            {
+                                ObjectId alId = baseline.AlignmentId;
+
+                                if (alId.IsNull)
+                                    continue;
+
+                                Alignment? al =
+                                    tr.GetObject(alId, OpenMode.ForRead) as Alignment;
+
+                                if (al == null || string.IsNullOrWhiteSpace(al.Name))
+                                    continue;
+
+                                info.Nomes.Add(al.Name.Trim());
+
+                                if (!info.Eixos.Contains(al.Name, StringComparer.OrdinalIgnoreCase))
+                                    info.Eixos.Add(al.Name);
+                            }
+                            catch
+                            {
+                                // Baseline por Feature Line: não tem Alignment.
+                            }
+                        }
+
+                        corredores.Add(info);
+                    }
+
+                    tr.Commit();
+                }
+
+                corredores =
+                    corredores
+                        .OrderBy(x => x.Nome, StringComparer.CurrentCultureIgnoreCase)
+                        .ToList();
+
+                // Pasta de saída.
+                string pastaBase =
+                    string.IsNullOrWhiteSpace(db.Filename)
+                        ? Path.GetTempPath()
+                        : Path.GetDirectoryName(db.Filename) ?? Path.GetTempPath();
+
+                string nomeDwg =
+                    string.IsNullOrWhiteSpace(db.Filename)
+                        ? "DESENHO_SEM_NOME"
+                        : Path.GetFileNameWithoutExtension(db.Filename);
+
+                string identificador =
+                    LimparNomeArquivo(nomeDwg) + "__TODOS";
+
+                string pastaSaida =
+                    Path.Combine(
+                        pastaBase,
+                        "QTO_" + identificador);
+
+                Directory.CreateDirectory(pastaSaida);
+
+                if (string.IsNullOrWhiteSpace(db.Filename))
+                {
+                    ed.WriteMessage(
+                        "\n[AVISO] O desenho ainda não foi salvo: a saída vai para a pasta temporária do Windows.");
+                }
+
+                ed.WriteMessage(
+                    "\nCorredores no desenho: " + corredores.Count +
+                    "\nGerando o Takeoff do Civil para o desenho inteiro...");
+
+                string xml =
+                    Path.Combine(
+                        pastaSaida,
+                        "XML",
+                        "TOTAL_DESENHO.xml");
+
+                GerarXmlNativo(
+                    new QTOGenerateDetail
+                    {
+                        ReportExtent = QTOReportExtent.DrawingExtent,
+                        ReportType = QTOReportType.DetailedReport
+                    },
+                    xml);
+
+                QtoTodosContexto ctx =
+                    LerRelatorioTodos(
+                        xml,
+                        corredores);
+
+                ctx.Versao = Versao;
+                ctx.Dwg = string.IsNullOrWhiteSpace(db.Filename) ? nomeDwg : db.Filename;
+                ctx.GeradoEm = DateTime.Now;
+
+                if (ctx.Itens.Count == 0)
+                {
+                    ed.WriteMessage(
+                        "\n[ERRO] O relatório do Civil não trouxe nenhum Pay Item. Confira se os" +
+                        " corredores têm Pay Items no Code Set Style. Nada foi gravado.\n");
+
+                    return null;
+                }
+
+                string csv =
+                    Path.Combine(
+                        pastaSaida,
+                        identificador + "__RESUMO_ORCAMENTO.csv");
+
+                GravarCsvTodos(
+                    csv,
+                    nomeDwg,
+                    ctx);
+
+                string xlsx =
+                    ResolverCaminhoMemoriaExcel(
+                        Path.Combine(
+                            pastaSaida,
+                            identificador + "__QUANTITATIVOS.xlsx"),
+                        ed);
+
+                QtoExcelExporter.ExportarTodos(
+                    xlsx,
+                    ctx);
+
+                // Resultado.
+                CultureInfo ptBr =
+                    CultureInfo.GetCultureInfo("pt-BR");
+
+                int fecha = ctx.Itens.Count(x => x.Conferencia == "FECHA");
+                int conferir = ctx.Itens.Count(x => x.Conferencia == "CONFERIR");
+                int semTotal = ctx.Itens.Count - fecha - conferir;
+                int comFora = ctx.Itens.Count(x => Math.Abs(x.ForaDeCorredor) > 0.0005);
+
+                StringBuilder sb =
+                    new StringBuilder();
+
+                sb.Append(
+                    "\n\n====================================================" +
+                    $"\n {C3DCommands.Qto.Todos} v{Versao} - RESULTADO" +
+                    "\n====================================================");
+
+                foreach (QtoTodosCorredor c in corredores)
+                {
+                    sb.Append(
+                        "\n  " + c.Nome + ": " +
+                        (c.Quantidades.Count == 0
+                            ? "sem Pay Items"
+                            : c.Quantidades.Count + " serviço(s)"));
+                }
+
+                sb.Append(
+                    "\n" +
+                    "\nServiços (Pay Items): " + ctx.Itens.Count +
+                    "\nConferência com o total do próprio Civil:" +
+                    "\n  FECHA: " + fecha +
+                    "\n  CONFERIR: " + conferir +
+                    (semTotal > 0
+                        ? "\n  Sem total do Civil no relatório: " + semTotal
+                        : string.Empty));
+
+                foreach (QtoTodosItem item in ctx.Itens.Where(x => x.Conferencia == "CONFERIR"))
+                {
+                    sb.Append(
+                        "\n  [CONFERIR] " + item.Id + " " + item.Descricao +
+                        ": relatório " + item.TotalRelatorio.ToString("0.###", ptBr) +
+                        " x Civil " + (item.TotalCivil ?? 0.0).ToString("0.###", ptBr) +
+                        " " + item.Unidade);
+                }
+
+                if (comFora > 0)
+                {
+                    sb.Append(
+                        "\n[ATENÇÃO] " + comFora + " serviço(s) têm quantidade que não é de nenhum corredor" +
+                        "\n          (tubos, blocos ou item sem identificação). Está na coluna" +
+                        "\n          \"Fora de corredor\" da planilha, fora do resumo por corredor.");
+                }
+
+                sb.Append(
+                    "\n" +
+                    "\nItens do relatório: " + ctx.ItensDetalhados +
+                    " | por Handle do corredor: " + ctx.ItensPorHandle +
+                    " | pelo nome do eixo: " + ctx.ItensPorBaseline +
+                    " | fora de corredor: " + ctx.ItensForaDeCorredor +
+                    "\n" +
+                    "\nSaída:" +
+                    "\n  " + pastaSaida +
+                    "\n  " + Path.GetFileName(xlsx) +
+                    "\n  " + Path.GetFileName(csv) +
+                    "\n  XML\\TOTAL_DESENHO.xml" +
+                    "\n====================================================\n");
+
+                ed.WriteMessage(sb.ToString());
+
+                PluginLog.Info(
+                    ModuloLog,
+                    C3DCommands.Qto.Todos + " concluído: " + corredores.Count + " corredores, " +
+                    ctx.Itens.Count + " Pay Items, " + fecha + " fecham, " + conferir +
+                    " a conferir, " + comFora + " com quantidade fora de corredor. Planilha: " + xlsx);
+
+                return xlsx;
+            }
+            catch (System.Exception ex)
+            {
+                PluginLog.Erro(
+                    ModuloLog,
+                    C3DCommands.Qto.Todos + " falhou",
+                    ex);
+
+                ed.WriteMessage(
+                    "\n\n====================================================" +
+                    "\n " + C3DCommands.Qto.Todos + " - ERRO" +
+                    "\n====================================================" +
+                    "\n" + ex.Message +
+                    "\nTipo: " + ex.GetType().FullName +
+                    "\nDetalhes no log do plugin (comando C3DLOG)." +
+                    "\n====================================================\n");
+
+                return null;
+            }
+        }
+
+
+        /// <summary>
+        /// Lê o relatório do desenho inteiro e reparte cada item detalhado pelo
+        /// corredor dono. Nada é descartado: o que não é de corredor nenhum vai
+        /// para ForaDeCorredor.
+        /// </summary>
+        private static QtoTodosContexto LerRelatorioTodos(
+            string caminhoXml,
+            List<QtoTodosCorredor> corredores)
+        {
+            XDocument doc =
+                XDocument.Load(
+                    caminhoXml,
+                    LoadOptions.None);
+
+            Dictionary<string, QtoTodosCorredor> porHandle =
+                new Dictionary<string, QtoTodosCorredor>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (QtoTodosCorredor c in corredores)
+            {
+                if (!string.IsNullOrWhiteSpace(c.Handle))
+                    porHandle[c.Handle] = c;
+            }
+
+            Dictionary<string, QtoTodosItem> itens =
+                new Dictionary<string, QtoTodosItem>(StringComparer.OrdinalIgnoreCase);
+
+            QtoTodosContexto ctx =
+                new QtoTodosContexto
+                {
+                    Corredores = corredores
+                };
+
+            IEnumerable<XElement> payNodes =
+                doc
+                    .Descendants()
+                    .Where(x => x.Name.LocalName == "DesignProjectPayItem");
+
+            foreach (XElement node in payNodes)
+            {
+                string id =
+                    ObterValorDescendente(
+                        node,
+                        "referencePayItemID");
+
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+
+                if (!itens.TryGetValue(id, out QtoTodosItem? item))
+                {
+                    item =
+                        new QtoTodosItem
+                        {
+                            Id = id,
+                            Descricao = ObterValorDescendente(node, "description"),
+                            Unidade = ObterValorDescendente(node, "unitOfMeasureID")
+                        };
+
+                    itens.Add(id, item);
+                }
+
+                // Total do Pay Item informado pelo Civil: só vale o campo que é
+                // filho direto do Pay Item (não o de um item detalhado).
+                XElement? totalEl =
+                    node
+                        .Elements()
+                        .FirstOrDefault(x => x.Name.LocalName == "estimatedQuantity");
+
+                if (totalEl != null &&
+                    double.TryParse(
+                        totalEl.Value.Trim(),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out double totalCivil))
+                {
+                    item.TotalCivil =
+                        (item.TotalCivil ?? 0.0) + totalCivil;
+                }
+
+                // Mesma regra de itens detalhados do QTOESTUDO.
+                List<XElement> detalhes =
+                    node
+                        .Descendants()
+                        .Where(x => x.Name.LocalName == "referenceBaseline")
+                        .SelectMany(
+                            rb => rb
+                                .Descendants()
+                                .Where(x => x.Name.LocalName == "item"))
+                        .Where(
+                            x => x
+                                .Descendants()
+                                .Any(d => d.Name.LocalName == "quantity"))
+                        .ToList();
+
+                foreach (XElement detalhe in detalhes)
+                {
+                    if (!double.TryParse(
+                        ObterValorDescendente(detalhe, "quantity"),
+                        NumberStyles.Float,
+                        CultureInfo.InvariantCulture,
+                        out double q))
+                    {
+                        continue;
+                    }
+
+                    ctx.ItensDetalhados++;
+
+                    QtoTodosCorredor? dono = null;
+
+                    string h =
+                        NormalizarHandle(
+                            ObterValorDescendente(
+                                detalhe,
+                                "AutoCADObjectHandle"));
+
+                    if (!string.IsNullOrWhiteSpace(h))
+                    {
+                        if (porHandle.TryGetValue(h, out dono))
+                            ctx.ItensPorHandle++;
+                    }
+                    else
+                    {
+                        string baselineName =
+                            ObterValorDescendente(
+                                detalhe,
+                                "baselineName").Trim();
+
+                        if (baselineName.Length > 0)
+                        {
+                            List<QtoTodosCorredor> candidatos =
+                                corredores
+                                    .Where(c => c.Nomes.Contains(baselineName))
+                                    .ToList();
+
+                            // Só vale quando o nome aponta para UM corredor;
+                            // nome repetido em dois corredores não é adivinhado.
+                            if (candidatos.Count == 1)
+                            {
+                                dono = candidatos[0];
+                                ctx.ItensPorBaseline++;
+                            }
+                        }
+                    }
+
+                    if (dono == null)
+                    {
+                        item.ForaDeCorredor += q;
+                        ctx.ItensForaDeCorredor++;
+                        continue;
+                    }
+
+                    item.SomaCorredores += q;
+
+                    dono.Quantidades[id] =
+                        (dono.Quantidades.TryGetValue(id, out double atual) ? atual : 0.0) + q;
+
+                    string fonte =
+                        ObterCodigosFonte(new[] { detalhe });
+
+                    dono.Fontes[id] =
+                        MesclarCodigosFonte(
+                            dono.Fontes.TryGetValue(id, out string? fonteAtual) ? fonteAtual : string.Empty,
+                            fonte);
+                }
+            }
+
+            ctx.Itens =
+                itens.Values
+                    .OrderBy(x => x.Id, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+            return ctx;
+        }
+
+
+        private static void GravarCsvTodos(
+            string caminho,
+            string dwg,
+            QtoTodosContexto ctx)
+        {
+            CultureInfo ptBr =
+                CultureInfo.GetCultureInfo("pt-BR");
+
+            StringBuilder sb =
+                new StringBuilder();
+
+            sb.AppendLine(
+                "DWG;Corredor;Eixos;Serviço;Unidade;Quantidade");
+
+            foreach (QtoTodosCorredor c in ctx.Corredores)
+            {
+                foreach (QtoTodosItem item in ctx.Itens)
+                {
+                    if (!c.Quantidades.TryGetValue(item.Id, out double q))
+                        continue;
+
+                    sb.Append(Csv(dwg));
+                    sb.Append(';');
+                    sb.Append(Csv(c.Nome));
+                    sb.Append(';');
+                    sb.Append(Csv(string.Join(", ", c.Eixos)));
+                    sb.Append(';');
+                    sb.Append(Csv(item.Descricao));
+                    sb.Append(';');
+                    sb.Append(Csv(item.Unidade));
+                    sb.Append(';');
+                    sb.Append(q.ToString("0.######", ptBr));
+                    sb.AppendLine();
+                }
+            }
+
+            File.WriteAllText(
+                caminho,
+                sb.ToString(),
+                new UTF8Encoding(true));
+        }
+
+
+        // =====================================================================
         // HELP
         // =====================================================================
 
@@ -4475,7 +5281,7 @@ namespace Civil3D2026Plugin.Modules.QTO
                 "\n  Soma os intervalos filtrados por Pay Item." +
                 "\n  Compara com o Takeoff filtrado do Alignment inteiro." +
                 "\n  Tenta também comparar com o Takeoff global do desenho, filtrado pelo mesmo Corridor." +
-                "\n  Até 5% = OK; acima de 5% = DIVERGÊNCIA." +
+                "\n  Até a tolerância (" + ToleranciaTexto + ", ajustável no painel " + C3DCommands.Qto.Painel + ") = OK; acima = DIVERGÊNCIA." +
                 "\n  Gera XLSX formatado, CSVs, resumo TXT e todos os XMLs." +
                 "\n  A saída fica em uma pasta estável QTO_<DWG>__<CORREDOR>." +
                 "\n  Gera também <DWG>__<CORREDOR>__RESUMO_ORCAMENTO.csv," +
@@ -4506,6 +5312,13 @@ namespace Civil3D2026Plugin.Modules.QTO
                 "\n  O comando não força 2D/3D." +
                 "\n  Total e intervalos usam o mesmo QTOUtility e, portanto," +
                 "\n  são comparados na mesma dimensão nativa." +
+                "\n" +
+                "\n" + C3DCommands.Qto.Painel +
+                "\n  Abre o painel do QTO: lista de corredores, eixo, intervalo, tolerância e botões de gerar." +
+                "\n" +
+                "\n" + C3DCommands.Qto.Todos +
+                "\n  Total de TODOS os corredores do desenho, num relatório só do Civil (desenho inteiro)," +
+                "\n  separado por corredor, com conferência de fechamento contra o total do próprio Civil." +
                 "\n" +
                 "\n" + C3DCommands.Qto.GeoTeste +
                 "\n  Mantém o diagnóstico geométrico 2D da v0.6." +
@@ -4764,6 +5577,238 @@ namespace Civil3D2026Plugin.Modules.QTO
             ValidarPacoteXlsx(caminho);
         }
 
+        // -----------------------------------------------------------------
+        // QTOTODOS - planilha com todos os corredores
+        // Aba 1: tabela plana Corredor x Serviço (base para filtros/PROCX).
+        // Aba 2: total do desenho por serviço, com a conferência de fechamento.
+        // Aba 3: metadados.
+        // -----------------------------------------------------------------
+        public static void ExportarTodos(
+            string caminho,
+            QtoCommands.QtoTodosContexto ctx)
+        {
+            string? dir = Path.GetDirectoryName(caminho);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            if (File.Exists(caminho))
+                File.Delete(caminho);
+
+            using (FileStream fs = new FileStream(
+                caminho,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None))
+            using (ZipArchive zip = new ZipArchive(
+                fs,
+                ZipArchiveMode.Create,
+                leaveOpen: false,
+                entryNameEncoding: Encoding.UTF8))
+            {
+                WriteEntry(zip, "[Content_Types].xml", ContentTypesXml());
+                WriteEntry(zip, "_rels/.rels", RootRelsXml());
+                WriteEntry(zip, "xl/workbook.xml", WorkbookXml("Por Corredor", "Total do Desenho", "Metadados"));
+                WriteEntry(zip, "xl/_rels/workbook.xml.rels", WorkbookRelsXml());
+                WriteEntry(zip, "xl/styles.xml", StylesXml());
+                WriteEntry(zip, "xl/worksheets/sheet1.xml", SheetTodosPorCorredor(ctx, out int ultimaLinhaDados));
+                WriteEntry(zip, "xl/worksheets/sheet2.xml", SheetTodosTotal(ctx, ultimaLinhaDados));
+                WriteEntry(zip, "xl/worksheets/sheet3.xml", SheetTodosMetadados(ctx));
+            }
+
+            ValidarPacoteXlsx(caminho);
+        }
+
+        private static string SheetTodosPorCorredor(
+            QtoCommands.QtoTodosContexto ctx,
+            out int ultimaLinhaDados)
+        {
+            StringBuilder sb = SheetStart(1);
+            sb.Append(Columns(new double[] { 34, 16, 48, 30, 11, 18, 44 }));
+            sb.Append("<sheetData>");
+
+            RowBuilder row = new RowBuilder(sb);
+            row.Begin(1, 28)
+                .Text(1, "Corredor", StyleHeader)
+                .Text(2, "Pay Item", StyleHeader)
+                .Text(3, "Descrição", StyleHeader)
+                .Text(4, "Code / Fonte", StyleHeader)
+                .Text(5, "Unidade", StyleHeader)
+                .Text(6, "Quantidade", StyleHeader)
+                .Text(7, "Chave", StyleHeader)
+                .End();
+
+            int excelRow = 2;
+            int grupo = 0;
+
+            foreach (QtoCommands.QtoTodosCorredor c in ctx.Corredores)
+            {
+                if (c.Quantidades.Count == 0)
+                    continue;
+
+                bool creme = (grupo % 2 == 0);
+                int textStyle = creme ? StyleBandText : StyleText;
+                int numberStyle = creme ? StyleBandNumber3 : StyleNumber3;
+
+                foreach (QtoCommands.QtoTodosItem item in ctx.Itens)
+                {
+                    if (!c.Quantidades.TryGetValue(item.Id, out double q))
+                        continue;
+
+                    c.Fontes.TryGetValue(item.Id, out string? fonte);
+
+                    row.Begin(excelRow, 20)
+                        .Text(1, c.Nome, textStyle)
+                        .Text(2, item.Id, textStyle)
+                        .Text(3, item.Descricao, textStyle)
+                        .Text(4, fonte ?? string.Empty, textStyle)
+                        .Text(5, item.Unidade, textStyle)
+                        .Number(6, q, numberStyle)
+                        .FormulaText(7, "$A" + excelRow + "&\"|\"&$B" + excelRow, c.Nome + "|" + item.Id, textStyle)
+                        .End();
+
+                    excelRow++;
+                }
+
+                grupo++;
+            }
+
+            ultimaLinhaDados = excelRow - 1;
+
+            sb.Append("</sheetData>");
+
+            if (excelRow > 2)
+                sb.Append("<autoFilter ref=\"A1:G").Append(excelRow - 1).Append("\"/>");
+
+            sb.Append(PageSetupLandscape());
+            sb.Append(SheetEnd());
+            return sb.ToString();
+        }
+
+        private static string SheetTodosTotal(
+            QtoCommands.QtoTodosContexto ctx,
+            int ultimaLinhaDados)
+        {
+            StringBuilder sb = SheetStart(1);
+            sb.Append(Columns(new double[] { 16, 48, 11, 20, 18, 20, 20, 16, 22 }));
+            sb.Append("<sheetData>");
+
+            RowBuilder row = new RowBuilder(sb);
+            row.Begin(1, 34)
+                .Text(1, "Pay Item", StyleHeader)
+                .Text(2, "Descrição", StyleHeader)
+                .Text(3, "Unidade", StyleHeader)
+                .Text(4, "Soma dos corredores", StyleHeader)
+                .Text(5, "Fora de corredor", StyleHeader)
+                .Text(6, "Total do relatório", StyleHeader)
+                .Text(7, "Total do Civil", StyleHeader)
+                .Text(8, "Diferença", StyleHeader)
+                .Text(9, "Conferência", StyleHeader)
+                .End();
+
+            // Intervalo fixo (não a coluna inteira) para o SOMASES ficar leve.
+            int fim = Math.Max(2, ultimaLinhaDados);
+
+            int excelRow = 2;
+            int indice = 0;
+
+            foreach (QtoCommands.QtoTodosItem item in ctx.Itens)
+            {
+                bool creme = (indice % 2 == 0);
+                int textStyle = creme ? StyleBandText : StyleText;
+                int numberStyle = creme ? StyleBandNumber3 : StyleNumber3;
+
+                string fSoma =
+                    "SUMIFS('Por Corredor'!$F$2:$F$" + fim +
+                    ",'Por Corredor'!$B$2:$B$" + fim +
+                    ",$A" + excelRow + ")";
+
+                string fTotal =
+                    "$D" + excelRow + "+$E" + excelRow;
+
+                string fDif =
+                    "IF($G" + excelRow + "=\"\",\"\",$F" + excelRow + "-$G" + excelRow + ")";
+
+                string fConf =
+                    "IF($G" + excelRow + "=\"\",\"SEM TOTAL DO CIVIL\",IF(ABS($H" + excelRow +
+                    ")<=MAX(0.001,ABS($G" + excelRow + ")*0.0001),\"FECHA\",\"CONFERIR\"))";
+
+                string conferencia = item.Conferencia;
+
+                int statusStyle =
+                    conferencia == "FECHA"
+                        ? StyleStatusOk
+                        : (conferencia == "CONFERIR" ? StyleStatusBad : textStyle);
+
+                row.Begin(excelRow, 21)
+                    .Text(1, item.Id, textStyle)
+                    .Text(2, item.Descricao, textStyle)
+                    .Text(3, item.Unidade, textStyle)
+                    .FormulaNumber(4, fSoma, item.SomaCorredores, numberStyle)
+                    .Number(5, item.ForaDeCorredor, numberStyle)
+                    .FormulaNumber(6, fTotal, item.TotalRelatorio, numberStyle)
+                    .NullableNumber(7, item.TotalCivil, numberStyle, textStyle)
+                    .FormulaNumber(8, fDif, item.Diferenca, numberStyle)
+                    .FormulaText(9, fConf, conferencia, statusStyle)
+                    .End();
+
+                excelRow++;
+                indice++;
+            }
+
+            sb.Append("</sheetData>");
+
+            if (excelRow > 2)
+                sb.Append("<autoFilter ref=\"A1:I").Append(excelRow - 1).Append("\"/>");
+
+            sb.Append(PageSetupLandscape());
+            sb.Append(SheetEnd());
+            return sb.ToString();
+        }
+
+        private static string SheetTodosMetadados(
+            QtoCommands.QtoTodosContexto ctx)
+        {
+            StringBuilder sb = SheetStart(0);
+            sb.Append(Columns(new double[] { 38, 90 }));
+            sb.Append("<sheetData>");
+
+            RowBuilder row = new RowBuilder(sb);
+            row.Begin(1, 28).Text(1, "QUANTITATIVOS DE TODOS OS CORREDORES", StyleTitle).End();
+            row.Begin(2, 22).Text(1, "Origem dos números e critério da conferência", StyleSubtitle).End();
+            row.Begin(3, 7).End();
+            row.Begin(4, 24).Text(1, "Campo", StyleHeader).Text(2, "Valor", StyleHeader).End();
+
+            int r = 5;
+            Meta(row, r++, "Versão QTO", ctx.Versao);
+            Meta(row, r++, "DWG", ctx.Dwg);
+            Meta(row, r++, "Gerado em", ctx.GeradoEm.ToString("dd/MM/yyyy HH:mm:ss", CultureInfo.GetCultureInfo("pt-BR")));
+            Meta(row, r++, "Origem dos números", "Takeoff do próprio Civil 3D (QTOUtility, Detailed Report) do desenho inteiro, num relatório só, sem dividir por estaca e sem nenhuma correção");
+            Meta(row, r++, "Separação por corredor", "Cada item do relatório é atribuído ao corredor pelo identificador (Handle) do objeto; item sem Handle entra pelo nome do eixo, só quando o nome pertence a um único corredor");
+            Meta(row, r++, "Fora de corredor", "Itens do relatório que não são de nenhum corredor (tubos, blocos, item sem identificação). Não entram no resumo por corredor, mas aparecem na aba Total do Desenho");
+            Meta(row, r++, "Conferência", "Soma dos corredores + Fora de corredor comparada com o total do Pay Item informado pelo Civil no mesmo relatório. FECHA = diferença até 0,01% (mínimo 0,001)");
+            Meta(row, r++, "Corredores no desenho", ctx.Corredores.Count.ToString(CultureInfo.InvariantCulture));
+            Meta(row, r++, "Itens detalhados no relatório", ctx.ItensDetalhados.ToString(CultureInfo.InvariantCulture));
+            Meta(row, r++, "Atribuídos pelo Handle do corredor", ctx.ItensPorHandle.ToString(CultureInfo.InvariantCulture));
+            Meta(row, r++, "Atribuídos pelo nome do eixo", ctx.ItensPorBaseline.ToString(CultureInfo.InvariantCulture));
+            Meta(row, r++, "Fora de corredor (itens)", ctx.ItensForaDeCorredor.ToString(CultureInfo.InvariantCulture));
+
+            foreach (QtoCommands.QtoTodosCorredor c in ctx.Corredores)
+            {
+                Meta(
+                    row,
+                    r++,
+                    "Corredor " + c.Nome,
+                    "Handle " + c.Handle +
+                    " | eixos: " + (c.Eixos.Count == 0 ? "(nenhum Alignment)" : string.Join(", ", c.Eixos)) +
+                    " | serviços: " + c.Quantidades.Count.ToString(CultureInfo.InvariantCulture));
+            }
+
+            sb.Append("</sheetData>");
+            sb.Append("<mergeCells count=\"2\"><mergeCell ref=\"A1:B1\"/><mergeCell ref=\"A2:B2\"/></mergeCells>");
+            sb.Append(SheetEnd());
+            return sb.ToString();
+        }
+
         private static void WriteEntry(
             ZipArchive zip,
             string path,
@@ -4805,14 +5850,25 @@ namespace Civil3D2026Plugin.Modules.QTO
 
         private static string WorkbookXml()
         {
+            return WorkbookXml(
+                "QTO por Estaca",
+                "Resumo QTO",
+                "Metadados");
+        }
+
+        private static string WorkbookXml(
+            string aba1,
+            string aba2,
+            string aba3)
+        {
             return "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>" +
                    "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" " +
                    "xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">" +
                    "<bookViews><workbookView xWindow=\"0\" yWindow=\"0\" windowWidth=\"22000\" windowHeight=\"12000\"/></bookViews>" +
                    "<sheets>" +
-                   "<sheet name=\"QTO por Estaca\" sheetId=\"1\" r:id=\"rId1\"/>" +
-                   "<sheet name=\"Resumo QTO\" sheetId=\"2\" r:id=\"rId2\"/>" +
-                   "<sheet name=\"Metadados\" sheetId=\"3\" r:id=\"rId3\"/>" +
+                   "<sheet name=\"" + Xml(aba1) + "\" sheetId=\"1\" r:id=\"rId1\"/>" +
+                   "<sheet name=\"" + Xml(aba2) + "\" sheetId=\"2\" r:id=\"rId2\"/>" +
+                   "<sheet name=\"" + Xml(aba3) + "\" sheetId=\"3\" r:id=\"rId3\"/>" +
                    "</sheets>" +
                    "<calcPr calcId=\"191029\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/>" +
                    "</workbook>";
@@ -5273,7 +6329,7 @@ namespace Civil3D2026Plugin.Modules.QTO
             Meta(row, r++, "Correções lineares automáticas", ctx.CorrecoesLineares.ToString(CultureInfo.InvariantCulture));
             Meta(row, r++, "Acréscimo por correção linear", ctx.AcrescimoCorrecoesLineares.ToString("0.###", CultureInfo.GetCultureInfo("pt-BR")) + " m");
             Meta(row, r++, "Critério da correção linear", "Somente Corridor Feature Line; corrige apenas quando a geometria 2D do intervalo é materialmente maior que o QTO nativo; nunca reduz quantidade.");
-            Meta(row, r++, "Critério de validação", "Soma dos intervalos filtrados × Takeoff filtrado do Alignment; diferença ≤ 5% = OK");
+            Meta(row, r++, "Critério de validação", "Soma dos intervalos filtrados × Takeoff filtrado do Alignment; diferença ≤ " + ctx.ToleranciaPercentual.ToString("0.##", CultureInfo.GetCultureInfo("pt-BR")) + "% = OK");
             Meta(row, r++, "Cálculos explícitos no Excel", "Soma por estacas, diferenças, percentuais, status, Área/Volume/Comprimento e Chave são fórmulas do Excel");
             Meta(row, r++, "Formato de estaca", "Padrão brasileiro de 20 m: 1+0.00");
             Meta(row, r++, "Estrutura da aba QTO por Estaca", "Tabela plana; cabeçalho na linha 1; coluna Chave = Trecho|Pay Item; adequada para PROCX/filtros");

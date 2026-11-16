@@ -78,7 +78,9 @@ public static class CommandNames
 
     public static class Qto
     {
+        public const string Painel = "C3DQTO";
         public const string Estudo = "QTOESTUDO";
+        public const string Todos = "QTOTODOS";
         public const string GeoTeste = "QTOGEOTESTE";
         public const string Help = "QTOHELP";
         public const string Teste = "TESTEQTO";
