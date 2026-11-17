@@ -8,7 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
-## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.117.1: painel C3DQTO, QTOTODOS, teste sem tela do QTO
+## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.118.0: C3DIFC (exportar IFC 4.3 com critérios)
+
+- Módulo novo `Modules/Ifc` (também na DLL avulsa): `C3DIFC` usa `IFCInfraExportSelected` da extensão IFC 2026.1 por `Editor.Command` (sem janela; pede só o caminho). Planilha de mapeamento gerada ao lado do .ifc (`<ifc>-IfcInfraExportMapping-IFC4X3_ADD2.xlsx`, fonte "IFC File" da extensão; textos pela tabela sharedStrings — texto inline é lido como vazio). Nome do projeto/local corrigido no .ifc depois (a extensão grava "Unknown"; o JSON de configuração ao lado do DWG não foi lido). Critérios em `<dwg>-C3DIFC.json`.
+- Diagnóstico do IFC do Heyvid: 1313 genéricos/897 cascas vinham de links sem estilo mapeado (estilos BASICO, PISTA, SECAO DATUM, Uncoded); sem eixo/KM_02 porque a exportação do selecionado só leva o selecionado. Estilos do code set "_PADRAO camelo": shapes GUIA, PAVIMENTO 1/2, BASE, SUBBASE, Ref_SubLeito, Basic; "Sarjeta" sem estilo (fica genérica).
+- Quedas do accoreconsole (meus testes) abriam o relatório de erro da Autodesk na tela dele; run.ps1 agora fecha o cer_dialog do teste se o acad.exe dele segue vivo. A DLL completa não carrega no console (UI): testes pela avulsa.
+- Teste: 2 corredores + 36 eixos, IfcKerb 119, IfcPavement 101, IfcCourse 134, genéricos 200 (só Sarjeta), 27 peças da lombofaixa com Pset.
+- Pendente: estilo SARJETA no code set (frente do meio-fio); grelha dos cantos de união como chapa; grelha simplificada para IFC leve; listras/triângulo da imagem do BIMvision não conferidos.
+- Entregue 2.118.0 / PassagemRampa 1.19.0 só com versão no nome (Civil aberto); hashes conferidos; planilha em G:\Meu Drive\Civil3D2026Plugin\ifc\.## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.117.1: painel C3DQTO, QTOTODOS, teste sem tela do QTO
 
 - QTO 0.18/0.18.1: painel `C3DQTO` (`QtoPanel.cs`, manda `QTOESTUDO`/`QTOTODOS` via `QtoCommands.PedidoDoPainel`), opções em `QtoConfig.cs` (`%APPDATA%\Civil3D2026Plugin\qto.txt`, tolerância padrão 5%), `QTOTODOS` (um relatório DrawingExtent repartido por corredor pelo Handle, conferência contra o `estimatedQuantity` do Civil com folga de 0,005 por item), alerta de quantidade fora do eixo e de Pay Item em m³ sem fórmula, testes fora da Ribbon.
 - Contexto antigo do QTO (handoff do Heyvid) guardado nos arquivos do projeto: `qto/CONTEXTO_QTO_PARA_CLAUDE.md`. Não regredir filtro por Handle nem reparo LT/RT; "OK <= 5%" é só consistência interna.
