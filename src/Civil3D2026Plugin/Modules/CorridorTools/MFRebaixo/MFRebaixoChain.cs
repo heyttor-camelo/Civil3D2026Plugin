@@ -166,10 +166,18 @@ public sealed partial class MFRebaixoCommands
 
         double entryRampLength = Math.Abs(startEffectiveHeight - finalHeight) / slopeEntry;
         double exitRampLength = Math.Abs(endEffectiveHeight - finalHeight) / slopeExit;
-        if (entryRampLength <= StationTolerance || exitRampLength <= StationTolerance)
+        // Ponta onde o meio-fio ja esta na altura final (encostado em outro rebaixo, ou a altura pedida e a
+        // normal): antes dava erro; agora a rampa desse lado fica curta (MinRampLength) e quase nao desce.
+        // Pedido do Heyvid em 17/11/2026 ("o que esse erro quer dizer?").
+        if (entryRampLength < MinRampLength)
         {
-            throw new InvalidOperationException(
-                "A diferença entre a altura normal efetiva e a altura final é insuficiente para gerar uma rampa de meio-fio.");
+            notes.Add($"rampa de entrada de {MinRampLength:0.00} m: a altura normal antes do trecho ({startEffectiveHeight * 100.0:0.#} cm) já é praticamente a altura final");
+            entryRampLength = MinRampLength;
+        }
+        if (exitRampLength < MinRampLength)
+        {
+            notes.Add($"rampa de saída de {MinRampLength:0.00} m: a altura normal depois do trecho ({endEffectiveHeight * 100.0:0.#} cm) já é praticamente a altura final");
+            exitRampLength = MinRampLength;
         }
 
         double s0 = s1 - entryRampLength;

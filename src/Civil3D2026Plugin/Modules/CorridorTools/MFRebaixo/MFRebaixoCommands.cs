@@ -107,6 +107,10 @@ public sealed partial class MFRebaixoCommands
     private const double StationTolerance =
         1e-6;
 
+    /// <summary>Rampa minima quando a ponta ja esta na altura final (sem desnivel para rampa).</summary>
+    private const double MinRampLength =
+        0.05;
+
     private const double AutoSideOffsetTolerance =
         0.01;
 

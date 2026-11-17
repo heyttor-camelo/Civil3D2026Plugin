@@ -1,8 +1,9 @@
-## 2.120.1 - MFREBAIXO v1.28.1 / PassagemRampa v1.21.1: altura do meio-fio no perfil e no 3D do painel
+## 2.120.1 - MFREBAIXO v1.28.1 / PassagemRampa v1.21.1: altura do meio-fio no perfil e no 3D do painel; rebaixo encostado em ponta ja rebaixada
 
 Pergunta do Heyvid em 17/11/2026 ("o que quer dizer esse 4,6 ai?"): no trecho rebaixado a 0 cm o perfil mostrava 4,6 cm e a ficha do 3D "rebaixado 5,3 cm", embora a altura obtida fosse 0.
 
 - Painel: o topo do meio-fio no perfil, no 3D e na ficha passou a ignorar o topo da sarjeta. Com o meio-fio a 0 a borda da pista (lado alto da sarjeta) era o ponto mais alto e o rotulo mostrava a queda da sarjeta, nao o meio-fio. So a exibicao mudou; o corredor e os rebaixos nao mudam.
+- MFREBAIXO: o erro "A diferenca entre a altura normal efetiva e a altura final e insuficiente para gerar uma rampa" deixou de existir. Ele aparecia quando, num dos lados do trecho, o meio-fio ja estava na altura final (encostado em outro rebaixo, ou altura pedida igual a normal). Agora a rampa desse lado fica com 5 cm (quase nao desce) e a linha de comando avisa.
 
 ## 2.120.0 - MFREBAIXO v1.28.0 / PassagemRampa v1.21.0: altura final do rebaixo exata (MFSARJETA 1.27 ou REB secao por secao) e Acertar altura final
 
