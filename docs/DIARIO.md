@@ -8,6 +8,12 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-17 (tarde) — LAPTOP-11TNS6P8 (Remote Control), 2.120.1 e 2.121.0: painel com o meio-fio a 0, rebaixos colados, declividade por rampa e "a prumo"
+
+- 2.120.1 (com os commits do coordenador 79012ea/503534e): no painel a linha d'agua passou a ser a ponta do topo da sarjeta (P2); com o meio-fio a 0 o arredondamento da quina (raio 5 cm) descia abaixo dela e o perfil/ficha mostravam 4,6 cm. Mesmo filtro em `CurbMarks`. Rampa de rebaixo novo nao entra mais noutro rebaixo do mesmo lado (`busy` em `ApplyRebaixoCore`): corta a rampa na ponta do vizinho ou da erro dizendo o que fazer. O erro "diferenca insuficiente" do Heyvid nao aparece nos logs desta maquina de hoje.
+- 2.121.0: declividade por rampa e "a prumo" (marcador `PlumbSlope` = 99 no lugar da declividade; `PlumbLength` = 1 cm; token `P=`; `RebaixoInfo.PlumbIn/Out`, `EntrySlopeArg/ExitSlopeArg` em todos os ApplyFromPanel). Painel: campos `decl`/`decl_out` + caixinhas `prumo_in`/`prumo_out`; lista com colunas 5 e 6. MFREBAIXO: `AskOneSlope`, `UltimaDeclividadeSaida`.
+- Testes na copia (helpers ZZT6PRUMO, ZZT6PRUMOLIST, ZZT6ENCOSTA, ZZT6HATCH, ZZT6PAINELALT, ZZT6SOLIDOS no ZZTeste6, fora do repo): painel = EXPOSTO em todas as secoes; escolhas mantidas no Acertar e na travessia; `Corridor.ExportSolids` com a mesma quantidade de solidos do meio-fio com e sem a prumo (Brep nao carrega no console, o teste de ponto dentro do solido nao rodou).
+- Entregue 2.120.1 e 2.121.0 (PassagemRampa 1.21.1 / 1.22.0) so com versao no nome; hashes conferidos.
 ## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.120.0: altura final do rebaixo exata
 
 - Causa do "pedi 0 e ficou 1,9 / 7,7 cm": o REB era um valor só, calculado com a altura normal antes de S0; com alvos verticais de topo e flowline a normal varia no trecho.
