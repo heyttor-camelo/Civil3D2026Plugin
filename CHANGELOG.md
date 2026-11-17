@@ -1,3 +1,10 @@
+## 2.124.0 - MFREBAIXO v1.32.0 / PassagemRampa v1.25.0: lombofaixa paralela a superficie de topo (altura do rebaixo no miolo, faixa de transicao de 1 m nas bordas)
+
+Pedido do Heyvid em 17/11/2026 ("segue a superficie, com a mesma altura do rebaixo de preferencia ... ou seja, fica paralela").
+
+- **Uniao**: o miolo do plato fica exatamente na superficie de topo + altura da lombofaixa/rebaixo (a de cada travessia, passando de uma para a outra pelo angulo); so uma faixa junto das bordas (padrao 1 m, `TravessiaFaixaTransicao`, na Configuracao) faz a transicao suave ate o topo do meio-fio rebaixado e ate a borda de entrada de cada travessia (antes a altura ia em linha reta do centro ate a borda).
+- **Travessia simples (semi-elevada)**: o mesmo no meio da pista (antes a altura ia em linha reta de um meio-fio ao outro).
+- Teste (copia do KM_01 salvo hoje): U10 e U09 com o miolo a 12,0 cm acima da superficie (antes da 2.122.0: altura unica de 12,1 / 14,2 cm sobre a pista, e na 2.123.0 7,9 cm no centro da U10), degrau rampa x plato 0,0 cm, borda rente ao meio-fio rebaixado (0,0 cm).
 ## 2.123.0 - MFREBAIXO v1.31.0 / PassagemRampa v1.24.0: Redesenhar acerta os rebaixos a plataforma, grelha da uniao so no meio-fio rebaixado, desnivel lombofaixa x meio-fio no painel
 
 Pedidos do Heyvid em 17/11/2026 ("a altura nos pontos de rampa"; "remover a grelha que circunda a uniao ... manter apenas a grelha onde fica o rebaixo").

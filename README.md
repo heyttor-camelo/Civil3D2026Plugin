@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFREBAIXO v1.32.0: lombofaixa (simples e uniao) **paralela a superficie de topo**: altura do rebaixo no miolo e faixa de transicao de 1 m (Configuracao) ate o meio-fio rebaixado e as rampas.
 - MFREBAIXO v1.31.0: **Redesenhar** (MFTRAVESSIAREFAZER) acerta os rebaixos que nao cobrem a plataforma da lombofaixa (com confirmacao; U desfaz); uniao com grelha so no meio-fio rebaixado (opcao na Configuracao para os cantos); coluna **Desnivel MF** e aviso no painel.
 - MFREBAIXO v1.30.0: **uniao das lombofaixas nivelada**: plato = superficie de topo + altura de cada travessia (sem altura media), rampas dos bracos saindo da borda do plato, borda encostando no topo do meio-fio rebaixado (tolerancia 1 cm, ajuste ate 4 cm na Configuracao); grelha/tampa so na plataforma (sem a ponta sobre a rampa).
 - MFREBAIXO v1.29.0: **uma declividade para cada rampa** (entrada e saida) e caixinha **A prumo** em cada lado (sem rampa, o meio-fio desce na vertical: degrau de 1 cm de transicao; nao acessivel, sem aviso de 8,33%). Painel: dois campos e duas caixinhas em Propriedades > Tamanho e rampas; na lista, colunas **Rampa entrada** e **Rampa saida** (% ou `prumo`; varias linhas com Ctrl/Shift). `MFREBAIXO` > Declividade pergunta as duas (`Prumo` ou `8.33/6` ainda valem). A escolha fica no rebaixo e passa por Reaplicar, Acertar altura final, Reposicionar, travessia e cadeia de regions. Rampa de rebaixo novo nao entra mais noutro rebaixo do mesmo lado (2.120.1).

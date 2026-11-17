@@ -94,6 +94,10 @@ internal sealed class MFRebaixoSettings
 
     // Uniao: grelha/tampa tambem nos cantos com meio-fio nao rebaixado (2.123.0: desligado; so onde o meio-fio e rebaixado).
     public bool TravessiaGrelhaCantos { get; set; }
+
+    // Plato paralelo a superficie de topo (2.124.0, "ou seja, fica paralela"): superficie + altura do rebaixo em todo o
+    // miolo; so esta faixa junto das bordas faz a transicao ate o meio-fio rebaixado / a borda de cada travessia (m).
+    public double TravessiaFaixaTransicao { get; set; } = 1.0;
     public double TravessiaGrelhaFolgaMF { get; set; } = 0.01;
     // Esconsa: rampas perpendiculares a pista (true) ou paralelas ao eixo inclinado (false, padrao).
     public bool TravessiaRampasPerpendiculares { get; set; }

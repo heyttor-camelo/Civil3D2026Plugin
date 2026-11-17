@@ -204,6 +204,26 @@ internal sealed class TravessiaGeometry
     public string RoadSource { get; set; } = "";
     public List<string> Notes { get; } = new();
 
+    /// <summary>
+    /// Altura do plato num ponto (2.124.0): <paramref name="baseH"/> (a do rebaixo) no miolo; a ate <paramref name="band"/> de cada
+    /// borda, transicao suave ate a altura da borda (topo do meio-fio). Bordas mais perto que 2 x band: as duas pesam juntas.
+    /// </summary>
+    internal static double EdgeBlend(double baseH, double edgeA, double distA, double edgeB, double distB, double band)
+    {
+        static double S(double d, double b)
+        {
+            double s = Math.Clamp(1.0 - (d / Math.Max(1e-6, b)), 0.0, 1.0);
+            return s * s * (3.0 - (2.0 * s));
+        }
+        double sa = S(distA, band), sb = S(distB, band);
+        if (sa + sb > 1.0)
+        {
+            double k = sa + sb;
+            sa /= k;
+            sb /= k;
+        }
+        return baseH + ((edgeA - baseH) * sa) + ((edgeB - baseH) * sb);
+    }
     /// <summary>Topo do meio-fio menos topo da lombofaixa na borda, ao longo da plataforma (m; 2.122.0).</summary>
     public double? CurbLevelMin { get; set; }
 
@@ -900,6 +920,7 @@ internal static partial class MFTravessia
         hb = hB[mid];
 
         int cols = Math.Max(3, (int)Math.Ceiling(Dist2d(ea0, eb0) / Step) + 1);
+        double band = Math.Max(0.05, MFRebaixoSettingsStore.Load().TravessiaFaixaTransicao);
         var top = new Point3d[rows.Count, cols];
         var bottom = new Point3d[rows.Count, cols];
         int fromSurface = 0, linear = 0;
@@ -908,6 +929,7 @@ internal static partial class MFTravessia
         {
             double t = Math.Abs(rows[i]);
             double f = t <= half + 1e-6 ? 1.0 : Math.Max(0.0, (total - t) / p.Rampa);
+            double widthI = Dist2d(ea[i], eb[i]);
             for (int j = 0; j < cols; j++)
             {
                 double w = j / (double)(cols - 1);
@@ -930,7 +952,11 @@ internal static partial class MFTravessia
                         linear++;
                     }
                 }
-                double h = hA[i] + ((hB[i] - hA[i]) * w);
+                // 2.124.0 (Heyvid: "segue a superficie, com a mesma altura do rebaixo ... ou seja, fica paralela"): no miolo
+                // a altura da lombofaixa sobre a superficie; so a faixa junto de cada borda vai ate o topo do meio-fio.
+                double h = p.Tipo == TravessiaTipo.SemiElevada
+                    ? TravessiaGeometry.EdgeBlend(p.Altura, hA[i], w * widthI, hB[i], (1.0 - w) * widthI, band)
+                    : hA[i] + ((hB[i] - hA[i]) * w);
                 bottom[i, j] = new Point3d(x, y, z);
                 top[i, j] = new Point3d(x, y, z + Math.Max(h * f, MinThickness));
             }

@@ -2430,6 +2430,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(cornerLids);
         p.Children.Add(EditRow("tolmf", "Lombofaixa x meio-fio rebaixado: tolerancia", N(_settings.TravessiaToleranciaMeioFio * 100, "0.#"), "cm"));
         p.Children.Add(EditRow("ajmf", "Uniao: ajuste maximo da borda ate o meio-fio", N(_settings.TravessiaAjusteMaxMeioFio * 100, "0.#"), "cm"));
+        p.Children.Add(EditRow("ftmf", "Lombofaixa: faixa de transicao junto das bordas", N(_settings.TravessiaFaixaTransicao, "0.00"), "m"));
         p.Children.Add(EditRow("hlayer", "Layer", _settings.HachuraLayer, ""));
         p.Children.Add(EditRow("hcor", "Cor da layer (indice ACI)", _settings.HachuraCor.ToString(CultureInfo.InvariantCulture), ""));
         p.Children.Add(EditRow("hrampa", "Padrao das rampas", _settings.HachuraPadraoRampa, ""));
@@ -2448,6 +2449,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 _settings.TravessiaToleranciaMeioFio = tm / 100.0;
             if (Number("ajmf") is double am && am >= 0 && am <= 30)
                 _settings.TravessiaAjusteMaxMeioFio = am / 100.0;
+            if (Number("ftmf") is double fm && fm >= 0.05 && fm <= 10)
+                _settings.TravessiaFaixaTransicao = fm;
             if (_fields.TryGetValue("hlayer", out WC.TextBox? lb) && lb.Text.Trim().Length > 0)
                 _settings.HachuraLayer = lb.Text.Trim();
             if (Number("hcor") is double hc && hc >= 1 && hc <= 255)

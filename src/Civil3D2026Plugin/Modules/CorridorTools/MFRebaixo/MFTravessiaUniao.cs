@@ -603,15 +603,67 @@ internal static partial class MFTravessia
                 notLowered[i] = true;
             }
         }
+        // 2.124.0 (Heyvid: "segue a superficie, com a mesma altura do rebaixo ... ou seja, fica paralela"): no miolo,
+        // superficie + altura do rebaixo (a da travessia daquele lado, passando de uma para a outra pelo angulo); so a
+        // faixa TravessiaFaixaTransicao junto da borda vai ate o topo do meio-fio rebaixado / da plataforma de entrada.
+        double band = Math.Max(0.05, settings.TravessiaFaixaTransicao);
+        var baseH = new double[n];
+        for (int i = 0; i < n; i++)
+            baseH[i] = rays[i].Member >= 0 ? members[rays[i].Member].Data.Params.Altura : double.NaN;
+        if (isMember.Any(x => x))
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (!double.IsNaN(baseH[i]))
+                    continue;
+                int prev = -1, next = -1;
+                for (int s = 1; s < n && (prev < 0 || next < 0); s++)
+                {
+                    if (prev < 0 && isMember[((i - s) % n + n) % n])
+                        prev = ((i - s) % n + n) % n;
+                    if (next < 0 && isMember[(i + s) % n])
+                        next = (i + s) % n;
+                }
+                double Gap2(int a, int b) { double d = rays[b].Ang - rays[a].Ang; while (d < 0) d += 2.0 * Math.PI; return d; }
+                double ga = Gap2(prev, i), gb = Gap2(i, next);
+                double hp = members[rays[prev].Member].Data.Params.Altura, hn = members[rays[next].Member].Data.Params.Altura;
+                baseH[i] = ga + gb < 1e-9 ? hp : hp + ((hn - hp) * (ga / (ga + gb)));
+            }
+        }
+        else
+        {
+            for (int i = 0; i < n; i++)
+                baseH[i] = members[0].Data.Params.Altura;
+        }
+        double baseC = baseH.Average();
         for (int i = 0; i < n; i++)
         {
+            double len = Dist2d(rays[i].P, c);
             for (int k = 0; k <= rings; k++)
             {
                 double f = k / (double)rings;
                 Point3d b0 = bottom[i, k];
-                top[i, k] = new Point3d(b0.X, b0.Y, b0.Z + hCenter + ((edgeHs[i] - hCenter) * f));
+                double bh = baseC + ((baseH[i] - baseC) * f);
+                double h = TravessiaGeometry.EdgeBlend(bh, edgeHs[i], (1.0 - f) * len, bh, double.MaxValue, band);
+                top[i, k] = new Point3d(b0.X, b0.Y, b0.Z + Math.Max(0.005, h));
             }
         }
+        hCenter = baseC;
+        double inMin = double.MaxValue, inMax = double.MinValue;
+        for (int i = 0; i < n; i++)
+        {
+            double len = Dist2d(rays[i].P, c);
+            for (int k = 0; k <= rings; k++)
+                if ((1.0 - (k / (double)rings)) * len > band + 1e-6)
+                {
+                    double hh = top[i, k].Z - bottom[i, k].Z;
+                    inMin = Math.Min(inMin, hh);
+                    inMax = Math.Max(inMax, hh);
+                }
+        }
+        string coreInfo = inMin <= inMax
+            ? $"miolo do plato (fora da faixa de {N(band)} m das bordas): {Cm(inMin)} a {Cm(inMax)} acima da superficie de topo"
+            : "";
         // Para comparar (log): o metodo de antes (altura unica = media) dava degrau na borda das rampas e no meio-fio.
         double oldStepMax = 0, oldCurbMax = 0, newStepMax = 0;
         for (int i = 0; i < n; i++)
@@ -636,6 +688,8 @@ internal static partial class MFTravessia
         UnionCurbLevel level = CurbLevel(db, rays.Select(r => r.P).ToList(), curbDiff, notLowered, tol);
         int count = 0;
         var notes = new List<string>();
+        if (coreInfo.Length > 0)
+            notes.Add(coreInfo);
 
         string layer = string.IsNullOrWhiteSpace(settings.TravessiaLayer) ? "MF-TRAVESSIA" : settings.TravessiaLayer.Trim();
         string layer3d = layer + "-3D";
