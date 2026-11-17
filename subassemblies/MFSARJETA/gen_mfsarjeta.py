@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.25"
+VERSION = "1.26"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -173,13 +173,19 @@ with Switch('[SJ]', "Sarjeta?") as swSJ:
     # v1.24: os codes dos SHAPES não podem mudar ao longo do corredor. Na extração de sólidos o Civil 3D
     # só liga, entre duas seções, shapes com os mesmos codes: com [Dst] (REBAIXO) e [MFStatusCode]
     # (MF_NORMAL/MF_REBAIXADO) no shape, o sólido do meio-fio ficava com um buraco em cada rampa
-    # (S0-S1 e S2-S3). Esses codes saíram dos shapes; MF_NORMAL/MF_REBAIXADO continua no ponto Back_Curb.
+    # (S0-S1 e S2-S3). Esses codes saíram dos shapes; desde a v1.26 MF_NORMAL/MF_REBAIXADO fica no ponto P90.
     sh("S1", ["L1", "L2", "L3", "L4"], codes=["Sarjeta", "SARJETA"], disp="S1 - SARJETA")
 # meio-fio: parte comum (pé da face, fundo, face de trás)
 pt("P5", "P2", "[-M*ENT]", "[-ENT]", disp="P5 - pé da face (fundo da frente)")
 pt("P6", "P5", "[LB]", "0", link="L6", lcodes=["Curb", "[DatumMF]"], disp="P6&L6 - fundo de trás")
-pt("P7", "P6", "0", "[HR]", codes=["Back_Curb", "[MFStatusCode]", "[MFCurvaCode]"],
+pt("P7", "P6", "0", "[HR]", codes=["Back_Curb"],
    link="L7", lcodes=["Curb"], disp="P7&L7 - topo de trás (Back_Curb)")
+# v1.26: MF_NORMAL/MF_REBAIXADO e MF_RETO/MF_CURVO saíram do P7. O P7 é um canto do shape do meio-fio e
+# a exportação IFC (extensão Autodesk 2026.1) corta o sólido onde um canto troca de code: no corredor da
+# Waldir Soeiro, 74 dos 86 trechos com troca viraram buraco (13/11/2026). Os codes ficam num ponto à
+# parte, no mesmo lugar, sem link e fora de qualquer shape.
+pt("P90", "P7", "0", "0", codes=["[MFStatusCode]", "[MFCurvaCode]"],
+   disp="P90 - estado do MF (normal/rebaixado, reto/curvo), mesmo lugar do P7")
 with Switch('[IF(KK>0.5,"KASSEL","TRAPEZIO")]', "Forma") as swF:
   with swF.case("TRAPEZIO"):
     lk("L5", "P2", "P5", codes=["Curb"], disp="L5 - face enterrada")

@@ -3,7 +3,7 @@
 Meio-fio SUDECAP 30/40, Kassel (guia de atracagem) e personalizado, com sarjeta
 opcional e berço (base, sub-base e reforço recortados pelo meio-fio).
 
-- `MFSARJETA_v1.25.pkt`: pacote para importar no Civil 3D.
+- `MFSARJETA_v1.26.pkt`: pacote para importar no Civil 3D.
 - `gen_mfsarjeta.py`: gerador do pacote (o XAML é escrito pelo script, não à mão).
   Uso: `python gen_mfsarjeta.py MFSARJETA_vX.pkt` (no Windows sem `python` no PATH: `py gen_mfsarjeta.py ...`)
 
@@ -51,6 +51,13 @@ altura da peça muda sem salto ao longo das rampas (ex. T30 com 12 cm enterrados
 `H_REAL` = 47 cm). Com calçada,
 a rampa desce do topo levantado até a calçada normal com `iRampa`; se não couber, a calçada desce reta
 até a borda externa e `Rampa OK` = 0.
+
+## Exportação IFC (v1.26)
+
+`MF_NORMAL`/`MF_REBAIXADO` e `MF_RETO`/`MF_CURVO` saíram do ponto `Back_Curb` (canto do shape do
+meio-fio) e foram para um ponto à parte (`P90`, mesmo lugar, sem link). A extensão IFC da Autodesk
+corta o sólido onde um canto do shape troca de code; com a v1.25 isso abria um buraco em quase toda
+troca normal/rebaixado. A troca T30/T40 -> Kassel continua separando as peças (a forma muda).
 
 ## Kassel
 
