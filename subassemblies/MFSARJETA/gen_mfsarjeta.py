@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 OUT = sys.argv[1]
 NAME = "MFSARJETA"
-VERSION = "1.26"
+VERSION = "1.27"
 GUID = uuid.uuid4().hex
 
 def q(v):  # escape para atributo
@@ -36,6 +36,8 @@ PARAMS = [
     ("DESTAQUE", "double", "0",   "Destaque (codes)"),
     ("iRampa", "grade",  "0.0833", "Declividade máx. das rampas"),
     ("REB",    "double", "0",      "Rebaixo (profundidade)"),
+    ("ALT_FINAL", "double", "0",   "Rebaixo: altura livre final"),
+    ("REB_K",  "double", "0",      "Rebaixo: peso da altura final (0 a 1)"),
     ("CALCADA", "enumYN", "No",    "Calçada"),
     ("LC",     "double", "1.5",    "Calçada: largura"),
     ("iC",     "grade",  "0.02",   "Calçada: declividade"),
@@ -92,7 +94,12 @@ EXPR = {
              'Math.Max(0, Math.Min(EXP0, H-0.001))))]'),
     # REB: profundidade do rebaixo (o MFREBAIXO grava por Corridor Transition). Kassel não rebaixa.
     # v1.25: REB negativo SOBE o meio-fio (qualquer altura final, pedido do Heyvid em 11/11/2026).
-    "DREB": "[IF(KK>0.5, 0, Math.Min(REB, EXPN))]",
+    # v1.27: altura livre final EXATA (pedido do Heyvid em 17/11/2026: pedia 0 e sobrava 1,9 a 7,7 cm,
+    # porque o exposto normal muda a cada seção com os alvos de cota do topo e da flowline e o REB é
+    # um valor só). REB_K (0 a 1) e ALT_FINAL vêm por Corridor Transition: com REB_K = 1 o exposto é
+    # ALT_FINAL em qualquer seção; nas rampas REB_K vai de 0 a 1. Com REB_K > 0 o REB é ignorado.
+    "KREB": "[Math.Min(1, Math.Max(0, REB_K))]",
+    "DREB": "[IF(KK>0.5, 0, IF(KREB > 0.000001, KREB*(EXPN - Math.Max(0, ALT_FINAL)), Math.Min(REB, EXPN)))]",
     "EXP":  "[EXPN - DREB]",
     # v1.25: MF levantado (REB negativo): a peça estica assim que o enterrado ficaria menor que o
     # mínimo (EMB); se a seção normal já tinha enterrado menor que EMB, mantém esse enterrado (o fundo
@@ -160,7 +167,7 @@ pt("P1", None, "0", "0", codes=["Flange"], disp="P1 - borda da pista")
 var("LSR")
 pt_slope("P2", "P1", "[iSa]", "[LSR]", "[FLOWLINE_ELEV]", codes=["Flowline_Gutter"],
          disp="P2 - flowline (alvos offset e cota)")
-for v in ("EXP0", "EXPN", "DREB", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
+for v in ("EXP0", "EXPN", "KREB", "DREB", "EXP", "HR", "ENT", "M", "SW", "TT", "MFTipoCode", "MFStatusCode", "MFCurvaCode",
           "DatumMF", "DatumBase", "DatumSub", "Dst"): var(v)
 # sarjeta
 with Switch('[SJ]', "Sarjeta?") as swSJ:
