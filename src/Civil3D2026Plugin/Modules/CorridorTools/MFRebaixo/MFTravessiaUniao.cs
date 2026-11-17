@@ -138,7 +138,7 @@ internal static partial class MFTravessia
     /// Linhas do meio-fio (MF/MFSARJETA) de todos os corredores a ate <paramref name="radius"/> do
     /// centro: borda da pista e pe do meio-fio, com elevacao absoluta. Uma lista por peca e trecho.
     /// </summary>
-    private static List<List<CurbSample>> CurbLines(AcadDb.Database db, Point3d center, double radius)
+    private static List<List<CurbSample>> CurbLines(AcadDb.Database db, Point3d center, double radius, List<RebaixoInfo>? rebaixos = null)
     {
         var result = new List<List<CurbSample>>();
         using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
@@ -230,7 +230,23 @@ internal static partial class MFTravessia
                                     // Topo do meio-fio: linha d'agua (pe da face) + altura exposta da peca (2.122.0;
                                     // a uniao segue esse topo na borda do plato).
                                     double? curbTop = null;
-                                    if (footElev is not null)
+                                    // 2.124.1: so no trecho rebaixado (S1-S2) de um rebaixo desta peca/baseline. Antes o "rebaixado"
+                                    // era pela altura (ate 4 cm da do plato) e o meio-fio normal dos cantos (~15 cm x 12 cm) passava
+                                    // por rebaixado: grelha em volta da uniao inteira (Heyvid, 17/11/2026).
+                                    string bkey = MFRebaixoCommands.GetBaselineKey(baseline);
+                                    string saName = "";
+                                    try
+                                    {
+                                        saName = (tr.GetObject(said, AcadDb.OpenMode.ForRead) as CivilDb.Subassembly)?.Name ?? "";
+                                    }
+                                    catch
+                                    {
+                                        // Sem nome.
+                                    }
+                                    bool lowered = rebaixos is null || rebaixos.Any(r => r.CorridorId == cid && r.BaselineKey == bkey &&
+                                        r.SubassemblyName.Equals(saName, StringComparison.OrdinalIgnoreCase) &&
+                                        origin.X >= Math.Min(r.S1, r.S2) - 0.01 && origin.X <= Math.Max(r.S1, r.S2) + 0.01);
+                                    if (footElev is not null && lowered)
                                     {
                                         foreach (CivilDb.IAppliedSubassemblyParam prm in asa.Parameters)
                                         {
@@ -439,7 +455,7 @@ internal static partial class MFTravessia
             edges.Add(new Seg(a - ext, b + ext, k));
         }
 
-        List<List<CurbSample>> curbs = CurbLines(db, c, radius);
+        List<List<CurbSample>> curbs = CurbLines(db, c, radius, MFRebaixoData.ReadAll(db));
         foreach (List<CurbSample> line in curbs)
         {
             for (int i = 0; i + 1 < line.Count; i++)
@@ -590,18 +606,20 @@ internal static partial class MFTravessia
         // Meio-fio rebaixado: a borda encosta no topo dele.
         for (int i = 0; i < n; i++)
         {
-            if (rays[i].Member >= 0 || rays[i].CurbTop is not double ct)
+            if (rays[i].Member >= 0)
                 continue;
-            double hc = ct - bottom[i, rings].Z;
-            if (Math.Abs(hc - edgeHs[i]) <= follow + 1e-9)
-            {
-                edgeHs[i] = Math.Max(0.005, hc);
-                curbDiff[i] = ct - (bottom[i, rings].Z + edgeHs[i]);
-            }
-            else
+            if (rays[i].CurbTop is not double ct)
             {
                 notLowered[i] = true;
+                continue;
             }
+            double hc = ct - bottom[i, rings].Z;
+            // So chega aqui meio-fio de trecho rebaixado (CurbLines): a borda segue o topo dele; alem do ajuste maximo
+            // (rebaixo numa altura bem diferente da lombofaixa) segue tambem, e a conferencia mostra a diferenca.
+            edgeHs[i] = Math.Max(0.005, hc);
+            curbDiff[i] = ct - (bottom[i, rings].Z + edgeHs[i]);
+            if (Math.Abs(hc - edgeHs[i]) > follow + 1e-9)
+                notLowered[i] = false;
         }
         // 2.124.0 (Heyvid: "segue a superficie, com a mesma altura do rebaixo ... ou seja, fica paralela"): no miolo,
         // superficie + altura do rebaixo (a da travessia daquele lado, passando de uma para a outra pelo angulo); so a

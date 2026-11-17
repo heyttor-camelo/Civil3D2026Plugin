@@ -1,3 +1,9 @@
+## 2.124.1 - MFREBAIXO v1.32.1 / PassagemRampa v1.25.1: uniao sem a grelha perimetrica
+
+Retorno do Heyvid em 17/11/2026 ("ainda esta desenhando a grelha perimetrica").
+
+- Causa: na 2.123.0/2.124.0 o meio-fio "rebaixado" da borda da uniao era decidido pela altura (ate 4 cm da altura do plato); o meio-fio normal dos cantos (~15 cm contra 12 cm) passava por rebaixado e ganhava grelha (a U10 do KM_01 saia com 7 coberturas de canto) e o plato subia ate ele.
+- Agora so conta como rebaixado o meio-fio dentro do trecho rebaixado (S1-S2) de um rebaixo da mesma peca e baseline. Teste na copia do KM_01: U10 com 0 coberturas de canto (antes 7), U09 com 1 (antes 4); miolo 12,0 cm acima da superficie; borda rente ao meio-fio rebaixado (0,0 cm).
 ## 2.124.0 - MFREBAIXO v1.32.0 / PassagemRampa v1.25.0: lombofaixa paralela a superficie de topo (altura do rebaixo no miolo, faixa de transicao de 1 m nas bordas)
 
 Pedido do Heyvid em 17/11/2026 ("segue a superficie, com a mesma altura do rebaixo de preferencia ... ou seja, fica paralela").
