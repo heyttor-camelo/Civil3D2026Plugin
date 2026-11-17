@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFREBAIXO v1.33.0: solido da uniao de lombofaixas pela triangulacao da superficie de topo (prisma limpo, ~20 vezes menos faces).
 - MFREBAIXO v1.32.0: lombofaixa (simples e uniao) **paralela a superficie de topo**: altura do rebaixo no miolo e faixa de transicao de 1 m (Configuracao) ate o meio-fio rebaixado e as rampas.
 - MFREBAIXO v1.31.0: **Redesenhar** (MFTRAVESSIAREFAZER) acerta os rebaixos que nao cobrem a plataforma da lombofaixa (com confirmacao; U desfaz); uniao com grelha so no meio-fio rebaixado (opcao na Configuracao para os cantos); coluna **Desnivel MF** e aviso no painel.
 - MFREBAIXO v1.30.0: **uniao das lombofaixas nivelada**: plato = superficie de topo + altura de cada travessia (sem altura media), rampas dos bracos saindo da borda do plato, borda encostando no topo do meio-fio rebaixado (tolerancia 1 cm, ajuste ate 4 cm na Configuracao); grelha/tampa so na plataforma (sem a ponta sobre a rampa).

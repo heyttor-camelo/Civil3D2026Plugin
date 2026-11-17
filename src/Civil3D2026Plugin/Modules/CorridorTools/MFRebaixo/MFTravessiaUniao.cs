@@ -729,7 +729,13 @@ internal static partial class MFTravessia
             var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForWrite);
             var hatches = new AcadDb.ObjectIdCollection();
 
-            AcadDb.Entity? solid = FanSolid(tr, ms, top, bottom, layer3d, out string mode);
+            // 2.125.0: plato pela triangulacao da superficie de topo (TIN temporaria); sem ela, o solido em leque de antes.
+            AcadDb.ObjectId surfId = Surfaces(db).FirstOrDefault(x => x.Name.Equals(members[0].Data.Params.Superficie ?? "", StringComparison.OrdinalIgnoreCase)).Id;
+            var edgeTopL = Enumerable.Range(0, n).Select(i => top[i, rings]).ToList();
+            var edgeBotL = Enumerable.Range(0, n).Select(i => bottom[i, rings]).ToList();
+            string mode = "";
+            AcadDb.Entity? solid = TinSolid(tr, db, ms, layer3d, surfId, c, edgeTopL, edgeBotL, rays.Select(r => r.Ang).ToList(), baseH, edgeHs, band, road, out mode)
+                                   ?? FanSolid(tr, ms, top, bottom, layer3d, out mode);
             if (solid is not null)
             {
                 solid.XData = PartXData(unionId, "UNIAO_PLATO");
@@ -911,6 +917,233 @@ internal static partial class MFTravessia
     /// Solido em leque: top[i, k] e o ponto do raio i no anel k (k = 0 e o centro, igual em todos os
     /// raios). Fecha o giro (ultimo raio liga no primeiro) e a parede no anel de fora.
     /// </summary>
+    /// <summary>
+    /// Plato da uniao pela triangulacao da propria superficie de topo (2.125.0, pedido do Heyvid: "o solido ... fica todo torto,
+    /// com uma caralhada de triangulos; nao tem como recortar e aproveitar a triangulacao da superficie?"). Uma TIN temporaria
+    /// recebe os vertices da superficie dentro do miolo (elevados da altura), o anel da faixa de transicao e o contorno (como
+    /// breakline e limite externo); os triangulos dela viram um prisma: topo, fundo na superficie/borda da pista e laterais
+    /// verticais. A TIN temporaria e apagada no fim. Null se nao der (fica o solido em leque).
+    /// </summary>
+    private static AcadDb.Entity? TinSolid(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord ms, string layer,
+        AcadDb.ObjectId surfaceId, Point3d c, List<Point3d> edgeTop, List<Point3d> edgeBottom, List<double> angles, double[] baseH, double[] edgeH,
+        double band, Func<double, double, double?> road, out string mode)
+    {
+        mode = "";
+        int n = edgeTop.Count;
+        if (n < 3 || surfaceId.IsNull || tr.GetObject(surfaceId, AcadDb.OpenMode.ForRead) is not CivilDb.TinSurface src)
+            return null;
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+
+        // Contorno sem pontos alinhados (mesma reta em planta e na altura): menos triangulos finos na borda.
+        var keep = new List<int>();
+        for (int i = 0; i < n; i++)
+        {
+            Point3d a = edgeTop[(i - 1 + n) % n], p = edgeTop[i], b = edgeTop[(i + 1) % n];
+            double ab = Dist2d(a, b);
+            if (ab < 1e-6)
+                continue;
+            double w = Math.Clamp((((p.X - a.X) * (b.X - a.X)) + ((p.Y - a.Y) * (b.Y - a.Y))) / (ab * ab), 0, 1);
+            double dx = a.X + ((b.X - a.X) * w) - p.X, dy = a.Y + ((b.Y - a.Y) * w) - p.Y, dz = a.Z + ((b.Z - a.Z) * w) - p.Z;
+            if (Math.Sqrt((dx * dx) + (dy * dy)) > 0.01 || Math.Abs(dz) > 0.003 || Dist2d(a, p) > 1.5)
+                keep.Add(i);
+        }
+        if (keep.Count < 3)
+            keep = Enumerable.Range(0, n).ToList();
+
+        var bottomAt = new Dictionary<(long, long), double>();
+        (long, long) K(double x, double y) => ((long)Math.Round(x * 1000.0), (long)Math.Round(y * 1000.0));
+        var pts = new Point3dCollection();
+        foreach (int i in keep)
+        {
+            pts.Add(edgeTop[i]);
+            bottomAt[K(edgeTop[i].X, edgeTop[i].Y)] = edgeBottom[i].Z;
+        }
+        // Faixa de transicao: meio e fim da faixa em cada rumo do contorno.
+        foreach (int i in keep)
+        {
+            double len = Dist2d(edgeTop[i], c);
+            foreach (double d in new[] { band / 2.0, band })
+            {
+                if (len < d * 1.2)
+                    continue;
+                double t = 1.0 - (d / len);
+                double x = c.X + ((edgeTop[i].X - c.X) * t), y = c.Y + ((edgeTop[i].Y - c.Y) * t);
+                if (road(x, y) is not double z)
+                    continue;
+                double h = TravessiaGeometry.EdgeBlend(baseH[i], edgeH[i], d, baseH[i], double.MaxValue, band);
+                pts.Add(new Point3d(x, y, z + Math.Max(0.005, h)));
+                bottomAt[K(x, y)] = z;
+            }
+        }
+        // Miolo: vertices da propria superficie de topo, elevados da altura do rebaixo naquele rumo.
+        int inner = 0;
+        double maxR = edgeTop.Max(p => Dist2d(p, c));
+        double Ang(double x, double y) { double a = Math.Atan2(y - c.Y, x - c.X); return a < 0 ? a + (2.0 * Math.PI) : a; }
+        int RayAt(double ang)
+        {
+            int best = 0;
+            double bd = double.MaxValue;
+            for (int i = 0; i < n; i++)
+            {
+                double d = Math.Abs(angles[i] - ang);
+                d = Math.Min(d, (2.0 * Math.PI) - d);
+                if (d < bd)
+                {
+                    bd = d;
+                    best = i;
+                }
+            }
+            return best;
+        }
+        foreach (CivilDb.TinSurfaceVertex v in src.Vertices)
+        {
+            Point3d q = v.Location;
+            double r = Dist2d(q, c);
+            if (r > maxR)
+                continue;
+            int i = RayAt(Ang(q.X, q.Y));
+            if (r > Dist2d(edgeTop[i], c) - (band * 1.05))
+                continue;
+            pts.Add(new Point3d(q.X, q.Y, q.Z + baseH[i]));
+            bottomAt[K(q.X, q.Y)] = q.Z;
+            inner++;
+        }
+
+        // TIN temporaria: pontos + contorno como breakline e limite externo.
+        AcadDb.ObjectId tinId = AcadDb.ObjectId.Null;
+        var temp = new List<AcadDb.Entity>();
+        try
+        {
+            tinId = CivilDb.TinSurface.Create(db, "_C3D_TMP_UNIAO_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
+            var tin = (CivilDb.TinSurface)tr.GetObject(tinId, AcadDb.OpenMode.ForWrite);
+            tin.AddVertices(pts);
+            var poly3 = new AcadDb.Polyline3d(AcadDb.Poly3dType.SimplePoly, new Point3dCollection(keep.Select(i => edgeTop[i]).ToArray()), true);
+            ms.AppendEntity(poly3);
+            tr.AddNewlyCreatedDBObject(poly3, true);
+            temp.Add(poly3);
+            tin.BreaklinesDefinition.AddStandardBreaklines(new AcadDb.ObjectIdCollection { poly3.ObjectId }, 1.0, 0.0, 0.0, 0.0);
+            tin.BoundariesDefinition.AddBoundaries(new AcadDb.ObjectIdCollection { poly3.ObjectId }, 0.1, Autodesk.Civil.SurfaceBoundaryType.Outer, false);
+            tin.Rebuild();
+
+            var verts = new Point3dCollection();
+            var index = new Dictionary<(long, long), int>();
+            var tris = new List<(int A, int B, int C)>();
+            Point3d o = edgeTop[keep[0]];
+            Vector3d shift = new(o.X, o.Y, Math.Floor(o.Z));
+            int V(Point3d p)
+            {
+                (long, long) k = K(p.X, p.Y);
+                if (!index.TryGetValue(k, out int id))
+                {
+                    id = verts.Count;
+                    index[k] = id;
+                    verts.Add(p - shift);
+                }
+                return id;
+            }
+            foreach (CivilDb.TinSurfaceTriangle t in tin.GetTriangles(false))
+            {
+                Point3d a = t.Vertex1.Location, b = t.Vertex2.Location, d = t.Vertex3.Location;
+                // So triangulos dentro do contorno (o limite externo ja corta; confere o centro).
+                double cx = (a.X + b.X + d.X) / 3.0, cy = (a.Y + b.Y + d.Y) / 3.0;
+                int ri = RayAt(Ang(cx, cy));
+                if (Dist2d(new Point3d(cx, cy, 0), c) > Dist2d(edgeTop[ri], c) + 0.05)
+                    continue;
+                int ia = V(a), ib = V(b), ic = V(d);
+                if (ia == ib || ib == ic || ia == ic)
+                    continue;
+                // Topo virado para cima.
+                if (((b.X - a.X) * (d.Y - a.Y)) - ((b.Y - a.Y) * (d.X - a.X)) < 0)
+                    (ib, ic) = (ic, ib);
+                tris.Add((ia, ib, ic));
+            }
+            if (tris.Count < 3)
+                return null;
+            int top = verts.Count;
+            // Fundo: superficie (ou borda da pista no contorno); ponto sem fundo conhecido: a superficie ali.
+            for (int i = 0; i < top; i++)
+            {
+                Point3d p = verts[i] + shift;
+                double zb = bottomAt.TryGetValue(K(p.X, p.Y), out double bz) ? bz : road(p.X, p.Y) ?? (p.Z - 0.12);
+                verts.Add(new Point3d(p.X, p.Y, Math.Min(zb, p.Z - 0.005)) - shift);
+            }
+            var faces = new List<int[]>();
+            var edgeUse = new Dictionary<(int, int), int>();
+            foreach ((int a, int b, int d) in tris)
+            {
+                faces.Add(new[] { a, b, d });
+                faces.Add(new[] { d + top, b + top, a + top });
+                foreach ((int p, int q) in new[] { (a, b), (b, d), (d, a) })
+                {
+                    var key = p < q ? (p, q) : (q, p);
+                    edgeUse[key] = edgeUse.TryGetValue(key, out int u) ? u + 1 : 1;
+                }
+            }
+            // Laterais verticais nas arestas de borda (as usadas por um triangulo so), no sentido do triangulo.
+            foreach ((int a, int b, int d) in tris)
+            {
+                foreach ((int p, int q) in new[] { (a, b), (b, d), (d, a) })
+                {
+                    if (edgeUse[p < q ? (p, q) : (q, p)] != 1)
+                        continue;
+                    faces.Add(new[] { q, p, p + top });
+                    faces.Add(new[] { q, p + top, q + top });
+                }
+            }
+            var idx = new Int32Collection();
+            foreach (int[] f in faces)
+            {
+                idx.Add(3);
+                foreach (int i in f)
+                    idx.Add(i);
+            }
+            var mesh = new AcadDb.SubDMesh();
+            mesh.SetDatabaseDefaults();
+            mesh.SetSubDMesh(verts, idx, 0);
+            mesh.Layer = layer;
+            ms.AppendEntity(mesh);
+            tr.AddNewlyCreatedDBObject(mesh, true);
+            AcadDb.Solid3d solid = mesh.ConvertToSolid(false, true);
+            solid.SetDatabaseDefaults();
+            solid.Layer = layer;
+            solid.TransformBy(Matrix3d.Displacement(shift));
+            ms.AppendEntity(solid);
+            tr.AddNewlyCreatedDBObject(solid, true);
+            mesh.Erase();
+            mode = $"solido pela triangulacao da superficie ({tris.Count} triangulos no topo, {faces.Count} faces; {inner} vertices da superficie no miolo; {sw.ElapsedMilliseconds} ms)";
+            return solid;
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("MFTRAVESSIA", "Uniao: plato pela triangulacao da superficie nao saiu (" + ex.Message + "); fica o solido em leque.");
+            return null;
+        }
+        finally
+        {
+            foreach (AcadDb.Entity e in temp)
+            {
+                try
+                {
+                    if (!e.IsErased)
+                        e.Erase();
+                }
+                catch
+                {
+                    // Ja apagada.
+                }
+            }
+            try
+            {
+                if (!tinId.IsNull && tr.GetObject(tinId, AcadDb.OpenMode.ForWrite) is AcadDb.DBObject t && !t.IsErased)
+                    t.Erase();
+            }
+            catch
+            {
+                // TIN temporaria ja apagada.
+            }
+        }
+    }
+
     private static AcadDb.Entity? FanSolid(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, Point3d[,] top, Point3d[,] bottom,
         string layer, out string mode)
     {

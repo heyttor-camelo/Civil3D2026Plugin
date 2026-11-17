@@ -1,3 +1,9 @@
+## 2.125.0 - MFREBAIXO v1.33.0 / PassagemRampa v1.26.0: solido da uniao pela triangulacao da superficie de topo
+
+Pedido do Heyvid em 17/11/2026 ("o solido ... fica todo torto, com uma caralhada de triangulos; nao tem como recortar e aproveitar a triangulacao da superficie?").
+
+- O plato da uniao deixou de ser um leque (centenas de raios x aneis). Uma TIN temporaria recebe os vertices da propria superficie de topo dentro do miolo (elevados da altura do rebaixo), dois aneis da faixa de transicao e o contorno (breakline e limite externo); os triangulos dela viram um prisma fechado (topo, fundo na superficie/borda da pista, laterais verticais). A TIN temporaria e apagada no fim; se algo falhar, fica o solido em leque.
+- Teste (copia do KM_01 salvo hoje): U10 de ~25.900 para 1.128 faces (496 triangulos no topo, 0,4 s); U09 de ~9.600 para 244 faces; nenhuma superficie temporaria sobrando; borda rente ao meio-fio rebaixado (0,0 cm); Property Set e handles como antes.
 ## 2.124.1 - MFREBAIXO v1.32.1 / PassagemRampa v1.25.1: uniao sem a grelha perimetrica
 
 Retorno do Heyvid em 17/11/2026 ("ainda esta desenhando a grelha perimetrica").
