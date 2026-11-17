@@ -1,3 +1,9 @@
+## 2.120.1 - MFREBAIXO v1.28.1 / PassagemRampa v1.21.1: altura do meio-fio no perfil e no 3D do painel
+
+Pergunta do Heyvid em 17/11/2026 ("o que quer dizer esse 4,6 ai?"): no trecho rebaixado a 0 cm o perfil mostrava 4,6 cm e a ficha do 3D "rebaixado 5,3 cm", embora a altura obtida fosse 0.
+
+- Painel: o topo do meio-fio no perfil, no 3D e na ficha passou a ignorar o topo da sarjeta. Com o meio-fio a 0 a borda da pista (lado alto da sarjeta) era o ponto mais alto e o rotulo mostrava a queda da sarjeta, nao o meio-fio. So a exibicao mudou; o corredor e os rebaixos nao mudam.
+
 ## 2.120.0 - MFREBAIXO v1.28.0 / PassagemRampa v1.21.0: altura final do rebaixo exata (MFSARJETA 1.27 ou REB secao por secao) e Acertar altura final
 
 Pedido do Heyvid em 17/11/2026 ("as vezes, mesmo colocando altura 0 do meio-fio, ele ainda fica com uma altura final, talvez seja por que a sarjeta em target vertical"). Causa: o REB (quanto o meio-fio desce) era um valor so, calculado com a altura normal lida antes do rebaixo; com alvos de topo do meio-fio e de flowline a altura normal varia no trecho e sobrava altura (1,9 / 7,7 cm na imagem dele).

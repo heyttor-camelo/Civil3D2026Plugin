@@ -107,7 +107,10 @@ internal sealed partial class MFRebaixoPanel
             foreach (Point3d q in l.Soe)
             {
                 first ??= q;
-                if (curb || topCode)
+                // O topo da sarjeta (link Top/TOPO + Sarjeta) fica de fora: com o meio-fio rebaixado a 0
+                // a borda da pista e o ponto mais alto e o perfil mostrava a queda da sarjeta (4,6 cm)
+                // como altura do meio-fio (teste do Heyvid em 17/11/2026).
+                if (curb || (topCode && !gutter))
                     top = Math.Max(top, q.Z);
                 if (topCode && !gutter)
                     flow = Math.Min(flow, q.Z);
