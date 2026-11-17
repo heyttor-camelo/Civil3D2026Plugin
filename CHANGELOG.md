@@ -1,3 +1,11 @@
+## 2.123.0 - MFREBAIXO v1.31.0 / PassagemRampa v1.24.0: Redesenhar acerta os rebaixos a plataforma, grelha da uniao so no meio-fio rebaixado, desnivel lombofaixa x meio-fio no painel
+
+Pedidos do Heyvid em 17/11/2026 ("a altura nos pontos de rampa"; "remover a grelha que circunda a uniao ... manter apenas a grelha onde fica o rebaixo").
+
+- **Redesenhar (MFTRAVESSIAREFAZER)**: antes de redesenhar, confere se os rebaixos de cada semi-elevada cobrem a plataforma (+10 cm em cada ponta) e estao na altura da lombofaixa; os que nao estao sao listados e, com confirmacao (U desfaz), acertados (rebaixo de duas travessias cobre as duas). Assim o meio-fio nao sobe mais nas pontas da plataforma.
+- **Uniao**: grelha/tampa dos cantos so onde o meio-fio e rebaixado; nos cantos com meio-fio nao rebaixado o plato termina na borda da pista, sem cobrir a sarjeta. Configuracao: "Uniao de lombofaixas: grelha tambem nos cantos sem rebaixo" (desligada). Redesenhar remove as grelhas de canto antigas.
+- **Painel**: coluna "Desnivel MF" na lista de travessias (uniao inclusive; "!" acima da tolerancia), aviso na aba Avisos com o que fazer; tolerancia e ajuste maximo da borda na Configuracao.
+- Teste (copia do KM_01 salvo hoje): Redesenhar acertou 11 rebaixos (ex. R28 10,9 -> 12 cm, R14 12,9 -> 12 cm, R17/R18 2,0/2,5 m -> 5,2 m); depois, todas as 8 travessias com o meio-fio rente a lombofaixa (0 a 1 cm), so R02 com 1,4 cm na ponta da plataforma; Separar/Unir/Redesenhar sem sobra de peca.
 ## 2.122.0 - MFREBAIXO v1.30.0 / PassagemRampa v1.23.0: uniao das lombofaixas nivelada (superficie de topo + altura de cada travessia, meio-fio rebaixado, rampas presas ao plato), grelha so na plataforma
 
 Pedidos do Heyvid em 17/11/2026 ("as lombofaixas devem ficar na altura do meio-fio rebaixado ... especialmente quando faco a uniao"; "na uniao ... as rampas de acesso as lombofaixas ficam desconexas"; "o solido so precisa atender estritamente as alturas nas regioes de rebaixo"; "eliminar essa pontinha da grelha que fica na rampa").

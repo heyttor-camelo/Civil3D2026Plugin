@@ -142,6 +142,10 @@ internal sealed partial class MFRebaixoPanel
         ? $"Uniao {t.Id}"
         : t.Data is { } d ? $"{d.LabelA} - {d.LabelB}" : $"Travessia {t.Id}";
 
+    /// <summary>Maior desnivel lombofaixa x meio-fio rebaixado (cm), com "!" acima da tolerancia; "-" sem medida (2.123.0).</summary>
+    private string LevelCell(MFTravessia.Stored? d) =>
+        d?.CurbLevelWorst is double w ? Cm(w) + (w > Math.Max(0.001, _settings.TravessiaToleranciaMeioFio) ? " !" : "") : "-";
+
     private List<Row> TravRows(Func<string[], bool> match)
     {
         var rows = new List<Row>();
@@ -149,9 +153,9 @@ internal sealed partial class MFRebaixoPanel
         {
             MFTravessia.Stored? d = t.Data;
             string[] cells = t.IsUnion
-                ? new[] { TravCode(t) + "  " + TravName(t), "cruzamento", "", "", "", "", N(t.Volume, "0.00") + " m3", t.Id }
+                ? new[] { TravCode(t) + "  " + TravName(t), "cruzamento", "", "", "", "", N(t.Volume, "0.00") + " m3", t.Id, LevelCell(_travs.Select(x => x.Data).FirstOrDefault(x => x is not null && x.UnionId == t.Id)) }
                 : d is null
-                    ? new[] { TravName(t), "(sem o solido do plato)", "", "", "", "", "", "" }
+                    ? new[] { TravName(t), "(sem o solido do plato)", "", "", "", "", "", "", "" }
                     : new[]
                     {
                         TravCode(t) + "  " + TravName(t),
@@ -161,7 +165,8 @@ internal sealed partial class MFRebaixoPanel
                         N(d.Params.Rampa, "0.00") + " m",
                         !d.Params.Tampa ? "nenhuma" : d.Params.Grelha ? "grelha " + Cm(d.Params.GrelhaEspessura) : "concreto " + Cm(d.Params.TampaEspessura),
                         N(t.Volume, "0.00") + " m3",
-                        d.UnionId
+                        d.UnionId,
+                        LevelCell(d)
                     };
             if (!match(cells.Append(t.Id).ToArray()))
                 continue;

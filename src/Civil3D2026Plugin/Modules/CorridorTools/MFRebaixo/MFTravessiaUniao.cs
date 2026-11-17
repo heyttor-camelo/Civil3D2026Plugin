@@ -749,11 +749,14 @@ internal static partial class MFTravessia
                 }
                 for (int i = 0; i < n; i++)
                 {
-                    bool ok = rays[i].Member < 0 && rays[i].Foot is not null && !Covered(rays[i].P)
+                    // 2.123.0 (pedido do Heyvid em 17/11/2026): grelha so onde o meio-fio e rebaixado; nos cantos com meio-fio
+                    // nao rebaixado o plato termina na borda da pista, sem cobrir a sarjeta (opcao TravessiaGrelhaCantos volta a cobrir).
+                    bool lowered = settings.TravessiaGrelhaCantos || curbDiff[i] is not null;
+                    bool ok = rays[i].Member < 0 && rays[i].Foot is not null && !Covered(rays[i].P) && lowered
                               && (run.Count == 0 || Dist2d(rays[i].P, rays[run[^1]].P) < 6.0);
                     if (!ok)
                         Flush();
-                    if (rays[i].Member < 0 && rays[i].Foot is not null && !Covered(rays[i].P))
+                    if (rays[i].Member < 0 && rays[i].Foot is not null && !Covered(rays[i].P) && lowered)
                         run.Add(i);
                 }
                 Flush();

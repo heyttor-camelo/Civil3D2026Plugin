@@ -766,6 +766,35 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             });
         }
 
+        // Lombofaixa x meio-fio rebaixado (2.123.0): desnivel gravado em cada travessia/uniao acima da tolerancia.
+        if (_settings.AvisosAtivos && Doc is Document levelDoc)
+        {
+            try
+            {
+                List<(Autodesk.AutoCAD.DatabaseServices.ObjectId Id, MFTravessia.Stored Data)> travs;
+                using (levelDoc.LockDocument())
+                    travs = MFTravessia.FindAll(levelDoc.Database);
+                double tolL = Math.Max(0.001, _settings.TravessiaToleranciaMeioFio);
+                foreach (var g in travs.Select(x => x.Data).GroupBy(x => string.IsNullOrEmpty(x.UnionId) ? x.Id : x.UnionId))
+                {
+                    MFTravessia.Stored d0 = g.First();
+                    if (d0.CurbLevelWorst is not double worst || worst <= tolL)
+                        continue;
+                    string who = string.IsNullOrEmpty(d0.UnionId) ? $"Travessia {d0.LabelA}-{d0.LabelB}" : $"Uniao {d0.UnionId} ({string.Join(", ", g.Select(x => x.LabelA + "-" + x.LabelB))})";
+                    _warnings.Add(new RebaixoWarning
+                    {
+                        Serious = true,
+                        Text = $"{who}: lombofaixa x meio-fio rebaixado de {Cm(d0.CurbLevelMin)} a {Cm(d0.CurbLevelMax)} (tolerancia {Cm(tolL)}).",
+                        Reference = "Rode Redesenhar a travessia (MFTRAVESSIAREFAZER): ele acerta os rebaixos que nao cobrem a plataforma e refaz a uniao"
+                    });
+                }
+            }
+            catch
+            {
+                // Sem travessias legiveis: fica sem esse aviso.
+            }
+        }
+
         if (_pending is { } pend)
         {
             _current = _items.FirstOrDefault(r => r.CorridorId == pend.Corridor && r.BaselineKey == pend.Baseline && Math.Abs(r.S1 - pend.S1) < 0.01) ?? _current;
@@ -979,8 +1008,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 break;
 
             case "TRAVESSIAS":
-                headers = new[] { "Travessia", "Tipo", "Altura", "Plataforma", "Rampas", "Sarjeta", "Volume", "Uniao" };
-                widths = new[] { 190.0, 90, 70, 75, 65, 95, 70, 100 };
+                headers = new[] { "Travessia", "Tipo", "Altura", "Plataforma", "Rampas", "Sarjeta", "Volume", "Uniao", "Desnivel MF" };
+                widths = new[] { 190.0, 90, 70, 75, 65, 95, 70, 100, 85 };
                 rows = TravRows(s => Match(s));
                 break;
 
@@ -2396,6 +2425,11 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(locked);
         var warnOn = new WC.CheckBox { Content = "Mostrar avisos (NBR 9050, hachura faltando, sets removidos)", IsChecked = _settings.AvisosAtivos, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
         p.Children.Add(warnOn);
+        // Lombofaixas (2.123.0): nivel com o meio-fio rebaixado e grelha nos cantos da uniao.
+        var cornerLids = new WC.CheckBox { Content = "Uniao de lombofaixas: grelha tambem nos cantos sem rebaixo", IsChecked = _settings.TravessiaGrelhaCantos, Foreground = T.Text, Margin = new SW.Thickness(6, 2, 6, 2) };
+        p.Children.Add(cornerLids);
+        p.Children.Add(EditRow("tolmf", "Lombofaixa x meio-fio rebaixado: tolerancia", N(_settings.TravessiaToleranciaMeioFio * 100, "0.#"), "cm"));
+        p.Children.Add(EditRow("ajmf", "Uniao: ajuste maximo da borda ate o meio-fio", N(_settings.TravessiaAjusteMaxMeioFio * 100, "0.#"), "cm"));
         p.Children.Add(EditRow("hlayer", "Layer", _settings.HachuraLayer, ""));
         p.Children.Add(EditRow("hcor", "Cor da layer (indice ACI)", _settings.HachuraCor.ToString(CultureInfo.InvariantCulture), ""));
         p.Children.Add(EditRow("hrampa", "Padrao das rampas", _settings.HachuraPadraoRampa, ""));
@@ -2409,6 +2443,11 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             _settings.HachuraAteCalcada = toSidewalk.IsChecked == true;
             _settings.HachuraTrancada = locked.IsChecked == true;
             _settings.AvisosAtivos = warnOn.IsChecked == true;
+            _settings.TravessiaGrelhaCantos = cornerLids.IsChecked == true;
+            if (Number("tolmf") is double tm && tm >= 0.1 && tm <= 20)
+                _settings.TravessiaToleranciaMeioFio = tm / 100.0;
+            if (Number("ajmf") is double am && am >= 0 && am <= 30)
+                _settings.TravessiaAjusteMaxMeioFio = am / 100.0;
             if (_fields.TryGetValue("hlayer", out WC.TextBox? lb) && lb.Text.Trim().Length > 0)
                 _settings.HachuraLayer = lb.Text.Trim();
             if (Number("hcor") is double hc && hc >= 1 && hc <= 255)

@@ -301,6 +301,51 @@ public sealed class MFTravessiaCommands
 
             MFRebaixoSettings settings = MFRebaixoSettingsStore.Load();
             List<RebaixoInfo> rebaixos = MFRebaixoData.ReadAll(db);
+
+            // 2.123.0 (pedido do Heyvid em 17/11/2026: "a altura nos pontos de rampa"): rebaixo que nao cobre a
+            // plataforma da semi-elevada (o meio-fio sobe nas pontas e fica acima da lombofaixa/grelha) ou com altura
+            // diferente da lombofaixa e acertado antes de redesenhar, com confirmacao (U desfaz). Rebaixo de duas
+            // travessias (cruzamento) cobre as duas plataformas.
+            var need = new Dictionary<string, (RebaixoInfo R, double S1, double S2, double H)>(StringComparer.OrdinalIgnoreCase);
+            foreach ((_, MFTravessia.Stored d) in all.GroupBy(x => x.Data.Id).Select(g => g.First()))
+            {
+                if (d.Params.Tipo != TravessiaTipo.SemiElevada)
+                    continue;
+                foreach ((string corridor, string baseline, bool left, Point3d? anchor) in new[] { (d.CorridorA, d.BaselineA, d.LeftA, d.AnchorA), (d.CorridorB, d.BaselineB, d.LeftB, d.AnchorB) })
+                {
+                    AcadDb.ObjectId cid = CorridorId(db, corridor);
+                    if (cid.IsNull || Station(db, cid, baseline, anchor ?? d.Origin) is not double st)
+                        continue;
+                    RebaixoInfo? r = RebaixoAt(rebaixos, cid, baseline, left, st);
+                    if (r is null)
+                        continue;
+                    double half = (d.Params.Plataforma / 2.0) + 0.10;
+                    (RebaixoInfo R, double S1, double S2, double H) cur = need.TryGetValue(r.SetName, out var x) ? x : (r, r.S1, r.S2, r.TargetFinal ?? d.Params.Altura);
+                    cur.S1 = Math.Min(cur.S1, st - half);
+                    cur.S2 = Math.Max(cur.S2, st + half);
+                    cur.H = d.Params.Altura;
+                    need[r.SetName] = cur;
+                }
+            }
+            var fit = need.Values.Where(v => v.S1 < v.R.S1 - 0.02 || v.S2 > v.R.S2 + 0.02 || Math.Abs(v.H - (v.R.TargetFinal ?? v.H)) > 0.005).ToList();
+            if (fit.Count > 0)
+            {
+                ed.WriteMessage($"\n{fit.Count} rebaixo(s) nao cobrem a plataforma da lombofaixa ou estao em outra altura (o meio-fio sobe nas pontas da plataforma):");
+                foreach (var v in fit)
+                    ed.WriteMessage($"\n  {v.R.Label}: trecho rebaixado {Num(v.R.S1)}-{Num(v.R.S2)} -> {Num(v.S1)}-{Num(v.S2)}, altura final {(v.R.TargetFinal is double tf ? MFTravessia.Cm(tf) : "?")} -> {MFTravessia.Cm(v.H)}");
+                var ask = new PromptKeywordOptions("\nAcertar esses rebaixos antes de redesenhar? (U desfaz) [Sim/Nao]", "Sim Nao") { AllowNone = true };
+                ask.Keywords.Default = "Sim";
+                PromptResult ar = ed.GetKeywords(ask);
+                if (ar.Status == PromptStatus.Cancel)
+                    return;
+                if (ar.Status != PromptStatus.OK || ar.StringResult == "Sim")
+                {
+                    foreach (string w in ReapplyAll(db, ed, fit.Select(v => (v.R, v.S1, v.S2, v.H)).ToList()))
+                        ed.WriteMessage("\n" + w);
+                    rebaixos = MFRebaixoData.ReadAll(db);
+                    PluginLog.Info(Mod, "MFTRAVESSIAREFAZER: rebaixos acertados a plataforma: " + string.Join("; ", fit.Select(v => $"{v.R.Label} {Num(v.S1)}-{Num(v.S2)} h {MFTravessia.Cm(v.H)}")));
+                }
+            }
             int ok = 0, fail = 0;
             foreach ((_, MFTravessia.Stored d) in all)
             {

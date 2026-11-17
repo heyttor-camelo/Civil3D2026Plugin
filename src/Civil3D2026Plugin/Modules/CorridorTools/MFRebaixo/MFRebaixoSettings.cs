@@ -91,6 +91,9 @@ internal sealed class MFRebaixoSettings
     public double TravessiaToleranciaMeioFio { get; set; } = 0.01;
 
     public double TravessiaAjusteMaxMeioFio { get; set; } = 0.04;
+
+    // Uniao: grelha/tampa tambem nos cantos com meio-fio nao rebaixado (2.123.0: desligado; so onde o meio-fio e rebaixado).
+    public bool TravessiaGrelhaCantos { get; set; }
     public double TravessiaGrelhaFolgaMF { get; set; } = 0.01;
     // Esconsa: rampas perpendiculares a pista (true) ou paralelas ao eixo inclinado (false, padrao).
     public bool TravessiaRampasPerpendiculares { get; set; }
