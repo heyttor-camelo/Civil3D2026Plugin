@@ -192,6 +192,53 @@ public sealed partial class MFRebaixoCommands
             notes.Add($"rampa de saída cortada em {chainHi:0.000} ({chainHi - s2:0.##} m em vez de {exitRampLength:0.##} m): o meio-fio não continua depois dali");
             s3 = chainHi;
         }
+        // Outro rebaixo do mesmo lado colado: as rampas nao podem entrar nele (dois Transition Sets no mesmo
+        // parametro e trecho brigam e o vizinho deixava de sair na altura dele: teste de 17/11/2026, rebaixo a 0
+        // encostado noutro a 0 ficava com 0,8 a 18,8 cm). A rampa e cortada na ponta do vizinho (fica mais
+        // inclinada, com aviso); sem lugar nem para a rampa minima, erro dizendo o que fazer.
+        bool shortened = false;
+        foreach ((double bf, double bt) in busy)
+        {
+            if (bf < s2 - StationTolerance && bt > s1 + StationTolerance)
+            {
+                throw new InvalidOperationException(
+                    $"O trecho rebaixado ({s1:0.000} - {s2:0.000}) cai dentro de outro rebaixo deste lado ({bf:0.000} - {bt:0.000}). " +
+                    "Para juntar os dois, edite o comprimento do que ja existe; ou mude este trecho de lugar.");
+            }
+            if (bt > s0 + 0.005 && bt <= s1 + StationTolerance)
+            {
+                if (bt > s1 - MinRampLength)
+                {
+                    throw new InvalidOperationException(
+                        $"O inicio do trecho ({s1:0.000}) encosta na rampa de outro rebaixo deste lado (que vai ate {bt:0.000}) e nao sobra lugar para a rampa. " +
+                        $"Comece o trecho depois de {bt + MinRampLength:0.00} ou, para juntar os dois, edite o comprimento do rebaixo que ja existe.");
+                }
+                notes.Add($"rampa de entrada encurtada para {s1 - bt:0.##} m (era {s1 - s0:0.##} m) para nao entrar no rebaixo vizinho (ate {bt:0.000}); a rampa fica mais inclinada");
+                s0 = bt;
+                shortened = true;
+            }
+            if (bf < s3 - 0.005 && bf >= s2 - StationTolerance)
+            {
+                if (bf < s2 + MinRampLength)
+                {
+                    throw new InvalidOperationException(
+                        $"O fim do trecho ({s2:0.000}) encosta na rampa de outro rebaixo deste lado (que comeca em {bf:0.000}) e nao sobra lugar para a rampa. " +
+                        $"Termine o trecho antes de {bf - MinRampLength:0.00} ou, para juntar os dois, edite o comprimento do rebaixo que ja existe.");
+                }
+                notes.Add($"rampa de saida encurtada para {bf - s2:0.##} m (era {s3 - s2:0.##} m) para nao entrar no rebaixo vizinho (a partir de {bf:0.000}); a rampa fica mais inclinada");
+                s3 = bf;
+                shortened = true;
+            }
+        }
+        double realIn = Math.Abs(startEffectiveHeight - finalHeight) / Math.Max(s1 - s0, 1e-9);
+        double realOut = Math.Abs(endEffectiveHeight - finalHeight) / Math.Max(s3 - s2, 1e-9);
+        if (shortened && Math.Max(realIn, realOut) > MaxRampSlopeNbr + 0.0005)
+        {
+            string aviso = $"Rampa do meio-fio com {Math.Max(realIn, realOut) * 100.0:0.##}% depois de encurtada (acima de 8,33%, NBR 9050).";
+            PluginLog.Aviso("MFREBAIXO", aviso);
+            Say(ed, "\n[MFREBAIXO] Aviso: " + aviso);
+        }
+
         if (s1 - s0 <= StationTolerance || s3 - s2 <= StationTolerance)
             throw new InvalidOperationException("O trecho rebaixado encosta na ponta do meio-fio e não sobra lugar para a rampa.");
 

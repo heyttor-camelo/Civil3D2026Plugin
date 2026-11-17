@@ -121,9 +121,36 @@ internal sealed partial class MFRebaixoPanel
             return null;
 
         Point3d origin = s.Origins.TryGetValue(key, out Point3d o) ? o : first.Value;
+        // Com sarjeta, a linha d'agua e a ponta do topo da sarjeta encostada no meio-fio (P2): com o
+        // meio-fio a 0 o arredondamento da quina (raio 5 cm) desce abaixo dela e o ponto mais baixo do topo
+        // da peca dava 4,6 cm de "altura" (R03 do teste, 17/11/2026).
+        if (GutterFlow(links, origin) is Point3d g)
+        {
+            flow = g.Z;
+            top = Math.Max(top, flow);
+        }
         if (flow == double.MaxValue)
             flow = origin.Z;
         return (top, flow, origin);
+    }
+
+    /// <summary>Ponta do topo da sarjeta do lado do meio-fio (a mais longe da borda da pista); null sem sarjeta.</summary>
+    private static Point3d? GutterFlow(List<ModelLink> links, Point3d origin)
+    {
+        Point3d? best = null;
+        foreach (ModelLink l in links)
+        {
+            bool topCode = Has(l.Codes, "Top") || Has(l.Codes, "TOPO");
+            bool gutter = Has(l.Codes, "Sarjeta") || Has(l.Codes, "Gutter");
+            if (!topCode || !gutter || IsWalk(l.Codes))
+                continue;
+            foreach (Point3d q in l.Soe)
+            {
+                if (best is null || Math.Abs(q.Y - origin.Y) > Math.Abs(best.Value.Y - origin.Y))
+                    best = q;
+            }
+        }
+        return best;
     }
 
     /// <summary>
@@ -146,7 +173,9 @@ internal sealed partial class MFRebaixoPanel
             bool gutter = Has(l.Codes, "Sarjeta") || Has(l.Codes, "Gutter");
             foreach (Point3d q in l.Soe)
             {
-                if (curb || topCode)
+                // Mesmo filtro do CurbOf: sem o topo da sarjeta (com o meio-fio a 0 a quina do topo caia na
+                // borda da pista).
+                if (curb || (topCode && !gutter))
                     tops.Add(q);
                 if (topCode && !gutter)
                     flows.Add(q);
@@ -159,7 +188,8 @@ internal sealed partial class MFRebaixoPanel
             return null;
         double side(Point3d q) => Math.Abs(q.Y - c.Origin.Y);
         Point3d top = tops.Where(q => q.Z > c.Top - 0.002).OrderBy(side).First();
-        Point3d flow = flows.Count == 0 ? c.Origin : flows.Where(q => q.Z < c.Flow + 0.002).OrderBy(q => Math.Abs(q.Y - top.Y)).First();
+        Point3d flow = GutterFlow(links, c.Origin) is Point3d g ? g
+            : flows.Count == 0 ? c.Origin : flows.Where(q => q.Z < c.Flow + 0.002).OrderBy(q => Math.Abs(q.Y - top.Y)).First();
         List<Point3d> pool = curbs.Count > 0 ? curbs : tops;
         double far = pool.Max(side);
         Point3d back = pool.Where(q => side(q) > far - 0.002).OrderByDescending(q => q.Z).First();
