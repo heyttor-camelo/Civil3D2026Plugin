@@ -8,6 +8,15 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.119.0: janela do C3DIFC, C3DCODESETIFC, corredor de referência, eixos principais
+
+- `C3DIFC` agora abre uma janela WPF (`IfcExportWindow.cs`): árvore com caixas de marcar e contagens (corredores, eixos por corredor, peças da lombofaixa, travessias, superfícies, redes, selecionados à mão), "Selecionar no desenho" (`StartUserInteraction` + `GetSelection`), Mapeamento (DataGrid), Critérios avançados (JSON). A versão de linha de comando ficou em `-C3DIFC` (`ExportarLinha`); as duas usam `IfcExportCommands.RunExport`. Marcações gravadas no `<dwg>-C3DIFC.json`.
+- Critérios novos: `Eixos` = principais/todos/nenhum (principais = baselines Centerline; `EixosDosCorredores` antigo ainda lido), `CorredoresReferenciados` = Nao/Sim/Perguntar (KM_02 do Heyvid é data shortcut; referência nunca entra no Rebuild), `GrelhaSimplificada` (pós-processa o STEP: prisma pelo contorno convexo da grelha).
+- União de cruzamento: tampa de canto com grelha em X; Unir/Separar/Redesenhar reaproveitam as peças (handles iguais) e o Pset é aplicado depois do `SwapIdWith`.
+- `C3DCODESETIFC` (arquivo da outra frente, revisado e incluído): no teste da cópia, 3 de 3 mudanças, e depois do Rebuild o IFC saiu **sem peça genérica** (IfcKerb 124 → 170). Deixa 2 avisos CS0618 (`LinkStyle.LinkDisplayStyleModel` obsoleto), sem efeito.
+- Testes (cópia em `C:\Temp\hydro-build\teste-rebaixo\v4`; helper `ZZT6REBUILD` novo no ZZTeste6): item 3 (faixa duplicada/triângulo oco) não reproduziu; grelha simplificada: 61.596 → 188 vértices, 27,7 → 23,5 MB; sem KM_02: 1 corredor, 1 eixo, 14,9 MB (com KM_02: 2 corredores, 36 eixos, 24,2 MB).
+- Não testado (precisa do Civil com tela): botões interativos da janela (Selecionar no desenho, salvar arquivo, mensagens).
+- Entregue 2.119.0 / PassagemRampa 1.20.0 só com versão no nome (Civil aberto) em `atual`, `versoes\2.119.0`, `C:\Temp\hydro-build` e FDX; hashes conferidos.
 ## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.118.0: C3DIFC (exportar IFC 4.3 com critérios)
 
 - Módulo novo `Modules/Ifc` (também na DLL avulsa): `C3DIFC` usa `IFCInfraExportSelected` da extensão IFC 2026.1 por `Editor.Command` (sem janela; pede só o caminho). Planilha de mapeamento gerada ao lado do .ifc (`<ifc>-IfcInfraExportMapping-IFC4X3_ADD2.xlsx`, fonte "IFC File" da extensão; textos pela tabela sharedStrings — texto inline é lido como vazio). Nome do projeto/local corrigido no .ifc depois (a extensão grava "Unknown"; o JSON de configuração ao lado do DWG não foi lido). Critérios em `<dwg>-C3DIFC.json`.
@@ -15,7 +24,9 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 - Quedas do accoreconsole (meus testes) abriam o relatório de erro da Autodesk na tela dele; run.ps1 agora fecha o cer_dialog do teste se o acad.exe dele segue vivo. A DLL completa não carrega no console (UI): testes pela avulsa.
 - Teste: 2 corredores + 36 eixos, IfcKerb 119, IfcPavement 101, IfcCourse 134, genéricos 200 (só Sarjeta), 27 peças da lombofaixa com Pset.
 - Pendente: estilo SARJETA no code set (frente do meio-fio); grelha dos cantos de união como chapa; grelha simplificada para IFC leve; listras/triângulo da imagem do BIMvision não conferidos.
-- Entregue 2.118.0 / PassagemRampa 1.19.0 só com versão no nome (Civil aberto); hashes conferidos; planilha em G:\Meu Drive\Civil3D2026Plugin\ifc\.## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.117.1: painel C3DQTO, QTOTODOS, teste sem tela do QTO
+- Entregue 2.118.0 / PassagemRampa 1.19.0 só com versão no nome (Civil aberto); hashes conferidos; planilha em G:\Meu Drive\Civil3D2026Plugin\ifc\.
+
+## 2026-11-16 — nuvem + CAMELO (Remote Control), 2.117.1: painel C3DQTO, QTOTODOS, teste sem tela do QTO
 
 - QTO 0.18/0.18.1: painel `C3DQTO` (`QtoPanel.cs`, manda `QTOESTUDO`/`QTOTODOS` via `QtoCommands.PedidoDoPainel`), opções em `QtoConfig.cs` (`%APPDATA%\Civil3D2026Plugin\qto.txt`, tolerância padrão 5%), `QTOTODOS` (um relatório DrawingExtent repartido por corredor pelo Handle, conferência contra o `estimatedQuantity` do Civil com folga de 0,005 por item), alerta de quantidade fora do eixo e de Pay Item em m³ sem fórmula, testes fora da Ribbon.
 - Contexto antigo do QTO (handoff do Heyvid) guardado nos arquivos do projeto: `qto/CONTEXTO_QTO_PARA_CLAUDE.md`. Não regredir filtro por Handle nem reparo LT/RT; "OK <= 5%" é só consistência interna.
