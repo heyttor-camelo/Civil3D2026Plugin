@@ -74,6 +74,7 @@
   <ItemGroup>
     <Compile Include="$(MainSrc)\Modules\CorridorTools\RaisedCrossing\*.cs" Link="Modules\CorridorTools\RaisedCrossing\%(Filename)%(Extension)" />
     <Compile Include="$(MainSrc)\Modules\CorridorTools\MFRebaixo\*.cs" Link="Modules\CorridorTools\MFRebaixo\%(Filename)%(Extension)" />
+    <Compile Include="$(MainSrc)\Modules\Ifc\*.cs" Link="Modules\Ifc\%(Filename)%(Extension)" />
     <Compile Include="$(MainSrc)\Infrastructure\GlobalUsings.cs" Link="Infrastructure\GlobalUsings.cs" />
     <Compile Include="$(MainSrc)\Infrastructure\CommandNames.cs" Link="Infrastructure\CommandNames.cs" />
     <Compile Include="$(MainSrc)\Infrastructure\PluginVersions.cs" Link="Infrastructure\PluginVersions.cs" />

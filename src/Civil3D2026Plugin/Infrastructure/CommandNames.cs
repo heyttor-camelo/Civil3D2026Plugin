@@ -205,6 +205,12 @@ public static class CommandNames
         public const string UnirHachuras = "C3DUNIRHACHURAS";
     }
 
+    public static class Ifc
+    {
+        public const string Exportar = "C3DIFC";
+        public const string Relatorio = "C3DIFCRELATORIO";
+    }
+
     public static class Secao
     {
         public const string Painel = "C3DSECAO";

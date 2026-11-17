@@ -94,6 +94,12 @@ internal sealed class TravessiaParams
     /// </summary>
     public double VigaRecuo { get; set; } = -1;
 
+    /// <summary>
+    /// Concreto da lombofaixa por cima da viga (o topo da viga fica pelo menos isto abaixo do topo do
+    /// plato, ponto a ponto). Sem ele a viga encostava no topo e aparecia como linha laranja no IFC (13/11/2026).
+    /// </summary>
+    public double VigaCobrimento { get; set; } = 0.03;
+
     public bool VigaNaPlataforma => VigaRecuo < 0;
 
     public string VigaPosicaoTexto => VigaNaPlataforma ? "no comeco da plataforma" : VigaRecuo < 0.005 ? "no pe da rampa" : $"a {MFTravessia.N(VigaRecuo)} m do pe da rampa";
@@ -1156,7 +1162,7 @@ internal static partial class MFTravessia
                 var q = new Point3d(ea.X + ((eb.X - ea.X) * w), ea.Y + ((eb.Y - ea.Y) * w), 0);
                 double surf = GridAt(g, g.Bottom, q);
                 double lid = GridAt(g, g.Top, q);
-                double zt = Math.Max(surf, Math.Min(surf + up, lid));
+                double zt = Math.Max(surf, Math.Min(surf + up, lid - Math.Max(0, p.VigaCobrimento)));
                 inMin = Math.Min(inMin, zt - surf);
                 inMax = Math.Max(inMax, zt - surf);
                 top[i, j] = new Point3d(q.X, q.Y, Math.Max(zt, surf - buried + 0.005));
@@ -1488,6 +1494,11 @@ internal static partial class MFTravessia
             }
         }
 
+        // Sinalizacao 3D tambem com Property Set (antes so plato, grelhas e vigas; IFC de 13/11/2026).
+        info["FAIXA_3D"] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Objeto"] = "Faixa de pedestre - listra", ["Material"] = "Pintura / termoplastico", ["Quantidade"] = 1 };
+        info["TRIANGULO_3D"] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Objeto"] = "Triangulo de rampa", ["Material"] = "Pintura / termoplastico", ["Quantidade"] = 1 };
+        string travCode = CodeOf(db, data);
+
         // Pecas novas assumem os handles das antigas; o que sobrar das antigas sai.
         (int reused, int erased) = Reuse(tr, db, data.Id, old, oldSet);
         if (reused > 0 || erased > 0)
@@ -1503,6 +1514,9 @@ internal static partial class MFTravessia
                 if (tr.GetObject(oid, AcadDb.OpenMode.ForWrite) is not AcadDb.Solid3d s3)
                     continue;
                 Dictionary<string, object> values = PropertyValues(data, g, (string)extra["Objeto"]);
+                values["Peca"] = part;
+                values["Classe_IFC"] = IfcClassFor(part);
+                values["Codigo_Travessia"] = travCode;
                 foreach ((string k, object v) in extra)
                     values[k] = v;
                 try
@@ -2312,6 +2326,36 @@ internal static partial class MFTravessia
         tr.AddNewlyCreatedDBObject(r, true);
     }
 
+    /// <summary>Classe IFC 4.3 sugerida para cada peca (a mesma da planilha de mapeamento do plugin).</summary>
+    public static string IfcClassFor(string part) =>
+        part.StartsWith("GRELHA", StringComparison.Ordinal) || part.StartsWith("TAMPA", StringComparison.Ordinal) || part == "UNIAO_TAMPA" ? "IfcPlate.COVER_PLATE"
+        : part.StartsWith("VIGA", StringComparison.Ordinal) ? "IfcFooting.FOOTING_BEAM"
+        : part.EndsWith("_3D", StringComparison.Ordinal) ? "IfcSurfaceFeature.PAVEMENTSURFACEMARKING"
+        : "IfcPavement.RIGID";
+
+    /// <summary>Codigo curto da travessia (T01...), na mesma ordem do painel (pelos rebaixos dela).</summary>
+    public static string CodeOf(AcadDb.Database db, Stored d)
+    {
+        try
+        {
+            static int Num(string label)
+            {
+                string digits = new(label.Skip(1).TakeWhile(char.IsDigit).ToArray());
+                return int.TryParse(digits, out int n) ? n : int.MaxValue;
+            }
+            List<Stored> all = FindAll(db).Select(x => x.Data).GroupBy(x => x.Id).Select(x => x.First())
+                .OrderBy(x => Math.Min(Num(x.LabelA), Num(x.LabelB))).ThenBy(x => x.Id, StringComparer.Ordinal).ToList();
+            if (!all.Any(x => x.Id == d.Id))
+                all.Add(d);
+            int i = all.FindIndex(x => x.Id == d.Id);
+            return "T" + (i + 1).ToString("00", CultureInfo.InvariantCulture);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     private static Dictionary<string, object> PropertyValues(Stored d, TravessiaGeometry g, string what) => new(StringComparer.OrdinalIgnoreCase)
     {
         ["ID"] = d.Id,
@@ -2338,7 +2382,8 @@ internal static partial class MFTravessia
         ("Rebaixo_A", AecPropData.DataType.Text), ("Rebaixo_B", AecPropData.DataType.Text),
         ("Material", AecPropData.DataType.Text), ("Comprimento", AecPropData.DataType.Real), ("Largura", AecPropData.DataType.Real),
         ("Altura_Espessura", AecPropData.DataType.Real), ("Area", AecPropData.DataType.Real), ("Volume", AecPropData.DataType.Real),
-        ("Quantidade", AecPropData.DataType.Integer), ("Barras", AecPropData.DataType.Integer), ("Area_Livre", AecPropData.DataType.Real), ("Esconsidade", AecPropData.DataType.Real)
+        ("Quantidade", AecPropData.DataType.Integer), ("Barras", AecPropData.DataType.Integer), ("Area_Livre", AecPropData.DataType.Real), ("Esconsidade", AecPropData.DataType.Real),
+        ("Peca", AecPropData.DataType.Text), ("Classe_IFC", AecPropData.DataType.Text), ("Codigo_Travessia", AecPropData.DataType.Text)
     };
 
     /// <summary>Property Set C3D_TRAVESSIA (para a federacao BIM). Falha nao cancela o desenho.</summary>

@@ -1,0 +1,121 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Civil3D2026Plugin.Modules.Ifc;
+
+/// <summary>Uma linha da planilha de mapeamento da extensao IFC (por layer, estilo de shape, de link...).</summary>
+internal sealed class IfcMapRow
+{
+    /// <summary>LayerName, ShapeStyleName, LinkStyleName, AlignmentStyleName, SurfaceStyleName...</summary>
+    public string Mapeamento { get; set; } = "LayerName";
+
+    public string Nome { get; set; } = "";
+
+    public bool Exportar { get; set; } = true;
+
+    /// <summary>Classe IFC 4.3 (ex. IfcKerb, IfcPavement.RIGID); vazio = deixa a extensao decidir.</summary>
+    public string ClasseIfc { get; set; } = "";
+
+    public string Observacao { get; set; } = "";
+}
+
+/// <summary>
+/// Criterios da exportacao IFC (C3DIFC), em JSON legivel: um por projeto, ao lado do DWG
+/// ("&lt;desenho&gt;-C3DIFC.json"), criado a partir do padrao em %APPDATA%\Civil3D2026Plugin\Ifc.
+/// </summary>
+internal sealed class IfcCriteria
+{
+    public string Leiame { get; set; } =
+        "Criterios do C3DIFC (exportacao IFC 4.3). Edite e salve; o comando le de novo a cada exportacao. " +
+        "Mapeamento: Mapeamento = LayerName / ShapeStyleName / LinkStyleName / AlignmentStyleName / SurfaceStyleName; " +
+        "Nome = nome da layer ou do estilo (maiusculas/minusculas tanto faz); Exportar = false tira do IFC; ClasseIfc = classe IFC 4.3.";
+
+    public string ProjetoNome { get; set; } = "";
+
+    public string ProjetoDescricao { get; set; } = "";
+
+    public string LocalNome { get; set; } = "";
+
+    public bool Corredores { get; set; } = true;
+
+    /// <summary>Nomes dos corredores (vazio = todos).</summary>
+    public List<string> CorredoresNomes { get; set; } = new();
+
+    public bool EixosDosCorredores { get; set; } = true;
+
+    public bool Lombofaixas { get; set; } = true;
+
+    /// <summary>Tudo, Solidos, Plato, Grelhas, Vigas, Sinalizacao (o mesmo filtro do MFTRAVESSIASELECIONAR).</summary>
+    public string LombofaixasPecas { get; set; } = "Solidos";
+
+    public bool Superficies { get; set; }
+
+    /// <summary>Layers extras com objetos que tambem entram (solidos, blocos...).</summary>
+    public List<string> LayersExtras { get; set; } = new();
+
+    public List<IfcMapRow> Mapeamento { get; set; } = DefaultRows();
+
+    public static List<IfcMapRow> DefaultRows() => new()
+    {
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA-3D", ClasseIfc = "IfcPavement.RIGID", Observacao = "Plato da lombofaixa" },
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA-GRELHA", ClasseIfc = "IfcPlate.COVER_PLATE", Observacao = "Grelha sobre a sarjeta" },
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA-TAMPA", ClasseIfc = "IfcPlate.COVER_PLATE", Observacao = "Tampa de concreto sobre a sarjeta" },
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA-VIGA", ClasseIfc = "IfcFooting.FOOTING_BEAM", Observacao = "Viga baldrame" },
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA-SINALIZACAO", ClasseIfc = "IfcSurfaceFeature.PAVEMENTSURFACEMARKING", Observacao = "Faixa e triangulos (pintura)" },
+        new() { Mapeamento = "LayerName", Nome = "MF-TRAVESSIA", Exportar = false, Observacao = "Hachuras de planta" },
+        new() { Mapeamento = "LayerName", Nome = "MF-REBAIXO", Exportar = false, Observacao = "Hachuras dos rebaixos" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "GUIA", ClasseIfc = "IfcKerb", Observacao = "Meio-fio (code Curb/GUIA)" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "SARJETA", ClasseIfc = "IfcKerb", Observacao = "Sarjeta: so vale se o code Sarjeta tiver o estilo de shape SARJETA no Code Set" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "PAVIMENTO 1", ClasseIfc = "IfcPavement", Observacao = "Revestimento" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "PAVIMENTO 2", ClasseIfc = "IfcPavement", Observacao = "Revestimento" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "Ref_SubLeito", ClasseIfc = "IfcEarthworksFill.SUBGRADE", Observacao = "Subleito" },
+        new() { Mapeamento = "ShapeStyleName", Nome = "Basic", Exportar = false, Observacao = "Shapes sem estilo (aparecem como '0')" },
+        new() { Mapeamento = "LinkStyleName", Nome = "BASICO", Exportar = false, Observacao = "Cascas dos links (laterais, regularizacao, GUIA)" },
+        new() { Mapeamento = "LinkStyleName", Nome = "PISTA", Exportar = false, Observacao = "Casca do topo da pista" },
+        new() { Mapeamento = "LinkStyleName", Nome = "SECAO DATUM", Exportar = false, Observacao = "Cascas de datum" },
+        new() { Mapeamento = "LinkStyleName", Nome = "Uncoded", Exportar = false, Observacao = "Cascas sem code (Top, TOPO, Datum)" }
+    };
+
+    private static readonly JsonSerializerOptions Json = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+        DefaultIgnoreCondition = JsonIgnoreCondition.Never
+    };
+
+    public static string DefaultPath =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "Ifc", "criterios-padrao.json");
+
+    public static string ProjectPath(string dwgPath) =>
+        Path.Combine(Path.GetDirectoryName(dwgPath) ?? "", Path.GetFileNameWithoutExtension(dwgPath) + "-C3DIFC.json");
+
+    /// <summary>Le os criterios do projeto; sem eles, copia o padrao (criando o padrao se faltar).</summary>
+    public static (IfcCriteria Criteria, string Path, bool Created) LoadFor(string dwgPath, string projectName)
+    {
+        string path = ProjectPath(dwgPath);
+        if (File.Exists(path))
+            return (Read(path), path, false);
+        IfcCriteria c = File.Exists(DefaultPath) ? Read(DefaultPath) : new IfcCriteria();
+        if (!File.Exists(DefaultPath))
+            Save(new IfcCriteria(), DefaultPath);
+        if (string.IsNullOrWhiteSpace(c.ProjetoNome))
+            c.ProjetoNome = projectName;
+        if (string.IsNullOrWhiteSpace(c.LocalNome))
+            c.LocalNome = projectName;
+        Save(c, path);
+        return (c, path, true);
+    }
+
+    public static IfcCriteria Read(string path) =>
+        JsonSerializer.Deserialize<IfcCriteria>(File.ReadAllText(path), Json) ?? new IfcCriteria();
+
+    public static void Save(IfcCriteria c, string path)
+    {
+        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, JsonSerializer.Serialize(c, Json));
+    }
+}
