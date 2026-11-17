@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
@@ -41,6 +41,29 @@ internal sealed class RebaixoInfo
     public double ValueEnd { get; init; }
 
     public bool ByDepth => Parameter.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Altura final direta (MFSARJETA 1.27+: REB_K + ALT_FINAL). Os valores do rebaixo (ValueIn...) ficam
+    /// no token em profundidade, como num rebaixo por REB.
+    /// </summary>
+    public bool Direct { get; init; }
+
+    /// <summary>Altura final pedida (token F= ou ALT_FINAL); null nos rebaixos antigos.</summary>
+    public double? RequestedFinal { get; init; }
+
+    /// <summary>Menor e maior altura exposta lida nas secoes de S1 a S2 (a obtida).</summary>
+    public double? ExposedMin { get; set; }
+
+    public double? ExposedMax { get; set; }
+
+    /// <summary>Altura que o rebaixo deve ter: a pedida; sem ela (rebaixo antigo), a normal lida antes de S0 menos o REB.</summary>
+    public double? TargetFinal =>
+        RequestedFinal ?? (ByDepth && NormalHeight is double n ? Math.Max(0, n - ValueIn) : FinalHeight);
+
+    /// <summary>A obtida (min/max no trecho rebaixado) se afasta da pedida mais que 2 mm.</summary>
+    public bool FinalOff =>
+        TargetFinal is double t && ExposedMin is double a && ExposedMax is double b &&
+        Math.Max(Math.Abs(a - t), Math.Abs(b - t)) > MFRebaixoCommands.FinalHeightTolerance;
 
     // Lidos do corredor (seção mais perto do meio do trecho rebaixado e seção antes de S0).
     public double? NormalHeight { get; set; }
@@ -204,7 +227,12 @@ internal static class MFRebaixoData
     /// <summary>Pedaco da rampa numa Region vizinha (_PARTE_ENTRADA/_PARTE_SAIDA): faz parte do mesmo rebaixo.</summary>
     public const string PartSuffix = "_PARTE_";
 
-    private const string ExposedOutput = "EXPOSTO";
+    /// <summary>Set companheiro com a ALT_FINAL (MFSARJETA 1.27+): nome do set do rebaixo (ou do pedaco) + isto.</summary>
+    public const string AltSuffix = "_ALTFINAL";
+
+    public static bool IsAltSet(string? name) => (name ?? "").EndsWith(AltSuffix, StringComparison.OrdinalIgnoreCase);
+
+    internal const string ExposedOutput = "EXPOSTO";
     private const string RampOkOutput = "RAMPA_OK";
     private const string FreeWidthOutput = "FAIXA_LIVRE";
 
@@ -310,6 +338,7 @@ internal static class MFRebaixoData
                     if (!name.StartsWith(PairPrefix, StringComparison.OrdinalIgnoreCase) ||
                         name.Contains(HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
                         name.Contains(PartSuffix, StringComparison.OrdinalIgnoreCase) ||
+                        IsAltSet(name) ||
                         set.TransitionCount == 0 ||
                         (set.TransitionCount < 3 && TokenOf(set.Comment) is null))
                     {
@@ -381,6 +410,18 @@ internal static class MFRebaixoData
             string highlightPrefix = set.Name + HighlightSuffix;
             string? highlight = all.FirstOrDefault(x => (x.Name ?? "").StartsWith(highlightPrefix, StringComparison.OrdinalIgnoreCase))?.Name;
 
+            // Altura final direta (REB_K): os valores do token estao em profundidade, como no REB.
+            bool direct = param.Equals(MFRebaixoCommands.FinalWeightParameterName, StringComparison.OrdinalIgnoreCase);
+            if (direct)
+                param = MFRebaixoCommands.DepthParameterName;
+            double? requested = TokenFinal(set.Comment);
+            if (requested is null && direct)
+            {
+                CivilDb.CorridorTransitionSet? alt = all.FirstOrDefault(x => (x.Name ?? "").Equals(set.Name + AltSuffix, StringComparison.OrdinalIgnoreCase));
+                if (alt is not null && alt.TransitionCount > 0)
+                    requested = Convert.ToDouble((object)alt.GetTransitionAt(0).StartValue, CultureInfo.InvariantCulture);
+            }
+
             CivilDb.BaselineRegion? region = RegionAt(baseline, (s1 + s2) / 2.0);
 
             var info = new RebaixoInfo
@@ -400,6 +441,8 @@ internal static class MFRebaixoData
                 S2 = s2,
                 S3 = s3,
                 Parameter = param,
+                Direct = direct,
+                RequestedFinal = requested,
                 ValueStart = valueStart,
                 ValueIn = valueIn,
                 ValueOut = valueOut,
@@ -514,6 +557,12 @@ internal static class MFRebaixoData
                 best = (station, values);
             if (station < info.S0 - 0.0005 && (before is null || station > before.Value.Station))
                 before = (station, values);
+            // Altura obtida no trecho rebaixado (todas as secoes de S1 a S2).
+            if (station >= info.S1 - 0.0005 && station <= info.S2 + 0.0005 && Get(values, ExposedOutput) is double ex)
+            {
+                info.ExposedMin = Math.Min(info.ExposedMin ?? ex, ex);
+                info.ExposedMax = Math.Max(info.ExposedMax ?? ex, ex);
+            }
         }
 
         if (best is { } b)
@@ -1100,6 +1149,7 @@ internal static class MFRebaixoData
         string n = x.Name ?? "";
         return n.Equals(r.SetName, StringComparison.OrdinalIgnoreCase) ||
                n.StartsWith(r.SetName + HighlightSuffix, StringComparison.OrdinalIgnoreCase) ||
+               n.Equals(r.SetName + AltSuffix, StringComparison.OrdinalIgnoreCase) ||
                n.StartsWith(r.SetName + PartSuffix, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -1193,8 +1243,12 @@ internal static class MFRebaixoData
                 values.Add(Val(t.EndValue));
             }
 
+            // ALT_FINAL e constante mesmo ligado: so conta como desligado quando o Remover marcou.
+            if (param.Equals(MFRebaixoCommands.FinalHeightParameterName, StringComparison.OrdinalIgnoreCase))
+                return (s.Comment ?? "") == RemovedComment;
             bool zeroParam = param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ||
-                             param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase);
+                             param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase) ||
+                             param.Equals(MFRebaixoCommands.FinalWeightParameterName, StringComparison.OrdinalIgnoreCase);
             return zeroParam
                 ? values.All(v => Math.Abs(v) < 1e-6)
                 : values.All(v => Math.Abs(v - values[0]) < 1e-6);
@@ -1218,7 +1272,8 @@ internal static class MFRebaixoData
 
         string param = first.ParameterName ?? "";
         bool zeroParam = param.Equals(MFRebaixoCommands.DepthParameterName, StringComparison.OrdinalIgnoreCase) ||
-                         param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase);
+                         param.Equals(MFRebaixoCommands.HighlightParameterName, StringComparison.OrdinalIgnoreCase) ||
+                             param.Equals(MFRebaixoCommands.FinalWeightParameterName, StringComparison.OrdinalIgnoreCase);
         // AMF_LIVRE (rebaixo antigo): fica a altura normal da entrada em todo o trecho.
         double neutral = zeroParam ? 0.0 : Val(first.StartValue);
 
@@ -1448,9 +1503,23 @@ internal static class MFRebaixoData
     // "REBAIXO MF {S=s0;s1;s2;s3;V=v0;v1;v2;v3} | nome" (estacas da baseline dele e valores do parametro).
     private const string TokenOpen = "{S=";
 
-    public static string MakeToken(double s0, double s1, double s2, double s3, double v0, double v1, double v2, double v3) =>
-        TokenOpen + string.Join(";", new[] { s0, s1, s2, s3 }.Select(v => v.ToString("0.####", CultureInfo.InvariantCulture))) +
-        ";V=" + string.Join(";", new[] { v0, v1, v2, v3 }.Select(v => v.ToString("0.#####", CultureInfo.InvariantCulture))) + "}";
+    // Desde a 2.120.0 o token leva tambem a altura final PEDIDA (";F=0.000"): a obtida e lida nas secoes.
+    public static string MakeToken(double s0, double s1, double s2, double s3, double v0, double v1, double v2, double v3, double? final = null) =>
+        TokenOpen + string.Join(";", new[] { s0, s1, s2, s3 }.Select(v => v.ToString("0.######", CultureInfo.InvariantCulture))) +
+        ";V=" + string.Join(";", new[] { v0, v1, v2, v3 }.Select(v => v.ToString("0.#######", CultureInfo.InvariantCulture))) +
+        (final is double f ? ";F=" + f.ToString("0.#####", CultureInfo.InvariantCulture) : "") + "}";
+
+    /// <summary>Altura final pedida gravada no token (rebaixos da 2.120.0 em diante).</summary>
+    public static double? TokenFinal(string? comment)
+    {
+        if (TokenOf(comment) is not string tk)
+            return null;
+        int i = tk.IndexOf(";F=", StringComparison.Ordinal);
+        if (i < 0)
+            return null;
+        string v = tk[(i + 3)..^1];
+        return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) ? d : null;
+    }
 
     public static string? TokenOf(string? comment)
     {
@@ -1480,6 +1549,9 @@ internal static class MFRebaixoData
         try
         {
             string body = tk[TokenOpen.Length..^1];
+            int f = body.IndexOf(";F=", StringComparison.Ordinal);
+            if (f >= 0)
+                body = body[..f];
             string[] halves = body.Split(";V=");
             s = halves[0].Split(';').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
             v = halves[1].Split(';').Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
@@ -1545,6 +1617,15 @@ internal static class MFRebaixoData
 
             if (r.LoweredLength < 1.50 - 1e-6)
                 list.Add(new RebaixoWarning { Item = r, Serious = false, Text = $"Trecho rebaixado com {r.LoweredLength:0.00} m (menos de 1,50 m).", Reference = "NBR 9050 - rebaixamento de calcada: largura minima 1,50 m (travessia de pedestres)" });
+
+            if (r.FinalOff)
+                list.Add(new RebaixoWarning
+                {
+                    Item = r,
+                    Serious = true,
+                    Text = $"Altura final pedida {r.TargetFinal!.Value * 100:0.0} cm, obtida {r.ExposedMin!.Value * 100:0.0} a {r.ExposedMax!.Value * 100:0.0} cm no trecho rebaixado.",
+                    Reference = "A altura normal do meio-fio varia no trecho (alvos de topo e flowline). Botao Acertar altura final (ou MFREBAIXOACERTAR); com o MFSARJETA 1.27+ a altura sai exata"
+                });
 
             if (r.FinalHeight is double fh && fh > 0.005)
                 list.Add(new RebaixoWarning { Item = r, Serious = false, Text = $"Altura livre final de {fh * 100:0.#} cm.", Reference = "NBR 9050 - na travessia de pedestres nao pode haver desnivel entre o rebaixo e o leito carrocavel (garagem: ok)" });

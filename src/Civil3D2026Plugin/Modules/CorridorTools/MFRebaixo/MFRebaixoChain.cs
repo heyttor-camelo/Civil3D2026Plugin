@@ -119,7 +119,7 @@ public sealed partial class MFRebaixoCommands
         {
             string on = other.Name ?? "";
             if (!on.StartsWith(MFRebaixoData.PairPrefix, StringComparison.OrdinalIgnoreCase) || !on.Contains(sideTag, StringComparison.OrdinalIgnoreCase) ||
-                on.Contains(MFRebaixoData.HighlightSuffix, StringComparison.OrdinalIgnoreCase) || other.TransitionCount == 0 || MFRebaixoData.IsNeutral(other))
+                on.Contains(MFRebaixoData.HighlightSuffix, StringComparison.OrdinalIgnoreCase) || MFRebaixoData.IsAltSet(on) || other.TransitionCount == 0 || MFRebaixoData.IsNeutral(other))
                 continue;
             double a = double.MaxValue, z = double.MinValue;
             for (int i = 0; i < other.TransitionCount; i++)
@@ -157,7 +157,7 @@ public sealed partial class MFRebaixoCommands
         // Declividade escolhida pelo usuario (comando, painel ou lista): no lugar do iRampa da peca.
         double slopeEntry = slopeIn is double si && Math.Abs(si) > 1e-6 ? Math.Abs(si) : rampSlopeAbs;
         double slopeExit = slopeOut is double so && Math.Abs(so) > 1e-6 ? Math.Abs(so) : slopeIn is double si2 && Math.Abs(si2) > 1e-6 ? Math.Abs(si2) : rampSlopeAbs;
-        if (Math.Max(slopeEntry, slopeExit) > MaxRampSlopeNbr + 1e-6)
+        if (Math.Max(slopeEntry, slopeExit) > MaxRampSlopeNbr + 1e-5)
         {
             string aviso = $"Declividade da rampa do meio-fio de {Math.Max(slopeEntry, slopeExit) * 100.0:0.##}% (acima de 8,33%, NBR 9050).";
             PluginLog.Aviso("MFREBAIXO", aviso);
@@ -246,7 +246,15 @@ public sealed partial class MFRebaixoCommands
 
         List<CorridorTransitionSet> mainSets = Group(chain.First(x => x.Main)).Sets;
         string setName = MakeUniquePairSetName(mainSets, s1, s2, side);
-        bool mainDepth = HasDoubleParameter(subassembly, DepthParameterName);
+        bool mainDirect = IsDirect(subassembly);
+        bool mainDepth = mainDirect || HasDoubleParameter(subassembly, DepthParameterName);
+
+        // Peso da altura final (REB_K) ao longo do rebaixo: 0 em S0, 1 de S1 a S2, 0 em S3.
+        double WeightAt(double st) =>
+            st <= s1 ? Math.Clamp((st - s0) / Math.Max(s1 - s0, 1e-9), 0.0, 1.0)
+            : st >= s2 ? Math.Clamp((s3 - st) / Math.Max(s3 - s2, 1e-9), 0.0, 1.0)
+            : 1.0;
+        var written = new List<WrittenPart>();
         var touched = chain.Where(x => Math.Min(s3, x.OurTo) - Math.Max(s0, x.OurFrom) > StationTolerance).ToList();
         CurbSeg main = chain.First(x => x.Main);
         bool standard = touched.Count == 1 && touched[0] == main;
@@ -265,12 +273,15 @@ public sealed partial class MFRebaixoCommands
             cuts.Sort();
 
             var segSub = (Subassembly)tr.GetObject(seg.SubassemblyId, OpenMode.ForRead);
-            bool depth = HasDoubleParameter(segSub, DepthParameterName);
+            bool direct = IsDirect(segSub);
+            bool depth = direct || HasDoubleParameter(segSub, DepthParameterName);
+            string param = direct ? FinalWeightParameterName : depth ? DepthParameterName : ParameterName;
+            double ValueAt(double st) => direct ? WeightAt(st) : ProfileFor(depth, st, seg);
             var spans = new List<(double A, double Va, double B, double Vb)>();
             for (int i = 0; i + 1 < cuts.Count; i++)
             {
                 double a = cuts[i], b = cuts[i + 1];
-                double ta = seg.Their(a), tb = seg.Their(b), va = ProfileFor(depth, a, seg), vb = ProfileFor(depth, b, seg);
+                double ta = seg.Their(a), tb = seg.Their(b), va = ValueAt(a), vb = ValueAt(b);
                 spans.Add(ta <= tb ? (ta, va, tb, vb) : (tb, vb, ta, va));
             }
             spans.Sort((x, y) => x.A.CompareTo(y.A));
@@ -281,11 +292,11 @@ public sealed partial class MFRebaixoCommands
             if (seg.Main)
             {
                 name = setName;
-                setComment = standard
-                    ? comment
-                    : MFRebaixoData.WithToken(comment, MFRebaixoData.MakeToken(s0, s1, s2, s3,
+                // Desde a 2.120.0 o set principal sempre leva o token, com a altura final pedida (F=):
+                // o REB acertado secao por secao e o REB_K tem mais (ou outros) valores que os 3 trechos.
+                setComment = MFRebaixoData.WithToken(comment, MFRebaixoData.MakeToken(s0, s1, s2, s3,
                         mainDepth ? 0.0 : startEffectiveHeight, mainDepth ? depthIn : finalHeight,
-                        mainDepth ? depthOut : finalHeight, mainDepth ? 0.0 : endEffectiveHeight));
+                        mainDepth ? depthOut : finalHeight, mainDepth ? 0.0 : endEffectiveHeight, finalHeight));
             }
             else
             {
@@ -305,11 +316,24 @@ public sealed partial class MFRebaixoCommands
             };
             for (int i = 0; i < spans.Count; i++)
             {
-                CorridorTransition t = i == 0 ? set.AddTransition(depth ? DepthParameterName : ParameterName) : set.AddTransition();
+                CorridorTransition t = i == 0 ? set.AddTransition(param) : set.AddTransition();
                 SetTransition(t, spans[i].A, spans[i].Va, spans[i].B, spans[i].Vb);
             }
             set.StationLocked = true;
             sets.Add(set);
+            if (direct)
+            {
+                // ALT_FINAL constante no pedaco inteiro (o REB_K decide onde vale).
+                var alt = new CorridorTransitionSet(MakeUniqueName(sets, name + MFRebaixoData.AltSuffix), seg.Region, seg.SubassemblyId, CorridorTransitionNameType.SubassemblyName)
+                {
+                    Comment = "REBAIXO MF - ALTURA FINAL (" + setName + ")"
+                };
+                CorridorTransition ta = alt.AddTransition(FinalHeightParameterName);
+                SetTransition(ta, spans[0].A, finalHeight, spans[^1].B, finalHeight);
+                alt.StationLocked = true;
+                sets.Add(alt);
+            }
+            written.Add(new WrittenPart(seg, set, name, setComment, direct, depth, param, from, to, cuts));
 
             foreach (double c in cuts)
                 addedSections += EnsureStation(seg.Region, seg.Their(c), "REBAIXO MF");
@@ -352,10 +376,49 @@ public sealed partial class MFRebaixoCommands
         }
 
         // Rebuild de cada corredor tocado (a Baseline vizinha pode ser de outro corredor).
-        foreach (CivilCorridor c in groups.Values.Select(g => g.Corridor).Distinct())
+        void RebuildAll()
         {
-            CivilCorridor w = c.IsWriteEnabled ? c : (CivilCorridor)tr.GetObject(c.ObjectId, OpenMode.ForWrite);
-            w.Rebuild();
+            foreach (CivilCorridor c in groups.Values.Select(g => g.Corridor).Distinct())
+            {
+                CivilCorridor w = c.IsWriteEnabled ? c : (CivilCorridor)tr.GetObject(c.ObjectId, OpenMode.ForWrite);
+                w.Rebuild();
+            }
+        }
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        RebuildAll();
+        long firstRebuildMs = clock.ElapsedMilliseconds;
+
+        // Peca sem REB_K/ALT_FINAL (MFSARJETA ate 1.26): o REB foi calculado com a altura normal lida
+        // antes de S0, mas a normal varia no trecho (alvos de topo e de flowline). Acerta o REB em cada
+        // secao do trecho rebaixado para o exposto ficar igual ao pedido e faz UM Rebuild a mais
+        // (pedido do Heyvid em 17/11/2026: "mesmo colocando altura 0 ... ainda fica com uma altura final").
+        int adjusted = 0;
+        List<WrittenPart> toFix = written.Where(w => !w.Direct && w.Depth).ToList();
+        if (toFix.Count > 0)
+        {
+            foreach (WrittenPart w in toFix)
+                adjusted += AdjustDepthBySection(w, s0, s1, s2, s3, finalHeight, (st, seg) => ProfileFor(true, st, seg), Group(w.Seg).Sets, setName);
+            if (adjusted > 0)
+            {
+                foreach (var g in groups.Values)
+                    g.Baseline.SetTransitions(g.Sets);
+                RebuildAll();
+            }
+        }
+        long totalRebuildMs = clock.ElapsedMilliseconds;
+
+        // Altura obtida de S1 a S2 (todas as secoes dos pedacos que o trecho rebaixado toca).
+        double? gotMin = null, gotMax = null;
+        foreach (WrittenPart w in written)
+        {
+            foreach ((double their, double exposed, _) in SectionValues(w.Seg.Region, w.Seg.SubassemblyId))
+            {
+                double our = w.Seg.Our(their);
+                if (our < Math.Max(s1, w.From) - 0.0005 || our > Math.Min(s2, w.To) + 0.0005)
+                    continue;
+                gotMin = Math.Min(gotMin ?? exposed, exposed);
+                gotMax = Math.Max(gotMax ?? exposed, exposed);
+            }
         }
 
         ObjectId corridorIdForHatch = corridor.ObjectId;
@@ -389,9 +452,169 @@ public sealed partial class MFRebaixoCommands
         Say(ed, highlightApplied ? $"\n     Code REBAIXO: {s0:0.000} -> {s3:0.000}" : $"\n     {HighlightParameterName}: sem codes de destaque");
         Say(ed, mainDepth ? $"\n     Transition em {DepthParameterName} (profundidade)" : $"\n     Transition em {ParameterName} (altura livre)");
         Say(ed, $"\n     Corridor Sections adicionadas: {addedSections}");
+        string how = written.Any(w => w.Direct)
+            ? "altura final direta (MFSARJETA 1.27+: REB_K + ALT_FINAL)"
+            : adjusted > 0 ? $"REB acertado em {adjusted} secao(oes) do trecho (1 Rebuild a mais)" : "REB";
+        string got = gotMin is double gmin && gotMax is double gmax
+            ? Math.Abs(gmax - gmin) < 0.0005 ? $"{gmin:0.###} m" : $"{gmin:0.###} a {gmax:0.###} m"
+            : "nao lida";
+        Say(ed, $"\n     Altura final: pedida {finalHeight:0.###} m, obtida {got} ({how}; Rebuild {totalRebuildMs / 1000.0:0.0} s, o 1o {firstRebuildMs / 1000.0:0.0} s)");
+        PluginLog.Info("MFREBAIXO", $"{setName}: altura final pedida {finalHeight:0.###} obtida {got}; {how}; rebuild {firstRebuildMs} ms + {totalRebuildMs - firstRebuildMs} ms.");
+        if (gotMin is double lo2 && gotMax is double hi2 && Math.Max(Math.Abs(lo2 - finalHeight), Math.Abs(hi2 - finalHeight)) > FinalHeightTolerance)
+        {
+            string aviso = $"{setName}: altura final obtida ({got}) difere da pedida ({finalHeight:0.###} m) mais de 2 mm. " +
+                           "Confira no painel (aba Secoes); com MFSARJETA 1.27 ou mais novo a altura sai exata.";
+            PluginLog.Aviso("MFREBAIXO", aviso);
+            Say(ed, "\n[MFREBAIXO] Aviso: " + aviso);
+        }
         Say(ed, hatches > 0
             ? $"\n     Hachura em planta: {hatches} HATCH na layer {MFRebaixoSettingsStore.Load().HachuraLayer}\n"
             : "\n     Hachura em planta: não desenhada (ver C3DLOG)\n");
+    }
+
+    /// <summary>Set gravado num pedaco da cadeia (para o acerto secao por secao depois do Rebuild).</summary>
+    private sealed record WrittenPart(CurbSeg Seg, CorridorTransitionSet Set, string Name, string Comment, bool Direct, bool Depth,
+        string Parameter, double From, double To, List<double> Cuts);
+
+    /// <summary>A peca tem REB_K e ALT_FINAL (MFSARJETA 1.27+) e o caminho direto esta ligado.</summary>
+    internal static bool IsDirect(Subassembly sa) =>
+        DirectFinalHeightEnabled && HasDoubleParameter(sa, FinalWeightParameterName) && HasDoubleParameter(sa, FinalHeightParameterName);
+
+    /// <summary>Exposto (EXPOSTO) e REB aplicados em cada secao calculada da Region, so da peca indicada.</summary>
+    internal static List<(double Station, double Exposed, double Reb)> SectionValues(BaselineRegion region, ObjectId subassemblyId)
+    {
+        var list = new List<(double, double, double)>();
+        foreach (AppliedAssembly aa in region.AppliedAssemblies)
+        {
+            try
+            {
+                foreach (AppliedSubassembly asa in aa.GetAppliedSubassemblies())
+                {
+                    if (asa.SubassemblyId != subassemblyId)
+                        continue;
+                    double? exp = null, reb = null;
+                    foreach (IAppliedSubassemblyParam prm in asa.Parameters)
+                    {
+                        if (prm.KeyName.Equals(EffectiveOutputAltParameterName, StringComparison.OrdinalIgnoreCase))
+                            exp = Convert.ToDouble(prm.ValueAsObject, CultureInfo.InvariantCulture);
+                        else if (prm.KeyName.Equals(DepthParameterName, StringComparison.OrdinalIgnoreCase))
+                            reb = Convert.ToDouble(prm.ValueAsObject, CultureInfo.InvariantCulture);
+                    }
+                    if (exp is double e)
+                        list.Add((asa.OriginStationOffsetElevationToBaseline.X, e, reb ?? 0.0));
+                    break;
+                }
+            }
+            catch
+            {
+                // Secao sem a peca ou sem valores.
+            }
+        }
+        list.Sort((a, b) => a.Item1.CompareTo(b.Item1));
+        return list;
+    }
+
+    /// <summary>
+    /// REB acertado secao por secao no trecho rebaixado (peca sem REB_K): em cada secao, REB novo =
+    /// exposto obtido + REB aplicado - altura pedida (o exposto e normal - REB). As rampas ficam como
+    /// estao, so a ponta delas em S1/S2 passa a ser o valor acertado. Devolve quantas secoes mudaram.
+    /// </summary>
+    private static int AdjustDepthBySection(WrittenPart w, double s0, double s1, double s2, double s3, double finalHeight,
+        Func<double, CurbSeg, double> profile, List<CorridorTransitionSet> sets, string setName)
+    {
+        CurbSeg seg = w.Seg;
+        double lo = Math.Max(s1, w.From), hi = Math.Min(s2, w.To);
+        if (hi - lo <= StationTolerance)
+            return 0;
+        var fixedAt = new SortedDictionary<double, double>();
+        int changed = 0, skipped = 0;
+        foreach ((double their, double exposed, double reb) in SectionValues(seg.Region, seg.SubassemblyId))
+        {
+            double our = seg.Our(their);
+            if (our < lo - 0.0005 || our > hi + 0.0005)
+                continue;
+            double value = reb;
+            double miss = exposed - finalHeight;
+            if (Math.Abs(miss) > 0.0002)
+            {
+                // Exposto 0 com altura pedida > 0: a peca cortou o REB na altura normal (que fica
+                // desconhecida); tira so a diferenca, o aviso de min/max mostra se nao bastou.
+                double candidate = exposed < 0.0005 && finalHeight > 0.0005 ? reb - finalHeight : reb + miss;
+                if (Math.Abs(candidate - reb) <= 0.15)
+                {
+                    value = candidate;
+                    changed++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+            fixedAt[Math.Clamp(our, lo, hi)] = value;
+        }
+        if (skipped > 0)
+        {
+            PluginLog.Aviso("MFREBAIXO", $"{setName}: {skipped} secao(oes) do trecho nao responderam ao REB (meio-fio Kassel, ou meio-fio levantado com MFSARJETA anterior a 1.25) e ficaram como estavam.");
+        }
+        if (changed == 0 || fixedAt.Count == 0)
+            return 0;
+
+        double FixedValue(double our)
+        {
+            // Interpolado entre as secoes acertadas (nas pontas, a mais perto).
+            KeyValuePair<double, double>? before = null, after = null;
+            foreach (var kv in fixedAt)
+            {
+                if (kv.Key <= our + 1e-6)
+                    before = kv;
+                if (kv.Key >= our - 1e-6)
+                {
+                    after = kv;
+                    break;
+                }
+            }
+            if (before is null)
+                return after!.Value.Value;
+            if (after is null || after.Value.Key - before.Value.Key < 1e-6)
+                return before.Value.Value;
+            double k = (our - before.Value.Key) / (after.Value.Key - before.Value.Key);
+            return before.Value.Value + (k * (after.Value.Value - before.Value.Value));
+        }
+
+        var cuts = new SortedSet<double>(w.Cuts);
+        foreach (double st in fixedAt.Keys)
+        {
+            if (st > w.From + 0.001 && st < w.To - 0.001 && !cuts.Any(c => Math.Abs(c - st) < 0.001))
+                cuts.Add(st);
+        }
+        List<double> list = cuts.ToList();
+        double ValueAt(double our) => our >= lo - 1e-6 && our <= hi + 1e-6 ? FixedValue(our) : profile(our, seg);
+
+        var spans = new List<(double A, double Va, double B, double Vb)>();
+        for (int i = 0; i + 1 < list.Count; i++)
+        {
+            double a = list[i], b = list[i + 1];
+            double ta = seg.Their(a), tb = seg.Their(b), va = ValueAt(a), vb = ValueAt(b);
+            spans.Add(ta <= tb ? (ta, va, tb, vb) : (tb, vb, ta, va));
+        }
+        spans.Sort((x, y) => x.A.CompareTo(y.A));
+
+        var set = new CorridorTransitionSet(w.Name, seg.Region, seg.SubassemblyId, CorridorTransitionNameType.SubassemblyName)
+        {
+            Comment = w.Comment
+        };
+        for (int i = 0; i < spans.Count; i++)
+        {
+            CorridorTransition t = i == 0 ? set.AddTransition(w.Parameter) : set.AddTransition();
+            SetTransition(t, spans[i].A, spans[i].Va, spans[i].B, spans[i].Vb);
+        }
+        set.StationLocked = true;
+        int idx = sets.IndexOf(w.Set);
+        if (idx >= 0)
+            sets[idx] = set;
+        else
+            sets.Add(set);
+        return changed;
     }
 
     private static void Say(Editor ed, string text)

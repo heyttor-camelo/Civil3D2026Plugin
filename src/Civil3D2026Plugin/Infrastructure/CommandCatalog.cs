@@ -203,6 +203,7 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Corridor.MfTravessiaApagar, "Apagar travessia clicando", "Clique na lombofaixa (plato, grelha, viga, faixa) de uma ou mais travessias e confirme: os solidos saem. U desfaz."),
                     new CommandDefinition(C3DCommands.Corridor.MfTravessiaRefazer, "Refazer travessias", "Redesenha as travessias depois de mexer no corredor ou nos rebaixos."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoApagar, "Remover rebaixo clicando", "Clique em cima de um ou mais rebaixos no desenho (hachura ou meio-fio) e confirme: saem os Transition Sets, as secoes e a hachura. U desfaz."),
+                    new CommandDefinition(C3DCommands.Corridor.MfRebaixoAcertar, "Acertar altura final", "Refaz os rebaixos cuja altura obtida no trecho difere da pedida (mais de 2 mm): com MFSARJETA 1.27+ grava a altura final direta, com peca antiga acerta o REB secao por secao. Mostra a lista e pede confirmacao; U desfaz."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoLimpar, "Limpar rebaixos removidos", "Apaga de vez os Transition Sets de rebaixos removidos ou presos a uma peca que nao existe mais."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoCfg, "Configurar rebaixo", "Configura presets do MFREBAIXO."),
                     new CommandDefinition(C3DCommands.Corridor.MfRebaixoHelp, "Ajuda rebaixo", "Mostra a ajuda do MFREBAIXO.")

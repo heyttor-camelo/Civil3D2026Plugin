@@ -47,6 +47,22 @@ public sealed partial class MFRebaixoCommands
     internal const string DepthParameterName =
         "REB";
 
+    // MFSARJETA >= 1.27 (17/11/2026): altura final direta. REB_K (0 -> 1 -> 1 -> 0 em S0..S3) e
+    // ALT_FINAL (constante) por Corridor Transition; com REB_K > 0 a peca ignora o REB e o exposto
+    // fica (1 - REB_K) * normal + REB_K * ALT_FINAL em cada secao, qualquer que seja o alvo.
+    // Nomes so aqui: se mudarem no PKT, muda so isto.
+    internal const string FinalHeightParameterName =
+        "ALT_FINAL";
+
+    internal const string FinalWeightParameterName =
+        "REB_K";
+
+    /// <summary>Liga o caminho direto (REB_K + ALT_FINAL) quando a peca tem os dois parametros.</summary>
+    internal const bool DirectFinalHeightEnabled = true;
+
+    /// <summary>Diferenca entre a altura final pedida e a obtida que vira aviso (2 mm).</summary>
+    internal const double FinalHeightTolerance = 0.002;
+
     // Na estaca exata em que uma Transition começa, o Civil 3D usa o valor de antes
     // (a seção S0 ficava sem o code e a aba de entrada não era hachurada). O DESTAQUE
     // começa 0,5 mm antes de S0 para S0 já cair dentro dele.

@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFREBAIXO v1.28.0: **altura final exata**. A altura pedida (inclusive 0 e meio-fio levantado) sai igual em todas as secoes do trecho rebaixado, mesmo com alvos de topo e de flowline (antes o REB era um so, calculado na ponta: pedia 0 e ficava 1,9 / 7,7 cm). Com o **MFSARJETA 1.27** a altura vai direta na peca (REB_K + ALT_FINAL); com peca antiga o REB e acertado secao por secao (um Rebuild a mais, so quando precisa). Painel: altura pedida / obtida nas Propriedades, aviso quando diferem mais de 2 mm e botao **Acertar altura final** (tambem MFREBAIXOACERTAR) para os rebaixos ja feitos.
 - C3DIFC v1.1.0: **janela** com caixas de marcar (corredores, eixos, pecas da lombofaixa, travessias, superficies, redes, selecionados a mao) e **Selecionar no desenho**; -C3DIFC na linha de comando; corredor de referencia (data shortcut) fora por padrao; eixos principais/todos/nenhum; grelha simplificada no IFC (opcao). **C3DCODESETIFC**: da estilo SARJETA a sarjeta no Code Set (IFC sem pecas genericas).
 - C3DIFC v1.0.0: exportar IFC 4.3 com criterios (classes por layer/estilo, sem as cascas do corredor, eixos, nome do projeto, resumo). Lombofaixa com os dados do plugin em todas as pecas e viga 3 cm abaixo do topo.
 - MFREBAIXO v1.25.0: etiquetas arrastaveis (guardadas no desenho; Textos > Repor etiquetas), etiqueta das travessias (T01...), **Selecionar no desenho** no painel e `MFTRAVESSIASELECIONAR` (filtro de pecas; depois `IFCInfraExportSelected` exporta IFC 4.3).
@@ -133,7 +134,7 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFREBAIXOACERTAR`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
   `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
 - `MFTRAVESSIAUNIR` (MFREBAIXO v1.15): depois de lancar as travessias de um cruzamento, **une todas num plato so**,
   limitado pelo meio-fio (borda da pista lida do corredor; a sarjeta dos cantos fica livre, com tampa de concreto).
@@ -152,6 +153,7 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - `MFREBAIXO` (v1.9): alem das Corridor Transitions e das secoes, desenha a **hachura do rebaixo em planta**
   (layer `MF-REBAIXO`, vermelho solido com 20% de transparencia, cobrindo sarjeta + meio-fio de S0 a S3),
   sem depender do Code Set Style. Layer, cor, padroes e transparencia ficam na Configuracao do painel.
+- `MFREBAIXOACERTAR` (v1.28): refaz os rebaixos cuja altura obtida no trecho rebaixado difere da pedida (mais de 2 mm), ou todos (opcao Todos). Mostra a lista (hoje x pedida), pede Acertar; U desfaz. Com o MFSARJETA 1.27 no corredor converte para a altura final direta. Para trocar a peca: Prospector > Subassemblies > MFSARJETA_ESQ/DIR > Properties > Parameters > Change Subassembly... > `MFSARJETA_v1.27.pkt` (em `G:\Meu Drive\Civil3D2026Plugin\atual`); os alvos, os parametros e as Corridor Transitions ficam (conferido numa copia). Meio-fio Kassel nao rebaixa (o aviso mostra).
 - `MFREBAIXOLIMPAR` (v1.10): apaga de vez os Transition Sets de rebaixos removidos (desligados) e os presos a
   uma peca que nao existe mais na assembly. Desde a v1.10 o Remover do painel ja apaga o set de vez; so fica
   desligado quando e o unico set da baseline (o Civil nao deixa a lista vazia).

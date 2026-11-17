@@ -96,6 +96,7 @@ public static class CommandNames
         public const string MfRebaixoHachura = "MFREBAIXOHACHURA";
         public const string MfRebaixoLimpar = "MFREBAIXOLIMPAR";
         public const string MfRebaixoApagar = "MFREBAIXOAPAGAR";
+        public const string MfRebaixoAcertar = "MFREBAIXOACERTAR";
         public const string MfTravessia = "MFTRAVESSIA";
         public const string MfTravessiaRefazer = "MFTRAVESSIAREFAZER";
         public const string MfTravessiaUnir = "MFTRAVESSIAUNIR";

@@ -404,7 +404,7 @@ internal sealed partial class MFRebaixoPanel
         }
 
         List<RebaixoInfo> targets = TargetsOf(row).Select(r => r.Data).OfType<RebaixoInfo>().ToList();
-        if (targets.Any(r => r.FinalHeight is null))
+        if (targets.Any(r => r.TargetFinal is null))
         {
             Say("Nao deu para ler a altura final de um dos rebaixos (Rebuild no corredor e Reler o painel). Nada mudou.");
             return;
@@ -428,7 +428,7 @@ internal sealed partial class MFRebaixoPanel
         {
             RebaixoInfo r = targets[0];
             double len = comp ?? r.LoweredLength;
-            Reapply(r, r.S1, r.S1 + len, height ?? r.FinalHeight!.Value, sIn, sOut);
+            Reapply(r, r.S1, r.S1 + len, height ?? r.TargetFinal!.Value, sIn, sOut);
             return;
         }
 
@@ -437,7 +437,7 @@ internal sealed partial class MFRebaixoPanel
         {
             foreach (RebaixoInfo r in targets)
             {
-                double oldH = r.FinalHeight!.Value;
+                double oldH = r.TargetFinal!.Value;
                 double len = comp ?? r.LoweredLength;
                 double newH = height ?? oldH;
                 double? a = sIn ?? r.EntrySlope, b = sOut ?? r.ExitSlope;

@@ -118,6 +118,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         new("HACHURAS", "hachura", "Redesenhar hachuras", "Rebaixo",
             "Apaga e desenha de novo a hachura em planta de todos os rebaixos (layer MF-REBAIXO), lendo o corredor atual. Use depois de um Rebuild que mudou o corredor.",
             new[] { "Sem perguntas: refaz as hachuras de todos os rebaixos listados." }, p => p.RedrawHatches()),
+        new("ACERTARALTURA", "rebaixo", "Acertar altura final", "Rebaixo",
+            "Refaz os rebaixos cuja altura obtida no trecho rebaixado difere da pedida (mais de 2 mm; ex. pediu 0 e ficou 1,9 a 7,7 cm porque a altura normal varia com os alvos). Com o MFSARJETA 1.27+ grava a altura final direta; com peca antiga acerta o REB secao por secao. Mostra a lista e pede confirmacao; U desfaz.",
+            new[] { "Selecione os rebaixos (Ctrl/Shift) ou nenhum para todos os desviados.", "Confira a lista e confirme." }, p => p.FixFinalHeights()),
         new("LIMPAR", "excluir", "Limpar removidos", "Corredor",
             "Apaga de vez do corredor os Transition Sets de rebaixos que ficaram so desligados (REMOVIDO) e os presos a uma peca que nao existe mais. Pede confirmacao.",
             new[] { "Sem selecao: vale para todos os corredores do desenho.", "Confirme." }, p => p.PurgeRemoved()),
@@ -2245,6 +2248,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(Prop("Rampa de saida", $"{N(r.ExitLength, "0.00")} m" + (r.ExitSlope is double sx ? $", declividade {Pct(sx)}" : "")));
         p.Children.Add(Prop("Comprimento total", $"{N(r.TotalLength, "0.00")} m"));
         p.Children.Add(Prop("Altura livre normal / final", $"{Cm(r.NormalHeight)} / {Cm(r.FinalHeight)}"));
+        p.Children.Add(Prop("Altura final pedida / obtida no trecho", $"{Cm(r.TargetFinal)} / " + (r.ExposedMin is double gmin && r.ExposedMax is double gmax ? (Math.Abs(gmax - gmin) < 0.0005 ? Cm(gmin) : $"{Cm(gmin)} a {Cm(gmax)}") : Cm(r.FinalHeight)) + (r.FinalOff ? "  (difere mais de 2 mm: Acertar altura final)" : "") + (r.Direct ? "  [altura direta, MFSARJETA 1.27+]" : "")));
         p.Children.Add(Prop("Transition", r.ByDepth
             ? $"REB (profundidade): {Cm(r.ValueIn)} na entrada, {Cm(r.ValueOut)} na saida"
             : $"AMF_LIVRE (altura livre): {Cm(r.ValueStart)} -> {Cm(r.ValueIn)} -> {Cm(r.ValueEnd)}"));
@@ -2258,8 +2262,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         p.Children.Add(EditRow("comp", "Comprimento do trecho rebaixado", N(r.LoweredLength, "0.000"), "m"));
         p.Children.Add(EditRow("decl", "Declividade das rampas do meio-fio", SlopeText(r), "%"));
         p.Children.Add(Label("Valor do rebaixo", true));
-        p.Children.Add(EditRow("red", "Rebaixo (quanto desce; negativo sobe)", r.NormalHeight is double nh0 && r.FinalHeight is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
-        p.Children.Add(EditRow("h", "Altura livre final", N(r.FinalHeight ?? 0, "0.000"), "m"));
+        p.Children.Add(EditRow("red", "Rebaixo (quanto desce; negativo sobe)", r.NormalHeight is double nh0 && r.TargetFinal is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
+        p.Children.Add(EditRow("h", "Altura livre final", N(r.TargetFinal ?? r.FinalHeight ?? 0, "0.000"), "m"));
         p.Children.Add(Label("Mudou o comprimento: o inicio fica e o fim muda (para mudar de lugar use Reposicionar no desenho). Declividade: um valor vale para as duas rampas; para separar, escreva entrada/saida (ex. 8.33/6). Acima de 8,33 % o plugin so avisa (NBR 9050). O comprimento das rampas sai do desnivel dividido pela declividade. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta. Tambem da para editar direto na lista (duplo clique na celula ou F2)."));
 
         // Campos ligados: so reage ao campo que esta sendo digitado.
@@ -2554,7 +2558,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         if (Doc is not Document doc)
             return;
-        if (r.FinalHeight is not double h)
+        if (r.TargetFinal is not double h)
         {
             Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
             return;
@@ -2607,7 +2611,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     {
         // A declividade das rampas fica a do rebaixo (ou a nova, se mudou): o comprimento das rampas sai dela.
         double? sIn = slopeIn ?? r.EntrySlope, sOut = slopeIn is not null && slopeOut is null ? slopeIn : slopeOut ?? r.ExitSlope;
-        if (r.FinalHeight is not double oldH)
+        if (r.TargetFinal is not double oldH)
         {
             Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
             return;
@@ -2678,6 +2682,44 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         Edit($"Rebaixo {r.Label} removido.", (db, _) => summary = MFRebaixoData.Remove(db, r));
         if (summary.Length > 0)
             Say($"Rebaixo {r.Label} removido: {summary}.");
+    }
+
+    /// <summary>Acertar altura final: os selecionados (2 ou mais) ou, sem selecao, todos os desviados.</summary>
+    private void FixFinalHeights()
+    {
+        List<RebaixoInfo> chosen = SelectedRebaixos();
+        bool bySelection = chosen.Count > 1;
+        List<RebaixoInfo> targets = (bySelection ? chosen : _items.Where(r => r.FinalOff).ToList())
+            .Where(r => r.TargetFinal is not null).ToList();
+        if (targets.Count == 0 && chosen.Count == 1 && chosen[0].TargetFinal is not null)
+            targets = chosen;
+        if (targets.Count == 0)
+        {
+            Say($"Nenhum rebaixo com a altura obtida diferente da pedida (mais de {MFRebaixoCommands.FinalHeightTolerance * 1000:0} mm). Nada mudou.");
+            return;
+        }
+
+        string lines = string.Join("\n", targets.Take(25).Select(r => "  " + MFRebaixoCommands.DescribeFinalFix(r))) +
+                       (targets.Count > 25 ? $"\n  ... e mais {targets.Count - 25}" : "");
+        SW.MessageBoxResult answer = SW.MessageBox.Show(this,
+            $"Acertar a altura final de {targets.Count} rebaixo(s)?\n\n{lines}\n\n" +
+            "Cada um e removido e lancado de novo com a altura pedida, as mesmas estacas e declividades (com o MFSARJETA 1.27+ a altura sai exata; " +
+            "com peca antiga o REB e acertado secao por secao). Se um falhar, ele fica como estava. As travessias ligadas a eles: use Redesenhar depois.\n\n" +
+            "Para desfazer: U (Ctrl+Z) no desenho logo em seguida.",
+            "Acertar altura final", SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Question);
+        if (answer != SW.MessageBoxResult.Yes)
+        {
+            Say("Nada mudou.");
+            return;
+        }
+
+        (int Done, List<string> Errors) result = (0, new List<string>());
+        Edit($"Altura final acertada em {targets.Count} rebaixo(s).", (db, ed) => result = MFRebaixoCommands.FixFinalHeights(db, ed, targets));
+        if (result.Errors.Count > 0)
+        {
+            Civil3D2026Plugin.Infrastructure.PluginLog.Aviso("MFREBAIXO", "Acertar altura final: " + string.Join(" | ", result.Errors));
+            Say($"{result.Done} de {targets.Count} acertado(s). Nao deu: " + string.Join("; ", result.Errors));
+        }
     }
 
     private void PurgeRemoved()

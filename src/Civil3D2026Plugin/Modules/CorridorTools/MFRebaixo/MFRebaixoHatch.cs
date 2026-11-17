@@ -222,7 +222,7 @@ internal static class MFRebaixoHatch
                 {
                     string name = s.Name ?? "";
                     if (!name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) || !name.Contains("_BL", StringComparison.OrdinalIgnoreCase) ||
-                        s.TransitionCount == 0 || MFRebaixoData.IsNeutral(s))
+                        s.TransitionCount == 0 || MFRebaixoData.IsNeutral(s) || MFRebaixoData.IsAltSet(name))
                         continue;
                     bool entry = name.Contains("ENTRADA", StringComparison.OrdinalIgnoreCase);
                     var spans = new List<(double A, double B, bool Lowered)>();
@@ -231,7 +231,7 @@ internal static class MFRebaixoHatch
                         var t = s.GetTransitionAt(i);
                         double va = Convert.ToDouble((object)t.StartValue, System.Globalization.CultureInfo.InvariantCulture);
                         double vb = Convert.ToDouble((object)t.EndValue, System.Globalization.CultureInfo.InvariantCulture);
-                        spans.Add((Math.Min(t.StartStation, t.EndStation), Math.Max(t.StartStation, t.EndStation), Math.Abs(va - vb) < 0.0005 && Math.Abs(va) > 0.0005));
+                        spans.Add((Math.Min(t.StartStation, t.EndStation), Math.Max(t.StartStation, t.EndStation), Math.Abs(va) > 0.0005 && Math.Abs(vb) > 0.0005 && Math.Abs(va - vb) <= Math.Max(0.0005, 0.25 * Math.Max(Math.Abs(va), Math.Abs(vb)))));
                     }
                     double from = spans.Min(x => x.A), to = spans.Max(x => x.B);
                     List<(double Station, Point3d Inner, Point3d Outer)> edges = Edges(tr, b, s.SubassemblyName ?? "", from, to, settings.HachuraAteCalcada, null, null);
