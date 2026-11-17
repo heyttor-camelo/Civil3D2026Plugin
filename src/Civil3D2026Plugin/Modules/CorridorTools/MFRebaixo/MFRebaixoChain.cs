@@ -376,7 +376,7 @@ public sealed partial class MFRebaixoCommands
             };
             for (int i = 0; i < spans.Count; i++)
             {
-                CorridorTransition t = i == 0 ? set.AddTransition(param) : set.AddTransition();
+                CorridorTransition t = i == 0 ? AddFirst(set, param, segSub) : set.AddTransition();
                 SetTransition(t, spans[i].A, spans[i].Va, spans[i].B, spans[i].Vb);
             }
             set.StationLocked = true;
@@ -388,7 +388,7 @@ public sealed partial class MFRebaixoCommands
                 {
                     Comment = "REBAIXO MF - ALTURA FINAL (" + setName + ")"
                 };
-                CorridorTransition ta = alt.AddTransition(FinalHeightParameterName);
+                CorridorTransition ta = AddFirst(alt, FinalHeightParameterName, segSub);
                 SetTransition(ta, spans[0].A, finalHeight, spans[^1].B, finalHeight);
                 alt.StationLocked = true;
                 sets.Add(alt);
@@ -415,7 +415,7 @@ public sealed partial class MFRebaixoCommands
             {
                 Comment = "REBAIXO MF - DESTAQUE"
             };
-            CorridorTransition h1 = highlightSet.AddTransition(HighlightParameterName);
+            CorridorTransition h1 = AddFirst(highlightSet, HighlightParameterName, subassembly);
             SetTransition(h1, Math.Max(region.StartStation, hs - HighlightLead), 1.0, s1, 2.0);
             CorridorTransition h2 = highlightSet.AddTransition();
             SetTransition(h2, s1, 2.0, s2, 3.0);
@@ -665,7 +665,7 @@ public sealed partial class MFRebaixoCommands
         };
         for (int i = 0; i < spans.Count; i++)
         {
-            CorridorTransition t = i == 0 ? set.AddTransition(w.Parameter) : set.AddTransition();
+            CorridorTransition t = i == 0 ? AddFirst(set, w.Parameter, (Subassembly)w.Seg.SubassemblyId.GetObject(OpenMode.ForRead)) : set.AddTransition();
             SetTransition(t, spans[i].A, spans[i].Va, spans[i].B, spans[i].Vb);
         }
         set.StationLocked = true;
@@ -675,6 +675,36 @@ public sealed partial class MFRebaixoCommands
         else
             sets.Add(set);
         return changed;
+    }
+
+    /// <summary>Primeira Transition do set; se o Civil recusar o parametro, a mensagem diz qual e em que peca.</summary>
+    private static CorridorTransition AddFirst(CorridorTransitionSet set, string parameter, Subassembly subassembly)
+    {
+        try
+        {
+            return set.AddTransition(parameter);
+        }
+        catch (System.Exception ex)
+        {
+            // Peca SAC (PKT) cujo arquivo sumiu: o Civil nao consegue validar os parametros dela (KM_01 do Heyvid,
+            // 17/11/2026: MFSARJETA_v1.24.pkt apagado da pasta do projeto).
+            string pkt = "";
+            try
+            {
+                pkt = subassembly.GeometryGenerator?.ProjectOrAssemblyName ?? "";
+            }
+            catch
+            {
+                // Sem gerador legivel.
+            }
+            if (pkt.EndsWith(".pkt", StringComparison.OrdinalIgnoreCase) && !System.IO.File.Exists(pkt))
+            {
+                throw new InvalidOperationException(
+                    $"O arquivo da peca '{subassembly.Name}' nao existe mais: {pkt}. Sem ele o Civil 3D nao aceita gravar o rebaixo. " +
+                    "Troque a peca para o MFSARJETA atual (Prospector > Subassemblies > a peca > Properties > Change Subassembly) ou recoloque o arquivo nesse caminho.", ex);
+            }
+            throw new InvalidOperationException($"O Civil 3D recusou o parametro '{parameter}' na peca '{subassembly.Name}' (set {set.Name}): {ex.Message}", ex);
+        }
     }
 
     private static void Say(Editor ed, string text)

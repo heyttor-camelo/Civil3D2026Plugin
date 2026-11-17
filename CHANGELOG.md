@@ -1,3 +1,13 @@
+## 2.122.0 - MFREBAIXO v1.30.0 / PassagemRampa v1.23.0: uniao das lombofaixas nivelada (superficie de topo + altura de cada travessia, meio-fio rebaixado, rampas presas ao plato), grelha so na plataforma
+
+Pedidos do Heyvid em 17/11/2026 ("as lombofaixas devem ficar na altura do meio-fio rebaixado ... especialmente quando faco a uniao"; "na uniao ... as rampas de acesso as lombofaixas ficam desconexas"; "o solido so precisa atender estritamente as alturas nas regioes de rebaixo"; "eliminar essa pontinha da grelha que fica na rampa").
+
+- **Uniao**: o plato deixou de usar uma altura unica (a media das travessias). Em cada ponto: superficie de topo + altura; na borda de cada travessia, o topo da plataforma dela ponto a ponto (a rampa do braco sai da mesma aresta, sem degrau); entre as travessias a altura vai de uma para a outra; na borda com meio-fio rebaixado, o topo do meio-fio (ate 4 cm de ajuste, `TravessiaAjusteMaxMeioFio`); na borda com meio-fio nao rebaixado (cantos), superficie + altura, so informa. Grelhas/tampas dos cantos na altura da borda ali.
+- Conferencia do nivel com o meio-fio rebaixado na uniao (tolerancia 1 cm, `TravessiaToleranciaMeioFio`), no resumo do Unir/Redesenhar, gravada nas travessias (XData) e no Property Set do plato (`Desnivel_MeioFio_Max`); travessia simples grava o menor/maior desnivel da plataforma.
+- **Grelha/tampa so na plataforma**: nao passa mais sobre a rampa (o "alem da plataforma" fica sem efeito; padrao 0). Vale ao Redesenhar os desenhos existentes.
+- Rebaixo: quando o arquivo .pkt da peca nao existe mais (ex. MFSARJETA_v1.24.pkt apagado da pasta do projeto), a mensagem diz isso e o caminho, em vez de "Parameter name doesn't exist in subassembly".
+- Teste (copia do KM_01 salvo hoje, pecas v1.27): U10 (R02-R01, R06-R05, R06-R08) antes: degrau rampa x plato 9,2 cm e meio-fio rebaixado x plato 12,1 cm; agora 0,0 cm e de -0,6 a 0,0 cm. U09 (R12-R11, R13-R14) antes 4,7 e 5,6 cm; agora 0,0 e 0,0 cm.
+- Fica para a proxima: coluna "Desnivel p/ meio-fio" no painel e aviso na aba Avisos; grelha limitada ao trecho rebaixado quando ele for menor que a plataforma; altura da plataforma nos pontos de rampa do rebaixo.
 ## 2.121.0 - MFREBAIXO v1.29.0 / PassagemRampa v1.22.0: declividade por rampa e "a prumo" em cada lado
 
 Pedido do Heyvid em 17/11/2026 ("queria poder setar a inclinacao da rampa em cada lado, e tambem, para cada lado, marcar uma caixinha para fazer o rebaixo 'a prumo'").

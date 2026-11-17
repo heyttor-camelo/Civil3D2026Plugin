@@ -227,7 +227,26 @@ internal static partial class MFTravessia
                                         foot = baseline.StationOffsetElevationToXYZ(new Point3d(origin.X, fo, fz));
                                     if (!lists.TryGetValue(said, out var list))
                                         lists[said] = list = new List<CurbSample>();
-                                    list.Add(new CurbSample(origin.X, edge, foot, null));
+                                    // Topo do meio-fio: linha d'agua (pe da face) + altura exposta da peca (2.122.0;
+                                    // a uniao segue esse topo na borda do plato).
+                                    double? curbTop = null;
+                                    if (footElev is not null)
+                                    {
+                                        foreach (CivilDb.IAppliedSubassemblyParam prm in asa.Parameters)
+                                        {
+                                            if (!prm.KeyName.Equals(MFRebaixoCommands.EffectiveOutputAltParameterName, StringComparison.OrdinalIgnoreCase))
+                                                continue;
+                                            try
+                                            {
+                                                curbTop = foot.Z + Convert.ToDouble(prm.ValueAsObject, System.Globalization.CultureInfo.InvariantCulture);
+                                            }
+                                            catch
+                                            {
+                                                // Sem altura exposta.
+                                            }
+                                        }
+                                    }
+                                    list.Add(new CurbSample(origin.X, edge, foot, curbTop));
                                 }
                                 catch
                                 {
@@ -271,7 +290,99 @@ internal static partial class MFTravessia
     // Uniao
     // ------------------------------------------------------------------
 
-    private readonly record struct Seg(Point3d A, Point3d B, int Member);
+    private readonly record struct Seg(Point3d A, Point3d B, int Member, double? TopA = null, double? TopB = null);
+
+    /// <summary>Topo da plataforma da travessia na linha <paramref name="row"/>, no ponto da borda mais perto de <paramref name="q"/>.</summary>
+    private static double? PlatformTopAt(TravessiaGeometry g, int row, Point3d q)
+    {
+        int cols = g.Top.GetLength(1);
+        if (row < 0 || row >= g.Top.GetLength(0) || cols < 2)
+            return null;
+        double best = double.MaxValue;
+        double? z = null;
+        for (int j = 0; j + 1 < cols; j++)
+        {
+            Point3d a = g.Top[row, j], b = g.Top[row, j + 1];
+            double ex = b.X - a.X, ey = b.Y - a.Y, l2 = (ex * ex) + (ey * ey);
+            double w = l2 < 1e-12 ? 0 : Math.Clamp((((q.X - a.X) * ex) + ((q.Y - a.Y) * ey)) / l2, 0, 1);
+            double px = a.X + (ex * w), py = a.Y + (ey * w);
+            double d = Math.Sqrt(((px - q.X) * (px - q.X)) + ((py - q.Y) * (py - q.Y)));
+            if (d < best)
+            {
+                best = d;
+                z = a.Z + ((b.Z - a.Z) * w);
+            }
+        }
+        return best < 0.5 ? z : null;
+    }
+
+    /// <summary>Nivel da borda do plato da uniao x topo do meio-fio (2.122.0).</summary>
+    internal sealed record UnionCurbLevel(double? Min, double? Max, int Points, int NotLowered, string Text, List<string> Warnings)
+    {
+        public double? Worst => Min is double a && Max is double b ? Math.Max(Math.Abs(a), Math.Abs(b)) : null;
+    }
+
+    /// <summary>
+    /// Resume a diferenca topo do meio-fio - topo do plato nos pontos da borda que encostam no meio-fio; os trechos
+    /// seguidos de meio-fio nao rebaixado viram aviso com o rebaixo mais perto (o que aumentar/lancar).
+    /// </summary>
+    private static UnionCurbLevel CurbLevel(AcadDb.Database db, List<Point3d> edge, double?[] diff, bool[] notLowered, double tol)
+    {
+        var warns = new List<string>();
+        var vals = diff.Where(x => x is not null).Select(x => x!.Value).ToList();
+        if (vals.Count == 0)
+            return new UnionCurbLevel(null, null, 0, notLowered.Count(x => x), "nivel com o meio-fio rebaixado: nenhum ponto da borda encosta em meio-fio rebaixado", warns);
+        double mn = vals.Min(), mx = vals.Max();
+        int nl = notLowered.Count(x => x);
+        List<RebaixoInfo>? all = null;
+        string Near(Point3d q)
+        {
+            try
+            {
+                all ??= MFRebaixoData.ReadAll(db);
+                RebaixoInfo? best = all.Where(r => r.Path.Count > 0).OrderBy(r => r.Path.Min(pp => Dist2d(pp, q))).FirstOrDefault();
+                return best is null ? "" : $" (rebaixo mais perto: {best.Label}, a {N(best.Path.Min(pp => Dist2d(pp, q)))} m)";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+        // Trechos seguidos fora da tolerancia.
+        int n = edge.Count;
+        var run = new List<int>();
+        void Flush()
+        {
+            if (run.Count == 0)
+                return;
+            double worst = run.Select(i => diff[i]!.Value).OrderByDescending(Math.Abs).First();
+            bool high = false;
+            Point3d mid = edge[run[run.Count / 2]];
+            double len = 0;
+            for (int k = 1; k < run.Count; k++)
+                len += Dist2d(edge[run[k - 1]], edge[run[k]]);
+            warns.Add((high
+                ? $"borda do plato encostando em meio-fio nao rebaixado em {N(len)} m: meio-fio {Cm(worst)} {(worst > 0 ? "acima" : "abaixo")} do plato"
+                : $"borda do plato {Cm(Math.Abs(worst))} {(worst > 0 ? "abaixo" : "acima")} do meio-fio em {N(len)} m") +
+                $" perto de X {N(mid.X)} Y {N(mid.Y)}{Near(mid)}" +
+                (high ? "; aumente esse rebaixo ate o canto (ou lance um rebaixo ali)" : "; refaca a uniao depois de acertar o rebaixo"));
+            run.Clear();
+        }
+        for (int i = 0; i < n; i++)
+        {
+            bool bad = diff[i] is double d && Math.Abs(d) > tol;
+            if (!bad)
+                Flush();
+            else
+                run.Add(i);
+        }
+        Flush();
+        string text = (Math.Max(Math.Abs(mn), Math.Abs(mx)) <= tol
+            ? $"nivel com o meio-fio rebaixado: borda do plato rente (de {Cm(mn)} a {Cm(mx)}, {vals.Count} pontos)"
+            : $"nivel com o meio-fio rebaixado: de {Cm(mn)} a {Cm(mx)} ({vals.Count} pontos; tolerancia {Cm(tol)})") +
+            (nl > 0 ? $"; {nl} ponto(s) da borda encostam em meio-fio nao rebaixado (cantos): ali o plato segue a superficie + altura" : "");
+        return new UnionCurbLevel(mn, mx, vals.Count, nl, text, warns);
+    }
 
     /// <summary>Raio do centro: primeiro cruzamento com os segmentos (distancia, ponto com Z, segmento).</summary>
     private static (double S, Point3d P, int Index)? Hit(List<Seg> segs, Point3d c, double dx, double dy, double minS)
@@ -313,6 +424,7 @@ internal static partial class MFTravessia
         // Borda de fora da plataforma de cada travessia (onde comeca a rampa que fica).
         var edges = new List<Seg>();
         var feet = new List<Seg>();
+        var memberRows = new List<int>();
         for (int k = 0; k < members.Count; k++)
         {
             (Stored d, TravessiaGeometry g) = members[k];
@@ -320,6 +432,7 @@ internal static partial class MFTravessia
             d.UnionId = unionId;
             d.OuterSign = sign;
             int row = Enumerable.Range(0, g.Rows.Count).OrderBy(i => Math.Abs(g.Rows[i] - (sign * g.HalfPlatform))).First();
+            memberRows.Add(row);
             Point3d a = g.EdgeA[row], b = g.EdgeB[row];
             Vector3d dir = b - a;
             Vector3d ext = dir.Length > 1e-6 ? dir.GetNormal() * 0.03 : new Vector3d();
@@ -331,7 +444,7 @@ internal static partial class MFTravessia
         {
             for (int i = 0; i + 1 < line.Count; i++)
             {
-                edges.Add(new Seg(line[i].Edge, line[i + 1].Edge, -1));
+                edges.Add(new Seg(line[i].Edge, line[i + 1].Edge, -1, line[i].Top, line[i + 1].Top));
                 feet.Add(new Seg(line[i].Foot, line[i + 1].Foot, -1));
             }
         }
@@ -354,7 +467,9 @@ internal static partial class MFTravessia
             }
         }
         angles.Sort();
-        var rays = new List<(double Ang, Point3d P, int Member, Point3d? Foot)>();
+        // EdgeH: altura do plato acima da pista na borda deste rumo (2.122.0). Na travessia, a altura dela
+        // (lado A -> lado B); no meio-fio, o topo do meio-fio rebaixado (CurbTop) - antes era uma altura so.
+        var rays = new List<(double Ang, Point3d P, int Member, Point3d? Foot, double EdgeH, double? CurbTop)>();
         double last = -1;
         int open = 0;
         foreach (double ang in angles)
@@ -377,7 +492,21 @@ internal static partial class MFTravessia
                 if (fh is not null && fh.Value.S - hit.Value.S is > 0.05 and < 1.5)
                     foot = fh.Value.P;
             }
-            rays.Add((ang, hit.Value.P, member, foot));
+            Seg sg = edges[hit.Value.Index];
+            double len = Dist2d(sg.A, sg.B);
+            double wSeg = len < 1e-9 ? 0 : Math.Clamp(Dist2d(sg.A, hit.Value.P) / len, 0, 1);
+            double edgeH = height;
+            double? curbTop = null;
+            if (member >= 0)
+            {
+                TravessiaGeometry mg = members[member].Geo;
+                edgeH = mg.HeightA + ((mg.HeightB - mg.HeightA) * wSeg);
+            }
+            else if (sg.TopA is double ta && sg.TopB is double tb)
+            {
+                curbTop = ta + ((tb - ta) * wSeg);
+            }
+            rays.Add((ang, hit.Value.P, member, foot, edgeH, curbTop));
         }
         if (open > angles.Count / 20 || rays.Count < 12)
             throw new InvalidOperationException($"O contorno do cruzamento esta aberto em {open} rumo(s): falta meio-fio do corredor em algum canto (ou alguma travessia do cruzamento ficou de fora da selecao).");
@@ -393,6 +522,20 @@ internal static partial class MFTravessia
         var top = new Point3d[n, rings + 1];
         var bottom = new Point3d[n, rings + 1];
         int fromSurface = 0;
+        // Topo do plato da uniao (2.122.0, diretriz do Heyvid em 17/11/2026: "pedi para ter uma superficie de topo como
+        // referencia; o solido so precisa atender estritamente as alturas nas regioes de rebaixo do meio-fio" e, longe
+        // dele, "segue a superficie, com a mesma altura do rebaixo de preferencia"):
+        //  - em cada ponto: superficie de topo + altura; a altura e a das travessias (a do rebaixo), indo de uma para a
+        //    outra pelo angulo em volta do centro (nada de uma altura unica/media);
+        //  - na borda de cada travessia: o topo da plataforma dela, ponto a ponto (a rampa sai da mesma aresta);
+        //  - na borda com meio-fio rebaixado: o topo do meio-fio (se estiver a ate TravessiaAjusteMaxMeioFio da altura ali);
+        //  - na borda com meio-fio nao rebaixado (cantos entre rebaixos): superficie + altura, sem forcar (so informa).
+        double follow = Math.Max(0.0, settings.TravessiaAjusteMaxMeioFio);
+        double tol = Math.Max(0.001, settings.TravessiaToleranciaMeioFio);
+        var edgeHs = new double[n];
+        var curbDiff = new double?[n];
+        var notLowered = new bool[n];
+        var isMember = new bool[n];
         for (int i = 0; i < n; i++)
         {
             for (int k = 0; k <= rings; k++)
@@ -411,10 +554,86 @@ internal static partial class MFTravessia
                     }
                 }
                 bottom[i, k] = new Point3d(x, y, z);
-                top[i, k] = new Point3d(x, y, z + height);
+            }
+            // Borda de travessia: topo da plataforma dela na linha de fora, no ponto mais perto (interpolado).
+            edgeHs[i] = rays[i].EdgeH;
+            if (rays[i].Member >= 0)
+            {
+                isMember[i] = true;
+                TravessiaGeometry mg = members[rays[i].Member].Geo;
+                int row = memberRows[rays[i].Member];
+                if (PlatformTopAt(mg, row, rays[i].P) is double zt)
+                    edgeHs[i] = zt - bottom[i, rings].Z;
             }
         }
+        // Altura nos rumos de meio-fio: a das travessias vizinhas pelo angulo (vai de uma para a outra).
+        if (isMember.Any(x => x))
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (isMember[i])
+                    continue;
+                int prev = -1, next = -1;
+                for (int s = 1; s < n && (prev < 0 || next < 0); s++)
+                {
+                    if (prev < 0 && isMember[((i - s) % n + n) % n])
+                        prev = ((i - s) % n + n) % n;
+                    if (next < 0 && isMember[(i + s) % n])
+                        next = (i + s) % n;
+                }
+                double Gap(int a, int b) { double d = rays[b].Ang - rays[a].Ang; while (d < 0) d += 2.0 * Math.PI; return d; }
+                double ga = Gap(prev, i), gb = Gap(i, next);
+                edgeHs[i] = ga + gb < 1e-9 ? edgeHs[prev] : edgeHs[prev] + ((edgeHs[next] - edgeHs[prev]) * (ga / (ga + gb)));
+            }
+        }
+        double hCenter = isMember.Any(x => x) ? Enumerable.Range(0, n).Where(i => isMember[i]).Average(i => edgeHs[i]) : height;
+        // Meio-fio rebaixado: a borda encosta no topo dele.
+        for (int i = 0; i < n; i++)
+        {
+            if (rays[i].Member >= 0 || rays[i].CurbTop is not double ct)
+                continue;
+            double hc = ct - bottom[i, rings].Z;
+            if (Math.Abs(hc - edgeHs[i]) <= follow + 1e-9)
+            {
+                edgeHs[i] = Math.Max(0.005, hc);
+                curbDiff[i] = ct - (bottom[i, rings].Z + edgeHs[i]);
+            }
+            else
+            {
+                notLowered[i] = true;
+            }
+        }
+        for (int i = 0; i < n; i++)
+        {
+            for (int k = 0; k <= rings; k++)
+            {
+                double f = k / (double)rings;
+                Point3d b0 = bottom[i, k];
+                top[i, k] = new Point3d(b0.X, b0.Y, b0.Z + hCenter + ((edgeHs[i] - hCenter) * f));
+            }
+        }
+        // Para comparar (log): o metodo de antes (altura unica = media) dava degrau na borda das rampas e no meio-fio.
+        double oldStepMax = 0, oldCurbMax = 0, newStepMax = 0;
+        for (int i = 0; i < n; i++)
+        {
+            double oldTop = bottom[i, rings].Z + height;
+            if (isMember[i])
+            {
+                oldStepMax = Math.Max(oldStepMax, Math.Abs((bottom[i, rings].Z + edgeHs[i]) - oldTop));
+                TravessiaGeometry mg = members[rays[i].Member].Geo;
+                if (PlatformTopAt(mg, memberRows[rays[i].Member], rays[i].P) is double zt)
+                    newStepMax = Math.Max(newStepMax, Math.Abs(zt - top[i, rings].Z));
+            }
+            else if (curbDiff[i] is not null && rays[i].CurbTop is double ct2)
+            {
+                oldCurbMax = Math.Max(oldCurbMax, Math.Abs(ct2 - oldTop));
+            }
+        }
+        PluginLog.Info("MFTRAVESSIA", $"Uniao {unionId}: altura unica antiga {Cm(height)} -> degrau rampa x plato {Cm(oldStepMax)}, meio-fio rebaixado x plato {Cm(oldCurbMax)}; agora degrau rampa x plato {Cm(newStepMax)}, altura no centro {Cm(hCenter)}.");
+        height = hCenter;
 
+        // Conferencia do nivel na borda que encosta no meio-fio rebaixado (o que a grelha liga).
+        UnionCurbLevel level = CurbLevel(db, rays.Select(r => r.P).ToList(), curbDiff, notLowered, tol);
         int count = 0;
         var notes = new List<string>();
 
@@ -457,6 +676,7 @@ internal static partial class MFTravessia
                         ["Comprimento_Rampa"] = members[0].Data.Params.Rampa,
                         ["Extensao_Travessia"] = Math.Round(2.0 * maxR, 3),
                         ["Elevacao_Topo_Centro"] = Math.Round(zc + height, 3),
+                        ["Desnivel_MeioFio_Max"] = level.Worst is double wv ? Math.Round(wv, 3) : 0.0,
                         ["Tampa_Sarjeta"] = !members[0].Data.Params.Tampa ? "Sem cobertura" : grelha ? $"Grelha metalica, {N(members[0].Data.Params.GrelhaEspessura)} m" : $"Concreto, {N(members[0].Data.Params.TampaEspessura)} m",
                         ["Rebaixo_A"] = string.Join(", ", members.Select(m => m.Data.LabelA)),
                         ["Rebaixo_B"] = string.Join(", ", members.Select(m => m.Data.LabelB)),
@@ -487,7 +707,8 @@ internal static partial class MFTravessia
                         for (int k = 0; k < run.Count; k++)
                         {
                             Point3d e = rays[run[k]].P, f = rays[run[k]].Foot!.Value;
-                            double z = e.Z + height;
+                            // Grelha/tampa do canto na altura da borda do plato ali (que segue o meio-fio rebaixado).
+                            double z = e.Z + edgeHs[run[k]];
                             lt[k, 0] = new Point3d(e.X, e.Y, z);
                             lt[k, 1] = new Point3d(f.X, f.Y, z);
                             lb[k, 0] = new Point3d(e.X, e.Y, z - p0.LidThickness);
@@ -592,9 +813,17 @@ internal static partial class MFTravessia
         }
 
         // Depois do plato, cada travessia e redesenhada so com a rampa de fora (a faixa e os
-        // triangulos dela ficam por cima da hachura do plato).
+        // triangulos dela ficam por cima da hachura do plato). O nivel com o meio-fio e o da uniao.
         foreach ((Stored d, TravessiaGeometry g) in members)
+        {
+            d.CurbLevelMin = level.Min;
+            d.CurbLevelMax = level.Max;
+            d.CurbNotLowered = level.NotLowered;
             count += Draw(db, g, d, settings).Entities;
+        }
+        notes.Add(level.Text);
+        foreach (string w in level.Warnings)
+            notes.Add("AVISO " + w);
 
         string summary = $"Uniao {unionId}: {members.Count} travessias, contorno com {n} pontos (raio ate {N(maxR)} m), altura {Cm(height)}, {lids} tampa(s) nos cantos, {count} objeto(s). " +
                          $"{roadInfo} ({fromSurface} pontos pela superficie). {string.Join("; ", notes)}" + (open > 0 ? $" AVISO: {open} rumo(s) sem meio-fio foram pulados." : "");

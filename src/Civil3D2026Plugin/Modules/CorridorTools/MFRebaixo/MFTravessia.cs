@@ -60,7 +60,7 @@ internal sealed class TravessiaParams
     public double GrelhaVao { get; set; } = 0.03;
 
     /// <summary>Quanto a grelha (ou a tampa) passa da plataforma em cada ponta, descendo com a rampa.</summary>
-    public double GrelhaExtensao { get; set; } = 0.50;
+    public double GrelhaExtensao { get; set; }
 
     /// <summary>Quanto a grelha entra alem do pe do meio-fio (encosta/entra na face), em m.</summary>
     public double GrelhaFolgaMF { get; set; } = 0.01;
@@ -203,6 +203,11 @@ internal sealed class TravessiaGeometry
     public double TopElevationAtCenter { get; init; }
     public string RoadSource { get; set; } = "";
     public List<string> Notes { get; } = new();
+
+    /// <summary>Topo do meio-fio menos topo da lombofaixa na borda, ao longo da plataforma (m; 2.122.0).</summary>
+    public double? CurbLevelMin { get; set; }
+
+    public double? CurbLevelMax { get; set; }
 }
 
 internal static partial class MFTravessia
@@ -959,8 +964,14 @@ internal static partial class MFTravessia
                 : "pista em linha reta entre as bordas (sem superficie do corredor no local)"
         };
         result.Notes.AddRange(early);
-        result.Notes.AddRange(CurbCheck(a, rows, ea, hA, half, p, tA0, halfOrig));
-        result.Notes.AddRange(CurbCheck(b, rows, eb, hB, half, p, tB0, halfOrig));
+        var level = new List<(double Min, double Max)>();
+        result.Notes.AddRange(CurbCheck(a, rows, ea, hA, half, p, tA0, halfOrig, level));
+        result.Notes.AddRange(CurbCheck(b, rows, eb, hB, half, p, tB0, halfOrig, level));
+        if (level.Count > 0)
+        {
+            result.CurbLevelMin = level.Min(x => x.Min);
+            result.CurbLevelMax = level.Max(x => x.Max);
+        }
         result.Rows.AddRange(rows);
         result.EdgeA.AddRange(ea);
         result.EdgeB.AddRange(eb);
@@ -995,7 +1006,9 @@ internal static partial class MFTravessia
     {
         // Plataforma e mais a extensao em cada ponta (pedido do Heyvid: "estender a grelha um pouco mais").
         double total = half + p.Rampa;
-        double reach = halfSel + Math.Max(0, p.GrelhaExtensao);
+        // 2.122.0 (pedido do Heyvid em 17/11/2026: "a grelha deve ser somente na parte rebaixada do meio-fio"):
+        // nada de grelha/tampa sobre a rampa; o parametro GrelhaExtensao fica so por compatibilidade.
+        double reach = halfSel;
         var idx = Enumerable.Range(0, rows.Count).Where(i => Math.Abs(rows[i] - center) <= reach + 1e-6 && Math.Abs(rows[i]) <= total + 1e-6).ToList();
         if (idx.Count < 2)
             return;
@@ -1068,8 +1081,10 @@ internal static partial class MFTravessia
     /// Encontro do meio-fio rebaixado com a lombofaixa/grelha: ao longo da plataforma e da grelha, topo do
     /// meio-fio lido do corredor x topo da lombofaixa na borda da pista; avisa onde passa de 1 cm.
     /// </summary>
-    private static IEnumerable<string> CurbCheck(TravessiaSide s, List<double> rows, List<Point3d> edge, double[] heights, double half, TravessiaParams p, double center, double halfSel)
+    private static IEnumerable<string> CurbCheck(TravessiaSide s, List<double> rows, List<Point3d> edge, double[] heights, double half, TravessiaParams p, double center, double halfSel,
+        List<(double Min, double Max)>? level = null)
     {
+        double tol = Math.Max(0.001, MFRebaixoSettingsStore.Load().TravessiaToleranciaMeioFio);
         List<CurbSample> own = s.Samples.Where(x => x.Top is not null).ToList();
         if (own.Count < 2)
             yield break;
@@ -1118,11 +1133,12 @@ internal static partial class MFTravessia
         }
         if (n == 0)
             yield break;
+        level?.Add((min, max));
         string where = "ao longo da plataforma";
-        if (max > 0.01 || min < -0.01)
+        if (max > tol || min < -tol)
             yield return $"AVISO {s.Label}: topo do meio-fio x topo da lombofaixa {where}: de {Cm(min)} (a {N(tMin)} m do eixo) a {Cm(max)} (a {N(tMax)} m do eixo)" +
-                         (max > 0.01 ? "; meio-fio acima da lombofaixa/grelha: o trecho rebaixado e mais curto que a plataforma (aumente o rebaixo ou diminua a plataforma)" : "") +
-                         (min < -0.01 ? "; lombofaixa/grelha acima do meio-fio" : "") + ".";
+                         (max > tol ? "; meio-fio acima da lombofaixa/grelha: o trecho rebaixado e mais curto que a plataforma (aumente o rebaixo ou diminua a plataforma)" : "") +
+                         (min < -tol ? "; lombofaixa/grelha acima do meio-fio" : "") + ".";
         else
             yield return $"{s.Label}: topo do meio-fio rente a lombofaixa {where} (de {Cm(min)} a {Cm(max)}).";
     }
@@ -1315,6 +1331,20 @@ internal static partial class MFTravessia
         /// <summary>Esconsa: pontos dos rebaixos onde o eixo encosta (centro de cada um); sem eles, a projecao de Origin.</summary>
         public Point3d? AnchorA { get; set; }
         public Point3d? AnchorB { get; set; }
+
+        /// <summary>
+        /// Topo do meio-fio menos topo da lombofaixa na borda (m): menor e maior ao longo da plataforma (travessia) ou
+        /// da borda do plato que encosta no meio-fio (uniao). Null = nao medido (desenho de antes da 2.122.0).
+        /// </summary>
+        public double? CurbLevelMin { get; set; }
+
+        public double? CurbLevelMax { get; set; }
+
+        /// <summary>Pontos da borda da uniao encostando em meio-fio nao rebaixado (o plato nao pode descer/subir ate ele).</summary>
+        public int CurbNotLowered { get; set; }
+
+        /// <summary>Maior desnivel (em modulo) entre a lombofaixa e o meio-fio.</summary>
+        public double? CurbLevelWorst => CurbLevelMin is double a && CurbLevelMax is double b ? Math.Max(Math.Abs(a), Math.Abs(b)) : null;
     }
 
     /// <summary>
@@ -1359,7 +1389,14 @@ internal static partial class MFTravessia
         AcadDb.Entity? plato = MeshSolid(tr, ms, SubRows(g.Top, keep), SubRows(g.Bottom, keep), layer3d, out string mode);
         if (plato is not null)
         {
-            plato.XData = PlatoXData(data);
+            // Nivel com o meio-fio: na travessia simples, o medido agora; na unida, o da uniao (gravado no Unite).
+        if (string.IsNullOrEmpty(data.UnionId))
+        {
+            data.CurbLevelMin = g.CurbLevelMin;
+            data.CurbLevelMax = g.CurbLevelMax;
+            data.CurbNotLowered = 0;
+        }
+        plato.XData = PlatoXData(data);
             count++;
             notes.Add("plato: " + mode);
             info[PartPlato] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { ["Objeto"] = "Plato da travessia " + p.TipoTexto, ["Material"] = "Concreto" };
@@ -1449,7 +1486,7 @@ internal static partial class MFTravessia
             {
                 List<Point3d> e = sideA ? g.EdgeA : g.EdgeB;
                 List<Point3d> f = sideA ? (g.LidFootA.Count > 0 ? g.LidFootA : g.FootA) : (g.LidFootB.Count > 0 ? g.LidFootB : g.FootB);
-                double reach = g.FaixaHalf + Math.Max(0, p.GrelhaExtensao);
+                double reach = g.FaixaHalf; // 2.122.0: grelha so na plataforma (sem a ponta sobre a rampa)
                 double center = sideA ? g.CenterA : g.CenterB;
                 List<int> lidRows = Enumerable.Range(0, n).Where(i => Math.Abs(g.Rows[i] - center) <= reach + 1e-6 && Math.Abs(g.Rows[i]) <= g.Total + 1e-6).ToList();
                 count += Hatch(tr, db, ms, Band(e, f, lidRows), lidLayer, "ANSI37", 0.03, Angle(g.Along), 256, data.Id, "PLANTA_" + lidPart, hatches);
@@ -2194,7 +2231,12 @@ internal static partial class MFTravessia
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorA?.Y ?? 0.0),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.X ?? 0.0),
             new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.AnchorB?.Y ?? 0.0),
-            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(p.RampasPerpendiculares ? 1 : 0)));
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)(p.RampasPerpendiculares ? 1 : 0)),
+            // 2.122.0: nivel do plato x topo do meio-fio rebaixado na borda (menor e maior diferenca, m; -99 = nao medido)
+            // e quantos pontos da borda encostam em meio-fio nao rebaixado (so na uniao).
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.CurbLevelMin ?? -99.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataReal, d.CurbLevelMax ?? -99.0),
+            new AcadDb.TypedValue((int)AcadDb.DxfCode.ExtendedDataInteger16, (short)Math.Min(short.MaxValue, d.CurbNotLowered)));
     }
 
     /// <summary>Le os dados da travessia gravados no solido do plato (null se nao for um).</summary>
@@ -2251,7 +2293,10 @@ internal static partial class MFTravessia
             UnionId = v.Length >= 24 ? S(22) : "",
             OuterSign = v.Length >= 24 ? Convert.ToInt32(v[23].Value, CultureInfo.InvariantCulture) : 0,
             AnchorA = v.Length >= 41 && B(36) ? new Point3d(D(37), D(38), 0) : null,
-            AnchorB = v.Length >= 41 && B(36) ? new Point3d(D(39), D(40), 0) : null
+            AnchorB = v.Length >= 41 && B(36) ? new Point3d(D(39), D(40), 0) : null,
+            CurbLevelMin = v.Length >= 45 && D(42) > -98 ? D(42) : null,
+            CurbLevelMax = v.Length >= 45 && D(43) > -98 ? D(43) : null,
+            CurbNotLowered = v.Length >= 45 ? Convert.ToInt32(v[44].Value, CultureInfo.InvariantCulture) : 0
         };
     }
 

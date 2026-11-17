@@ -83,7 +83,14 @@ internal sealed class MFRebaixoSettings
     public double TravessiaGrelhaEspessura { get; set; } = 0.03;
     public double TravessiaGrelhaBarra { get; set; } = 0.02;
     public double TravessiaGrelhaVao { get; set; } = 0.03;
-    public double TravessiaGrelhaExtensao { get; set; } = 0.50;
+    public double TravessiaGrelhaExtensao { get; set; }
+
+    // Nivel lombofaixa x meio-fio rebaixado (pedido do Heyvid em 17/11/2026): diferenca aceita entre o topo
+    // do plato na borda e o topo do meio-fio (acima disso e incompativel e avisa) e quanto a borda do plato
+    // da uniao pode subir/descer para encostar no meio-fio (mais que isso e meio-fio nao rebaixado ali).
+    public double TravessiaToleranciaMeioFio { get; set; } = 0.01;
+
+    public double TravessiaAjusteMaxMeioFio { get; set; } = 0.04;
     public double TravessiaGrelhaFolgaMF { get; set; } = 0.01;
     // Esconsa: rampas perpendiculares a pista (true) ou paralelas ao eixo inclinado (false, padrao).
     public bool TravessiaRampasPerpendiculares { get; set; }
