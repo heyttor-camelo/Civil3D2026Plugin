@@ -208,7 +208,9 @@ public static class CommandNames
     public static class Ifc
     {
         public const string Exportar = "C3DIFC";
+        public const string ExportarLinha = "-C3DIFC";
         public const string Relatorio = "C3DIFCRELATORIO";
+        public const string CodeSet = "C3DCODESETIFC";
     }
 
     public static class Secao

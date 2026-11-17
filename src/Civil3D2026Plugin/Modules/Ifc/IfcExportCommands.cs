@@ -44,8 +44,64 @@ public sealed class IfcExportCommands
 
     private static Pending? _pending;
 
-    [CommandMethod(C3DCommands.Ifc.Exportar, CommandFlags.Modal | CommandFlags.Redraw)]
+    /// <summary>C3DIFC: janela com o que exportar (pedido do Heyvid em 17/11/2026).</summary>
+    [CommandMethod(C3DCommands.Ifc.Exportar, CommandFlags.Modal | CommandFlags.Redraw | CommandFlags.UsePickSet)]
     public void Exportar()
+    {
+        var doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        Database db = doc.Database;
+        try
+        {
+            if (!IfcMappingWriter.ExtensionInstalled)
+            {
+                ed.WriteMessage("\nA extensao IFC do Civil 3D 2026 (Autodesk Civil 3D IFC) nao esta instalada nesta maquina. Instale pelo Autodesk Access e rode de novo.\n");
+                return;
+            }
+            string dwg = db.Filename;
+            if (string.IsNullOrWhiteSpace(dwg) || !Path.IsPathRooted(dwg) || dwg.EndsWith(".dwt", StringComparison.OrdinalIgnoreCase))
+            {
+                ed.WriteMessage("\nSalve o desenho primeiro: os criterios ficam num arquivo ao lado do DWG.\n");
+                return;
+            }
+            (IfcCriteria criteria, string criteriaPath, bool created) = IfcCriteria.LoadFor(dwg, Path.GetFileNameWithoutExtension(dwg));
+            if (created)
+                ed.WriteMessage($"\nCriterios do projeto criados a partir do padrao: {criteriaPath}");
+
+            // Objetos ja selecionados antes do comando entram como "selecionados a mao".
+            var pick = new List<ObjectId>();
+            PromptSelectionResult implied = ed.SelectImplied();
+            if (implied.Status == PromptStatus.OK && implied.Value is not null)
+                pick.AddRange(implied.Value.GetObjectIds());
+
+            var w = new IfcExportWindow(doc, criteria, criteriaPath, pick);
+            if (AcApp.ShowModalWindow(w) != true)
+                return;
+            criteria = IfcCriteria.Read(criteriaPath);
+            if (w.Rebuild.Count > 0)
+            {
+                using Transaction tr = db.TransactionManager.StartTransaction();
+                foreach (ObjectId id in w.Rebuild)
+                    ((CivilCorridor)tr.GetObject(id, OpenMode.ForWrite)).Rebuild();
+                tr.Commit();
+                ed.WriteMessage($"\nRebuild feito em {w.Rebuild.Count} corredor(es).");
+            }
+            string report = RunExport(doc, criteria, criteriaPath, w.IfcPath, w.Ids, w.Selection);
+            if (report.Length > 0)
+                System.Windows.MessageBox.Show(report, "C3DIFC - resumo da exportacao", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Erro("IFC", "C3DIFC: " + ex.Message, ex);
+            ed.WriteMessage("\nErro: " + ex.Message + "\n");
+        }
+    }
+
+    /// <summary>-C3DIFC: o mesmo pela linha de comando, sem janela (scripts, teste no console).</summary>
+    [CommandMethod(C3DCommands.Ifc.ExportarLinha, CommandFlags.Modal | CommandFlags.Redraw)]
+    public void ExportarLinha()
     {
         var doc = AcApp.DocumentManager.MdiActiveDocument;
         if (doc is null)
@@ -75,7 +131,7 @@ public sealed class IfcExportCommands
             {
                 var ko = new PromptKeywordOptions(
                     $"\nC3DIFC: projeto \"{criteria.ProjetoNome}\", corredores {(criteria.Corredores ? (criteria.CorredoresNomes.Count == 0 ? "todos" : string.Join(", ", criteria.CorredoresNomes)) : "nao")}, " +
-                    $"eixos {(criteria.EixosDosCorredores ? "sim" : "nao")}, lombofaixas {(criteria.Lombofaixas ? criteria.LombofaixasPecas.ToLowerInvariant() : "nao")}, superficies {(criteria.Superficies ? "sim" : "nao")}. " +
+                    $"eixos {criteria.EixosModo}, lombofaixas {(criteria.Lombofaixas ? criteria.LombofaixasPecas.ToLowerInvariant() : "nao")}, superficies {(criteria.Superficies ? "sim" : "nao")}. " +
                     "Exportar, abrir os Criterios do projeto ou o Padrao [Exportar/Criterios/Padrao] <Exportar>: ")
                 { AllowNone = true, AppendKeywordsToMessage = false };
                 ko.Keywords.Add("Exportar");
@@ -98,7 +154,39 @@ public sealed class IfcExportCommands
             criteria = IfcCriteria.Read(criteriaPath);
 
             // Corredores desatualizados: avisa e pergunta (nunca faz Rebuild sozinho).
-            List<(ObjectId Id, string Name, bool OutOfDate)> corridors = Corridors(db, criteria);
+            // Corredores de referencia (data shortcut): Nao / Sim / Perguntar.
+            string refMode = (criteria.CorredoresReferenciados ?? "Nao").Trim();
+            bool includeRefs = refMode.Equals("Sim", StringComparison.OrdinalIgnoreCase);
+            if (refMode.Equals("Perguntar", StringComparison.OrdinalIgnoreCase))
+            {
+                List<string> refs = Corridors(db, criteria, true).Select(c => c.Name).ToList();
+                refs = includedReferences.ToList();
+                if (refs.Count > 0)
+                {
+                    var ro = new PromptKeywordOptions($"\nCorredor(es) de referencia (data shortcut): {string.Join(", ", refs)}. Incluir na exportacao [Sim/Nao] <Nao>: ") { AllowNone = true, AppendKeywordsToMessage = false };
+                    ro.Keywords.Add("Sim");
+                    ro.Keywords.Add("Nao");
+                    PromptResult rr = ed.GetKeywords(ro);
+                    if (rr.Status == PromptStatus.Cancel)
+                        return;
+                    includeRefs = rr.Status == PromptStatus.OK && rr.StringResult == "Sim";
+                }
+            }
+            List<(ObjectId Id, string Name, bool OutOfDate)> corridors = Corridors(db, criteria, includeRefs);
+            var refNotes = new List<string>();
+            if (criteria.Corredores && skippedReferences.Count > 0)
+            {
+                string n = $"Corredor(es) de referencia (data shortcut) fora da exportacao, com os eixos so deles: {string.Join(", ", skippedReferences)}. Sao exportados no desenho de origem; para incluir aqui: CorredoresReferenciados = \"Sim\" (ou \"Perguntar\") nos criterios.";
+                refNotes.Add(n);
+                ed.WriteMessage("\n" + n);
+            }
+            if (criteria.Corredores && includedReferences.Count > 0)
+                refNotes.Add($"Corredor(es) de referencia incluido(s): {string.Join(", ", includedReferences)}.");
+            // Referencia nunca entra no Rebuild: ela se atualiza no desenho de origem (sincronizando o atalho).
+            List<string> staleRefs = corridors.Where(c => c.OutOfDate && includedReferences.Contains(c.Name)).Select(c => c.Name).ToList();
+            if (staleRefs.Count > 0)
+                ed.WriteMessage($"\nCorredor(es) de referencia desatualizado(s): {string.Join(", ", staleRefs)}. Referencia se atualiza no desenho de origem (Rebuild la e sincronize o data shortcut aqui); sai como esta.");
+            corridors = corridors.Select(c => includedReferences.Contains(c.Name) ? (c.Id, c.Name, false) : c).ToList();
             List<string> stale = corridors.Where(c => c.OutOfDate).Select(c => c.Name).ToList();
             if (criteria.Corredores && stale.Count > 0)
             {
@@ -142,37 +230,65 @@ public sealed class IfcExportCommands
                 }
             }
 
-            // Planilha de mapeamento ao lado do .ifc (a extensao le "<nome do ifc>-IfcInfraExportMapping-IFC4X3_ADD2.xlsx").
-            string mapping = Path.Combine(Path.GetDirectoryName(ifc)!, Path.GetFileNameWithoutExtension(ifc) + IfcMappingWriter.MappingSuffix);
-            (int changed, int added) = IfcMappingWriter.Write(mapping, criteria.Mapeamento);
 
             // Selecao.
             List<ObjectId> ids = new();
+            string axisNote = "";
             var what = new List<string>();
             using (Transaction tr = db.TransactionManager.StartTransaction())
             {
                 if (criteria.Corredores)
                 {
+                    string mode = criteria.EixosModo;
+                    int axesIn = 0, axesOut = 0;
+                    var outTypes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                     foreach ((ObjectId id, string name, bool _) in corridors)
                     {
                         ids.Add(id);
-                        if (criteria.EixosDosCorredores && tr.GetObject(id, OpenMode.ForRead) is CivilCorridor c)
+                        if (tr.GetObject(id, OpenMode.ForRead) is not CivilCorridor c)
+                            continue;
+                        foreach (Autodesk.Civil.DatabaseServices.Baseline b in c.Baselines)
                         {
-                            foreach (Autodesk.Civil.DatabaseServices.Baseline b in c.Baselines)
+                            ObjectId aid;
+                            try
                             {
-                                try
-                                {
-                                    if (!b.AlignmentId.IsNull && !ids.Contains(b.AlignmentId))
-                                        ids.Add(b.AlignmentId);
-                                }
-                                catch
-                                {
-                                    // Baseline por feature line: sem alinhamento.
-                                }
+                                aid = b.AlignmentId;
+                            }
+                            catch
+                            {
+                                continue; // baseline por feature line: sem alinhamento
+                            }
+                            if (aid.IsNull || ids.Contains(aid))
+                                continue;
+                            string type = "?";
+                            try
+                            {
+                                if (tr.GetObject(aid, OpenMode.ForRead) is Autodesk.Civil.DatabaseServices.Alignment al)
+                                    type = al.AlignmentType.ToString();
+                            }
+                            catch
+                            {
+                                // Tipo nao lido.
+                            }
+                            bool take = mode == "todos" || (mode == "principais" && type.Equals("Centerline", StringComparison.OrdinalIgnoreCase));
+                            if (take)
+                            {
+                                ids.Add(aid);
+                                axesIn++;
+                            }
+                            else
+                            {
+                                axesOut++;
+                                outTypes[type] = outTypes.TryGetValue(type, out int k) ? k + 1 : 1;
                             }
                         }
                     }
-                    what.Add($"{corridors.Count} corredor(es)" + (criteria.EixosDosCorredores ? " com os eixos" : ""));
+                    what.Add($"{corridors.Count} corredor(es)");
+                    what.Add($"{axesIn} eixo(s) ({mode})");
+                    axisNote = axesOut == 0
+                        ? $"Eixos: {axesIn} entraram ({mode})."
+                        : $"Eixos: {axesIn} entraram ({mode}); {axesOut} ficaram de fora ({string.Join(", ", outTypes.Select(kv => $"{kv.Value} {TypeName(kv.Key)}"))}). Para mudar: Eixos = \"todos\" ou \"nenhum\" nos criterios.";
+                    ed.WriteMessage("\n" + axisNote);
                 }
                 if (criteria.Superficies)
                 {
@@ -214,30 +330,8 @@ public sealed class IfcExportCommands
                 return;
             }
 
-            _pending = new Pending
-            {
-                IfcPath = ifc,
-                CriteriaPath = criteriaPath,
-                Criteria = criteria,
-                Selected = ids.Count,
-                Selection = string.Join(", ", what),
-                Started = DateTime.Now
-            };
-            ed.WriteMessage($"\nPlanilha de mapeamento: {mapping} ({changed} linha(s) mudada(s), {added} acrescentada(s)).");
-            ed.WriteMessage($"\nSelecionado(s) {ids.Count} objeto(s): {string.Join(", ", what)}. Chamando a exportacao IFC 4.3 da Autodesk...");
-            ed.SetImpliedSelection(ids.ToArray());
-            try
-            {
-                // Exportacao da Autodesk chamada daqui mesmo (sem janela: ela pede so o caminho do arquivo).
-                ed.Command("IFCInfraExportSelected", ifc);
-                Relatorio();
-            }
-            catch (System.Exception ex)
-            {
-                // Sem chamada direta: a exportacao roda logo depois deste comando, com a selecao pronta.
-                PluginLog.Aviso("IFC", "C3DIFC: chamada direta da exportacao falhou (" + ex.Message + "); seguindo pela fila de comandos.");
-                doc.SendStringToExecute("IFCInfraExportSelected\n" + Quote(ifc) + "\n" + C3DCommands.Ifc.Relatorio + "\n", true, false, false);
-            }
+            RunExport(doc, criteria, criteriaPath, ifc, ids,
+                string.Join(", ", what) + (axisNote.Length > 0 ? Environment.NewLine + axisNote : "") + (refNotes.Count > 0 ? Environment.NewLine + string.Join(Environment.NewLine, refNotes) : ""));
         }
         catch (System.Exception ex)
         {
@@ -246,11 +340,84 @@ public sealed class IfcExportCommands
         }
     }
 
+    /// <summary>
+    /// Parte comum (linha de comando e janela): planilha de mapeamento ao lado do .ifc, selecao pronta,
+    /// exportacao da Autodesk (sem janela) e o resumo. Devolve o texto do resumo (vazio se nao exportou).
+    /// </summary>
+    internal static string RunExport(Autodesk.AutoCAD.ApplicationServices.Document doc, IfcCriteria criteria, string criteriaPath, string ifc, List<ObjectId> ids, string selection)
+    {
+        Editor ed = doc.Editor;
+        // A extensao le sozinha "<nome do ifc>-IfcInfraExportMapping-IFC4X3_ADD2.xlsx" ao lado do .ifc.
+        string mapping = Path.Combine(Path.GetDirectoryName(ifc)!, Path.GetFileNameWithoutExtension(ifc) + IfcMappingWriter.MappingSuffix);
+        (int changed, int added) = IfcMappingWriter.Write(mapping, criteria.Mapeamento);
+        _pending = new Pending
+        {
+            IfcPath = ifc,
+            CriteriaPath = criteriaPath,
+            Criteria = criteria,
+            Selected = ids.Count,
+            Selection = selection,
+            Started = DateTime.Now
+        };
+        _lastReport = "";
+        ed.WriteMessage($"\nPlanilha de mapeamento: {mapping} ({changed} linha(s) mudada(s), {added} acrescentada(s)).");
+        ed.WriteMessage($"\nSelecionado(s) {ids.Count} objeto(s). Chamando a exportacao IFC 4.3 da Autodesk...");
+        ed.SetImpliedSelection(ids.Distinct().ToArray());
+        try
+        {
+            // Exportacao da Autodesk chamada daqui mesmo (sem janela: ela pede so o caminho do arquivo).
+            ed.Command("IFCInfraExportSelected", ifc);
+            new IfcExportCommands().Relatorio();
+        }
+        catch (System.Exception ex)
+        {
+            // Sem chamada direta: a exportacao roda logo depois deste comando, com a selecao pronta.
+            PluginLog.Aviso("IFC", "C3DIFC: chamada direta da exportacao falhou (" + ex.Message + "); seguindo pela fila de comandos.");
+            doc.SendStringToExecute("IFCInfraExportSelected\n" + Quote(ifc) + "\n" + C3DCommands.Ifc.Relatorio + "\n", true, false, false);
+        }
+        return _lastReport;
+    }
+
+    private static string _lastReport = "";
+
+    private static string TypeName(string type) => type switch
+    {
+        "Centerline" => "eixo central",
+        "Offset" => "de bordo/offset",
+        "CurbReturn" => "de retorno de esquina",
+        "Rail" => "de ferrovia",
+        "Miscellaneous" => "diversos",
+        _ => type
+    };
+
     private static string Quote(string path) => path.Contains(' ') ? "\"" + path + "\"" : path;
 
-    private static List<(ObjectId Id, string Name, bool OutOfDate)> Corridors(Database db, IfcCriteria criteria)
+    private static readonly List<string> skippedReferences = new();
+    private static readonly List<string> includedReferences = new();
+
+    /// <summary>Corredor de referencia (data shortcut)? Por reflexao: a propriedade varia entre builds.</summary>
+    private static bool IsReference(Autodesk.AutoCAD.DatabaseServices.DBObject o)
+    {
+        try
+        {
+            foreach (string name in new[] { "IsReferenceObject", "IsReferenceSubObject", "IsDataReference" })
+            {
+                if (o.GetType().GetProperty(name)?.GetValue(o) is bool b && b)
+                    return true;
+            }
+        }
+        catch
+        {
+            // Sem a propriedade: trata como do proprio desenho.
+        }
+        return false;
+    }
+
+    private static List<(ObjectId Id, string Name, bool OutOfDate)> Corridors(Database db, IfcCriteria criteria, bool includeReferences)
     {
         var list = new List<(ObjectId, string, bool)>();
+        skippedReferences.Clear();
+        includedReferences.Clear();
         using Transaction tr = db.TransactionManager.StartTransaction();
         foreach (ObjectId id in MFRebaixoData.CorridorIds(db, tr))
         {
@@ -258,6 +425,14 @@ public sealed class IfcExportCommands
                 continue;
             if (criteria.CorredoresNomes.Count > 0 && !criteria.CorredoresNomes.Any(n => n.Equals(c.Name, StringComparison.OrdinalIgnoreCase)))
                 continue;
+            bool reference = IsReference(c);
+            if (reference && !includeReferences)
+            {
+                skippedReferences.Add(c.Name);
+                continue;
+            }
+            if (reference)
+                includedReferences.Add(c.Name);
             bool stale;
             try
             {
@@ -296,6 +471,7 @@ public sealed class IfcExportCommands
                 return;
             }
             string report = IfcReport.Finish(p.IfcPath, p.Criteria, p.Selected, p.Selection);
+            _lastReport = report;
             string reportPath = Path.Combine(Path.GetDirectoryName(p.IfcPath)!, Path.GetFileNameWithoutExtension(p.IfcPath) + "-C3DIFC-resumo.txt");
             File.WriteAllText(reportPath, report, new UTF8Encoding(true));
             ed.WriteMessage("\n" + report.Replace("\r\n", "\n") + $"\nResumo gravado em {reportPath}\n");
@@ -306,6 +482,157 @@ public sealed class IfcExportCommands
             PluginLog.Erro("IFC", "C3DIFCRELATORIO: " + ex.Message, ex);
             ed.WriteMessage("\nErro no resumo: " + ex.Message + "\n");
         }
+    }
+}
+
+/// <summary>
+/// Grelha simplificada no .ifc: a malha da grelha em X (milhares de vertices) vira um prisma com o contorno
+/// externo da grelha (casco convexo em planta) e as alturas de cima/baixo em cada vertice do contorno.
+/// Mexe so nas entidades da propria grelha (malha, lista de pontos, estilos dela); o resto do arquivo fica.
+/// </summary>
+internal static class IfcGratings
+{
+    private static readonly Regex Line = new(@"^#(\d+)=\s*([A-Z0-9]+)\((.*)\);\s*$", RegexOptions.Compiled);
+
+    public static (string Text, int Plates, int Before, int After) Simplify(string text)
+    {
+        string nl = text.Contains("\r\n") ? "\r\n" : "\n";
+        List<string> lines = text.Split(new[] { nl }, StringSplitOptions.None).ToList();
+        var index = new Dictionary<int, int>();
+        for (int i = 0; i < lines.Count; i++)
+        {
+            Match m = Line.Match(lines[i]);
+            if (m.Success)
+                index[int.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture)] = i;
+        }
+        string? Get(int id) => index.TryGetValue(id, out int i) ? lines[i] : null;
+        static List<int> Refs(string s) => Regex.Matches(s, @"#(\d+)").Select(x => int.Parse(x.Groups[1].Value, CultureInfo.InvariantCulture)).ToList();
+
+        var remove = new HashSet<int>();
+        int plates = 0, before = 0, after = 0;
+        foreach (int elem in index.Keys.ToList())
+        {
+            string l = lines[index[elem]];
+            if (!l.Contains("=IFCPLATE(") && !l.Contains("= IFCPLATE("))
+                continue;
+            Match nm = Regex.Match(l, @"IFCPLATE\('[^']*',(?:#\d+|\$),'([^']*)',(\$|'[^']*')");
+            if (!nm.Success || !nm.Groups[1].Value.Contains("GRELHA", StringComparison.OrdinalIgnoreCase))
+                continue;
+            // Produto -> IfcProductDefinitionShape -> IfcShapeRepresentation -> malhas.
+            List<int> refs = Refs(l.Substring(l.IndexOf('(')));
+            int? pds = refs.FirstOrDefault(r => Get(r)?.Contains("IFCPRODUCTDEFINITIONSHAPE(") == true);
+            if (pds is null or 0)
+                continue;
+            int? rep = Refs(Get(pds.Value)!).Skip(1).FirstOrDefault(r => Get(r)?.Contains("IFCSHAPEREPRESENTATION(") == true);
+            if (rep is null or 0)
+                continue;
+            string repLine = Get(rep.Value)!;
+            List<int> items = Refs(repLine.Substring(repLine.LastIndexOf('('))).Where(r => Get(r)?.Contains("IFCTRIANGULATEDFACESET(") == true).ToList();
+            if (items.Count == 0)
+                continue;
+
+            // Pontos de todas as malhas da grelha.
+            var pts = new List<(double X, double Y, double Z)>();
+            foreach (int fs in items)
+            {
+                int pl = Refs(Get(fs)!).Skip(1).First();
+                string plLine = Get(pl)!;
+                foreach (Match pm in Regex.Matches(plLine, @"\(([-0-9.E+]+),([-0-9.E+]+),([-0-9.E+]+)\)"))
+                    pts.Add((D(pm.Groups[1].Value), D(pm.Groups[2].Value), D(pm.Groups[3].Value)));
+            }
+            if (pts.Count < 6)
+                continue;
+            List<(double X, double Y)> hull = Hull(pts.Select(p => (p.X, p.Y)).Distinct().ToList());
+            if (hull.Count < 3)
+                continue;
+            var top = new List<double>();
+            var bot = new List<double>();
+            foreach ((double hx, double hy) in hull)
+            {
+                var near = pts.Where(p => Math.Abs(p.X - hx) < 0.002 && Math.Abs(p.Y - hy) < 0.002).Select(p => p.Z).ToList();
+                top.Add(near.Max());
+                bot.Add(near.Min());
+            }
+            int n = hull.Count;
+            var sbP = new StringBuilder();
+            for (int i = 0; i < n; i++)
+                sbP.Append(i == 0 ? "" : ",").Append($"({F(hull[i].X)},{F(hull[i].Y)},{F(top[i])})");
+            for (int i = 0; i < n; i++)
+                sbP.Append($",({F(hull[i].X)},{F(hull[i].Y)},{F(bot[i])})");
+            var tris = new List<string>();
+            for (int i = 1; i + 1 < n; i++)
+            {
+                tris.Add($"({1},{i + 1},{i + 2})");
+                tris.Add($"({n + 1},{n + i + 2},{n + i + 1})");
+            }
+            for (int i = 0; i < n; i++)
+            {
+                int a = i + 1, b = ((i + 1) % n) + 1;
+                tris.Add($"({a},{n + a},{n + b})");
+                tris.Add($"({a},{n + b},{b})");
+            }
+
+            int keep = items[0];
+            int keepList = Refs(Get(keep)!).Skip(1).First();
+            before += pts.Count;
+            after += 2 * n;
+            lines[index[keepList]] = $"#{keepList}= IFCCARTESIANPOINTLIST3D(({sbP}),$);";
+            lines[index[keep]] = $"#{keep}= IFCTRIANGULATEDFACESET(#{keepList},$,.T.,({string.Join(",", tris)}),$);";
+            foreach (int fs in items.Skip(1))
+            {
+                remove.Add(fs);
+                remove.Add(Refs(Get(fs)!).Skip(1).First());
+            }
+            // Representacao so com a malha que ficou.
+            int open = repLine.LastIndexOf('(');
+            lines[index[rep.Value]] = repLine.Substring(0, open) + $"(#{keep}));";
+            // Descricao do produto.
+            string desc = "'Grelha metalica em X - representacao simplificada (chapa); barras e vaos nos dados C3D_TRAVESSIA'";
+            lines[index[elem]] = l.Substring(0, nm.Groups[2].Index) + desc + l.Substring(nm.Groups[2].Index + nm.Groups[2].Length);
+            plates++;
+        }
+
+        if (remove.Count > 0)
+        {
+            // Estilos que apontavam para as malhas tiradas saem junto (senao a referencia fica quebrada).
+            foreach (int id in index.Keys.ToList())
+            {
+                string l = lines[index[id]];
+                if (l.Contains("IFCSTYLEDITEM(") && Refs(l.Substring(l.IndexOf('('))).Take(1).Any(remove.Contains))
+                    remove.Add(id);
+            }
+        }
+        var dropped = new HashSet<int>(remove.Where(index.ContainsKey).Select(r => index[r]));
+        return (string.Join(nl, lines.Where((x, i) => !dropped.Contains(i))), plates, before, after);
+    }
+
+    private static double D(string s) => double.Parse(s, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    private static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
+
+    /// <summary>Casco convexo (monotone chain), sentido anti-horario.</summary>
+    private static List<(double X, double Y)> Hull(List<(double X, double Y)> p)
+    {
+        p = p.OrderBy(a => a.X).ThenBy(a => a.Y).ToList();
+        if (p.Count < 3)
+            return p;
+        static double Cross((double X, double Y) o, (double X, double Y) a, (double X, double Y) b) => ((a.X - o.X) * (b.Y - o.Y)) - ((a.Y - o.Y) * (b.X - o.X));
+        var h = new List<(double X, double Y)>();
+        foreach (var q in p)
+        {
+            while (h.Count >= 2 && Cross(h[^2], h[^1], q) <= 0)
+                h.RemoveAt(h.Count - 1);
+            h.Add(q);
+        }
+        int lower = h.Count + 1;
+        for (int i = p.Count - 2; i >= 0; i--)
+        {
+            while (h.Count >= lower && Cross(h[^2], h[^1], p[i]) <= 0)
+                h.RemoveAt(h.Count - 1);
+            h.Add(p[i]);
+        }
+        h.RemoveAt(h.Count - 1);
+        return h;
     }
 }
 
@@ -322,6 +649,14 @@ internal static class IfcReport
             text = RenameEntity(text, "IFCPROJECT", c.ProjetoNome, c.ProjetoDescricao, notes, "projeto");
         if (!string.IsNullOrWhiteSpace(c.LocalNome))
             text = RenameEntity(text, "IFCSITE", c.LocalNome, null, notes, "local");
+        if (c.GrelhaSimplificada)
+        {
+            (string simplified, int plates, int before, int after) = IfcGratings.Simplify(text);
+            text = simplified;
+            notes.Add(plates > 0
+                ? $"Grelhas simplificadas (chapa): {plates}, vertices delas {before} -> {after} (o desenho continua com a grelha em X)."
+                : "Grelha simplificada pedida, mas nenhuma grelha (MF-TRAVESSIA-GRELHA) no arquivo.");
+        }
         File.WriteAllText(ifcPath, text, Encoding.ASCII);
 
         // Conferencia.

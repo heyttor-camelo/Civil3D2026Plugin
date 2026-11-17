@@ -1,7 +1,8 @@
 # Civil3D2026Plugin
 
 ```
-- C3DIFC (novo): exportar IFC 4.3 com criterios (classes por layer/estilo, sem as cascas do corredor, eixos, nome do projeto, resumo). Lombofaixa com os dados do plugin em todas as pecas e viga 3 cm abaixo do topo.
+- C3DIFC v1.1.0: **janela** com caixas de marcar (corredores, eixos, pecas da lombofaixa, travessias, superficies, redes, selecionados a mao) e **Selecionar no desenho**; -C3DIFC na linha de comando; corredor de referencia (data shortcut) fora por padrao; eixos principais/todos/nenhum; grelha simplificada no IFC (opcao). **C3DCODESETIFC**: da estilo SARJETA a sarjeta no Code Set (IFC sem pecas genericas).
+- C3DIFC v1.0.0: exportar IFC 4.3 com criterios (classes por layer/estilo, sem as cascas do corredor, eixos, nome do projeto, resumo). Lombofaixa com os dados do plugin em todas as pecas e viga 3 cm abaixo do topo.
 - MFREBAIXO v1.25.0: etiquetas arrastaveis (guardadas no desenho; Textos > Repor etiquetas), etiqueta das travessias (T01...), **Selecionar no desenho** no painel e `MFTRAVESSIASELECIONAR` (filtro de pecas; depois `IFCInfraExportSelected` exporta IFC 4.3).
 - MFREBAIXO v1.24.1: o pedaco do rebaixo na baseline vizinha tambem tem hachura em planta (Redesenhar/Remover/MFREBAIXOAPAGAR incluem).
 - MFREBAIXO v1.24.0: o rebaixo inteiro (rampas **e trecho rebaixado**) pode atravessar a divisa: continua nas regions coladas e, onde a baseline acaba, na **baseline vizinha** cujo meio-fio encosta na ponta e segue no mesmo sentido (sarjeta da esquina; o retorno que vira de lado nao entra), com a altura continua na divisa e gravado como um rebaixo so. O 2o clique do MFREBAIXO pode cair noutra region da mesma baseline. Sem continuacao, a rampa e cortada com aviso. Novos: `MFREBAIXOAPAGAR` e `MFTRAVESSIAAPAGAR` (apagar clicando no desenho), `MFTRAVESSIAPLANTA` (ocultar/mostrar as lombofaixas em planta; o 3D fica); Ctrl/Shift + clique no monitor do painel soma a selecao.
@@ -329,12 +330,16 @@ nome, fundos, diametro, declividade, recobrimento e os resultados do calculo.
 - Calculo puro (sem AutoCAD) em `Modules/Hydro/Calc`, testado com `dotnet test tests/Hydro.Calc.Tests`.
 - Para compilar numa maquina cujo Civil 3D 2026 roda em .NET 10: `tools\Build.ps1 -AcadDir <pasta com as DLLs .NET 8>`.
 
-## Exportar IFC 4.3 (C3DIFC v1.0.0)
+## Exportar IFC 4.3 (C3DIFC v1.1.0)
 
 - Precisa da extensao IFC do Civil 3D 2026 (Autodesk Civil 3D IFC, comandos IFCInfraExport/IFCInfraExportSelected).
-- `C3DIFC`: le os criterios do projeto (`<desenho>-C3DIFC.json` ao lado do DWG; opcao **Criterios** abre no Bloco de Notas), avisa corredor desatualizado, pede o arquivo .ifc, gera a planilha de mapeamento ao lado do .ifc, seleciona corredores + eixos + lombofaixas (e o que mais os criterios pedirem) e exporta pela extensao da Autodesk; depois poe o nome do projeto/local no .ifc e grava `<ifc>-C3DIFC-resumo.txt`.
+- `C3DIFC` abre uma janela: nome do projeto e do local, eixos (principais/todos/nenhum), corredor de referencia (nunca/sempre/perguntar), **Grelha simplificada no IFC** e a arvore do que exportar, com caixas de marcar e contagens: corredores (os de referencia por data shortcut vem desmarcados), eixos de cada corredor, pecas da lombofaixa (plato, grelhas, vigas, sinalizacao, planta) e cada travessia, superficies, redes de tubos e os **selecionados a mao** (botao **Selecionar no desenho**, como o IFCInfraExportSelected; o que ja estava selecionado ao chamar o comando tambem entra). Botoes: Limpar selecionados, **Mapeamento...** (classe IFC por layer/estilo), **Criterios avancados...** (JSON), Reler, **Exportar...** e Cancelar. As marcacoes ficam gravadas em `<desenho>-C3DIFC.json` ao lado do DWG.
+- Na exportacao: pergunta antes do Rebuild de corredor desatualizado (corredor de referencia nunca), grava a planilha de mapeamento ao lado do .ifc, exporta pela extensao da Autodesk, poe o nome do projeto/local no .ifc e grava `<ifc>-C3DIFC-resumo.txt` (pecas por classe, eixos que entraram/ficaram de fora, corredor de referencia de fora, o que saiu generico).
+- `-C3DIFC`: o mesmo sem janela (linha de comando, para scripts), usando os criterios do JSON.
+- Eixos `principais` (padrao) = so os eixos centrais (Centerline) das baselines; bordos/offset ficam de fora.
+- Grelha simplificada: cada grelha em X vira, so no .ifc, uma chapa com o contorno (IFC bem mais leve); o desenho nao muda.
 - Classes: por layer, estilo de shape ou estilo de link (planilha `IfcInfraExportMapping-IFC4X3_ADD2.xlsx`); exemplo pronto em `G:\Meu Drive\Civil3D2026Plugin\ifc\`. `Exportar: false` tira do IFC (ex. cascas dos links do corredor).
-- Para a sarjeta (e qualquer code sem estilo) sair com classe, de a ela um estilo de shape no Code Set do corredor e mapeie esse estilo.
+- `C3DCODESETIFC`: acerta o Code Set Style dos corredores para o IFC (cria o estilo de shape SARJETA e da estilo aos codes sem item; mostra a lista e pede Aplicar; U desfaz). Depois: Rebuild dos corredores e `C3DIFC`. A sarjeta passa a sair como IfcKerb em vez de peca generica.
 
 ## Rede viaria (C3DVIARIO v0.15.6)
 

@@ -425,7 +425,11 @@ internal static partial class MFTravessia
         int lids = 0;
         using (AcadDb.Transaction tr = db.TransactionManager.StartTransaction())
         {
-            Erase(tr, db, unionId);
+            // Editar sem recriar: as pecas antigas ficam ate o fim e as novas assumem os handles delas
+            // (como nas travessias; antes a uniao era apagada e criada de novo, 17/11/2026).
+            Dictionary<string, List<AcadDb.ObjectId>> oldParts = PartsOf(tr, db, unionId);
+            var oldSet = new HashSet<AcadDb.ObjectId>(oldParts.Values.SelectMany(x => x));
+            var unionInfo = new Dictionary<string, Dictionary<string, object>>(StringComparer.Ordinal);
             EnsureRegApp(tr, db);
             EnsureLayer(tr, db, layer, 8, "Travessias elevadas/semi-elevadas entre rebaixos (planta)");
             EnsureLayer(tr, db, layer3d, 8, "Travessias entre rebaixos: solidos do plato");
@@ -455,10 +459,10 @@ internal static partial class MFTravessia
                         ["Elevacao_Topo_Centro"] = Math.Round(zc + height, 3),
                         ["Tampa_Sarjeta"] = !members[0].Data.Params.Tampa ? "Sem cobertura" : grelha ? $"Grelha metalica, {N(members[0].Data.Params.GrelhaEspessura)} m" : $"Concreto, {N(members[0].Data.Params.TampaEspessura)} m",
                         ["Rebaixo_A"] = string.Join(", ", members.Select(m => m.Data.LabelA)),
-                        ["Rebaixo_B"] = string.Join(", ", members.Select(m => m.Data.LabelB))
+                        ["Rebaixo_B"] = string.Join(", ", members.Select(m => m.Data.LabelB)),
+                        ["Material"] = "Concreto"
                     };
-                    if (!TryPropertySet(tr, db, s3, values, out string psMsg))
-                        notes.Add("Property Set nao gravado: " + psMsg);
+                    unionInfo["UNIAO_PLATO"] = values;
                 }
             }
 
@@ -492,13 +496,21 @@ internal static partial class MFTravessia
                         }
                         for (int k = run.Count - 1; k >= 0; k--)
                             plan.Add(rays[run[k]].Foot!.Value);
-                        AcadDb.Entity? lid = MeshSolid(tr, ms, lt, lb, layerLid, out _);
+                        // Grelha do canto em X como a das travessias (antes chapa simples; IFC de 13/11/2026).
+                        int bars = 0;
+                        double freeArea = 0;
+                        AcadDb.Entity? lid = grelha
+                            ? GratingX(tr, ms, lt, lb, p0.GrelhaBarra, p0.GrelhaVao, layerLid, out string _, out bars, out freeArea)
+                            : MeshSolid(tr, ms, lt, lb, layerLid, out _);
                         if (lid is not null)
                         {
                             lid.XData = PartXData(unionId, "UNIAO_TAMPA");
-                            if (lid is AcadDb.Solid3d ls)
-                                TryPropertySet(tr, db, ls, new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+                            if (lid is AcadDb.Solid3d)
+                                unionInfo["UNIAO_TAMPA"] = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
                                 {
+                                    ["Barras"] = bars,
+                                    ["Area_Livre"] = Math.Round(freeArea, 3),
+                                    ["Altura_Espessura"] = Math.Round(p0.LidThickness, 3),
                                     ["ID"] = unionId,
                                     ["Versao"] = C3DVersions.MfRebaixo,
                                     ["Objeto"] = grelha ? "Grelha metalica sobre a sarjeta (canto do cruzamento)" : "Tampa de concreto sobre a sarjeta (canto do cruzamento)",
@@ -506,7 +518,7 @@ internal static partial class MFTravessia
                                     ["Altura_Plato"] = Math.Round(height, 3),
                                     ["Tampa_Sarjeta"] = grelha ? $"Grelha metalica, {N(p0.GrelhaEspessura)} m" : $"Concreto, {N(p0.TampaEspessura)} m",
                                     ["Material"] = grelha ? "Grelha metalica" : "Concreto"
-                                }, out _);
+                                };
                             count++;
                             lids++;
                         }
@@ -545,6 +557,36 @@ internal static partial class MFTravessia
             catch
             {
                 // Ordem de desenho nao alterada.
+            }
+
+            // Pecas novas assumem os handles das antigas; depois os Property Sets nas pecas finais.
+            (int reused, int erasedOld) = Reuse(tr, db, unionId, oldParts, oldSet);
+            if (reused > 0 || erasedOld > 0)
+                notes.Add($"uniao editada no lugar: {reused} peca(s) mantiveram o handle, {erasedOld} sairam");
+            foreach ((string part, List<AcadDb.ObjectId> ids) in PartsOf(tr, db, unionId))
+            {
+                if (!unionInfo.TryGetValue(part, out Dictionary<string, object>? values))
+                    continue;
+                foreach (AcadDb.ObjectId oid in ids)
+                {
+                    if (tr.GetObject(oid, AcadDb.OpenMode.ForWrite) is not AcadDb.Solid3d s3)
+                        continue;
+                    var v = new Dictionary<string, object>(values, StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["Peca"] = part,
+                        ["Classe_IFC"] = IfcClassFor(part)
+                    };
+                    try
+                    {
+                        v["Volume"] = Math.Round(s3.MassProperties.Volume, 4);
+                    }
+                    catch
+                    {
+                        // Sem volume.
+                    }
+                    if (!TryPropertySet(tr, db, s3, v, out string psMsg))
+                        notes.Add($"Property Set de {part} nao gravado: " + psMsg);
+                }
             }
             tr.Commit();
         }

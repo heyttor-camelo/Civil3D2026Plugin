@@ -269,6 +269,22 @@ internal static partial class MFTravessia
         _ => true
     };
 
+    /// <summary>Ids de todas as travessias e unioes que tem objetos no desenho.</summary>
+    public static List<string> AllIds(AcadDb.Database db)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        using AcadDb.Transaction tr = db.TransactionManager.StartTransaction();
+        var bt = (AcadDb.BlockTable)tr.GetObject(db.BlockTableId, AcadDb.OpenMode.ForRead);
+        var ms = (AcadDb.BlockTableRecord)tr.GetObject(bt[AcadDb.BlockTableRecord.ModelSpace], AcadDb.OpenMode.ForRead);
+        foreach (AcadDb.ObjectId oid in ms)
+        {
+            if (!oid.IsErased && tr.GetObject(oid, AcadDb.OpenMode.ForRead) is AcadDb.Entity e && PartOf(e) is { } p)
+                ids.Add(p.Id);
+        }
+        tr.Commit();
+        return ids.ToList();
+    }
+
     /// <summary>Objetos das travessias (ids; vazio = todas) que passam no filtro de pecas.</summary>
     public static List<AcadDb.ObjectId> Objects(AcadDb.Database db, ICollection<string>? travIds, string filter)
     {

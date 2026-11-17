@@ -45,7 +45,30 @@ internal sealed class IfcCriteria
     /// <summary>Nomes dos corredores (vazio = todos).</summary>
     public List<string> CorredoresNomes { get; set; } = new();
 
-    public bool EixosDosCorredores { get; set; } = true;
+    /// <summary>
+    /// Eixos dos corredores: "principais" (padrao: so os alinhamentos de baseline do tipo eixo central,
+    /// Centerline; ficam de fora bordos/offset, retornos de esquina, ferrovia e diversos), "todos" ou "nenhum".
+    /// </summary>
+    public string? Eixos { get; set; }
+
+    /// <summary>Versao antiga (2.118.0): verdadeiro/falso. Ainda lido: true = principais, false = nenhum.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public bool? EixosDosCorredores { get; set; }
+
+    [JsonIgnore]
+    public string EixosModo => (Eixos ?? (EixosDosCorredores == false ? "nenhum" : "principais")).Trim().ToLowerInvariant() switch
+    {
+        "todos" => "todos",
+        "nenhum" => "nenhum",
+        _ => "principais"
+    };
+
+    /// <summary>
+    /// Corredores de referencia (data shortcut): "Nao" (padrao: ficam de fora, com os eixos so deles; sao
+    /// exportados no desenho de origem), "Sim" (entram sempre) ou "Perguntar" (a cada exportacao).
+    /// O KM_02 do Heyvid e referencia (17/11/2026).
+    /// </summary>
+    public string CorredoresReferenciados { get; set; } = "Nao";
 
     public bool Lombofaixas { get; set; } = true;
 
@@ -53,6 +76,37 @@ internal sealed class IfcCriteria
     public string LombofaixasPecas { get; set; } = "Solidos";
 
     public bool Superficies { get; set; }
+
+    /// <summary>
+    /// Grelhas em X exportadas como chapa simples (contorno da grelha, mesma espessura): o IFC fica bem mais
+    /// leve. So o .ifc muda; os solidos do desenho continuam com a grelha em X. Desligado por padrao.
+    /// </summary>
+    public bool GrelhaSimplificada { get; set; }
+
+    // Marcacoes da janela do C3DIFC (gravadas para a proxima vez). Nomes/ids; vazio = padrao.
+    public List<string> CorredoresDesmarcados { get; set; } = new();
+
+    public List<string> CorredoresReferenciaMarcados { get; set; } = new();
+
+    /// <summary>Eixos marcados/desmarcados a mao, por cima da regra de Eixos.</summary>
+    public List<string> EixosMarcados { get; set; } = new();
+
+    public List<string> EixosDesmarcados { get; set; } = new();
+
+    /// <summary>Pecas da lombofaixa que entram: Plato, Grelhas, Vigas, Sinalizacao, Planta.</summary>
+    public List<string> LombofaixasPecasMarcadas { get; set; } = new() { "Plato", "Grelhas", "Vigas", "Sinalizacao" };
+
+    /// <summary>Ids das travessias/unioes que ficam de fora.</summary>
+    public List<string> TravessiasDesmarcadas { get; set; } = new();
+
+    public List<string> SuperficiesMarcadas { get; set; } = new();
+
+    public List<string> RedesMarcadas { get; set; } = new();
+
+    /// <summary>Objetos escolhidos a mao no desenho (botao Selecionar no desenho), por handle.</summary>
+    public List<string> ManuaisHandles { get; set; } = new();
+
+    public bool ManuaisIncluir { get; set; } = true;
 
     /// <summary>Layers extras com objetos que tambem entram (solidos, blocos...).</summary>
     public List<string> LayersExtras { get; set; } = new();
@@ -99,9 +153,9 @@ internal sealed class IfcCriteria
         string path = ProjectPath(dwgPath);
         if (File.Exists(path))
             return (Read(path), path, false);
-        IfcCriteria c = File.Exists(DefaultPath) ? Read(DefaultPath) : new IfcCriteria();
+        IfcCriteria c = File.Exists(DefaultPath) ? Read(DefaultPath) : new IfcCriteria { Eixos = "principais" };
         if (!File.Exists(DefaultPath))
-            Save(new IfcCriteria(), DefaultPath);
+            Save(new IfcCriteria { Eixos = "principais" }, DefaultPath);
         if (string.IsNullOrWhiteSpace(c.ProjetoNome))
             c.ProjetoNome = projectName;
         if (string.IsNullOrWhiteSpace(c.LocalNome))
@@ -110,8 +164,14 @@ internal sealed class IfcCriteria
         return (c, path, true);
     }
 
-    public static IfcCriteria Read(string path) =>
-        JsonSerializer.Deserialize<IfcCriteria>(File.ReadAllText(path), Json) ?? new IfcCriteria();
+    public static IfcCriteria Read(string path)
+    {
+        IfcCriteria c = JsonSerializer.Deserialize<IfcCriteria>(File.ReadAllText(path), Json) ?? new IfcCriteria();
+        // Criterio antigo (verdadeiro/falso) vira o novo ao ler; gravado do jeito novo na proxima vez.
+        c.Eixos ??= c.EixosModo;
+        c.EixosDosCorredores = null;
+        return c;
+    }
 
     public static void Save(IfcCriteria c, string path)
     {
