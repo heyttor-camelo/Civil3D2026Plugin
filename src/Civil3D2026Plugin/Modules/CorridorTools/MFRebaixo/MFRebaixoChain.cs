@@ -157,24 +157,28 @@ public sealed partial class MFRebaixoCommands
         // Declividade escolhida pelo usuario (comando, painel ou lista): no lugar do iRampa da peca.
         double slopeEntry = slopeIn is double si && Math.Abs(si) > 1e-6 ? Math.Abs(si) : rampSlopeAbs;
         double slopeExit = slopeOut is double so && Math.Abs(so) > 1e-6 ? Math.Abs(so) : slopeIn is double si2 && Math.Abs(si2) > 1e-6 ? Math.Abs(si2) : rampSlopeAbs;
-        if (Math.Max(slopeEntry, slopeExit) > MaxRampSlopeNbr + 1e-5)
+        // A prumo (2.121.0): sem rampa desse lado, transicao de PlumbLength; o aviso da NBR 9050 nao vale
+        // (escolha consciente), a ficha do painel diz que o lado nao e acessivel.
+        bool plumbIn = IsPlumb(slopeEntry), plumbOut = IsPlumb(slopeExit);
+        double rampSlopesMax = Math.Max(plumbIn ? 0 : slopeEntry, plumbOut ? 0 : slopeExit);
+        if (rampSlopesMax > MaxRampSlopeNbr + 1e-5)
         {
-            string aviso = $"Declividade da rampa do meio-fio de {Math.Max(slopeEntry, slopeExit) * 100.0:0.##}% (acima de 8,33%, NBR 9050).";
+            string aviso = $"Declividade da rampa do meio-fio de {rampSlopesMax * 100.0:0.##}% (acima de 8,33%, NBR 9050).";
             PluginLog.Aviso("MFREBAIXO", aviso);
             Say(ed, "\n[MFREBAIXO] Aviso: " + aviso);
         }
 
-        double entryRampLength = Math.Abs(startEffectiveHeight - finalHeight) / slopeEntry;
-        double exitRampLength = Math.Abs(endEffectiveHeight - finalHeight) / slopeExit;
+        double entryRampLength = plumbIn ? PlumbLength : Math.Abs(startEffectiveHeight - finalHeight) / slopeEntry;
+        double exitRampLength = plumbOut ? PlumbLength : Math.Abs(endEffectiveHeight - finalHeight) / slopeExit;
         // Ponta onde o meio-fio ja esta na altura final (encostado em outro rebaixo, ou a altura pedida e a
         // normal): antes dava erro; agora a rampa desse lado fica curta (MinRampLength) e quase nao desce.
         // Pedido do Heyvid em 17/11/2026 ("o que esse erro quer dizer?").
-        if (entryRampLength < MinRampLength)
+        if (!plumbIn && entryRampLength < MinRampLength)
         {
             notes.Add($"rampa de entrada de {MinRampLength:0.00} m: a altura normal antes do trecho ({startEffectiveHeight * 100.0:0.#} cm) já é praticamente a altura final");
             entryRampLength = MinRampLength;
         }
-        if (exitRampLength < MinRampLength)
+        if (!plumbOut && exitRampLength < MinRampLength)
         {
             notes.Add($"rampa de saída de {MinRampLength:0.00} m: a altura normal depois do trecho ({endEffectiveHeight * 100.0:0.#} cm) já é praticamente a altura final");
             exitRampLength = MinRampLength;
@@ -232,9 +236,10 @@ public sealed partial class MFRebaixoCommands
         }
         double realIn = Math.Abs(startEffectiveHeight - finalHeight) / Math.Max(s1 - s0, 1e-9);
         double realOut = Math.Abs(endEffectiveHeight - finalHeight) / Math.Max(s3 - s2, 1e-9);
-        if (shortened && Math.Max(realIn, realOut) > MaxRampSlopeNbr + 0.0005)
+        double realMax = Math.Max(plumbIn ? 0 : realIn, plumbOut ? 0 : realOut);
+        if (shortened && realMax > MaxRampSlopeNbr + 0.0005)
         {
-            string aviso = $"Rampa do meio-fio com {Math.Max(realIn, realOut) * 100.0:0.##}% depois de encurtada (acima de 8,33%, NBR 9050).";
+            string aviso = $"Rampa do meio-fio com {realMax * 100.0:0.##}% depois de encurtada (acima de 8,33%, NBR 9050).";
             PluginLog.Aviso("MFREBAIXO", aviso);
             Say(ed, "\n[MFREBAIXO] Aviso: " + aviso);
         }
@@ -351,7 +356,7 @@ public sealed partial class MFRebaixoCommands
                 // o REB acertado secao por secao e o REB_K tem mais (ou outros) valores que os 3 trechos.
                 setComment = MFRebaixoData.WithToken(comment, MFRebaixoData.MakeToken(s0, s1, s2, s3,
                         mainDepth ? 0.0 : startEffectiveHeight, mainDepth ? depthIn : finalHeight,
-                        mainDepth ? depthOut : finalHeight, mainDepth ? 0.0 : endEffectiveHeight, finalHeight));
+                        mainDepth ? depthOut : finalHeight, mainDepth ? 0.0 : endEffectiveHeight, finalHeight, plumbIn, plumbOut));
             }
             else
             {
@@ -499,7 +504,7 @@ public sealed partial class MFRebaixoCommands
         Say(ed, $"\n     Altura livre nominal={normalHeight:0.###} m");
         Say(ed, $"\n     Entrada efetiva={startEffectiveHeight:0.###} m ({startEffectiveSource}, ref. {referenceStartStation:0.000}) | redução={startEffectiveHeight - finalHeight:0.###} m | final={finalHeight:0.###} m");
         Say(ed, $"\n     Saída efetiva={endEffectiveHeight:0.###} m ({endEffectiveSource}, ref. {referenceEndStation:0.000})");
-        Say(ed, $"\n     Declividade das rampas={slopeEntry * 100.0:0.###}%" + (Math.Abs(slopeExit - slopeEntry) > 1e-6 ? $" / {slopeExit * 100.0:0.###}%" : "") +
+        Say(ed, $"\n     Rampas: entrada {(plumbIn ? "a prumo" : $"{slopeEntry * 100.0:0.###}%")}, saida {(plumbOut ? "a prumo" : $"{slopeExit * 100.0:0.###}%")}" +
                 $" | L entrada={s1 - s0:0.###} m | L saída={s3 - s2:0.###} m");
         Say(ed, $"\n     Rampa entrada: {s0:0.000} -> {s1:0.000}");
         Say(ed, $"\n     Trecho rebaixado: {s1:0.000} -> {s2:0.000}");

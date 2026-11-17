@@ -106,14 +106,14 @@ public sealed partial class MFRebaixoCommands
             MFRebaixoData.Remove(db, r, rebuild: true);
             try
             {
-                ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, h, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
+                ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, h, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlopeArg, r.ExitSlopeArg);
                 done++;
             }
             catch (System.Exception ex)
             {
                 try
                 {
-                    ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH ?? h, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
+                    ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH ?? h, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlopeArg, r.ExitSlopeArg);
                     errors.Add($"{r.Label}: {ex.Message} (ficou como estava)");
                 }
                 catch

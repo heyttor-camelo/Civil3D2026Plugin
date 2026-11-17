@@ -26,7 +26,7 @@ internal sealed partial class MFRebaixoPanel
     private WCP.Popup? _cellPopup;
     private int _lastCellColumn = -1;
 
-    private static readonly int[] RebaixoEditable = { 0, 3, 4, 5 };
+    private static readonly int[] RebaixoEditable = { 0, 3, 4, 5, 6 };
     private static readonly int[] TravEditable = { 1, 2, 3, 4, 5 };
 
     private int[] EditableColumns => _category switch
@@ -238,7 +238,8 @@ internal sealed partial class MFRebaixoPanel
         {
             3 => "Comprimento do trecho rebaixado em m (o inicio fica, o fim muda).",
             4 => "Altura livre final em cm (ou em m, ex. 0.12).",
-            5 => "Declividade das rampas em % (ex. 8.33, ou 8.33/6 para entrada/saida).",
+            5 => "Declividade da rampa de entrada em % (ex. 8.33), ou prumo (sem rampa, degrau vertical). 8.33/6 muda as duas.",
+            6 => "Declividade da rampa de saida em % (ex. 6), ou prumo (sem rampa, degrau vertical).",
             _ => "Nome do rebaixo (vazio = sem nome)."
         }
         : column switch
@@ -278,7 +279,8 @@ internal sealed partial class MFRebaixoPanel
                     0 => r.CustomName,
                     3 => F(r.LoweredLength, "0.00"),
                     4 => r.FinalHeight is double h ? F(h * 100, "0.#") : "",
-                    5 => SlopeText(r),
+                    5 => r.PlumbIn ? "prumo" : SideText(r, true),
+                    6 => r.PlumbOut ? "prumo" : SideText(r, false),
                     _ => ""
                 };
             case TravessiaView { Data: { } d }:
@@ -389,15 +391,31 @@ internal sealed partial class MFRebaixoPanel
                 height = h;
                 what = $"a altura livre final para {Cm(h)}";
                 break;
-            case 5:
-                if (!TryParseSlopes(text, out sIn, out sOut, out string why) || sIn is null)
+            case 5 when (text ?? "").Contains('/'):
+                // Compatibilidade: "8.33/6" na coluna da entrada muda as duas rampas.
+                if (!TryParseSlopes(text ?? "", out sIn, out sOut, out string why) || sIn is null)
                 {
                     Say(why.Length > 0 ? why + " Nada mudou." : "Informe a declividade em % (ex. 8.33). Nada mudou.");
                     return;
                 }
-                what = Math.Abs(sIn.Value - sOut!.Value) > 1e-6
-                    ? $"a declividade das rampas para {Pct(sIn)} (entrada) / {Pct(sOut)} (saida)"
-                    : $"a declividade das rampas para {Pct(sIn)}";
+                what = $"a declividade das rampas para {Pct(sIn)} (entrada) / {Pct(sOut)} (saida)";
+                break;
+            case 5:
+            case 6:
+                // Uma rampa por coluna (2.121.0): % ou "prumo"; a outra rampa de cada rebaixo fica como esta.
+                if (!TryParseSideSlope(text ?? "", out double? one, out string why1) || one is null)
+                {
+                    Say(why1.Length > 0 ? why1 + " Nada mudou." : "Informe a declividade em % (ex. 8.33) ou prumo. Nada mudou.");
+                    return;
+                }
+                string sideName = column == 5 ? "entrada" : "saida";
+                if (column == 5)
+                    sIn = one;
+                else
+                    sOut = one;
+                what = MFRebaixoCommands.IsPlumb(one)
+                    ? $"a rampa de {sideName} para a prumo (sem rampa, degrau vertical)"
+                    : $"a declividade da rampa de {sideName} para {Pct(one)}";
                 break;
             default:
                 return;
@@ -428,7 +446,7 @@ internal sealed partial class MFRebaixoPanel
         {
             RebaixoInfo r = targets[0];
             double len = comp ?? r.LoweredLength;
-            Reapply(r, r.S1, r.S1 + len, height ?? r.TargetFinal!.Value, sIn, sOut);
+            Reapply(r, r.S1, r.S1 + len, height ?? r.TargetFinal!.Value, sIn ?? r.EntrySlopeArg, sOut ?? r.ExitSlopeArg);
             return;
         }
 
@@ -440,7 +458,7 @@ internal sealed partial class MFRebaixoPanel
                 double oldH = r.TargetFinal!.Value;
                 double len = comp ?? r.LoweredLength;
                 double newH = height ?? oldH;
-                double? a = sIn ?? r.EntrySlope, b = sOut ?? r.ExitSlope;
+                double? a = sIn ?? r.EntrySlopeArg, b = sOut ?? r.ExitSlopeArg;
                 MFRebaixoData.Remove(db, r, rebuild: true);
                 try
                 {
@@ -450,7 +468,7 @@ internal sealed partial class MFRebaixoPanel
                 {
                     try
                     {
-                        MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
+                        MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlopeArg, r.ExitSlopeArg);
                         errors.Add($"{r.Label}: {ex.Message} (ficou como estava)");
                     }
                     catch

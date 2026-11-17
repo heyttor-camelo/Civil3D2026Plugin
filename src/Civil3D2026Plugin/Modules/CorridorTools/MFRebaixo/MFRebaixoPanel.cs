@@ -84,6 +84,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private readonly Dictionary<string, WM.ImageSource> _icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, WC.TextBox> _fields = new();
 
+    // Caixinhas "A prumo" da aba Propriedades (entrada e saida), 2.121.0.
+    private readonly Dictionary<string, WC.CheckBox> _checks = new();
+
     // Transformacao da planta (zoom e arrasto).
     private double _scale, _cx, _cy, _ox, _oy, _zoom = 1, _panX, _panY;
     private SW.Point? _dragFrom;
@@ -626,6 +629,41 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private static string SlopeCell(RebaixoInfo r) =>
         r.SplitSlope ? $"{Pct(r.EntrySlope)} / {Pct(r.ExitSlope)}" : Pct(r.DesignSlope);
 
+    /// <summary>Declividade de um lado para a lista e as Propriedades: "8.33%" ou "a prumo" (2.121.0).</summary>
+    private static string SideCell(RebaixoInfo r, bool entry) =>
+        (entry ? r.PlumbIn : r.PlumbOut) ? "a prumo" : Pct((entry ? r.EntrySlope : r.ExitSlope) ?? r.DesignSlope);
+
+    /// <summary>Declividade de um lado para editar, em % ("8.33"); vazio quando e a prumo.</summary>
+    private static string SideText(RebaixoInfo r, bool entry)
+    {
+        if (entry ? r.PlumbIn : r.PlumbOut)
+            return "";
+        double? s = (entry ? r.EntrySlope : r.ExitSlope) ?? r.DesignSlope;
+        return s is double v ? (v * 100).ToString("0.##", CultureInfo.InvariantCulture) : "";
+    }
+
+    /// <summary>Uma declividade digitada: % entre 0,5 e 50, ou "prumo"/"a prumo" (MFRebaixoCommands.PlumbSlope).</summary>
+    private static bool TryParseSideSlope(string text, out double? slope, out string why)
+    {
+        slope = null;
+        why = "";
+        string t = (text ?? "").Trim().Replace("%", "").Replace(" ", "").ToLowerInvariant();
+        if (t.Length == 0)
+            return true;
+        if (t.Contains("prumo") || t == "p")
+        {
+            slope = MFRebaixoCommands.PlumbSlope;
+            return true;
+        }
+        if (!double.TryParse(t.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out double v) || !double.IsFinite(v) || v < 0.5 || v > 50)
+        {
+            why = $"Declividade invalida ({text}): use um valor em % entre 0,5 e 50 (ex. 8.33) ou prumo.";
+            return false;
+        }
+        slope = v / 100.0;
+        return true;
+    }
+
     /// <summary>
     /// Le a declividade digitada em % ("8.33", "8,33%", "8.33/6" = entrada/saida). Vazio = manter a atual.
     /// Aceita de 0,5 % a 50 %; acima de 8,33 % so avisa (NBR 9050), quem decide e o projetista.
@@ -958,8 +996,8 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 break;
 
             default:
-                headers = new[] { "Rebaixo", "Corredor", "Lado", "Comprimento", "Altura final", "Rampa", "Avisos" };
-                widths = new[] { 160.0, 150, 70, 85, 80, 75, 50 };
+                headers = new[] { "Rebaixo", "Corredor", "Lado", "Comprimento", "Altura final", "Rampa entrada", "Rampa saida", "Avisos" };
+                widths = new[] { 160.0, 150, 70, 85, 80, 90, 90, 50 };
                 rows = _items.Where(r => Match(r.Label, r.Stations, r.CorridorName, r.BaselineName, r.RegionName)).Select(r =>
                 {
                     int w = _warnings.Count(x => ReferenceEquals(x.Item, r));
@@ -971,7 +1009,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                         Cells = new[]
                         {
                             r.Label, r.CorridorName, r.SideLabel, N(r.LoweredLength, "0.00") + " m",
-                            Cm(r.FinalHeight), SlopeCell(r), w == 0 ? "" : w.ToString()
+                            Cm(r.FinalHeight), SideCell(r, true), SideCell(r, false), w == 0 ? "" : w.ToString()
                         }
                     };
                 }).ToList();
@@ -2156,6 +2194,22 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         return g;
     }
 
+    /// <summary>Caixinha "A prumo" de um lado: marcada, o campo da declividade daquele lado fica desligado.</summary>
+    private WC.CheckBox PlumbRow(string key, string label, bool value, string slopeField)
+    {
+        var box = new WC.CheckBox { Content = label, IsChecked = value, Foreground = T.Text, Margin = new SW.Thickness(250, 0, 0, 4) };
+        void Sync()
+        {
+            if (_fields.TryGetValue(slopeField, out WC.TextBox? f))
+                f.IsEnabled = box.IsChecked != true;
+        }
+        box.Checked += (_, _) => Sync();
+        box.Unchecked += (_, _) => Sync();
+        box.Loaded += (_, _) => Sync();
+        _checks[key] = box;
+        return box;
+    }
+
     private double? Number(string key)
     {
         if (!_fields.TryGetValue(key, out WC.TextBox? box))
@@ -2182,6 +2236,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private SW.UIElement BuildProperties()
     {
         _fields.Clear();
+        _checks.Clear();
         _propLines.Clear();
         WC.StackPanel p = Form();
 
@@ -2243,9 +2298,9 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         // Elevacao: com o modelo do proprio rebaixo (na planta geral ele ainda nao estava lido e saia 0.000).
         if (RebaixoCenter(r, CurrentModel()) is Point3d cg)
             p.Children.Add(Prop("Centro do rebaixo (X, Y, elevacao)", $"{cg.X:0.000}   {cg.Y:0.000}   {cg.Z:0.000}"));
-        p.Children.Add(Prop("Rampa de entrada", $"{N(r.EntryLength, "0.00")} m" + (r.EntrySlope is double se ? $", declividade {Pct(se)}" : "")));
+        p.Children.Add(Prop("Rampa de entrada", r.PlumbIn ? "a prumo (degrau vertical; nao acessivel deste lado)" : $"{N(r.EntryLength, "0.00")} m" + (r.EntrySlope is double se ? $", declividade {Pct(se)}" : "")));
         p.Children.Add(Prop("Trecho rebaixado", $"{N(r.LoweredLength, "0.00")} m"));
-        p.Children.Add(Prop("Rampa de saida", $"{N(r.ExitLength, "0.00")} m" + (r.ExitSlope is double sx ? $", declividade {Pct(sx)}" : "")));
+        p.Children.Add(Prop("Rampa de saida", r.PlumbOut ? "a prumo (degrau vertical; nao acessivel deste lado)" : $"{N(r.ExitLength, "0.00")} m" + (r.ExitSlope is double sx ? $", declividade {Pct(sx)}" : "")));
         p.Children.Add(Prop("Comprimento total", $"{N(r.TotalLength, "0.00")} m"));
         p.Children.Add(Prop("Altura livre normal / final", $"{Cm(r.NormalHeight)} / {Cm(r.FinalHeight)}"));
         p.Children.Add(Prop("Altura final pedida / obtida no trecho", $"{Cm(r.TargetFinal)} / " + (r.ExposedMin is double gmin && r.ExposedMax is double gmax ? (Math.Abs(gmax - gmin) < 0.0005 ? Cm(gmin) : $"{Cm(gmin)} a {Cm(gmax)}") : Cm(r.FinalHeight)) + (r.FinalOff ? "  (difere mais de 2 mm: Acertar altura final)" : "") + (r.Direct ? "  [altura direta, MFSARJETA 1.27+]" : "")));
@@ -2260,11 +2315,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
 
         p.Children.Add(Label("Tamanho e rampas", true));
         p.Children.Add(EditRow("comp", "Comprimento do trecho rebaixado", N(r.LoweredLength, "0.000"), "m"));
-        p.Children.Add(EditRow("decl", "Declividade das rampas do meio-fio", SlopeText(r), "%"));
+        p.Children.Add(EditRow("decl", "Declividade da rampa de entrada", SideText(r, true), "%"));
+        p.Children.Add(PlumbRow("prumo_in", "A prumo na entrada (sem rampa, degrau vertical)", r.PlumbIn, "decl"));
+        p.Children.Add(EditRow("decl_out", "Declividade da rampa de saida", SideText(r, false), "%"));
+        p.Children.Add(PlumbRow("prumo_out", "A prumo na saida (sem rampa, degrau vertical)", r.PlumbOut, "decl_out"));
         p.Children.Add(Label("Valor do rebaixo", true));
         p.Children.Add(EditRow("red", "Rebaixo (quanto desce; negativo sobe)", r.NormalHeight is double nh0 && r.TargetFinal is double fh0 ? N(nh0 - fh0, "0.000") : "", "m"));
         p.Children.Add(EditRow("h", "Altura livre final", N(r.TargetFinal ?? r.FinalHeight ?? 0, "0.000"), "m"));
-        p.Children.Add(Label("Mudou o comprimento: o inicio fica e o fim muda (para mudar de lugar use Reposicionar no desenho). Declividade: um valor vale para as duas rampas; para separar, escreva entrada/saida (ex. 8.33/6). Acima de 8,33 % o plugin so avisa (NBR 9050). O comprimento das rampas sai do desnivel dividido pela declividade. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta. Tambem da para editar direto na lista (duplo clique na celula ou F2)."));
+        p.Children.Add(Label("Mudou o comprimento: o inicio fica e o fim muda (para mudar de lugar use Reposicionar no desenho). Declividade: uma para cada rampa (no campo da entrada, 8.33/6 ainda vale para as duas). A prumo: aquele lado fica sem rampa (degrau vertical, nao acessivel). Acima de 8,33 % o plugin so avisa (NBR 9050). O comprimento das rampas sai do desnivel dividido pela declividade. Rebaixo e altura livre final andam juntos (altura normal " + Cm(r.NormalHeight) + "). O rebaixo antigo e removido e o novo e aplicado; se der erro, o antigo volta. Tambem da para editar direto na lista (duplo clique na celula ou F2)."));
 
         // Campos ligados: so reage ao campo que esta sendo digitado.
         bool linking = false;
@@ -2540,12 +2598,31 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             return;
         }
 
+        // Uma declividade por rampa (2.121.0); "8.33/6" no campo da entrada ainda vale para as duas.
         string declText = _fields.TryGetValue("decl", out WC.TextBox? db) ? db.Text : "";
-        if (!TryParseSlopes(declText, out double? sIn, out double? sOut, out string why))
+        string declOutText = _fields.TryGetValue("decl_out", out WC.TextBox? dbo) ? dbo.Text : "";
+        double? sIn, sOut;
+        string why;
+        if (declText.Contains('/'))
+        {
+            if (!TryParseSlopes(declText, out sIn, out sOut, out why))
+            {
+                Say(why);
+                return;
+            }
+        }
+        else if (!TryParseSideSlope(declText, out sIn, out why) || !TryParseSideSlope(declOutText, out sOut, out why))
         {
             Say(why);
             return;
         }
+        if (_checks.TryGetValue("prumo_in", out WC.CheckBox? pin) && pin.IsChecked == true)
+            sIn = MFRebaixoCommands.PlumbSlope;
+        if (_checks.TryGetValue("prumo_out", out WC.CheckBox? pout) && pout.IsChecked == true)
+            sOut = MFRebaixoCommands.PlumbSlope;
+        // Caixinha desmarcada num lado que era a prumo e campo vazio: volta para o iRampa da peca.
+        sIn ??= r.PlumbIn ? r.RampSlope is double rsi ? Math.Abs(rsi) : 0.0833 : r.EntrySlopeArg;
+        sOut ??= r.PlumbOut ? r.RampSlope is double rso ? Math.Abs(rso) : 0.0833 : r.ExitSlopeArg;
 
         Reapply(r, r.S1, r.S1 + comp.Value, h.Value, sIn, sOut);
     }
@@ -2610,7 +2687,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
     private void Reapply(RebaixoInfo r, double newS1, double newS2, double newH, double? slopeIn = null, double? slopeOut = null)
     {
         // A declividade das rampas fica a do rebaixo (ou a nova, se mudou): o comprimento das rampas sai dela.
-        double? sIn = slopeIn ?? r.EntrySlope, sOut = slopeIn is not null && slopeOut is null ? slopeIn : slopeOut ?? r.ExitSlope;
+        double? sIn = slopeIn ?? r.EntrySlopeArg, sOut = slopeIn is not null && slopeOut is null ? slopeIn : slopeOut ?? r.ExitSlopeArg;
         if (r.TargetFinal is not double oldH)
         {
             Say("Nao deu para ler a altura final atual deste rebaixo (Rebuild no corredor e Atualizar).");
@@ -2632,7 +2709,7 @@ internal sealed partial class MFRebaixoPanel : SW.Window
                 // Volta o rebaixo antigo.
                 try
                 {
-                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlope, r.ExitSlope);
+                    MFRebaixoCommands.ApplyFromPanel(db, ed, r.CorridorId, r.BaselineKey, r.RegionName, r.Left, r.S1, r.S2, oldH, MFRebaixoData.CommentFor(r.CustomName), r.EntrySlopeArg, r.ExitSlopeArg);
                 }
                 catch
                 {

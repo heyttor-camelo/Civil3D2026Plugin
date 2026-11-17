@@ -25,6 +25,10 @@ internal sealed class MFRebaixoSettings
     // Última usada fica como padrão (pedido do Heyvid em 13/11/2026).
     public double UltimaDeclividade { get; set; }
 
+    // Desde a 2.121.0: declividade da rampa de SAIDA (a de cima e a de entrada). -1 = igual a de entrada
+    // (JSON antigo). O marcador MFRebaixoCommands.PlumbSlope (99) nas duas quer dizer "a prumo".
+    public double UltimaDeclividadeSaida { get; set; } = -1;
+
     // Painel (MFREBAIXOPAINEL).
     public double PainelMargem { get; set; } = 6.0;
     // "GERAL" (todos os rebaixos) ou "PLANTA" (trecho do rebaixo).

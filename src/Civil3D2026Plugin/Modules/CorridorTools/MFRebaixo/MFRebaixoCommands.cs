@@ -60,6 +60,17 @@ public sealed partial class MFRebaixoCommands
     /// <summary>Liga o caminho direto (REB_K + ALT_FINAL) quando a peca tem os dois parametros.</summary>
     internal const bool DirectFinalHeightEnabled = true;
 
+    /// <summary>
+    /// "A prumo" (pedido do Heyvid em 17/11/2026): aquele lado do rebaixo nao tem rampa, o meio-fio desce
+    /// na vertical (degrau). Vai pelos mesmos caminhos da declividade como um valor marcador (PlumbSlope) e
+    /// fica gravado no token do rebaixo (P=). A transicao desse lado tem PlumbLength.
+    /// </summary>
+    internal const double PlumbSlope = 99.0;
+
+    internal const double PlumbLength = 0.01;
+
+    internal static bool IsPlumb(double? slope) => slope is double v && v >= PlumbSlope - 1e-6;
+
     /// <summary>Diferenca entre a altura final pedida e a obtida que vira aviso (2 mm).</summary>
     internal const double FinalHeightTolerance = 0.002;
 
@@ -195,7 +206,7 @@ public sealed partial class MFRebaixoCommands
                 new PromptPointOptions(
                     $"\nClique no 1º PONTO REBAIXADO " +
                     $"| Lado={GetSideModeLabel(sideMode)} " +
-                    $"| Declividade das rampas={SlopeLabel(settings.UltimaDeclividade)} " +
+                    $"| Rampas: entrada {SlopeLabel(settings.UltimaDeclividade)}, saida {SlopeLabel(ExitSlopeSetting(settings))} " +
                     "[Auto/Esquerda/Direita/Declividade] <Encerrar>: ")
                 {
                     AllowNone = true
@@ -403,6 +414,9 @@ public sealed partial class MFRebaixoCommands
                         sideMode,
                         settings.UltimaDeclividade > 1e-6
                             ? settings.UltimaDeclividade
+                            : null,
+                        ExitSlopeSetting(settings) > 1e-6
+                            ? ExitSlopeSetting(settings)
                             : null);
 
                     break;
@@ -899,7 +913,8 @@ public sealed partial class MFRebaixoCommands
         FirstPointInfo firstInfo,
         double finalHeight,
         SideSelectionMode sideMode,
-        double? slope = null)
+        double? slope = null,
+        double? slopeOut = null)
     {
         using var tr =
             db.TransactionManager
@@ -1021,7 +1036,7 @@ public sealed partial class MFRebaixoCommands
                 : firstInfo.NormalHeight,
             "REBAIXO MF",
             slope,
-            slope);
+            slopeOut ?? slope);
     }
 
     /// <summary>Region da mesma Baseline colada antes (ou depois) desta, com folga de 5 cm na divisa.</summary>
@@ -1054,7 +1069,9 @@ public sealed partial class MFRebaixoCommands
     }
 
     private static string SlopeLabel(double slope) =>
-        slope > 1e-6
+        IsPlumb(slope)
+            ? "a prumo"
+            : slope > 1e-6
             ? $"{slope * 100.0:0.##}%"
             : "iRampa da peça";
 
@@ -1066,45 +1083,67 @@ public sealed partial class MFRebaixoCommands
         Editor ed,
         MFRebaixoSettings settings)
     {
-        var options =
-            new PromptDoubleOptions(
-                "\nDeclividade das rampas do meio-fio em %, 0 = iRampa da peça: ")
-            {
-                AllowNegative = false,
-                AllowZero = true,
-                DefaultValue = Math.Round(settings.UltimaDeclividade * 100.0, 4),
-                UseDefaultValue = true
-            };
-
-        PromptDoubleResult result =
-            ed.GetDouble(
-                options);
-
-        if (result.Status != PromptStatus.OK)
+        // Desde a 2.121.0 (pedido do Heyvid em 17/11/2026): uma declividade para cada rampa e "Prumo"
+        // (sem rampa, o meio-fio desce na vertical). "8.33/6" na primeira pergunta ainda vale para as duas.
+        double? entry = AskOneSlope(ed, "entrada", settings.UltimaDeclividade, allowPair: true, out double? pairExit);
+        if (entry is null)
+            return;
+        double? exit = pairExit ?? AskOneSlope(ed, "saida", ExitSlopeSetting(settings), allowPair: false, out _);
+        if (exit is null)
             return;
 
-        double pct =
-            result.Value;
+        settings.UltimaDeclividade = entry.Value;
+        settings.UltimaDeclividadeSaida = exit.Value;
+        MFRebaixoSettingsStore.Save(settings);
 
-        if (pct > 50.0)
+        bool steep = (!IsPlumb(entry) && entry > MaxRampSlopeNbr + 1e-6) || (!IsPlumb(exit) && exit > MaxRampSlopeNbr + 1e-6);
+        ed.WriteMessage(
+            $"\nRampas do meio-fio: entrada {SlopeLabel(entry.Value)}, saida {SlopeLabel(exit.Value)}." +
+            (steep ? " Aviso: acima de 8,33% (NBR 9050)." : "") +
+            (IsPlumb(entry) || IsPlumb(exit) ? " A prumo: degrau vertical, nao acessivel desse lado." : ""));
+    }
+
+    /// <summary>Saida gravada; -1 (JSON antigo) = igual a de entrada.</summary>
+    internal static double ExitSlopeSetting(MFRebaixoSettings s) =>
+        s.UltimaDeclividadeSaida < 0 ? s.UltimaDeclividade : s.UltimaDeclividadeSaida;
+
+    /// <summary>Uma declividade em % (0 = iRampa da peca), "Prumo" ou, na de entrada, "8.33/6" (entrada/saida).</summary>
+    private static double? AskOneSlope(Editor ed, string side, double current, bool allowPair, out double? pairExit)
+    {
+        pairExit = null;
+        string now = IsPlumb(current) ? "Prumo" : (current * 100.0).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture);
+        var options = new PromptStringOptions(
+            $"\nDeclividade da rampa de {side} em % (0 = iRampa da peca; Prumo = sem rampa, degrau vertical" +
+            (allowPair ? "; 8.33/6 = entrada/saida" : "") + $") <{now}>: ")
         {
-            ed.WriteMessage(
-                "\nDeclividade acima de 50% não foi aceita; ficou a anterior.");
+            AllowSpaces = false
+        };
+        PromptResult result = ed.GetString(options);
+        if (result.Status != PromptStatus.OK)
+            return null;
+        string text = (result.StringResult ?? "").Trim().Replace("%", "").Replace(',', '.');
+        if (text.Length == 0)
+            return current;
 
-            return;
+        double? One(string t)
+        {
+            if (t.StartsWith("P", StringComparison.OrdinalIgnoreCase))
+                return PlumbSlope;
+            if (!double.TryParse(t, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double pct) || pct < 0 || pct > 50.0)
+                return null;
+            return pct / 100.0;
         }
 
-        settings.UltimaDeclividade =
-            pct / 100.0;
-
-        MFRebaixoSettingsStore.Save(
-            settings);
-
-        ed.WriteMessage(
-            $"\nDeclividade das rampas = {SlopeLabel(settings.UltimaDeclividade)}." +
-            (settings.UltimaDeclividade > MaxRampSlopeNbr + 1e-6
-                ? " Aviso: acima de 8,33% (NBR 9050)."
-                : ""));
+        string[] parts = text.Split('/');
+        double? a = One(parts[0]);
+        double? b = allowPair && parts.Length == 2 ? One(parts[1]) : null;
+        if (a is null || (parts.Length == 2 && (!allowPair || b is null)) || parts.Length > 2)
+        {
+            ed.WriteMessage("\nDeclividade invalida (use um valor entre 0 e 50%, ou Prumo); ficou a anterior.");
+            return null;
+        }
+        pairExit = b;
+        return a;
     }
 
     // ApplyRebaixoCore: em MFRebaixoChain.cs (rebaixo sobre a cadeia de meio-fio, 13/11/2026).

@@ -1417,9 +1417,9 @@ internal sealed partial class MFRebaixoPanel
             $"Peca: {r.SubassemblyName}",
             "Tipo de meio-fio: " + typeText,
             "",
-            $"Rampa de entrada: {N(r.EntryLength)} m   inclinacao {Slope(h0, h1, r.EntryLength)}",
+            r.PlumbIn ? "Rampa de entrada: a prumo (degrau vertical; nao acessivel deste lado)" : $"Rampa de entrada: {N(r.EntryLength)} m   inclinacao {Slope(h0, h1, r.EntryLength)}",
             $"Trecho rebaixado: {N(r.LoweredLength)} m",
-            $"Rampa de saida: {N(r.ExitLength)} m   inclinacao {Slope(h3, h2, r.ExitLength)}",
+            r.PlumbOut ? "Rampa de saida: a prumo (degrau vertical; nao acessivel deste lado)" : $"Rampa de saida: {N(r.ExitLength)} m   inclinacao {Slope(h3, h2, r.ExitLength)}",
             $"Comprimento total: {N(r.TotalLength)} m",
             "",
             $"Altura do meio-fio: normal {Cm(normal)}   rebaixado {Cm(final)}" +

@@ -93,6 +93,16 @@ internal sealed class RebaixoInfo
     public double ExitLength => S3 - S2;
     public double TotalLength => S3 - S0;
 
+    /// <summary>Lados "a prumo" (sem rampa, degrau vertical; 2.121.0), lidos do token.</summary>
+    public bool PlumbIn { get; init; }
+
+    public bool PlumbOut { get; init; }
+
+    /// <summary>Declividade para lancar de novo (Reaplicar, Acertar, lista, travessia): o marcador PlumbSlope no lado a prumo.</summary>
+    public double? EntrySlopeArg => PlumbIn ? MFRebaixoCommands.PlumbSlope : EntrySlope;
+
+    public double? ExitSlopeArg => PlumbOut ? MFRebaixoCommands.PlumbSlope : ExitSlope;
+
     /// <summary>Declividade real da rampa de entrada do meio-fio (desnivel / comprimento), lida das Transitions.</summary>
     public double? EntrySlope => SlopeOf(ByDepth ? ValueIn : ValueStart - ValueIn, EntryLength);
 
@@ -443,6 +453,8 @@ internal static class MFRebaixoData
                 Parameter = param,
                 Direct = direct,
                 RequestedFinal = requested,
+                PlumbIn = TokenPlumb(set.Comment).In,
+                PlumbOut = TokenPlumb(set.Comment).Out,
                 ValueStart = valueStart,
                 ValueIn = valueIn,
                 ValueOut = valueOut,
@@ -1504,10 +1516,22 @@ internal static class MFRebaixoData
     private const string TokenOpen = "{S=";
 
     // Desde a 2.120.0 o token leva tambem a altura final PEDIDA (";F=0.000"): a obtida e lida nas secoes.
-    public static string MakeToken(double s0, double s1, double s2, double s3, double v0, double v1, double v2, double v3, double? final = null) =>
+    public static string MakeToken(double s0, double s1, double s2, double s3, double v0, double v1, double v2, double v3, double? final = null, bool plumbIn = false, bool plumbOut = false) =>
         TokenOpen + string.Join(";", new[] { s0, s1, s2, s3 }.Select(v => v.ToString("0.######", CultureInfo.InvariantCulture))) +
         ";V=" + string.Join(";", new[] { v0, v1, v2, v3 }.Select(v => v.ToString("0.#######", CultureInfo.InvariantCulture))) +
-        (final is double f ? ";F=" + f.ToString("0.#####", CultureInfo.InvariantCulture) : "") + "}";
+        (final is double f ? ";F=" + f.ToString("0.#####", CultureInfo.InvariantCulture) : "") +
+        (plumbIn || plumbOut ? ";P=" + (plumbIn ? "1" : "0") + (plumbOut ? "1" : "0") : "") + "}";
+
+    /// <summary>Lados a prumo gravados no token (";P=10" = entrada a prumo, saida com rampa).</summary>
+    public static (bool In, bool Out) TokenPlumb(string? comment)
+    {
+        if (TokenOf(comment) is not string tk)
+            return (false, false);
+        int i = tk.IndexOf(";P=", StringComparison.Ordinal);
+        if (i < 0 || i + 5 > tk.Length)
+            return (false, false);
+        return (tk[i + 3] == '1', tk[i + 4] == '1');
+    }
 
     /// <summary>Altura final pedida gravada no token (rebaixos da 2.120.0 em diante).</summary>
     public static double? TokenFinal(string? comment)
@@ -1518,6 +1542,9 @@ internal static class MFRebaixoData
         if (i < 0)
             return null;
         string v = tk[(i + 3)..^1];
+        int semi = v.IndexOf(';');
+        if (semi >= 0)
+            v = v[..semi];
         return double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out double d) ? d : null;
     }
 
@@ -1550,6 +1577,9 @@ internal static class MFRebaixoData
         {
             string body = tk[TokenOpen.Length..^1];
             int f = body.IndexOf(";F=", StringComparison.Ordinal);
+            int pl = body.IndexOf(";P=", StringComparison.Ordinal);
+            if (pl >= 0 && (f < 0 || pl < f))
+                f = pl;
             if (f >= 0)
                 body = body[..f];
             string[] halves = body.Split(";V=");
@@ -1611,7 +1641,10 @@ internal static class MFRebaixoData
         {
             if (setsWithHatch is not null && !setsWithHatch.Contains(r.SetName))
                 list.Add(new RebaixoWarning { Item = r, Serious = false, Text = "Sem hachura em planta.", Reference = "Use Redesenhar hachuras no painel (a hachura e desenhada pelo plugin desde o MFREBAIXO 1.8)" });
-            double slope = Math.Max(r.EntrySlope ?? Math.Abs(r.RampSlope ?? 0.0833), r.ExitSlope ?? 0);
+            // Lado a prumo fica fora do aviso de declividade (escolha consciente) e ganha o seu aviso.
+            double slope = Math.Max(r.PlumbIn ? 0 : r.EntrySlope ?? Math.Abs(r.RampSlope ?? 0.0833), r.PlumbOut ? 0 : r.ExitSlope ?? 0);
+            if (r.PlumbIn || r.PlumbOut)
+                list.Add(new RebaixoWarning { Item = r, Serious = false, Text = $"Rebaixo a prumo na {(r.PlumbIn && r.PlumbOut ? "entrada e na saida" : r.PlumbIn ? "entrada" : "saida")}: degrau vertical, nao acessivel desse lado.", Reference = "NBR 9050 - rebaixamento de calcada: rampa com no maximo 8,33% (a prumo e escolha do projeto, ex. garagem)" });
             if (slope > 0.0834)
                 list.Add(new RebaixoWarning { Item = r, Serious = true, Text = $"Rampa do meio-fio com {slope * 100:0.##}% (acima de 8,33%).", Reference = "NBR 9050 - rampas: inclinacao maxima 8,33%" });
 
