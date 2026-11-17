@@ -8,6 +8,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.120.0: altura final do rebaixo exata
+
+- Causa do "pedi 0 e ficou 1,9 / 7,7 cm": o REB era um valor só, calculado com a altura normal antes de S0; com alvos verticais de topo e flowline a normal varia no trecho.
+- Com MFSARJETA 1.27 (frente do meio-fio, commit 740c0d8): sets `REB_K` (0→1→1→0) + `<set>_ALTFINAL` (`ALT_FINAL` constante). Nomes só em `MFRebaixoCommands` (`FinalWeightParameterName`/`FinalHeightParameterName`, chave `DirectFinalHeightEnabled`). `MFRebaixoData` lê REB_K como profundidade (token), `Direct`, `RequestedFinal` (token `F=`), `ExposedMin/Max`, `TargetFinal`, `FinalOff`; ALT set ignorado no Build/hachura/cadeia e só "neutro" com o comentário REMOVIDO.
+- Peça antiga: `AdjustDepthBySection` (MFRebaixoChain) acerta o REB por seção depois do 1º Rebuild e faz 1 Rebuild a mais só se precisar (~3 s). Seção que não responde (Kassel, ou levantado na peça < 1.25) fica e vai para o log.
+- Novo `MFREBAIXOACERTAR` + botão "Acertar altura final" (MFRebaixoAcertar.cs). Edições do painel usam a altura pedida.
+- Troca de PKT pela API funciona: `SubassemblyCollection.ImportSACSubassembly(pkt)` + `Subassembly.GeometryGenerator = novo` (parâmetros novos precisam de `ParamsDouble.Add`). Na cópia: 250/250 alvos, parâmetros e transitions mantidos; 4.011 seções iguais. Helpers no ZZTeste6 (fora do repo): ZZT6PKT, ZZT6SNAP, ZZT6ALT, ZZT6ALTLIST, ZZT6REBUILD.
+- Testes: 0/5/0 cm exatos nas duas peças; levantado 25 cm exato na 1.27; R01 antigo 11,3–11,8 → 11,8; travessia rente (0,3 cm) antes e depois; região Kassel não rebaixa (aviso).
+- Entregue 2.120.0 / PassagemRampa 1.21.0 só com versão no nome (Civil aberto) + `MFSARJETA_v1.27.pkt` em `atual` e `versoes\2.120.0`; hashes conferidos.
+- Pendente: o Heyvid trocar a peça para 1.27 (Change Subassembly) e conferir se os parâmetros "Rebaixo: altura livre final / peso" aparecem; rebaixos com REB negativo passam a levantar o meio-fio na 1.27.
 ## 2026-11-17 — LAPTOP-11TNS6P8 (Remote Control), 2.119.0: janela do C3DIFC, C3DCODESETIFC, corredor de referência, eixos principais
 
 - `C3DIFC` agora abre uma janela WPF (`IfcExportWindow.cs`): árvore com caixas de marcar e contagens (corredores, eixos por corredor, peças da lombofaixa, travessias, superfícies, redes, selecionados à mão), "Selecionar no desenho" (`StartUserInteraction` + `GetSelection`), Mapeamento (DataGrid), Critérios avançados (JSON). A versão de linha de comando ficou em `-C3DIFC` (`ExportarLinha`); as duas usam `IfcExportCommands.RunExport`. Marcações gravadas no `<dwg>-C3DIFC.json`.
