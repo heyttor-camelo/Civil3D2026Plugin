@@ -22,3 +22,6 @@ tests/viario/out/
 # Python
 __pycache__/
 *.pyc
+
+# arquivos de teste do banco de testes (copiados temporariamente para a DLL avulsa)
+src/C3DPassagemRampa/ZZ*.cs

@@ -1,4 +1,4 @@
-## 2.128.0 - FEATURE LINES: FLORIGEM (nova origem da feature line fechada sem mexer no corredor) e FLFECHADAS
+## 2.128.0 - FEATURE LINES / PassagemRampa v1.27.2: FLORIGEM (nova origem da feature line fechada sem mexer no corredor) e FLFECHADAS
 
 Pedido do Heyvid em 18/11/2026 ("setar novo ponto de origem de feature line, mas sem f* todo o corredor"; "garantir que esteja fechada, as features as vezes parecem fechadas mas nao estao").
 
@@ -7,6 +7,7 @@ Pedido do Heyvid em 18/11/2026 ("setar novo ponto de origem de feature line, mas
 - Fechada de verdade: se a feature line e aberta mas as pontas estao coladas (tolerancia pedida, padrao 1 cm), avisa "parece fechada mas esta aberta" (distancia e diferenca de elevacao das pontas) e oferece fechar (mesmo objeto); pontas longe: recusa dizendo a distancia. Depois confere e informa que ficou fechada.
 - FLFECHADAS: lista as feature lines que parecem fechadas mas estao abertas e oferece fechar todas (confirmacao; U desfaz). O FLCOPIARGEOMETRIA passa a apontar esse comando quando a polilinha e fechada e a feature line so parece fechada.
 - Teste na copia do KM_01: SARJETA 12 (2 regioes, 6 rebaixos, 26 overrides) com a origem na estaca 45: regioes, secoes extras e as 14 transicoes no mesmo lugar fisico (0,0 mm), overrides mantidos, Rebuild sem erro, salvar/reabrir com AUDIT sem erros; SARJETA 16 (regiao de volta inteira, 71 overrides) e 17 (2 regioes parciais) ok; feature line com as pontas a 3,6 mm fechada de verdade com o mesmo handle e o arco.
+- C3DPassagemRampa 1.27.2: sem os arquivos de teste (ZZ*.cs agora no .gitignore).
 - Limites: nao divide regiao que atravessa a nova origem (recusa); dentro de site, ilha com muitos vertices/pontos de elevacao pode levar minutos (mesma limitacao do FLCOPIARGEOMETRIA).
 ## 2.127.0 - FEATURE LINES / PassagemRampa v1.27.1: FLCOPIARGEOMETRIA (feature line copia a geometria de uma polilinha sem perder a identidade)
 
