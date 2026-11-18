@@ -918,11 +918,12 @@ internal static partial class MFTravessia
     /// raios). Fecha o giro (ultimo raio liga no primeiro) e a parede no anel de fora.
     /// </summary>
     /// <summary>
-    /// Plato da uniao pela triangulacao da propria superficie de topo (2.125.0, pedido do Heyvid: "o solido ... fica todo torto,
-    /// com uma caralhada de triangulos; nao tem como recortar e aproveitar a triangulacao da superficie?"). Uma TIN temporaria
-    /// recebe os vertices da superficie dentro do miolo (elevados da altura), o anel da faixa de transicao e o contorno (como
-    /// breakline e limite externo); os triangulos dela viram um prisma: topo, fundo na superficie/borda da pista e laterais
-    /// verticais. A TIN temporaria e apagada no fim. Null se nao der (fica o solido em leque).
+    /// Plato da uniao com os triangulos REAIS da superficie de topo (2.125.1; pedidos do Heyvid em 17/11/2026: "nao tem como
+    /// recortar e aproveitar a triangulacao da superficie?" e, depois da 2.125.0, "o acabamento ficou ruim"). Cada triangulo
+    /// da superficie e recortado pelo contorno da uniao (sem retriangular), o pedaco que sobra e dividido em poucos triangulos
+    /// e vertices a menos de 2 cm sao fundidos (sem lascas). Topo = superficie + altura, a altura indo suave de borda a borda
+    /// (media ponderada pela distancia das alturas da borda: na borda e exatamente a da travessia/meio-fio). Fundo = a
+    /// superficie; laterais verticais; faces planas vizinhas fundidas no solido (CleanBody). Null se nao der.
     /// </summary>
     private static AcadDb.Entity? TinSolid(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.BlockTableRecord ms, string layer,
         AcadDb.ObjectId surfaceId, Point3d c, List<Point3d> edgeTop, List<Point3d> edgeBottom, List<double> angles, double[] baseH, double[] edgeH,
@@ -933,142 +934,437 @@ internal static partial class MFTravessia
         if (n < 3 || surfaceId.IsNull || tr.GetObject(surfaceId, AcadDb.OpenMode.ForRead) is not CivilDb.TinSurface src)
             return null;
         var sw = System.Diagnostics.Stopwatch.StartNew();
-
-        // Contorno sem pontos alinhados (mesma reta em planta e na altura): menos triangulos finos na borda.
-        var keep = new List<int>();
-        for (int i = 0; i < n; i++)
-        {
-            Point3d a = edgeTop[(i - 1 + n) % n], p = edgeTop[i], b = edgeTop[(i + 1) % n];
-            double ab = Dist2d(a, b);
-            if (ab < 1e-6)
-                continue;
-            double w = Math.Clamp((((p.X - a.X) * (b.X - a.X)) + ((p.Y - a.Y) * (b.Y - a.Y))) / (ab * ab), 0, 1);
-            double dx = a.X + ((b.X - a.X) * w) - p.X, dy = a.Y + ((b.Y - a.Y) * w) - p.Y, dz = a.Z + ((b.Z - a.Z) * w) - p.Z;
-            if (Math.Sqrt((dx * dx) + (dy * dy)) > 0.01 || Math.Abs(dz) > 0.003 || Dist2d(a, p) > 1.5)
-                keep.Add(i);
-        }
-        if (keep.Count < 3)
-            keep = Enumerable.Range(0, n).ToList();
-
-        var bottomAt = new Dictionary<(long, long), double>();
-        (long, long) K(double x, double y) => ((long)Math.Round(x * 1000.0), (long)Math.Round(y * 1000.0));
-        var pts = new Point3dCollection();
-        foreach (int i in keep)
-        {
-            pts.Add(edgeTop[i]);
-            bottomAt[K(edgeTop[i].X, edgeTop[i].Y)] = edgeBottom[i].Z;
-        }
-        // Faixa de transicao: meio e fim da faixa em cada rumo do contorno.
-        foreach (int i in keep)
-        {
-            double len = Dist2d(edgeTop[i], c);
-            foreach (double d in new[] { band / 2.0, band })
-            {
-                if (len < d * 1.2)
-                    continue;
-                double t = 1.0 - (d / len);
-                double x = c.X + ((edgeTop[i].X - c.X) * t), y = c.Y + ((edgeTop[i].Y - c.Y) * t);
-                if (road(x, y) is not double z)
-                    continue;
-                double h = TravessiaGeometry.EdgeBlend(baseH[i], edgeH[i], d, baseH[i], double.MaxValue, band);
-                pts.Add(new Point3d(x, y, z + Math.Max(0.005, h)));
-                bottomAt[K(x, y)] = z;
-            }
-        }
-        // Miolo: vertices da propria superficie de topo, elevados da altura do rebaixo naquele rumo.
-        int inner = 0;
-        double maxR = edgeTop.Max(p => Dist2d(p, c));
-        double Ang(double x, double y) { double a = Math.Atan2(y - c.Y, x - c.X); return a < 0 ? a + (2.0 * Math.PI) : a; }
-        int RayAt(double ang)
-        {
-            int best = 0;
-            double bd = double.MaxValue;
-            for (int i = 0; i < n; i++)
-            {
-                double d = Math.Abs(angles[i] - ang);
-                d = Math.Min(d, (2.0 * Math.PI) - d);
-                if (d < bd)
-                {
-                    bd = d;
-                    best = i;
-                }
-            }
-            return best;
-        }
-        foreach (CivilDb.TinSurfaceVertex v in src.Vertices)
-        {
-            Point3d q = v.Location;
-            double r = Dist2d(q, c);
-            if (r > maxR)
-                continue;
-            int i = RayAt(Ang(q.X, q.Y));
-            if (r > Dist2d(edgeTop[i], c) - (band * 1.05))
-                continue;
-            pts.Add(new Point3d(q.X, q.Y, q.Z + baseH[i]));
-            bottomAt[K(q.X, q.Y)] = q.Z;
-            inner++;
-        }
-
-        // TIN temporaria: pontos + contorno como breakline e limite externo.
-        AcadDb.ObjectId tinId = AcadDb.ObjectId.Null;
-        var temp = new List<AcadDb.Entity>();
         try
         {
-            tinId = CivilDb.TinSurface.Create(db, "_C3D_TMP_UNIAO_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
-            var tin = (CivilDb.TinSurface)tr.GetObject(tinId, AcadDb.OpenMode.ForWrite);
-            tin.AddVertices(pts);
-            var poly3 = new AcadDb.Polyline3d(AcadDb.Poly3dType.SimplePoly, new Point3dCollection(keep.Select(i => edgeTop[i]).ToArray()), true);
-            ms.AppendEntity(poly3);
-            tr.AddNewlyCreatedDBObject(poly3, true);
-            temp.Add(poly3);
-            tin.BreaklinesDefinition.AddStandardBreaklines(new AcadDb.ObjectIdCollection { poly3.ObjectId }, 1.0, 0.0, 0.0, 0.0);
-            tin.BoundariesDefinition.AddBoundaries(new AcadDb.ObjectIdCollection { poly3.ObjectId }, 0.1, Autodesk.Civil.SurfaceBoundaryType.Outer, false);
-            tin.Rebuild();
-
-            var verts = new Point3dCollection();
-            var index = new Dictionary<(long, long), int>();
-            var tris = new List<(int A, int B, int C)>();
-            Point3d o = edgeTop[keep[0]];
-            Vector3d shift = new(o.X, o.Y, Math.Floor(o.Z));
-            int V(Point3d p)
+            // Contorno (sem pontos a menos de 2 cm), no sentido anti-horario.
+            var poly = new List<(double X, double Y, double H)>();
+            for (int i = 0; i < n; i++)
             {
-                (long, long) k = K(p.X, p.Y);
-                if (!index.TryGetValue(k, out int id))
-                {
-                    id = verts.Count;
-                    index[k] = id;
-                    verts.Add(p - shift);
-                }
-                return id;
+                Point3d p = edgeTop[i];
+                if (poly.Count > 0 && Math.Abs(poly[^1].X - p.X) < 0.02 && Math.Abs(poly[^1].Y - p.Y) < 0.02)
+                    continue;
+                poly.Add((p.X, p.Y, edgeTop[i].Z - edgeBottom[i].Z));
             }
-            foreach (CivilDb.TinSurfaceTriangle t in tin.GetTriangles(false))
+            if (poly.Count > 3 && Math.Abs(poly[0].X - poly[^1].X) < 0.02 && Math.Abs(poly[0].Y - poly[^1].Y) < 0.02)
+                poly.RemoveAt(poly.Count - 1);
+            double area2 = 0;
+            for (int i = 0; i < poly.Count; i++)
+            {
+                var a = poly[i];
+                var b = poly[(i + 1) % poly.Count];
+                area2 += (a.X * b.Y) - (b.X * a.Y);
+            }
+            if (area2 < 0)
+                poly.Reverse();
+            // Tira do contorno os pontos alinhados (menos de 3 mm do segmento dos vizinhos, mesma altura): ponto demais na
+            // borda vira leque de triangulos finos ate o miolo.
+            for (bool removed = true; removed && poly.Count > 8;)
+            {
+                removed = false;
+                for (int i = 0; i < poly.Count && poly.Count > 8; i++)
+                {
+                    var pa = poly[(i - 1 + poly.Count) % poly.Count];
+                    var pm = poly[i];
+                    var pb = poly[(i + 1) % poly.Count];
+                    double ex = pb.X - pa.X, ey = pb.Y - pa.Y, l2 = (ex * ex) + (ey * ey);
+                    if (l2 < 1e-10 || l2 > 4.0 * 4.0)
+                        continue;
+                    double tt = Math.Clamp((((pm.X - pa.X) * ex) + ((pm.Y - pa.Y) * ey)) / l2, 0, 1);
+                    double dx = pa.X + (ex * tt) - pm.X, dy = pa.Y + (ey * tt) - pm.Y;
+                    double za = SrcZ(pa.X, pa.Y), zm = SrcZ(pm.X, pm.Y), zb = SrcZ(pb.X, pb.Y);
+                    double dh = pa.H + ((pb.H - pa.H) * tt) - pm.H;
+                    if (!double.IsNaN(za) && !double.IsNaN(zm) && !double.IsNaN(zb))
+                        dh += za + ((zb - za) * tt) - zm;
+                    if ((dx * dx) + (dy * dy) < 0.003 * 0.003 && Math.Abs(dh) < 0.003)
+                    {
+                        poly.RemoveAt(i);
+                        removed = true;
+                        i--;
+                    }
+                }
+            }
+            double minX = poly.Min(q => q.X), maxX = poly.Max(q => q.X), minY = poly.Min(q => q.Y), maxY = poly.Max(q => q.Y);
+
+            // Altura acima da superficie: na borda, a da borda (interpolada no lado do contorno); por dentro, media ponderada.
+            // Altura acima da superficie: na borda, a da borda (topo do meio-fio rebaixado / topo de cada travessia); por
+            // dentro, media ponderada pela distancia (paralela a superficie, sem "almofada" no miolo).
+            double H(double x, double y)
+            {
+                double sw2 = 0, sh = 0;
+                for (int i = 0; i < poly.Count; i++)
+                {
+                    var a = poly[i];
+                    var b = poly[(i + 1) % poly.Count];
+                    double ex = b.X - a.X, ey = b.Y - a.Y, l2 = (ex * ex) + (ey * ey);
+                    double t = l2 < 1e-12 ? 0 : Math.Clamp((((x - a.X) * ex) + ((y - a.Y) * ey)) / l2, 0, 1);
+                    double px = a.X + (ex * t) - x, py = a.Y + (ey * t) - y;
+                    double d2 = (px * px) + (py * py);
+                    double h = a.H + ((b.H - a.H) * t);
+                    if (d2 < 1e-8)
+                        return h;
+                    double w = 1.0 / (d2 * Math.Sqrt(d2)) * Math.Sqrt(l2);
+                    sw2 += w;
+                    sh += w * h;
+                }
+                return sw2 > 0 ? sh / sw2 : baseH.Average();
+            }
+            // Ponto dentro do contorno ou a menos de 5 mm dele.
+            bool OnOrIn(double x, double y)
+            {
+                if (InPoly(x, y))
+                    return true;
+                for (int i = 0, k = poly.Count - 1; i < poly.Count; k = i++)
+                {
+                    double dx = poly[i].X - poly[k].X, dy = poly[i].Y - poly[k].Y, l2 = (dx * dx) + (dy * dy);
+                    double u = l2 < 1e-12 ? 0 : Math.Clamp((((x - poly[k].X) * dx) + ((y - poly[k].Y) * dy)) / l2, 0, 1);
+                    double ex = poly[k].X + (u * dx) - x, ey = poly[k].Y + (u * dy) - y;
+                    if ((ex * ex) + (ey * ey) < 0.005 * 0.005)
+                        return true;
+                }
+                return false;
+            }
+            static HashSet<int> BowTies(List<(int A, int B, int C)> list)
+            {
+                var use = new Dictionary<(int, int), int>();
+                foreach (var t in list)
+                {
+                    foreach ((int p, int q) in new[] { (t.A, t.B), (t.B, t.C), (t.C, t.A) })
+                    {
+                        var key = p < q ? (p, q) : (q, p);
+                        use[key] = use.TryGetValue(key, out int u) ? u + 1 : 1;
+                    }
+                }
+                var deg = new Dictionary<int, int>();
+                foreach (var kv in use.Where(kv => kv.Value == 1))
+                {
+                    deg[kv.Key.Item1] = deg.TryGetValue(kv.Key.Item1, out int d1) ? d1 + 1 : 1;
+                    deg[kv.Key.Item2] = deg.TryGetValue(kv.Key.Item2, out int d2) ? d2 + 1 : 1;
+                }
+                return deg.Where(kv => kv.Value > 2).Select(kv => kv.Key).ToHashSet();
+            }
+
+            // Ponto dentro do contorno (par-impar).
+            bool InPoly(double x, double y)
+            {
+                bool inside = false;
+                for (int i = 0, k = poly.Count - 1; i < poly.Count; k = i++)
+                {
+                    if (((poly[i].Y > y) != (poly[k].Y > y)) &&
+                        (x < ((poly[k].X - poly[i].X) * (y - poly[i].Y) / (poly[k].Y - poly[i].Y)) + poly[i].X))
+                        inside = !inside;
+                }
+                return inside;
+            }
+            double SrcZ(double x, double y)
+            {
+                try
+                {
+                    double z = src.FindElevationAtXY(x, y);
+                    return double.IsNaN(z) ? double.NaN : z;
+                }
+                catch
+                {
+                    return double.NaN;
+                }
+            }
+
+            // Triangulos reais da superficie que tocam a uniao: vertices de dentro e as arestas (como breaklines, para a TIN
+            // temporaria repetir as mesmas faixas da superficie em vez de retriangular).
+            var pts = new Point3dCollection();
+            var seen = new HashSet<(long, long)>();
+            (long, long) K(double x, double y) => ((long)Math.Round(x * 1000.0), (long)Math.Round(y * 1000.0));
+            var edges = new HashSet<((long, long), (long, long))>();
+            var edgeList = new List<(Point3d A, Point3d B)>();
+            int srcTris = 0;
+            var runs = new List<((double X, double Y) A, (double X, double Y) B)>();
+            var inserts = new List<(int Seg, double T, double X, double Y)>();
+            (int Seg, double T, double D) Closest(double x, double y)
+            {
+                (int, double, double) best = (0, 0, double.MaxValue);
+                for (int i = 0; i < poly.Count; i++)
+                {
+                    var pa = poly[i];
+                    var pb = poly[(i + 1) % poly.Count];
+                    double ex = pb.X - pa.X, ey = pb.Y - pa.Y, l2 = (ex * ex) + (ey * ey);
+                    double tt = l2 < 1e-12 ? 0 : Math.Clamp((((x - pa.X) * ex) + ((y - pa.Y) * ey)) / l2, 0, 1);
+                    double dx = pa.X + (ex * tt) - x, dy = pa.Y + (ey * tt) - y, dd = Math.Sqrt((dx * dx) + (dy * dy));
+                    if (dd < best.Item3)
+                        best = (i, tt, dd);
+                }
+                return best;
+            }
+            bool Deep(double x, double y) => InPoly(x, y) && Closest(x, y).D > 0.05;
+            // Ponto do contorno: um vertice dele se estiver a menos de 5 cm, senao um ponto novo inserido no lado.
+            (double X, double Y) OnContour(int seg, double tt)
+            {
+                var pa = poly[seg];
+                var pb = poly[(seg + 1) % poly.Count];
+                double len = Math.Sqrt(((pb.X - pa.X) * (pb.X - pa.X)) + ((pb.Y - pa.Y) * (pb.Y - pa.Y)));
+                if (tt * len < 0.05)
+                    return (pa.X, pa.Y);
+                if ((1 - tt) * len < 0.05)
+                    return (pb.X, pb.Y);
+                double ix = pa.X + ((pb.X - pa.X) * tt), iy = pa.Y + ((pb.Y - pa.Y) * tt);
+                foreach (var ins in inserts)
+                {
+                    if (Math.Abs(ins.X - ix) < 0.05 && Math.Abs(ins.Y - iy) < 0.05)
+                        return (ins.X, ins.Y);
+                }
+                inserts.Add((seg, tt, ix, iy));
+                return (ix, iy);
+            }
+            void InsideRuns(Point3d p, Point3d q)
+            {
+                (double X, double Y)? End(Point3d e)
+                {
+                    if (Deep(e.X, e.Y))
+                        return (e.X, e.Y);
+                    if (!InPoly(e.X, e.Y))
+                        return null;
+                    var cl = Closest(e.X, e.Y);
+                    return OnContour(cl.Seg, cl.T);
+                }
+                var cuts = new List<(double U, (double X, double Y)? P)> { (0, End(p)), (1, End(q)) };
+                double dx = q.X - p.X, dy = q.Y - p.Y;
+                for (int i = 0; i < poly.Count; i++)
+                {
+                    var pa = poly[i];
+                    var pb = poly[(i + 1) % poly.Count];
+                    double ex = pb.X - pa.X, ey = pb.Y - pa.Y;
+                    double den = (dx * ey) - (dy * ex);
+                    if (Math.Abs(den) < 1e-12)
+                        continue;
+                    double u = (((pa.X - p.X) * ey) - ((pa.Y - p.Y) * ex)) / den;
+                    double tt = (((pa.X - p.X) * dy) - ((pa.Y - p.Y) * dx)) / den;
+                    if (u <= 1e-9 || u >= 1 - 1e-9 || tt < 0 || tt > 1)
+                        continue;
+                    cuts.Add((u, OnContour(i, tt)));
+                }
+                cuts.Sort((x1, x2) => x1.U.CompareTo(x2.U));
+                for (int i = 0; i + 1 < cuts.Count; i++)
+                {
+                    double um = (cuts[i].U + cuts[i + 1].U) / 2.0;
+                    if (cuts[i].P is not { } s || cuts[i + 1].P is not { } e2 || !InPoly(p.X + (dx * um), p.Y + (dy * um)))
+                        continue;
+                    if (Math.Abs(s.X - e2.X) < 1e-6 && Math.Abs(s.Y - e2.Y) < 1e-6)
+                        continue;
+                    runs.Add((s, e2));
+                }
+            }
+            foreach (CivilDb.TinSurfaceTriangle t in src.GetTriangles(false))
             {
                 Point3d a = t.Vertex1.Location, b = t.Vertex2.Location, d = t.Vertex3.Location;
-                // So triangulos dentro do contorno (o limite externo ja corta; confere o centro).
-                double cx = (a.X + b.X + d.X) / 3.0, cy = (a.Y + b.Y + d.Y) / 3.0;
-                int ri = RayAt(Ang(cx, cy));
-                if (Dist2d(new Point3d(cx, cy, 0), c) > Dist2d(edgeTop[ri], c) + 0.05)
+                if (Math.Max(a.X, Math.Max(b.X, d.X)) < minX || Math.Min(a.X, Math.Min(b.X, d.X)) > maxX ||
+                    Math.Max(a.Y, Math.Max(b.Y, d.Y)) < minY || Math.Min(a.Y, Math.Min(b.Y, d.Y)) > maxY)
                     continue;
-                int ia = V(a), ib = V(b), ic = V(d);
-                if (ia == ib || ib == ic || ia == ic)
+                bool ia = InPoly(a.X, a.Y), ib = InPoly(b.X, b.Y), id = InPoly(d.X, d.Y);
+                if (!ia && !ib && !id && !InPoly((a.X + b.X + d.X) / 3.0, (a.Y + b.Y + d.Y) / 3.0))
                     continue;
-                // Topo virado para cima.
-                if (((b.X - a.X) * (d.Y - a.Y)) - ((b.Y - a.Y) * (d.X - a.X)) < 0)
-                    (ib, ic) = (ic, ib);
-                tris.Add((ia, ib, ic));
+                srcTris++;
+                foreach (Point3d v in new[] { a, b, d })
+                {
+                    if (Deep(v.X, v.Y) && seen.Add(K(v.X, v.Y)))
+                        pts.Add(new Point3d(v.X, v.Y, v.Z + Math.Max(0.005, H(v.X, v.Y))));
+                }
+                foreach ((Point3d p, Point3d q) in new[] { (a, b), (b, d), (d, a) })
+                {
+                    var ka = K(p.X, p.Y);
+                    var kb = K(q.X, q.Y);
+                    var key = ka.CompareTo(kb) < 0 ? (ka, kb) : (kb, ka);
+                    if (!edges.Add(key))
+                        continue;
+                    // Aresta inteira por dentro: vai como esta. Aresta que corta o contorno (ou com ponta colada nele):
+                    // so o trecho de dentro, com a ponta levada para um ponto do contorno (evita lascas junto da borda).
+                    InsideRuns(p, q);
+                }
+            }
+            foreach (var run in runs)
+            {
+                Point3d A3 = new(run.A.X, run.A.Y, SrcZ(run.A.X, run.A.Y));
+                Point3d B3 = new(run.B.X, run.B.Y, SrcZ(run.B.X, run.B.Y));
+                if (double.IsNaN(A3.Z) || double.IsNaN(B3.Z) || A3.DistanceTo(B3) < 0.05)
+                    continue;
+                edgeList.Add((new Point3d(A3.X, A3.Y, A3.Z + Math.Max(0.005, H(A3.X, A3.Y))), new Point3d(B3.X, B3.Y, B3.Z + Math.Max(0.005, H(B3.X, B3.Y)))));
+            }
+            foreach (var ins in inserts.OrderByDescending(x => x.Seg).ThenByDescending(x => x.T))
+                poly.Insert(ins.Seg + 1, (ins.X, ins.Y, poly[ins.Seg].H + ((poly[(ins.Seg + 1) % poly.Count].H - poly[ins.Seg].H) * ins.T)));
+            foreach (var q in poly)
+            {
+                double zs = SrcZ(q.X, q.Y);
+                if (!double.IsNaN(zs) && seen.Add(K(q.X, q.Y)))
+                    pts.Add(new Point3d(q.X, q.Y, zs + Math.Max(0.005, q.H)));
+            }
+
+            var verts = new List<(double X, double Y, double Zs)>();
+            var tris = new List<(int A, int B, int C)>();
+            int filled = 0;
+            AcadDb.ObjectId tinId = AcadDb.ObjectId.Null;
+            var temp = new List<AcadDb.Entity>();
+            try
+            {
+                tinId = CivilDb.TinSurface.Create(db, "_C3D_TMP_UNIAO_" + DateTime.Now.Ticks.ToString(CultureInfo.InvariantCulture));
+                var tin = (CivilDb.TinSurface)tr.GetObject(tinId, AcadDb.OpenMode.ForWrite);
+                tin.AddVertices(pts);
+                var blIds = new AcadDb.ObjectIdCollection();
+                foreach ((Point3d a, Point3d b) in edgeList)
+                {
+                    var pl = new AcadDb.Polyline3d(AcadDb.Poly3dType.SimplePoly, new Point3dCollection { a, b }, false);
+                    ms.AppendEntity(pl);
+                    tr.AddNewlyCreatedDBObject(pl, true);
+                    temp.Add(pl);
+                    blIds.Add(pl.ObjectId);
+                }
+                var contour3 = new Point3dCollection();
+                foreach (var q in poly)
+                {
+                    double zs = SrcZ(q.X, q.Y);
+                    contour3.Add(new Point3d(q.X, q.Y, (double.IsNaN(zs) ? 0 : zs) + Math.Max(0.005, q.H)));
+                }
+                var poly3 = new AcadDb.Polyline3d(AcadDb.Poly3dType.SimplePoly, contour3, true);
+                ms.AppendEntity(poly3);
+                tr.AddNewlyCreatedDBObject(poly3, true);
+                temp.Add(poly3);
+                blIds.Add(poly3.ObjectId);
+                tin.BreaklinesDefinition.AddStandardBreaklines(blIds, 1.0, 0.0, 0.0, 0.0);
+                tin.BoundariesDefinition.AddBoundaries(new AcadDb.ObjectIdCollection { poly3.ObjectId }, 0.1, Autodesk.Civil.SurfaceBoundaryType.Outer, false);
+                tin.Rebuild();
+
+                // Vertices a menos de 5 mm viram um so (a TIN cria pontos quase repetidos onde as breaklines se cruzam,
+                // e eles dao triangulos-lasca); os triangulos que somem com isso sao descartados.
+                var index = new Dictionary<(long, long), List<int>>();
+                const double weld = 0.005;
+                int Vid(Point3d p)
+                {
+                    long cx = (long)Math.Floor(p.X / weld), cy = (long)Math.Floor(p.Y / weld);
+                    for (long ox = -1; ox <= 1; ox++)
+                    {
+                        for (long oy = -1; oy <= 1; oy++)
+                        {
+                            if (!index.TryGetValue((cx + ox, cy + oy), out var cell))
+                                continue;
+                            foreach (int j in cell)
+                            {
+                                if (Math.Abs(verts[j].X - p.X) < weld && Math.Abs(verts[j].Y - p.Y) < weld)
+                                    return j;
+                            }
+                        }
+                    }
+                    double zs = SrcZ(p.X, p.Y);
+                    int id = verts.Count;
+                    if (!index.TryGetValue((cx, cy), out var list))
+                        index[(cx, cy)] = list = new List<int>();
+                    list.Add(id);
+                    verts.Add((p.X, p.Y, double.IsNaN(zs) ? p.Z - Math.Max(0.005, H(p.X, p.Y)) : zs));
+                    return id;
+                }
+                // Triangulos fora do contorno com os 3 vertices no contorno (lascas em cantos concavos) ficam de reserva:
+                // entram so para desfazer "gravatas" (dois triangulos que se tocam so num vertice da borda), que travam o ConvertToSolid.
+                var spare = new List<(int A, int B, int C)>();
+                foreach (CivilDb.TinSurfaceTriangle t in tin.GetTriangles(false))
+                {
+                    Point3d a = t.Vertex1.Location, b = t.Vertex2.Location, d = t.Vertex3.Location;
+                    bool inside = InPoly((a.X + b.X + d.X) / 3.0, (a.Y + b.Y + d.Y) / 3.0);
+                    if (!inside && !(OnOrIn(a.X, a.Y) && OnOrIn(b.X, b.Y) && OnOrIn(d.X, d.Y)))
+                        continue;
+                    int ia = Vid(a), ib = Vid(b), ic = Vid(d);
+                    if (ia == ib || ib == ic || ia == ic)
+                        continue;
+                    if (((b.X - a.X) * (d.Y - a.Y)) - ((b.Y - a.Y) * (d.X - a.X)) < 0)
+                        (ib, ic) = (ic, ib);
+                    (inside ? tris : spare).Add((ia, ib, ic));
+                }
+                for (int pass = 0; pass < 4 && spare.Count > 0; pass++)
+                {
+                    var bt = BowTies(tris);
+                    if (bt.Count == 0)
+                        break;
+                    var add = spare.Where(s => bt.Contains(s.A) || bt.Contains(s.B) || bt.Contains(s.C)).ToList();
+                    if (add.Count == 0)
+                        break;
+                    tris.AddRange(add);
+                    spare.RemoveAll(add.Contains);
+                    filled += add.Count;
+                }
+            }
+            finally
+            {
+                foreach (AcadDb.Entity e in temp)
+                {
+                    try
+                    {
+                        if (!e.IsErased)
+                            e.Erase();
+                    }
+                    catch
+                    {
+                        // Ja apagada.
+                    }
+                }
+                try
+                {
+                    if (!tinId.IsNull && tr.GetObject(tinId, AcadDb.OpenMode.ForWrite) is AcadDb.DBObject tt && !tt.IsErased)
+                        tt.Erase();
+                }
+                catch
+                {
+                    // TIN temporaria ja apagada.
+                }
             }
             if (tris.Count < 3)
                 return null;
-            int top = verts.Count;
-            // Fundo: superficie (ou borda da pista no contorno); ponto sem fundo conhecido: a superficie ali.
-            for (int i = 0; i < top; i++)
+            filled += FillHoles(tris, verts.Select(v => (v.X, v.Y)).ToList());
+            double aspect = 0;
+            foreach (var t in tris)
             {
-                Point3d p = verts[i] + shift;
-                double zb = bottomAt.TryGetValue(K(p.X, p.Y), out double bz) ? bz : road(p.X, p.Y) ?? (p.Z - 0.12);
-                verts.Add(new Point3d(p.X, p.Y, Math.Min(zb, p.Z - 0.005)) - shift);
+                var pa = verts[t.A];
+                var pb = verts[t.B];
+                var pc = verts[t.C];
+                double la = Math.Sqrt(((pb.X - pa.X) * (pb.X - pa.X)) + ((pb.Y - pa.Y) * (pb.Y - pa.Y)));
+                double lb = Math.Sqrt(((pc.X - pb.X) * (pc.X - pb.X)) + ((pc.Y - pb.Y) * (pc.Y - pb.Y)));
+                double lc = Math.Sqrt(((pa.X - pc.X) * (pa.X - pc.X)) + ((pa.Y - pc.Y) * (pa.Y - pc.Y)));
+                double ar2 = Math.Abs(((pb.X - pa.X) * (pc.Y - pa.Y)) - ((pb.Y - pa.Y) * (pc.X - pa.X)));
+                double lmax = Math.Max(la, Math.Max(lb, lc));
+                if (ar2 > 1e-12)
+                    aspect = Math.Max(aspect, lmax * lmax / ar2);
             }
+            Point3d o = edgeTop[0];
+            Vector3d shift = new(o.X, o.Y, Math.Floor(o.Z));
+            var meshPts = new Point3dCollection();
+            foreach (var v in verts)
+                meshPts.Add(new Point3d(v.X, v.Y, v.Zs + Math.Max(0.005, H(v.X, v.Y))) - shift);
+            int top = verts.Count;
+            foreach (var v in verts)
+                meshPts.Add(new Point3d(v.X, v.Y, v.Zs) - shift);
             var faces = new List<int[]>();
             var edgeUse = new Dictionary<(int, int), int>();
+            foreach ((int a, int b, int d) in tris)
+            {
+                foreach ((int p, int q) in new[] { (a, b), (b, d), (d, a) })
+                {
+                    var key0 = p < q ? (p, q) : (q, p);
+                    edgeUse[key0] = edgeUse.TryGetValue(key0, out int u0) ? u0 + 1 : 1;
+                }
+            }
+            int nonManifold = edgeUse.Count(kv => kv.Value > 2);
+            var boundaryDeg = new Dictionary<int, int>();
+            foreach (var kv in edgeUse.Where(kv => kv.Value == 1))
+            {
+                boundaryDeg[kv.Key.Item1] = boundaryDeg.TryGetValue(kv.Key.Item1, out int b1) ? b1 + 1 : 1;
+                boundaryDeg[kv.Key.Item2] = boundaryDeg.TryGetValue(kv.Key.Item2, out int b2) ? b2 + 1 : 1;
+            }
+            var bowTies = boundaryDeg.Where(kv => kv.Value > 2).Select(kv => kv.Key).ToList();
+            if (bowTies.Count > 0 || nonManifold > 0)
+                PluginLog.Aviso("MFTRAVESSIA", $"Uniao: malha do plato com {bowTies.Count} vertice(s) em gravata na borda ({string.Join("; ", bowTies.Take(5).Select(k => $"{verts[k].X:0.000},{verts[k].Y:0.000}"))}), {edgeUse.Count(kv => kv.Value == 1)} arestas de borda, {nonManifold} arestas com mais de 2 triangulos.");
+            if (nonManifold > 0)
+            {
+                foreach (var kv in edgeUse.Where(kv => kv.Value > 2))
+                {
+                    var users = tris.Where(t => new[] { t.A, t.B, t.C }.Contains(kv.Key.Item1) && new[] { t.A, t.B, t.C }.Contains(kv.Key.Item2)).ToList();
+                    string Tx((int A, int B, int C) t) => string.Join(" ", new[] { t.A, t.B, t.C }.Select(k => $"{k}({verts[k].X:0.000},{verts[k].Y:0.000})"));
+                    PluginLog.Aviso("MFTRAVESSIA", $"Uniao: aresta {kv.Key} usada por {kv.Value} triangulos: " + string.Join(" | ", users.Select(Tx)));
+                }
+            }
+            edgeUse.Clear();
             foreach ((int a, int b, int d) in tris)
             {
                 faces.Add(new[] { a, b, d });
@@ -1079,7 +1375,6 @@ internal static partial class MFTravessia
                     edgeUse[key] = edgeUse.TryGetValue(key, out int u) ? u + 1 : 1;
                 }
             }
-            // Laterais verticais nas arestas de borda (as usadas por um triangulo so), no sentido do triangulo.
             foreach ((int a, int b, int d) in tris)
             {
                 foreach ((int p, int q) in new[] { (a, b), (b, d), (d, a) })
@@ -1094,56 +1389,213 @@ internal static partial class MFTravessia
             foreach (int[] f in faces)
             {
                 idx.Add(3);
-                foreach (int i in f)
-                    idx.Add(i);
+                foreach (int k in f)
+                    idx.Add(k);
             }
             var mesh = new AcadDb.SubDMesh();
             mesh.SetDatabaseDefaults();
-            mesh.SetSubDMesh(verts, idx, 0);
+            mesh.SetSubDMesh(meshPts, idx, 0);
             mesh.Layer = layer;
             ms.AppendEntity(mesh);
             tr.AddNewlyCreatedDBObject(mesh, true);
             AcadDb.Solid3d solid = mesh.ConvertToSolid(false, true);
+            CleanSolid(solid);
             solid.SetDatabaseDefaults();
             solid.Layer = layer;
             solid.TransformBy(Matrix3d.Displacement(shift));
             ms.AppendEntity(solid);
             tr.AddNewlyCreatedDBObject(solid, true);
             mesh.Erase();
-            mode = $"solido pela triangulacao da superficie ({tris.Count} triangulos no topo, {faces.Count} faces; {inner} vertices da superficie no miolo; {sw.ElapsedMilliseconds} ms)";
+            mode = $"solido com os triangulos da superficie ({srcTris} triangulos da superficie no contorno, {tris.Count} no topo, {filled} triangulo(s) para fechar a borda, {faces.Count} faces na malha, triangulo mais esticado {aspect:0} : 1 (aresta maior / altura); {sw.ElapsedMilliseconds} ms)";
             return solid;
         }
         catch (System.Exception ex)
         {
-            PluginLog.Aviso("MFTRAVESSIA", "Uniao: plato pela triangulacao da superficie nao saiu (" + ex.Message + "); fica o solido em leque.");
+            PluginLog.Aviso("MFTRAVESSIA", "Uniao: plato com os triangulos da superficie nao saiu (" + ex.Message + "); fica o solido em leque.");
             return null;
-        }
-        finally
-        {
-            foreach (AcadDb.Entity e in temp)
-            {
-                try
-                {
-                    if (!e.IsErased)
-                        e.Erase();
-                }
-                catch
-                {
-                    // Ja apagada.
-                }
-            }
-            try
-            {
-                if (!tinId.IsNull && tr.GetObject(tinId, AcadDb.OpenMode.ForWrite) is AcadDb.DBObject t && !t.IsErased)
-                    t.Erase();
-            }
-            catch
-            {
-                // TIN temporaria ja apagada.
-            }
         }
     }
 
+    /// <summary>
+    /// Fecha furos da malha do plato (a TIN as vezes deixa de fora um triangulo junto da borda, o que cria um vertice em
+    /// "gravata" e trava o ConvertToSolid): cada laco de borda no sentido horario (furo) e preenchido por recorte de orelhas.
+    /// Triangulos no sentido anti-horario. Devolve quantos triangulos entraram.
+    /// </summary>
+    internal static int FillHoles(List<(int A, int B, int C)> tris, List<(double X, double Y)> v)
+    {
+        int added = 0;
+        for (int pass = 0; pass < 8; pass++)
+        {
+            var directed = new HashSet<(int, int)>();
+            foreach (var t in tris)
+            {
+                directed.Add((t.A, t.B));
+                directed.Add((t.B, t.C));
+                directed.Add((t.C, t.A));
+            }
+            var next = new Dictionary<int, List<int>>();
+            foreach ((int p, int q) in directed)
+            {
+                if (directed.Contains((q, p)))
+                    continue;
+                if (!next.TryGetValue(p, out var l))
+                    next[p] = l = new List<int>();
+                l.Add(q);
+            }
+            // Gravata: vertice com duas saidas de borda. Falta um triangulo em cunha (p -> v -> q, virando a direita);
+            // entra o de menor angulo que nao cubra nenhum outro vertice.
+            int notch = 0;
+            foreach (var kv in next.Where(kv => kv.Value.Count > 1).ToList())
+            {
+                int vv = kv.Key;
+                var ins = next.Where(e => e.Value.Contains(vv)).Select(e => e.Key).ToList();
+                (int P, int Q, double Ang)? best = null;
+                foreach (int p in ins)
+                {
+                    foreach (int q in kv.Value)
+                    {
+                        if (p == q)
+                            continue;
+                        var a = v[p];
+                        var b = v[q];
+                        var c = v[vv];
+                        double cr = ((b.X - a.X) * (c.Y - a.Y)) - ((b.Y - a.Y) * (c.X - a.X));
+                        if (cr <= 1e-10)
+                            continue;
+                        double ang = Math.Abs(Math.Atan2(((a.X - c.X) * (b.Y - c.Y)) - ((a.Y - c.Y) * (b.X - c.X)), ((a.X - c.X) * (b.X - c.X)) + ((a.Y - c.Y) * (b.Y - c.Y))));
+                        bool covers = false;
+                        for (int k = 0; k < v.Count && !covers; k++)
+                        {
+                            if (k == p || k == q || k == vv)
+                                continue;
+                            var r = v[k];
+                            double s1 = ((b.X - a.X) * (r.Y - a.Y)) - ((b.Y - a.Y) * (r.X - a.X));
+                            double s2 = ((c.X - b.X) * (r.Y - b.Y)) - ((c.Y - b.Y) * (r.X - b.X));
+                            double s3 = ((a.X - c.X) * (r.Y - c.Y)) - ((a.Y - c.Y) * (r.X - c.X));
+                            covers = s1 > 1e-12 && s2 > 1e-12 && s3 > 1e-12;
+                        }
+                        if (!covers && (best is null || ang < best.Value.Ang))
+                            best = (p, q, ang);
+                    }
+                }
+                if (best is { } bb)
+                {
+                    tris.Add((bb.P, bb.Q, vv));
+                    added++;
+                    notch++;
+                }
+            }
+            if (notch > 0)
+                continue;
+
+            // Lacos de borda; um laco que passa duas vezes pelo mesmo vertice e quebrado em lacos simples.
+            var loops = new List<List<int>>();
+            while (next.Count > 0)
+            {
+                int start = next.Keys.First();
+                var path = new List<int> { start };
+                int cur = start;
+                while (true)
+                {
+                    if (!next.TryGetValue(cur, out var outs) || outs.Count == 0)
+                        break;
+                    int nx = outs[^1];
+                    outs.RemoveAt(outs.Count - 1);
+                    if (outs.Count == 0)
+                        next.Remove(cur);
+                    if (nx == start)
+                        break;
+                    int at = path.IndexOf(nx);
+                    if (at >= 0)
+                    {
+                        loops.Add(path.GetRange(at, path.Count - at));
+                        path.RemoveRange(at + 1, path.Count - at - 1);
+                        cur = nx;
+                        continue;
+                    }
+                    path.Add(nx);
+                    cur = nx;
+                }
+                if (path.Count >= 3)
+                    loops.Add(path);
+            }
+            int before = added;
+            foreach (var loop in loops)
+            {
+                double a2 = 0;
+                for (int i = 0; i < loop.Count; i++)
+                {
+                    var a = v[loop[i]];
+                    var b = v[loop[(i + 1) % loop.Count]];
+                    a2 += (a.X * b.Y) - (b.X * a.Y);
+                }
+                if (a2 >= 0 || -a2 / 2.0 > 4.0 || loop.Count > 200)
+                    continue; // contorno externo (anti-horario) ou furo grande demais: fica como esta
+                var poly = new List<int>(loop);
+                poly.Reverse(); // furo em sentido anti-horario
+                int guard = 0;
+                while (poly.Count > 3 && guard++ < 10000)
+                {
+                    bool cut = false;
+                    for (int i = 0; i < poly.Count; i++)
+                    {
+                        int ip = poly[(i - 1 + poly.Count) % poly.Count], ic = poly[i], inx = poly[(i + 1) % poly.Count];
+                        var p0 = v[ip];
+                        var p1 = v[ic];
+                        var p2 = v[inx];
+                        double cr = ((p1.X - p0.X) * (p2.Y - p0.Y)) - ((p1.Y - p0.Y) * (p2.X - p0.X));
+                        if (cr <= 1e-12)
+                            continue;
+                        bool inside = false;
+                        foreach (int k in poly)
+                        {
+                            if (k == ip || k == ic || k == inx)
+                                continue;
+                            var q = v[k];
+                            double s1 = ((p1.X - p0.X) * (q.Y - p0.Y)) - ((p1.Y - p0.Y) * (q.X - p0.X));
+                            double s2 = ((p2.X - p1.X) * (q.Y - p1.Y)) - ((p2.Y - p1.Y) * (q.X - p1.X));
+                            double s3 = ((p0.X - p2.X) * (q.Y - p2.Y)) - ((p0.Y - p2.Y) * (q.X - p2.X));
+                            if (s1 >= 0 && s2 >= 0 && s3 >= 0)
+                            {
+                                inside = true;
+                                break;
+                            }
+                        }
+                        if (inside)
+                            continue;
+                        tris.Add((ip, ic, inx));
+                        added++;
+                        poly.RemoveAt(i);
+                        cut = true;
+                        break;
+                    }
+                    if (!cut)
+                        break;
+                }
+                if (poly.Count == 3)
+                {
+                    tris.Add((poly[0], poly[1], poly[2]));
+                    added++;
+                }
+            }
+            if (added == before)
+                break;
+        }
+        return added;
+    }
+
+    /// <summary>Funde faces planas vizinhas e tira arestas sobrando do solido (menos arestas no Object Viewer e no IFC).</summary>
+    internal static void CleanSolid(AcadDb.Solid3d solid)
+    {
+        try
+        {
+            solid.CleanBody();
+        }
+        catch
+        {
+            // Sem limpeza: o solido fica como saiu da malha.
+        }
+    }
     private static AcadDb.Entity? FanSolid(AcadDb.Transaction tr, AcadDb.BlockTableRecord ms, Point3d[,] top, Point3d[,] bottom,
         string layer, out string mode)
     {
@@ -1206,6 +1658,7 @@ internal static partial class MFTravessia
         try
         {
             AcadDb.Solid3d solid = mesh.ConvertToSolid(false, true);
+            CleanSolid(solid);
             solid.SetDatabaseDefaults();
             solid.Layer = layer;
             solid.TransformBy(back);

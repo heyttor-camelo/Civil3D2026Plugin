@@ -1,3 +1,10 @@
+## 2.125.1 - MFREBAIXO v1.33.1 / PassagemRampa v1.26.1: acabamento das lombofaixas (uniao e travessia simples)
+
+Retorno do Heyvid em 17/11/2026 ("agora o acabamento das lombofaixas ficaram ruins"; "verificar interface da rampa com a travessia tambem").
+
+- Travessia simples: a altura volta a ir de um meio-fio rebaixado ao outro em linha reta (a 2.124.0 punha 12 cm no meio e fazia um "travesseiro" junto do meio-fio, que fica ~5-9 cm acima da pista). Solido passa por CleanBody (faces planas vizinhas fundidas).
+- Uniao: o topo usa os triangulos reais da superficie de topo recortados pelo contorno (sem leque e sem aneis). As arestas da superficie que cortam o contorno sao cortadas nele (sem lascas na borda); pontos quase repetidos (menos de 5 mm) viram um so; pontos alinhados do contorno (menos de 3 mm) saem; triangulos que a TIN temporaria deixava de fora junto da borda sao repostos (era isso que travava a U10 no ConvertToSolid). Altura: na borda a do meio-fio rebaixado / topo de cada travessia, por dentro media ponderada (paralela a superficie, sem almofada).
+- Conferido na copia do KM_01 (imagens em G:\Meu Drive\Civil3D2026Plugin\diag): U10 saiu pelos triangulos da superficie (antes caia no leque), 334 triangulos no topo, 792 faces; U09 99 triangulos, 243 faces. Costura rampa x plato da uniao: afastamento em planta ate 0,9 mm, degrau de altura ate 3,8 mm (medio 0,2-1,4 mm). Nenhuma superficie temporaria sobrando.
 ## 2.125.0 - MFREBAIXO v1.33.0 / PassagemRampa v1.26.0: solido da uniao pela triangulacao da superficie de topo
 
 Pedido do Heyvid em 17/11/2026 ("o solido ... fica todo torto, com uma caralhada de triangulos; nao tem como recortar e aproveitar a triangulacao da superficie?").

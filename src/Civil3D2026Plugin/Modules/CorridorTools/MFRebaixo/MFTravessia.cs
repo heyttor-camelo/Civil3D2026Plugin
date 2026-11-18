@@ -954,9 +954,9 @@ internal static partial class MFTravessia
                 }
                 // 2.124.0 (Heyvid: "segue a superficie, com a mesma altura do rebaixo ... ou seja, fica paralela"): no miolo
                 // a altura da lombofaixa sobre a superficie; so a faixa junto de cada borda vai ate o topo do meio-fio.
-                double h = p.Tipo == TravessiaTipo.SemiElevada
-                    ? TravessiaGeometry.EdgeBlend(p.Altura, hA[i], w * widthI, hB[i], (1.0 - w) * widthI, band)
-                    : hA[i] + ((hB[i] - hA[i]) * w);
+                // 2.125.1: de volta a ir de um meio-fio ao outro (a 2.124.0 punha 12 cm sobre a pista no meio e a faixa de 1 m
+                // junto do meio-fio, que fica so ~5-9 cm acima da pista, fazia um "travesseiro"; retorno do Heyvid em 17/11/2026).
+                double h = hA[i] + ((hB[i] - hA[i]) * w);
                 bottom[i, j] = new Point3d(x, y, z);
                 top[i, j] = new Point3d(x, y, z + Math.Max(h * f, MinThickness));
             }
@@ -2089,6 +2089,7 @@ internal static partial class MFTravessia
         try
         {
             AcadDb.Solid3d solid = mesh.ConvertToSolid(false, true);
+            CleanSolid(solid);
             solid.SetDatabaseDefaults();
             solid.Layer = layer;
             solid.TransformBy(back);
@@ -2183,6 +2184,7 @@ internal static partial class MFTravessia
         try
         {
             AcadDb.Solid3d solid = mesh.ConvertToSolid(false, true);
+            CleanSolid(solid);
             solid.SetDatabaseDefaults();
             solid.Layer = layer;
             solid.TransformBy(back);
