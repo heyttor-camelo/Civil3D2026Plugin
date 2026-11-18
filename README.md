@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- Feature lines (2.127.0): **`FLCOPIARGEOMETRIA`** - a feature line existente passa a ter a geometria em planta de uma polilinha (LWPOLYLINE, 2D ou 3D), com arcos de verdade em aberta e fechada, **sem perder a identidade** (mesmo handle: baselines de corredor, alvos e site continuam ligados). Elevacao: vertice a vertice se o numero de vertices for igual, senao a da feature line antiga no ponto mais proximo; pontos de elevacao recolocados no ponto mais proximo e enxugados (tolerancia pedida, padrao 1 mm, 0 = todos). Mantem o sentido da feature line; a ultima regiao do corredor vai ate o novo fim e as outras voltam as estacas de antes. Resumo e confirmacao; pergunta se reconstroi os corredores e se apaga a polilinha; U desfaz.
 - MFREBAIXO v1.34.0: **Rebuild do corredor automatico ou manual**. No manual o rebaixo grava so as transicoes e as secoes e fica pendente; `MFREBAIXORECONSTRUIR` (ou o botao Reconstruir pendentes do painel) faz um Rebuild por corredor e finaliza todos. Troca pela opcao Rebuild do MFREBAIXO, pelo botao do painel ou por `MFREBAIXOMODOREBUILD`.
 - MFREBAIXO v1.33.1: solido da uniao de lombofaixas pelos triangulos reais da superficie de topo (sem leque nem lascas, costura com as rampas conferida); travessia simples de meio-fio a meio-fio.
 - MFREBAIXO v1.32.0: lombofaixa (simples e uniao) **paralela a superficie de topo**: altura do rebaixo no miolo e faixa de transicao de 1 m (Configuracao) ate o meio-fio rebaixado e as rampas.

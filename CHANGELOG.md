@@ -1,3 +1,13 @@
+## 2.127.0 - FEATURE LINES: FLCOPIARGEOMETRIA (feature line copia a geometria de uma polilinha sem perder a identidade)
+
+Pedido do Heyvid em 18/11/2026 (canteiros e ilhas usados como baseline de corredor).
+
+- Novo comando FLCOPIARGEOMETRIA: seleciona a feature line e a polilinha (LWPOLYLINE, 2D ou 3D). A feature line passa a ter exatamente a geometria em planta da polilinha, com arcos de verdade, aberta ou fechada, e continua o MESMO objeto (mesmo handle/ObjectId): baselines, alvos e site seguem ligados.
+- Como: a API da feature line nao move PI nem cria arco em trecho reto (SetBulge so muda arco existente; COM SetBulgeAtPoint nao faz nada; fechada nao estende). O comando cria por baixo uma feature line nova com a geometria certa, no mesmo site, com layer/estilo e as elevacoes, e troca a identidade com a antiga (SwapIdWith); a sobra com a geometria antiga e apagada.
+- Elevacao: mesmo numero de vertices = vertice a vertice; senao, a da feature line antiga no ponto mais proximo (interpolada). Polilinha 3D: opcao de usar as elevacoes dela. Pontos de elevacao recolocados no ponto mais proximo da geometria nova (ate 1 m) e enxugados pela tolerancia pedida (padrao 1 mm; 0 = manter todos).
+- Sentido e inicio da feature line mantidos (estacas nao invertem). Regioes: a ultima vai ate o novo fim (com a mesma folga, se terminava perto do fim); as outras voltam as estacas de antes (o Civil remapeia na troca). Resumo com vertices, comprimentos, elevacoes, pontos de elevacao, corredores e regioes; confirmacao; pergunta se reconstroi os corredores e se apaga a polilinha; U desfaz tudo.
+- Teste na copia do KM_01 (ilhas SARJETA 11, 16, 17 fechadas e SARJETA 03 aberta, com arco e numero de vertices diferente): handle igual, geometria a 0,0 mm da polilinha, arco de verdade, elevacao ate 2,4 mm da antiga, baseline intacta, Rebuild sem erro, regioes da 17 (duas regioes parciais) restauradas, salvar/reabrir com AUDIT sem erros, U desfaz.
+- Limite: feature line dentro de site com muitos pontos de elevacao leva minutos (ex. 4 min com 300 pontos); feature line de referencia (data shortcut/xref) e recusada.
 ## 2.126.0 - MFREBAIXO v1.34.0 / PassagemRampa v1.27.0: Rebuild do corredor automatico ou manual
 
 Pedido do Heyvid em 18/11/2026 ("o comando pode ter um modo de rebuild automatico ... ou outro manual, onde eu lanco os rebaixos e so quando eu quiser dou rebuild").

@@ -173,6 +173,7 @@ public static class CommandNames
         public const string Descarregar = "FLDESCARREGAR";
         public const string SetPv = "FLSETPV";
         public const string RenomearCorte = "FLRENOMEARCORTE";
+        public const string CopiarGeometria = "FLCOPIARGEOMETRIA";
     }
 
     public static class Superficies
