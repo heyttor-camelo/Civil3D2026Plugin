@@ -66,6 +66,7 @@ public sealed partial class MFRebaixoCommands
         double? slopeIn = null,
         double? slopeOut = null)
     {
+        var coreClock = System.Diagnostics.Stopwatch.StartNew();
         // Qualquer ordem (painel e reposicionar tambem): so a mesma estaca e recusada.
         if (s2 < s1)
             (s1, s2) = (s2, s1);
@@ -426,13 +427,30 @@ public sealed partial class MFRebaixoCommands
             highlightApplied = true;
         }
 
+        long beforeSetMs = coreClock.ElapsedMilliseconds;
         foreach (var g in groups.Values)
             g.Baseline.SetTransitions(g.Sets);
+        long setMs = coreClock.ElapsedMilliseconds - beforeSetMs;
 
         foreach (string note in notes)
         {
             PluginLog.Aviso("MFREBAIXO", note);
             Say(ed, "\n[MFREBAIXO] " + note + ".");
+        }
+
+        // Modo manual (2.126.0): so as transicoes e as secoes; Rebuild, acerto da altura final e hachura ficam para o
+        // MFREBAIXORECONSTRUIR. O rebaixo entra na lista de pendentes do desenho (mesma transacao: o U tira tambem).
+        if (DeferRebuild)
+        {
+            MFRebaixoPending.Add(tr, corridor.Database, setName, groups.Values.Select(g => g.Corridor.ObjectId));
+            tr.Commit();
+            int pendN = MFRebaixoPending.Count(corridor.Database);
+            Say(ed, $"\n[OK] REBAIXO MF lancado SEM Rebuild (modo manual): {setName}, {s1:0.000} -> {s2:0.000}, altura final pedida {finalHeight:0.###} m" +
+                    $" | rampas {s0:0.000} -> {s1:0.000} e {s2:0.000} -> {s3:0.000} | secoes adicionadas: {addedSections}.");
+            Say(ed, $"\n     Altura normal das pontas lida da ultima reconstrucao: antes {startEffectiveHeight:0.###} m ({startEffectiveSource}), depois {endEffectiveHeight:0.###} m ({endEffectiveSource}).");
+            Say(ed, $"\n     Pendentes no desenho: {pendN}. O corredor so mostra o rebaixo depois do MFREBAIXORECONSTRUIR (ou do botao Reconstruir do painel).\n");
+            PluginLog.Info("MFREBAIXO", $"{setName}: lancado sem Rebuild (modo manual); {pendN} pendente(s); {coreClock.ElapsedMilliseconds} ms (antes de gravar {beforeSetMs} ms, SetTransitions {setMs} ms).");
+            return;
         }
 
         // Rebuild de cada corredor tocado (a Baseline vizinha pode ser de outro corredor).

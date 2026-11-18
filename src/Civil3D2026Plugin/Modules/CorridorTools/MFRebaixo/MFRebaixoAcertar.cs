@@ -95,6 +95,8 @@ public sealed partial class MFRebaixoCommands
     {
         int done = 0;
         var errors = new List<string>();
+        // Precisa ler a altura obtida: Rebuild mesmo no modo manual (2.126.0).
+        using IDisposable rebuild = ForceRebuildScope();
         foreach (RebaixoInfo r in targets)
         {
             if (r.TargetFinal is not double h)

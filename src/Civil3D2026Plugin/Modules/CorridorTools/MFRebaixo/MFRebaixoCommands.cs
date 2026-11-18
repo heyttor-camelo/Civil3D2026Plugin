@@ -200,6 +200,14 @@ public sealed partial class MFRebaixoCommands
             "\nA DLL cria Corridor Sections novas nas posições calculadas " +
             "de início/fim das rampas.");
 
+        // Modo de Rebuild manual (2.126.0): lembra os pendentes e o Rebuild automatico do Civil, se ligado.
+        MFRebaixoPending.EnsureHooks();
+        if (settings.RebuildManual)
+        {
+            ed.WriteMessage($"\nRebuild do corredor: Manual ({MFRebaixoPending.Count(db)} rebaixo(s) pendente(s)). Opcao Rebuild troca; Reconstruir finaliza os pendentes.");
+            OfferAutoRebuildOff(AcApp.DocumentManager.MdiActiveDocument);
+        }
+
         while (true)
         {
             var firstOptions =
@@ -207,7 +215,8 @@ public sealed partial class MFRebaixoCommands
                     $"\nClique no 1º PONTO REBAIXADO " +
                     $"| Lado={GetSideModeLabel(sideMode)} " +
                     $"| Rampas: entrada {SlopeLabel(settings.UltimaDeclividade)}, saida {SlopeLabel(ExitSlopeSetting(settings))} " +
-                    "[Auto/Esquerda/Direita/Declividade] <Encerrar>: ")
+                    $"| Rebuild={RebuildModeLabel(settings)}" + (settings.RebuildManual ? $" ({MFRebaixoPending.Count(db)} pendente(s))" : "") + " " +
+                    "[Auto/Esquerda/Direita/Declividade/Rebuild/Reconstruir] <Encerrar>: ")
                 {
                     AllowNone = true
                 };
@@ -223,6 +232,12 @@ public sealed partial class MFRebaixoCommands
 
             firstOptions.Keywords.Add(
                 "Declividade");
+
+            firstOptions.Keywords.Add(
+                "Rebuild");
+
+            firstOptions.Keywords.Add(
+                "Reconstruir");
 
             PromptPointResult firstResult =
                 ed.GetPoint(
@@ -251,6 +266,21 @@ public sealed partial class MFRebaixoCommands
                         ed,
                         settings);
 
+                    continue;
+                }
+
+                // Rebuild do corredor automatico/manual (2.126.0) e finalizacao dos pendentes.
+                if (keyword.Equals("Rebuild", StringComparison.OrdinalIgnoreCase))
+                {
+                    MFRebaixoSettingsStore.Save(settings);
+                    SetRebuildMode(AcApp.DocumentManager.MdiActiveDocument, !settings.RebuildManual);
+                    settings.RebuildManual = MFRebaixoSettingsStore.Load().RebuildManual;
+                    continue;
+                }
+
+                if (keyword.Equals("Reconstruir", StringComparison.OrdinalIgnoreCase))
+                {
+                    FinalizePending(AcApp.DocumentManager.MdiActiveDocument, ask: true);
                     continue;
                 }
 

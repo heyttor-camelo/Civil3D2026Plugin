@@ -29,6 +29,10 @@ internal sealed class MFRebaixoSettings
     // (JSON antigo). O marcador MFRebaixoCommands.PlumbSlope (99) nas duas quer dizer "a prumo".
     public double UltimaDeclividadeSaida { get; set; } = -1;
 
+    // Rebuild do corredor (2.126.0, pedido do Heyvid em 18/11/2026): false = automatico (cada rebaixo faz o Rebuild e
+    // fica pronto); true = manual (grava so as transicoes e as secoes; o rebaixo fica pendente ate o MFREBAIXORECONSTRUIR).
+    public bool RebuildManual { get; set; }
+
     // Painel (MFREBAIXOPAINEL).
     public double PainelMargem { get; set; } = 6.0;
     // "GERAL" (todos os rebaixos) ou "PLANTA" (trecho do rebaixo).

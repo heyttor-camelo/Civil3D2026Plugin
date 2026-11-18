@@ -48,6 +48,9 @@ public sealed class MFTravessiaCommands
                 PluginLog.Diag(Mod, $"tempo: {what} {clock.ElapsedMilliseconds} ms");
                 clock.Restart();
             }
+            // Rebaixos lancados sem Rebuild (modo manual): a travessia le o meio-fio pronto (2.126.0).
+            if (!MFRebaixoCommands.OfferFinalizeBefore(doc, "A travessia"))
+                return;
             List<RebaixoInfo> items = MFRebaixoData.ReadAll(db);
             Lap("ler rebaixos");
             if (items.Count < 2)
@@ -272,6 +275,11 @@ public sealed class MFTravessiaCommands
                 ed.WriteMessage("\nNenhuma travessia (MFTRAVESSIA) no desenho.\n");
                 return;
             }
+            if (!MFRebaixoCommands.OfferFinalizeBefore(doc, "Refazer a travessia"))
+            {
+                ed.WriteMessage("\nCancelado. Nada mudou.\n");
+                return;
+            }
 
             var mode = new PromptKeywordOptions($"\n{all.Count} travessia(s) no desenho. Refazer [Todas/Selecionar]", "Todas Selecionar") { AllowNone = true };
             mode.Keywords.Default = "Todas";
@@ -432,6 +440,8 @@ public sealed class MFTravessiaCommands
         if (items.Count == 0)
             return warnings;
         var old = items.Select(x => (x.R, OldH: x.R.FinalHeight ?? x.H)).ToList();
+        // A travessia desenha em cima do meio-fio pronto: Rebuild mesmo no modo manual (2.126.0).
+        using IDisposable rebuild = MFRebaixoCommands.ForceRebuildScope();
         for (int i = 0; i < items.Count; i++)
         {
             bool lastOfCorridor = !items.Skip(i + 1).Any(x => x.R.CorridorId == items[i].R.CorridorId);

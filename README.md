@@ -1,6 +1,7 @@
 # Civil3D2026Plugin
 
 ```
+- MFREBAIXO v1.34.0: **Rebuild do corredor automatico ou manual**. No manual o rebaixo grava so as transicoes e as secoes e fica pendente; `MFREBAIXORECONSTRUIR` (ou o botao Reconstruir pendentes do painel) faz um Rebuild por corredor e finaliza todos. Troca pela opcao Rebuild do MFREBAIXO, pelo botao do painel ou por `MFREBAIXOMODOREBUILD`.
 - MFREBAIXO v1.33.1: solido da uniao de lombofaixas pelos triangulos reais da superficie de topo (sem leque nem lascas, costura com as rampas conferida); travessia simples de meio-fio a meio-fio.
 - MFREBAIXO v1.32.0: lombofaixa (simples e uniao) **paralela a superficie de topo**: altura do rebaixo no miolo e faixa de transicao de 1 m (Configuracao) ate o meio-fio rebaixado e as rampas.
 - MFREBAIXO v1.31.0: **Redesenhar** (MFTRAVESSIAREFAZER) acerta os rebaixos que nao cobrem a plataforma da lombofaixa (com confirmacao; U desfaz); uniao com grelha so no meio-fio rebaixado (opcao na Configuracao para os cantos); coluna **Desnivel MF** e aviso no painel.
@@ -139,7 +140,7 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
 - Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
   e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
 - Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFREBAIXOACERTAR`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
+  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFREBAIXOACERTAR`, `MFREBAIXORECONSTRUIR`, `MFREBAIXOMODOREBUILD`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
   `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
 - `MFTRAVESSIAUNIR` (MFREBAIXO v1.15): depois de lancar as travessias de um cruzamento, **une todas num plato so**,
   limitado pelo meio-fio (borda da pista lida do corredor; a sarjeta dos cantos fica livre, com tampa de concreto).
@@ -159,6 +160,8 @@ junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
   (layer `MF-REBAIXO`, vermelho solido com 20% de transparencia, cobrindo sarjeta + meio-fio de S0 a S3),
   sem depender do Code Set Style. Layer, cor, padroes e transparencia ficam na Configuracao do painel.
 - `MFREBAIXOACERTAR` (v1.28): refaz os rebaixos cuja altura obtida no trecho rebaixado difere da pedida (mais de 2 mm), ou todos (opcao Todos). Mostra a lista (hoje x pedida), pede Acertar; U desfaz. Com o MFSARJETA 1.27 no corredor converte para a altura final direta. Para trocar a peca: Prospector > Subassemblies > MFSARJETA_ESQ/DIR > Properties > Parameters > Change Subassembly... > `MFSARJETA_v1.27.pkt` (em `G:\Meu Drive\Civil3D2026Plugin\atual`); os alvos, os parametros e as Corridor Transitions ficam (conferido numa copia). Meio-fio Kassel nao rebaixa (o aviso mostra).
+- `MFREBAIXOMODOREBUILD` (v1.34): troca o Rebuild do corredor entre Automatico (padrao: cada rebaixo faz o Rebuild, acerta a altura e desenha a hachura) e Manual (o rebaixo fica pendente, sem Rebuild; a altura normal das pontas vem da ultima reconstrucao). No manual, se o corredor estiver com o Rebuild automatico do Civil ligado, oferece desligar. Tambem pela opcao Rebuild do MFREBAIXO e pelo botao do painel (o modo e os pendentes aparecem no titulo do painel).
+- `MFREBAIXORECONSTRUIR` (v1.34): finaliza os pendentes do modo manual: um Rebuild por corredor, acerto da altura final dos que sairem diferentes, hachuras e aviso das travessias ligadas. Lista e pede confirmacao; U desfaz. MFTRAVESSIA e Refazer oferecem reconstruir antes; salvar/fechar com pendentes avisa na linha de comando. Teste no KM_01: 5 rebaixos em 59 s no automatico, 37 s no manual (25 s lancando + 11 s reconstruindo).
 - `MFREBAIXOLIMPAR` (v1.10): apaga de vez os Transition Sets de rebaixos removidos (desligados) e os presos a
   uma peca que nao existe mais na assembly. Desde a v1.10 o Remover do painel ja apaga o set de vez; so fica
   desligado quando e o unico set da baseline (o Civil nao deixa a lista vazia).

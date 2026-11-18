@@ -1,3 +1,13 @@
+## 2.126.0 - MFREBAIXO v1.34.0 / PassagemRampa v1.27.0: Rebuild do corredor automatico ou manual
+
+Pedido do Heyvid em 18/11/2026 ("o comando pode ter um modo de rebuild automatico ... ou outro manual, onde eu lanco os rebaixos e so quando eu quiser dou rebuild").
+
+- Configuracao "Rebuild do corredor": Automatico (padrao, como antes) ou Manual. Troca pela opcao Rebuild do MFREBAIXO, pelo botao "Rebuild automatico / manual" do painel ou pelo comando MFREBAIXOMODOREBUILD.
+- Manual: o rebaixo grava so os Transition Sets e as secoes (sem Rebuild, hachura nem acerto da altura final) e entra na lista de pendentes guardada no desenho (o U tira junto). A altura normal das pontas vem das secoes da ultima reconstrucao (a mensagem diz de onde).
+- MFREBAIXORECONSTRUIR (botao "Reconstruir pendentes" e opcao Reconstruir do MFREBAIXO): um Rebuild por corredor, acerto da altura final dos que sairem diferentes da pedida (peca sem REB_K), hachuras e aviso das travessias ligadas. Lista e confirmacao; U desfaz.
+- O painel mostra o modo e os pendentes no titulo e no rodape; salvar ou fechar com pendentes avisa na linha de comando. MFTRAVESSIA e MFTRAVESSIAREFAZER oferecem reconstruir antes; as travessias e o Acertar altura final sempre fazem o Rebuild (precisam do meio-fio pronto).
+- No manual, corredor com o "Rebuild automatico" do Civil ligado: avisa e oferece desligar (com confirmacao; U desfaz).
+- Tempo na copia do KM_01 (5 rebaixos de 3 m, altura 12 cm): automatico 59 s; manual 25 s lancando + 11 s reconstruindo = 37 s. Os 5 sairam com 12,0 cm, hachuras desenhadas, nenhum pendente sobrando.
 ## 2.125.1 - MFREBAIXO v1.33.1 / PassagemRampa v1.26.1: acabamento das lombofaixas (uniao e travessia simples)
 
 Retorno do Heyvid em 17/11/2026 ("agora o acabamento das lombofaixas ficaram ruins"; "verificar interface da rampa com a travessia tambem").

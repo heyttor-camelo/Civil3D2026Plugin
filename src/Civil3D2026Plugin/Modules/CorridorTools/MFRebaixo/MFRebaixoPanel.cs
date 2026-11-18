@@ -140,6 +140,14 @@ internal sealed partial class MFRebaixoPanel : SW.Window
             new[] { "Selecione um rebaixo ou corredor." }, p => p.SelectCorridor()),
         new("REBUILD", "reconstruir", "Rebuild do corredor", "Corredor",
             "Reconstroi o corredor do item escolhido e le tudo de novo.", new[] { "Selecione um rebaixo ou corredor." }, p => p.RebuildCurrent()),
+        new("MODOREBUILD", "atualizar", "Rebuild automatico / manual (trocar)", "Rebaixo",
+            "Troca o modo de Rebuild dos rebaixos. Automatico (padrao): cada rebaixo faz o Rebuild e fica pronto. Manual: o rebaixo grava so as transicoes e as secoes e fica pendente; quando quiser, Reconstruir pendentes faz um Rebuild por corredor e finaliza todos. O modo atual aparece no titulo do painel.",
+            new[] { "Sem selecao: vale para os proximos rebaixos.", "No manual, se o corredor estiver com o Rebuild automatico do Civil ligado, o comando oferece desligar." },
+            p => p.Send(C3DCommands.Corridor.MfRebaixoModoRebuild + " ", "Trocando o modo de Rebuild: veja a linha de comando.")),
+        new("RECONSTRUIRPENDENTES", "reconstruir", "Reconstruir pendentes", "Rebaixo",
+            "Modo manual: um Rebuild por corredor dos rebaixos lancados sem Rebuild e a finalizacao deles (acerto da altura final, hachuras, aviso das travessias). Mostra a lista e pede confirmacao; U desfaz.",
+            new[] { "Sem selecao: vale para todos os pendentes do desenho.", "Confirme na linha de comando." },
+            p => p.Send(C3DCommands.Corridor.MfRebaixoReconstruir + " ", "Reconstruir pendentes: confirme na linha de comando.")),
         new("NOVATRAVESSIA", "passagem", "Nova travessia", "Travessia",
             "Lombofaixa elevada ou semi-elevada ligando dois rebaixos frente a frente (MFTRAVESSIA): plato 3D sobre a superficie de topo, tampa de concreto na sarjeta, hachura, faixa e triangulos. Na semi-elevada, centraliza os dois rebaixos e acerta a altura final deles.",
             new[] { "Escolha a superficie de topo (so na primeira vez).", "Clique no primeiro rebaixo e no do outro lado da rua.", "Ajuste tipo, altura, plataforma e rampas e confirme." },
@@ -819,13 +827,28 @@ internal sealed partial class MFRebaixoPanel : SW.Window
         if (_currentCorridor is not null)
             _currentCorridor = _corridors.FirstOrDefault(c => c.Id == _currentCorridor.Id);
 
-        Title = $"Rebaixos de meio-fio - Explorador [{System.IO.Path.GetFileName(doc.Name)}]";
+        // Rebuild do corredor automatico/manual (2.126.0): modo e pendentes no titulo e no rodape.
+        int pendN = 0;
+        try
+        {
+            using (doc.LockDocument())
+                pendN = MFRebaixoPending.Count(doc.Database);
+        }
+        catch
+        {
+            // Sem leitura: fica 0.
+        }
+        bool manualMode = MFRebaixoSettingsStore.Load().RebuildManual;
+        string rebuildInfo = manualMode || pendN > 0 ? $"  |  Rebuild: {(manualMode ? "Manual" : "Automatico")}, {pendN} pendente(s)" : "";
+
+        Title = $"Rebaixos de meio-fio - Explorador [{System.IO.Path.GetFileName(doc.Name)}]" + rebuildInfo;
         FillCategories();
         FillList();
         BuildTabs();
         RenderGraphic();
         HighlightCurrent();
-        Say($"{_items.Count} rebaixo(s) em {_corridors.Count} corredor(es); {_warnings.Count(w => w.Serious)} aviso(s) importante(s).");
+        Say($"{_items.Count} rebaixo(s) em {_corridors.Count} corredor(es); {_warnings.Count(w => w.Serious)} aviso(s) importante(s)." +
+            (pendN > 0 ? $" {pendN} rebaixo(s) pendente(s) de Rebuild: botao Reconstruir pendentes." : ""));
     }
 
     /// <summary>Destaca no desenho (contorno amarelo temporario) o rebaixo selecionado no painel.</summary>
