@@ -1,3 +1,13 @@
+## 2.128.0 - FEATURE LINES: FLORIGEM (nova origem da feature line fechada sem mexer no corredor) e FLFECHADAS
+
+Pedido do Heyvid em 18/11/2026 ("setar novo ponto de origem de feature line, mas sem f* todo o corredor"; "garantir que esteja fechada, as features as vezes parecem fechadas mas nao estao").
+
+- FLORIGEM: seleciona a feature line fechada e clica o novo ponto de origem (vai para o vertice mais proximo; opcao Livre cria um vertice no ponto, com o arco dividido no mesmo raio). Geometria, elevacoes, pontos de elevacao, sentido e o objeto (mesmo handle, pela troca de identidade do FLCOPIARGEOMETRIA) nao mudam.
+- Corredor: cada regiao vai para (estaca - deslocamento) mod comprimento (a de volta inteira fica 0-fim); os conjuntos de transicao (inclusive os rebaixos do MFREBAIXO, com o token de estacas do comentario) sao recriados na estaca nova, na regiao certa, com os mesmos parametros, valores e tipos; as secoes extras o Civil leva sozinho; os overrides voltam com as transicoes. Origem que cairia no meio de uma regiao ou transicao parcial: recusa e pede outro ponto.
+- Fechada de verdade: se a feature line e aberta mas as pontas estao coladas (tolerancia pedida, padrao 1 cm), avisa "parece fechada mas esta aberta" (distancia e diferenca de elevacao das pontas) e oferece fechar (mesmo objeto); pontas longe: recusa dizendo a distancia. Depois confere e informa que ficou fechada.
+- FLFECHADAS: lista as feature lines que parecem fechadas mas estao abertas e oferece fechar todas (confirmacao; U desfaz). O FLCOPIARGEOMETRIA passa a apontar esse comando quando a polilinha e fechada e a feature line so parece fechada.
+- Teste na copia do KM_01: SARJETA 12 (2 regioes, 6 rebaixos, 26 overrides) com a origem na estaca 45: regioes, secoes extras e as 14 transicoes no mesmo lugar fisico (0,0 mm), overrides mantidos, Rebuild sem erro, salvar/reabrir com AUDIT sem erros; SARJETA 16 (regiao de volta inteira, 71 overrides) e 17 (2 regioes parciais) ok; feature line com as pontas a 3,6 mm fechada de verdade com o mesmo handle e o arco.
+- Limites: nao divide regiao que atravessa a nova origem (recusa); dentro de site, ilha com muitos vertices/pontos de elevacao pode levar minutos (mesma limitacao do FLCOPIARGEOMETRIA).
 ## 2.127.0 - FEATURE LINES / PassagemRampa v1.27.1: FLCOPIARGEOMETRIA (feature line copia a geometria de uma polilinha sem perder a identidade)
 
 Pedido do Heyvid em 18/11/2026 (canteiros e ilhas usados como baseline de corredor).

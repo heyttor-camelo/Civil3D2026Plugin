@@ -331,7 +331,9 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.FeatureLines.ZSet, "Ajustar Z", "Ferramenta de elevacao de Feature Line."),
                     new CommandDefinition(C3DCommands.FeatureLines.SetPv, "Editar vertices", "Seleciona e altera elevacoes de vertices."),
                     new CommandDefinition(C3DCommands.FeatureLines.RenomearCorte, "Renomear por corte", "Renomeia Feature Lines selecionadas por ordem de corte."),
-                    new CommandDefinition(C3DCommands.FeatureLines.CopiarGeometria, "Feature line: copiar geometria de polilinha", "A feature line existente passa a ter a geometria em planta de uma polilinha, sem ser recriada (mesmo handle: corredores continuam ligados). Elevacao pela antiga; a ultima regiao do corredor vai ate o novo fim. Resumo, confirmacao; U desfaz.")
+                    new CommandDefinition(C3DCommands.FeatureLines.CopiarGeometria, "Feature line: copiar geometria de polilinha", "A feature line existente passa a ter a geometria em planta de uma polilinha, sem ser recriada (mesmo handle: corredores continuam ligados). Elevacao pela antiga; a ultima regiao do corredor vai ate o novo fim. Resumo, confirmacao; U desfaz."),
+                    new CommandDefinition(C3DCommands.FeatureLines.Origem, "Feature line: mudar o ponto de origem", "Numa feature line fechada, a estaca 0 passa para o ponto clicado, sem mudar geometria, elevacoes nem o objeto; regioes, transicoes/rebaixos, secoes extras e overrides do corredor vao junto (mesmo lugar fisico). Confere se e fechada de verdade. Resumo, confirmacao; U desfaz."),
+                    new CommandDefinition(C3DCommands.FeatureLines.Fechadas, "Feature lines que parecem fechadas", "Lista as feature lines abertas com as pontas coladas (parecem fechadas) e oferece fechar de verdade (mesmo objeto). Confirmacao; U desfaz.")
                 }),
 
             new(

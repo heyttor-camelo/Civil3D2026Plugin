@@ -30,6 +30,7 @@ using Autodesk.AutoCAD.Runtime;
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineVertexCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineRenameCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineGeometryCommands))]
+[assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.FeatureLines.FeatureLineOriginCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Surfaces.SurfaceColorAnalysisCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Surfaces.SurfaceSlopeCommands))]
 [assembly: CommandClass(typeof(Civil3D2026Plugin.Modules.Surfaces.TrimSurfaceLinesCommands))]

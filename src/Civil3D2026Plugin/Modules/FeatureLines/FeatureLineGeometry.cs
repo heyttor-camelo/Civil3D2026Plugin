@@ -186,7 +186,7 @@ internal static class FeatureLineGeometry
         {
             throw new InvalidOperationException(fl.Closed
                 ? "A feature line e fechada e a polilinha e aberta: feche a polilinha (PEDIT > Fechar) para a feature line continuar fechada."
-                : "A feature line e aberta e a polilinha e fechada: use uma polilinha aberta (a API nao abre nem fecha a feature line).");
+                : "A feature line e aberta e a polilinha e fechada" + (EndGap(fl).Gap < 0.01 ? $" (a feature line parece fechada: pontas a {EndGap(fl).Gap * 1000:0.0} mm; feche de verdade com FLFECHADAS e rode de novo)" : ": use uma polilinha aberta") + ".");
         }
 
         var plan = new Plan { Closed = pClosed };
@@ -384,6 +384,285 @@ internal static class FeatureLineGeometry
         plan.ElevationWeeded = before - plan.ElevationPoints.Count;
     }
 
+    /// <summary>
+    /// Plano para mudar a origem (estaca 0) de uma feature line FECHADA (FLORIGEM, 18/11/2026): a mesma geometria
+    /// (vertices, arcos, elevacoes e pontos de elevacao), com a lista de vertices comecando no ponto escolhido. Ponto no
+    /// meio de um segmento vira vertice (arco dividido no mesmo raio). <paramref name="shift"/> = estaca antiga do novo inicio.
+    /// </summary>
+    internal static Plan PrepareRotation(AcadDb.Transaction tr, AcadDb.Database db, CivilDb.FeatureLine fl, Point3d pick, bool snapVertex, out double shift, out bool newVertex)
+    {
+        if (!fl.Closed)
+            throw new InvalidOperationException("a feature line e aberta: a origem dela so pode ser uma das pontas (use o comando so em feature line fechada)");
+        if ((object)fl is not AcadDb.Curve cv)
+            throw new InvalidOperationException("feature line sem geometria de curva");
+        List<Point3d> pis = UniquePis(fl);
+        int n = pis.Count;
+        double[] bul = PiBulges(fl, pis, true);
+        double L = cv.GetDistanceAtParameter(cv.EndParam);
+        var st = new double[n + 1];
+        for (int i = 0; i < n; i++)
+            st[i] = i == 0 ? 0 : cv.GetDistAtPoint(cv.GetClosestPointTo(pis[i], false));
+        st[n] = L;
+
+        Point3d on = cv.GetClosestPointTo(pick, Vector3d.ZAxis, false);
+        double s = cv.GetDistAtPoint(on);
+        int seg = Math.Clamp(Array.FindLastIndex(st, x => x <= s + 1e-9), 0, n - 1);
+        int nearV = Enumerable.Range(0, n).OrderBy(i => Flat(pis[i]).GetDistanceTo(Flat(on))).First();
+        var v = new List<Point3d>();
+        var b = new List<double>();
+        newVertex = false;
+        if (snapVertex || Flat(pis[nearV]).GetDistanceTo(Flat(on)) < 0.001 || s - st[seg] < 0.001 || st[seg + 1] - s < 0.001)
+        {
+            int k0 = snapVertex || Flat(pis[nearV]).GetDistanceTo(Flat(on)) < 0.001 ? nearV : (s - st[seg] < 0.001 ? seg : (seg + 1) % n);
+            shift = st[k0];
+            for (int i = 0; i < n; i++)
+            {
+                v.Add(pis[(k0 + i) % n]);
+                b.Add(bul[(k0 + i) % n]);
+            }
+        }
+        else
+        {
+            // Novo vertice no meio do segmento: o arco (se for) vira dois arcos do mesmo circulo.
+            newVertex = true;
+            shift = s;
+            double f = (s - st[seg]) / (st[seg + 1] - st[seg]);
+            double theta = 4.0 * Math.Atan(bul[seg]);
+            double b1 = Math.Tan(theta * f / 4.0), b2 = Math.Tan(theta * (1 - f) / 4.0);
+            v.Add(on);
+            b.Add(b2);
+            for (int i = 1; i <= n; i++)
+            {
+                int k = (seg + i) % n;
+                v.Add(pis[k]);
+                b.Add(k == seg ? b1 : bul[k]);
+            }
+        }
+
+        var plan = new Plan { Closed = true, ZSource = "a mesma (geometria nao muda)", OldPis = n, OldLength = fl.Length2D, NewLength = fl.Length2D, OldElevationPoints = fl.ElevationPointsCount };
+        foreach (Point3d p in v)
+        {
+            plan.V.Add(Flat(p));
+            plan.Z.Add(p.Z);
+        }
+        plan.Bulge.AddRange(b);
+        foreach (Point3d ep in fl.GetPoints(FLType.ElevationPoint).Cast<Point3d>())
+        {
+            if (Flat(ep).GetDistanceTo(Flat(on)) > 0.005)
+                plan.ElevationPoints.Add(ep);
+        }
+        plan.ElevationBeforeWeed = plan.ElevationPoints.Count;
+        FindBaselines(tr, db, fl.ObjectId, plan);
+        return plan;
+    }
+
+    /// <summary>
+    /// Arco de cada trecho entre PIs. GetBulge(i) e o segmento i entre TODOS os pontos (PIs e pontos de elevacao): o arco
+    /// de um trecho e a soma dos angulos dos pedacos entre os pontos dele.
+    /// </summary>
+    internal static double[] PiBulges(CivilDb.FeatureLine fl, List<Point3d> pis, bool closed)
+    {
+        int n = pis.Count;
+        var all = fl.GetPoints(FLType.AllPoints).Cast<Point3d>().ToList();
+        var bul = new double[n];
+        int ai = 0;
+        int segs = closed ? n : n - 1;
+        for (int i = 0; i < segs; i++)
+        {
+            Point2d end = Flat(pis[(i + 1) % n]);
+            double theta = 0;
+            for (int guard = 0; ai < all.Count - 1 && guard < all.Count; guard++)
+            {
+                try
+                {
+                    theta += 4.0 * Math.Atan(fl.GetBulge(ai));
+                }
+                catch
+                {
+                    // segmento reto
+                }
+                ai++;
+                if (Flat(all[ai]).GetDistanceTo(end) < 1e-4)
+                    break;
+            }
+            bul[i] = Math.Tan(theta / 4.0);
+        }
+        return bul;
+    }
+
+    /// <summary>Feature line aberta com as pontas coladas: distancia em planta e diferenca de elevacao entre as pontas.</summary>
+    internal static (double Gap, double Dz) EndGap(CivilDb.FeatureLine fl)
+    {
+        var p = fl.GetPoints(FLType.PIPoint).Cast<Point3d>().ToList();
+        return (Flat(p[0]).GetDistanceTo(Flat(p[^1])), Math.Abs(p[0].Z - p[^1].Z));
+    }
+
+    /// <summary>
+    /// Plano para FECHAR de verdade uma feature line aberta cujas pontas estao coladas ("parece fechada"): mesmos
+    /// vertices, arcos e elevacoes; o ultimo PI sai se estiver em cima do primeiro (senao vira o trecho de fechamento).
+    /// </summary>
+    internal static Plan PrepareClose(AcadDb.Transaction tr, AcadDb.Database db, CivilDb.FeatureLine fl)
+    {
+        if (fl.Closed)
+            throw new InvalidOperationException("a feature line ja e fechada");
+        var pis = fl.GetPoints(FLType.PIPoint).Cast<Point3d>().ToList();
+        double[] bul = PiBulges(fl, pis, false);
+        bool dupEnd = Flat(pis[0]).GetDistanceTo(Flat(pis[^1])) < 0.005;
+        int n = dupEnd ? pis.Count - 1 : pis.Count;
+        var plan = new Plan { Closed = true, ZSource = "a mesma", OldPis = pis.Count, OldLength = fl.Length2D, OldElevationPoints = fl.ElevationPointsCount };
+        for (int i = 0; i < n; i++)
+        {
+            plan.V.Add(Flat(pis[i]));
+            plan.Z.Add(pis[i].Z);
+            plan.Bulge.Add(i < pis.Count - 1 ? bul[i] : 0);
+        }
+        if (dupEnd)
+            plan.Bulge[n - 1] = bul[n - 1]; // o ultimo trecho (ate a ponta repetida) vira o de fechamento
+        foreach (Point3d ep in fl.GetPoints(FLType.ElevationPoint).Cast<Point3d>())
+            plan.ElevationPoints.Add(ep);
+        plan.ElevationBeforeWeed = plan.ElevationPoints.Count;
+        using (AcadDb.Polyline shape = Shape(plan))
+            plan.NewLength = shape.Length;
+        FindBaselines(tr, db, fl.ObjectId, plan);
+        return plan;
+    }
+    /// <summary>Estaca nova depois de mudar a origem: (antiga - deslocamento) mod comprimento.</summary>
+    internal static double Rotate(double s, double shift, double len)
+    {
+        double r = s - shift;
+        while (r < -1e-6)
+            r += len;
+        while (r > len + 1e-6)
+            r -= len;
+        return Math.Clamp(r, 0, len);
+    }
+
+    /// <summary>
+    /// Transicoes do corredor (Corridor Transitions, inclusive os rebaixos do MFREBAIXO) nas baselines desta feature line
+    /// depois de mudar a origem: o Civil remapeia regioes e secoes extras pela posicao, mas nao as transicoes. Cada
+    /// transicao vai para a estaca nova; o token de estacas do comentario dos rebaixos ("{S=s0;s1;s2;s3;...}") tambem.
+    /// Transicao que atravessaria a nova origem: erro (verificado antes, em <see cref="CrossingTransitions"/>).
+    /// </summary>
+    internal static List<string> ShiftTransitions(AcadDb.Transaction tr, Plan plan, double shift)
+    {
+        var msgs = new List<string>();
+        double len = plan.NewLength;
+        foreach (BaselineUse use in plan.Baselines.Where(b => !b.Reference))
+        {
+            var c = (CivilDb.Corridor)tr.GetObject(use.CorridorId, AcadDb.OpenMode.ForWrite);
+            CivilDb.Baseline? bl = c.Baselines.Cast<CivilDb.Baseline>().FirstOrDefault(x => x.Name == use.Baseline);
+            if (bl is null)
+                continue;
+            List<CivilDb.CorridorTransitionSet> sets = bl.getTransitions().ToList();
+            if (sets.Count == 0)
+                continue;
+            // O conjunto fica preso a regiao em que foi criado (estacas fora dela sao recusadas): cada um e criado de
+            // novo na regiao que contem as estacas novas, com os mesmos parametros, valores, tipos e comentario.
+            var regs = bl.BaselineRegions.Cast<CivilDb.BaselineRegion>().ToList();
+            var fresh = new List<CivilDb.CorridorTransitionSet>();
+            int moved = 0;
+            foreach (CivilDb.CorridorTransitionSet set in sets)
+            {
+                var items = new List<(string Param, double A, double B, object Va, object Vb, CivilDb.CorridorTransitionType Type, bool HasSide, CivilDb.SubassemblySideType Side)>();
+                for (int i = 0; i < set.TransitionCount; i++)
+                {
+                    CivilDb.CorridorTransition t = set.GetTransitionAt(i);
+                    double a = Rotate(t.StartStation, shift, len), b = Rotate(t.EndStation, shift, len);
+                    if (b < a + 1e-6 && t.EndStation > t.StartStation + 1e-6)
+                        b = len; // terminava exatamente na origem antiga = fim da volta
+                    items.Add((t.ParameterName, a, b, t.StartValue, t.EndValue, t.TransitionType, t.HasSide, t.HasSide ? t.Side : default));
+                }
+                if (items.Count == 0)
+                {
+                    fresh.Add(set);
+                    continue;
+                }
+                double lo = items.Min(x => x.A), hi = items.Max(x => x.B);
+                CivilDb.BaselineRegion? reg = regs.FirstOrDefault(r => r.StartStation <= lo + 0.001 && r.EndStation >= hi - 0.001)
+                                              ?? regs.OrderBy(r => Math.Abs(((r.StartStation + r.EndStation) / 2.0) - ((lo + hi) / 2.0))).First();
+                CivilDb.CorridorTransitionSet ns = items[0].HasSide
+                    ? new CivilDb.CorridorTransitionSet(set.Name, reg, set.SubassemblyName, set.NameType, items[0].Side)
+                    : new CivilDb.CorridorTransitionSet(set.Name, reg, set.SubassemblyName, set.NameType);
+                ns.Comment = ShiftToken(set.Comment, shift, len);
+                string? lastParam = null;
+                foreach (var it in items)
+                {
+                    CivilDb.CorridorTransition nt = lastParam is null || it.Param != lastParam ? ns.AddTransition(it.Param) : ns.AddTransition();
+                    lastParam = it.Param;
+                    nt.StartStation = it.A;
+                    nt.EndStation = it.B;
+                    nt.StartValue = it.Va;
+                    nt.EndValue = it.Vb;
+                    nt.TransitionType = it.Type;
+                    moved++;
+                }
+                ns.StationLocked = set.StationLocked;
+                fresh.Add(ns);
+            }
+            bl.SetTransitions(fresh);
+            sets = fresh;            msgs.Add($"{use.Corridor} / {use.Baseline}: {sets.Count} conjunto(s) de transicao, {moved} transicao(oes) deslocadas para a nova origem.");
+        }
+        return msgs;
+    }
+
+    /// <summary>Estacas do token "{S=s0;s1;s2;s3;V=...}" dos rebaixos, deslocadas.</summary>
+    internal static string ShiftToken(string? comment, double shift, double len)
+    {
+        if (string.IsNullOrEmpty(comment))
+            return comment ?? "";
+        int i = comment.IndexOf("{S=", StringComparison.Ordinal);
+        if (i < 0)
+            return comment;
+        int j = comment.IndexOf(";V=", i, StringComparison.Ordinal);
+        if (j < 0)
+            return comment;
+        string[] parts = comment.Substring(i + 3, j - i - 3).Split(';');
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var outp = new List<string>();
+        foreach (string p in parts)
+        {
+            outp.Add(double.TryParse(p, System.Globalization.NumberStyles.Float, inv, out double v)
+                ? Rotate(v, shift, len).ToString("0.######", inv)
+                : p);
+        }
+        return comment.Substring(0, i + 3) + string.Join(";", outp) + comment.Substring(j);
+    }
+
+    /// <summary>Transicoes e regioes que a nova origem cortaria ao meio (estaca do novo inicio estritamente dentro delas).</summary>
+    internal static List<string> CrossingTransitions(AcadDb.Transaction tr, Plan plan, double shift)
+    {
+        var list = new List<string>();
+        double len = plan.OldLength;
+        if (shift < 0.001 || shift > len - 0.001)
+            return list;
+        foreach (BaselineUse use in plan.Baselines.Where(b => !b.Reference))
+        {
+            var c = (CivilDb.Corridor)tr.GetObject(use.CorridorId, AcadDb.OpenMode.ForRead);
+            CivilDb.Baseline? bl = c.Baselines.Cast<CivilDb.Baseline>().FirstOrDefault(x => x.Name == use.Baseline);
+            if (bl is null)
+                continue;
+            foreach (CivilDb.CorridorTransitionSet set in bl.getTransitions())
+            {
+                for (int i = 0; i < set.TransitionCount; i++)
+                {
+                    CivilDb.CorridorTransition t = set.GetTransitionAt(i);
+                    if (t.StartStation < shift - 0.001 && t.EndStation > shift + 0.001)
+                    {
+                        list.Add($"transicao '{set.Name}' ({t.StartStation:0.000}-{t.EndStation:0.000})");
+                        break;
+                    }
+                }
+            }
+            foreach ((string name, double s0, double e0) in use.Regions)
+            {
+                bool full = s0 < 0.01 && e0 > len - 0.01;
+                if (!full && s0 < shift - 0.001 && e0 > shift + 0.001)
+                    list.Add($"regiao '{name}' ({s0:0.000}-{e0:0.000})");
+            }
+        }
+        return list;
+    }
+
     /// <summary>Baselines de corredor que usam a feature line.</summary>
     private static void FindBaselines(AcadDb.Transaction tr, AcadDb.Database db, AcadDb.ObjectId flId, Plan plan)
     {
@@ -431,7 +710,8 @@ internal static class FeatureLineGeometry
         ms.AppendEntity(shape);
         tr.AddNewlyCreatedDBObject(shape, true);
         string temp = "_C3D_TMP_FL_" + DateTime.Now.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        // Criada direto no site da antiga (MoveToSite depois nao levava ao site, teste de 18/11/2026).
+        // Criada direto no site da antiga: MoveToSite (fora do site e levar depois, que seria muito mais rapido) nao moveu
+        // nada nos testes de 18/11/2026, dentro nem fora de transacao.
         AcadDb.ObjectId newId = fl.SiteId.IsNull
             ? CivilDb.FeatureLine.Create(temp, shape.ObjectId)
             : CivilDb.FeatureLine.Create(temp, shape.ObjectId, fl.SiteId);
@@ -571,6 +851,34 @@ internal static class FeatureLineGeometry
     /// </summary>
     internal static List<string> FitLastRegions(AcadDb.Transaction tr, Plan plan)
     {
+        double len = plan.NewLength;
+        return RestoreRegions(tr, plan, (k, count, s0, e0) =>
+        {
+            bool last = k == count - 1;
+            double gap = plan.OldLength - e0;
+            double end = last && gap < 3.0 ? len - Math.Max(0, gap) : Math.Min(e0, len);
+            return (Math.Min(s0, len), end);
+        });
+    }
+
+    /// <summary>Mudar a origem: cada regiao vai para (estaca - deslocamento) mod comprimento; a de volta inteira fica 0-fim.</summary>
+    internal static List<string> RotateRegions(AcadDb.Transaction tr, Plan plan, double shift)
+    {
+        double len = plan.NewLength;
+        return RestoreRegions(tr, plan, (k, count, s0, e0) =>
+        {
+            if (s0 < 0.01 && e0 > len - 0.01)
+                return (0.0, len);
+            double a = Rotate(s0, shift, len), b = Rotate(e0, shift, len);
+            if (b <= a + 1e-6)
+                b = len; // terminava na origem antiga
+            return (a, b);
+        });
+    }
+
+    /// <summary>Regrava as regioes das baselines nas estacas dadas por <paramref name="target"/> (indice, total, inicio e fim de antes).</summary>
+    internal static List<string> RestoreRegions(AcadDb.Transaction tr, Plan plan, Func<int, int, double, double, (double S, double E)> target)
+    {
         var msgs = new List<string>();
         double len = plan.NewLength;
         foreach (BaselineUse use in plan.Baselines)
@@ -594,10 +902,10 @@ internal static class FeatureLineGeometry
             for (int k = 0; k < regs.Count; k++)
             {
                 (string name, double s0, double e0) = use.Regions[k];
-                bool last = k == regs.Count - 1;
-                double gap = plan.OldLength - e0;
-                double end = last && gap < 3.0 ? len - Math.Max(0, gap) : Math.Min(e0, len);
-                double start = Math.Min(s0, len);
+                (double start, double end) = target(k, regs.Count, s0, e0);
+                // Dentro da faixa real da baseline (o comprimento novo pode diferir em decimos de mm).
+                start = Math.Max(start, bl.StartStation);
+                end = Math.Min(end, bl.EndStation);
                 if (start >= end - 0.001)
                 {
                     msgs.Add($"{use.Corridor} / {use.Baseline}: regiao '{name}' ({s0:0.000}-{e0:0.000}) fica fora do novo comprimento {len:0.000}: acerte ou apague a regiao.");
