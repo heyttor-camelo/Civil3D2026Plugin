@@ -8,6 +8,16 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-18 — LAPTOP-11TNS6P8 (Remote Control), 2.122.0 a 2.126.0: lombofaixas (união pela superfície) e Rebuild manual
+
+- 2.122.0–2.124.1: união das lombofaixas nivelada com o meio-fio rebaixado (borda pelo topo do meio-fio só dentro de S1–S2 de um rebaixo), grelha só no meio-fio rebaixado (sem a perimétrica), Refazer acerta os rebaixos à plataforma, coluna "Desnível MF".
+- 2.125.0/2.125.1: sólido da união pelos triângulos reais da superfície de topo (TIN temporária `_C3D_TMP_UNIAO_*`, apagada no fim). Na 2.125.1: arestas cortadas no contorno, solda de pontos a menos de 5 mm, contorno sem pontos alinhados, triângulos que a TIN deixava de fora junto da borda repostos (era o que travava a U10 no ConvertToSolid), altura por média ponderada das bordas (sem "almofada"). Travessia simples voltou a ir de meio-fio a meio-fio em linha reta. Conferido por imagem (`G:\Meu Drive\Civil3D2026Plugin\diag`) e medida da costura (planta < 1 mm, degrau <= 3,8 mm). Os raios compridos que restam na U10 são a triangulação do próprio corredor.
+- 2.126.0: Rebuild do corredor Automático/Manual (`MFREBAIXOMODOREBUILD`, opção Rebuild do MFREBAIXO, botão do painel), pendentes no NOD `C3D_MFREBAIXO_PENDENTES`, `MFREBAIXORECONSTRUIR`. KM_01: 5 rebaixos 59 s (auto) x 37 s (manual + reconstruir). No manual, `Baseline.SetTransitions` sozinho custa ~3 s por rebaixo (interno do Civil).
+- Banco de testes: `C:\Temp\hydro-build\teste-rebaixo\v4\travessia\run.ps1` (accoreconsole, DLL avulsa com ZZTeste6.cs fora do git; ZZT6UNIRLAB, ZZT6ARESTAS, ZZT6TEMPO com `$env:Z6MODO`); scripts de imagem/costura no scratchpad da sessão (render.ps1, seam.py).
+- Pendências: o Heyvid testar a 2.125.1/2.126.0 no Civil (as uniões existentes só mudam com Refazer/unir de novo); DLLs entregues só com número no nome (Civil aberto).
+
+---
+
 ## 2026-11-17 (tarde) — LAPTOP-11TNS6P8 (Remote Control), 2.120.1 e 2.121.0: painel com o meio-fio a 0, rebaixos colados, declividade por rampa e "a prumo"
 
 - 2.120.1 (com os commits do coordenador 79012ea/503534e): no painel a linha d'agua passou a ser a ponta do topo da sarjeta (P2); com o meio-fio a 0 o arredondamento da quina (raio 5 cm) descia abaixo dela e o perfil/ficha mostravam 4,6 cm. Mesmo filtro em `CurbMarks`. Rampa de rebaixo novo nao entra mais noutro rebaixo do mesmo lado (`busy` em `ApplyRebaixoCore`): corta a rampa na ponta do vizinho ou da erro dizendo o que fazer. O erro "diferenca insuficiente" do Heyvid nao aparece nos logs desta maquina de hoje.
