@@ -21,7 +21,7 @@ public static class PluginVersions
     public const string RaisedCrossing = "1.1.0";
 
     /// <summary>DLL avulsa C3DPassagemRampa.dll (so PASSAGEM* e MFREBAIXO*), projeto src\C3DPassagemRampa.</summary>
-    public const string PassagemRampa = "1.27.0";
+    public const string PassagemRampa = "1.27.1";
     public const string CorridorSplit = "1.6.0";
     public const string LispTools = "1.1.0";
     public const string Utilitarios = "1.8.0";
