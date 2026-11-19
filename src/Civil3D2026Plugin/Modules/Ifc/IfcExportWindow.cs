@@ -259,8 +259,20 @@ internal sealed class IfcExportWindow : SW.Window
                     {
                         continue;
                     }
-                    if (aid.IsNull || axes.Children.Any(x => x.Ids.Contains(aid)))
+                    if (aid.IsNull)
                         continue;
+                    // Alinhamento usado por mais de um corredor (ex.: KM_01 e KM_02 por referência): um item só,
+                    // ligado a todos eles; ele entra se qualquer um desses corredores estiver marcado.
+                    Node? seen = axes.Children.FirstOrDefault(x => x.Ids.Contains(aid));
+                    if (seen is not null)
+                    {
+                        if (!AxisCorridors(seen).Contains(c.Name, StringComparer.OrdinalIgnoreCase))
+                        {
+                            seen.Extra += ";" + c.Name;
+                            seen.Detail += ", " + c.Name;
+                        }
+                        continue;
+                    }
                     string an = "?", type = "?";
                     try
                     {
@@ -404,8 +416,8 @@ internal sealed class IfcExportWindow : SW.Window
                 var names = new HashSet<string>((n.Kind == "corredor" ? new[] { n } : n.Children.ToArray()).Select(KeyName), StringComparer.OrdinalIgnoreCase);
                 foreach (Node a in Find("EIXOS")?.Children ?? new List<Node>())
                 {
-                    if (names.Contains(AxisCorridor(a)))
-                        a.Box.IsChecked = on && TypeRule(a);
+                    if (AxisCorridors(a).Any(names.Contains))
+                        a.Box.IsChecked = AxisRule(a);
                 }
             }
             foreach (Node r in _roots)
@@ -454,7 +466,8 @@ internal sealed class IfcExportWindow : SW.Window
         }
     }
 
-    private static string AxisCorridor(Node a) => a.Extra.Split('|').ElementAtOrDefault(1) ?? "";
+    /// <summary>Corredores que usam o alinhamento (Extra = "tipo|corredor1;corredor2").</summary>
+    private static string[] AxisCorridors(Node a) => (a.Extra.Split('|').ElementAtOrDefault(1) ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries);
 
     /// <summary>A regra de eixos (centrais/todos/nenhum) pelo tipo do alinhamento.</summary>
     private bool TypeRule(Node a) =>
@@ -463,8 +476,8 @@ internal sealed class IfcExportWindow : SW.Window
     /// <summary>Regra completa: o corredor do eixo está marcado e o tipo entra pela regra.</summary>
     private bool AxisRule(Node a)
     {
-        Node? c = Find("C:" + AxisCorridor(a));
-        return (c is null || c.Box.IsChecked == true) && TypeRule(a);
+        string[] cs = AxisCorridors(a);
+        return (cs.Length == 0 || cs.Any(n => Find("C:" + n) is not Node c || c.Box.IsChecked == true)) && TypeRule(a);
     }
 
     private void ApplyAxisRule(bool keepManual = false)
@@ -625,7 +638,7 @@ internal sealed class IfcExportWindow : SW.Window
                     n.Box.IsChecked = true;
                     if (n.Kind == "corredor")
                     {
-                        foreach (Node a in Find("EIXOS")?.Children.Where(a => AxisCorridor(a).Equals(KeyName(n), StringComparison.OrdinalIgnoreCase)) ?? Enumerable.Empty<Node>())
+                        foreach (Node a in Find("EIXOS")?.Children.Where(a => AxisCorridors(a).Contains(KeyName(n), StringComparer.OrdinalIgnoreCase)) ?? Enumerable.Empty<Node>())
                             a.Box.IsChecked = TypeRule(a);
                     }
                 }

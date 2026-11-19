@@ -24,6 +24,7 @@ internal sealed class IfcMappingWindow : SW.Window
         ("LayerName", "Layer"),
         ("ShapeStyleName", "Estilo de shape"),
         ("LinkStyleName", "Estilo de link"),
+        ("CodeName", "Code da peça"),
         ("AlignmentStyleName", "Estilo de alinhamento"),
         ("SurfaceStyleName", "Estilo de superfície")
     };
@@ -320,6 +321,8 @@ internal sealed class IfcMappingWindow : SW.Window
             }
             d[key] = names.OrderBy(x => x, StringComparer.OrdinalIgnoreCase).ToList();
         }
+        // Codes usuais das subassemblies do projeto (a lista aceita digitar outro).
+        d["CodeName"] = new List<string> { "SARJETA", "GUIA", "BASE", "PAVIMENTO1", "PAVIMENTO2" };
         tr.Commit();
         return d;
     }

@@ -1,3 +1,17 @@
+## 2.131.1 - IFC v1.4.1: meio-fio sem buracos, sarjeta com classe, alinhamentos dos corredores marcados
+
+Retorno do Heyvid em 19/11/2026 (KM_01 na 2.131.0: restavam buracos no meio-fio, sarjeta como IfcBuiltElement, nenhum alinhamento exportado).
+
+- Meio-fio: a correcao de pecas tambem compara o volume (peca >= 0,5% e 0,002 m3 menor que o solido e trocada). A peca estreita perde pouca area em planta com uma faixa faltando, por isso escapava do criterio por area. Teste: 30 pecas a mais corrigidas pelo volume (guia e sarjeta das SARJETA 12 a 16 e trechos ST).
+- Peca que a exportacao nao gravou (erro da Autodesk "Problem generating fallback geometry"): criada do solido, na regiao/subassembly de uma peca vizinha e com a classe/estilo de uma peca do mesmo code; property set `C3D_PECA`. Resumo: `Pecas acrescentadas: N`.
+- Corte do rebaixo que o AutoCAD nao consegue fazer no solido (base/guia dobrada): agora cortado pela malha do solido (triangulos divididos pelos planos; os pedacos se encostam no corte). Teste: os 6 cortes invalidos da 2.131.0 passaram a separar.
+- Sarjeta como IfcKerb: a extensao classifica so pelo estilo de shape e o code Sarjeta deste desenho nao tem estilo no Code Set. Novo tipo **Code da peca** (`CodeName`) nas Classes IFC, aplicado pelo plugin depois da exportacao (IfcBuiltElement -> classe pedida); sem linha para SARJETA, a sarjeta vira IfcKerb. Os rebaixos herdam a classe. Resumo: `Pecas classificadas pelo code: N`.
+- Cascas de link com estilo excluido nas Classes IFC saem do .ifc (a extensao as gravava quando o link nao tinha estilo, ex. "Sarjeta" e "Sarjeta, Top, TOPO"); link sem estilo conta como "Uncoded". Resumo: `Cascas de link retiradas: N`.
+- Alinhamentos: um alinhamento usado por dois corredores (KM_01 e o KM_02 por data shortcut) ficava ligado so ao primeiro encontrado; com o KM_02 de fora, os eixos do KM_01 ficavam desmarcados. Agora o alinhamento fica ligado a todos os corredores e entra se qualquer um estiver marcado. As marcacoes de eixos gravadas com a regra antiga sao zeradas uma vez (`VersaoMarcas`).
+- Resumo: as referencias externas nao exportadas em linha propria (antes quebravam o parenteses de Objetos); rebaixos agrupados na lista de elementos sem classe.
+- Teste (copia do KM_01, exportacao nova + pos-processamento): 0 m2 de pavimento faltando no cruzamento e 1,0 m2 no corredor todo (frestas), 75 pecas corrigidas (30 pelo volume), 42 rebaixos separados em 119 elementos (6 pela malha, 0 inteiros), 50 sarjetas classificadas como IfcKerb, nenhuma referencia quebrada.
+- Erros da extensao no KM_01 (Event Viewer do Civil): "Corridor is out of date" (corredor sem Rebuild), "GUIA, MF_T30: Problem generating fallback geometry" (2 pecas, agora trocadas pelo solido) e "Locked Entities encountered when saving IFC attributes" (layers travadas: a extensao nao grava o GUID nesses objetos; inofensivo).
+- C3DPassagemRampa 1.31.1 (mesmos arquivos do IFC).
 ## 2.131.0 - IFC v1.4.0: rebaixos como elementos separados no IFC
 
 Pedido do Heyvid em 19/11/2026.

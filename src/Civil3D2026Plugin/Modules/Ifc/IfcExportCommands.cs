@@ -604,11 +604,23 @@ public sealed class IfcExportCommands
                     PluginLog.Aviso("IFC", "Rebaixos nao lidos: " + ex.Message);
                 }
             }
-            if ((options.FixCut || options.Rebaixos.Count > 0) && p.Corridors.Count > 0)
+            // Classe pelo code (linhas "CodeName"; sem linha para SARJETA, a sarjeta vira IfcKerb) e cascas de link
+            // excluídas nas Classes IFC (link sem estilo conta como "Uncoded").
+            foreach (IfcMapRow row in p.Criteria.Mapeamento.Where(x => x.Mapeamento == "CodeName" && x.Exportar && !string.IsNullOrWhiteSpace(x.Nome) && !string.IsNullOrWhiteSpace(x.ClasseIfc)))
+                options.CodeClasses[row.Nome.Trim()] = row.ClasseIfc.Trim();
+            if (!p.Criteria.Mapeamento.Any(x => x.Mapeamento == "CodeName" && x.Nome.Trim().Equals("SARJETA", StringComparison.OrdinalIgnoreCase)))
+                options.CodeClasses["SARJETA"] = "IfcKerb";
+            foreach (IfcMapRow row in p.Criteria.Mapeamento.Where(x => x.Mapeamento == "LinkStyleName" && !x.Exportar && !string.IsNullOrWhiteSpace(x.Nome)))
+            {
+                options.RemoveLinkStyles.Add(row.Nome.Trim());
+                if (row.Nome.Trim().Equals("Uncoded", StringComparison.OrdinalIgnoreCase))
+                    options.RemoveLinkStyles.Add("");
+            }
+            if (p.Corridors.Count > 0)
             {
                 ed.WriteMessage("\nConferindo as peças do corredor com os sólidos...");
                 IfcSolidFix.Result fix = IfcSolidFix.ApplyToFile(p.IfcPath, doc.Database, p.Corridors, options, s => PluginLog.Info("IFC", s));
-                PluginLog.Info("IFC", $"Pecas do corredor: {fix.Solids} solidos, {fix.Products} pecas, {fix.Matched} casadas, {fix.Replaced} corrigidas, {fix.AreaRecovered:F2} m2 recuperados, " +
+                PluginLog.Info("IFC", $"Pecas do corredor: {fix.Solids} solidos, {fix.Products} pecas, {fix.Matched} casadas, {fix.Replaced} corrigidas ({fix.ReplacedByVolume} pelo volume), {fix.AreaRecovered:F2} m2 recuperados, {fix.Added} acrescentadas, {fix.Classified} classificadas pelo code, {fix.LinksRemoved} cascas retiradas, cortes pela malha {fix.SplitByMesh}, " +
                     $"{options.Rebaixos.Count} rebaixos lidos, {fix.RebaixoCodes.Count} separados em {fix.RebaixoElements} elementos, {fix.Milliseconds} ms" + (fix.Error.Length > 0 ? " - erro: " + fix.Error : ""));
                 if (fix.Error.Length > 0)
                 {
@@ -621,11 +633,17 @@ public sealed class IfcExportCommands
                         extra.Add(fix.Replaced > 0
                             ? $"Peças corrigidas: {fix.Replaced} ({fix.AreaRecovered:0.0} m² em planta recuperados do sólido do corredor)"
                             : "Peças corrigidas: 0");
+                        if (fix.Added > 0)
+                            extra.Add($"Peças acrescentadas: {fix.Added} (omitidas pela exportação; geradas do sólido do corredor, property set C3D_PECA)");
                     }
+                    if (fix.Classified > 0)
+                        extra.Add($"Peças classificadas pelo code: {fix.Classified}");
+                    if (fix.LinksRemoved > 0)
+                        extra.Add($"Cascas de link retiradas: {fix.LinksRemoved}");
                     if (p.Criteria.SepararRebaixos)
                     {
                         extra.Add(fix.RebaixoCodes.Count > 0
-                            ? $"Rebaixos separados: {fix.RebaixoCodes.Count} ({fix.RebaixoElements} elementos, property set C3D_REBAIXO)" + (fix.SplitFailed > 0 ? $"; {fix.SplitFailed} sólidos mantidos inteiros (corte inválido, ver log)" : "")
+                            ? $"Rebaixos separados: {fix.RebaixoCodes.Count} ({fix.RebaixoElements} elementos, property set C3D_REBAIXO)" + (fix.SplitFailed > 0 ? $"; {fix.SplitFailed} peças mantidas inteiras (corte inválido, ver log)" : "")
                             : "Rebaixos separados: 0");
                     }
                 }
@@ -826,7 +844,7 @@ internal static class IfcReport
             .Where(k => ProductClasses.Contains(k))
             .GroupBy(k => k).OrderByDescending(g => g.Count()).ToList();
         var generic = Regex.Matches(text, @"IFCBUILTELEMENT\('[^']*',(?:#\d+|\$),'([^']*)'")
-            .Select(m => Decode(m.Groups[1].Value)).GroupBy(n => n).OrderByDescending(g => g.Count()).ToList();
+            .Select(m => Regex.Replace(Decode(m.Groups[1].Value), @" - Rebaixo R\d+$", " (rebaixos)")).GroupBy(n => n).OrderByDescending(g => g.Count()).ToList();
         int psets = Regex.Matches(text, @"IFCPROPERTYSET\('[^']*',(?:#\d+|\$),'C3D_TRAVESSIA'").Count;
         int alignments = Regex.Matches(text, @"=\s*IFCALIGNMENT\(").Count;
 
@@ -835,7 +853,11 @@ internal static class IfcReport
         sb.AppendLine();
         sb.AppendLine($"Arquivo:  {ifcPath}");
         sb.AppendLine($"Tamanho:  {new FileInfo(ifcPath).Length / 1048576.0:0.0} MB");
-        sb.AppendLine($"Objetos:  {selected}  ({selection})");
+        // A seleção pode trazer notas em linhas seguintes (referências externas): fora dos parênteses.
+        string[] sel = selection.Replace("\r\n", "\n").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        sb.AppendLine($"Objetos:  {selected}" + (sel.Length > 0 ? $"  ({sel[0].Trim()})" : ""));
+        foreach (string s in sel.Skip(1))
+            sb.AppendLine(s.Trim());
         foreach (string n in notes)
             sb.AppendLine(n);
         sb.AppendLine();

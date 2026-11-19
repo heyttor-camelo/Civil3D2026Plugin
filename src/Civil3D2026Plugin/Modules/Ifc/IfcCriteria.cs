@@ -102,6 +102,9 @@ internal sealed class IfcCriteria
 
     public List<string> EixosDesmarcados { get; set; } = new();
 
+    /// <summary>Versão das marcações gravadas (2 = alinhamento ligado a todos os corredores que o usam).</summary>
+    public int VersaoMarcas { get; set; }
+
     /// <summary>Pecas da lombofaixa que entram: Plato, Grelhas, Vigas, Sinalizacao, Planta.</summary>
     public List<string> LombofaixasPecasMarcadas { get; set; } = new() { "Plato", "Grelhas", "Vigas", "Sinalizacao" };
 
@@ -139,6 +142,7 @@ internal sealed class IfcCriteria
         new() { Mapeamento = "LayerName", Nome = "MF-REBAIXO", Exportar = false, Observacao = "Hachuras dos rebaixos" },
         new() { Mapeamento = "ShapeStyleName", Nome = "GUIA", ClasseIfc = "IfcKerb", Observacao = "Meio-fio (code Curb/GUIA)" },
         new() { Mapeamento = "ShapeStyleName", Nome = "SARJETA", ClasseIfc = "IfcKerb", Observacao = "Sarjeta: so vale se o code Sarjeta tiver o estilo de shape SARJETA no Code Set" },
+        new() { Mapeamento = "CodeName", Nome = "SARJETA", ClasseIfc = "IfcKerb", Observacao = "Sarjeta pelo code da peça (vale também sem estilo de shape no Code Set)" },
         new() { Mapeamento = "ShapeStyleName", Nome = "PAVIMENTO 1", ClasseIfc = "IfcPavement", Observacao = "Revestimento" },
         new() { Mapeamento = "ShapeStyleName", Nome = "PAVIMENTO 2", ClasseIfc = "IfcPavement", Observacao = "Revestimento" },
         new() { Mapeamento = "ShapeStyleName", Nome = "Ref_SubLeito", ClasseIfc = "IfcEarthworksFill.SUBGRADE", Observacao = "Subleito" },
@@ -227,6 +231,14 @@ internal sealed class IfcCriteria
         // Criterio antigo (verdadeiro/falso) vira o novo ao ler; gravado do jeito novo na proxima vez.
         c.Eixos ??= c.EixosModo;
         c.EixosDosCorredores = null;
+        // Até a 2.131.0 um alinhamento usado por dois corredores ficava ligado só ao primeiro (ex.: KM_02 por
+        // referência, desmarcado) e as marcações dos eixos gravadas com essa regra estavam erradas: zeradas uma vez.
+        if (c.VersaoMarcas < 2)
+        {
+            c.EixosMarcados.Clear();
+            c.EixosDesmarcados.Clear();
+            c.VersaoMarcas = 2;
+        }
         return c;
     }
 

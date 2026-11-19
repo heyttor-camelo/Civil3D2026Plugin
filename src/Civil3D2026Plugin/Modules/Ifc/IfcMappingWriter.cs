@@ -98,7 +98,8 @@ internal static class IfcMappingWriter
         }
 
         int changed = 0, added = 0;
-        foreach (IfcMapRow m in rows.Where(r => !string.IsNullOrWhiteSpace(r.Nome)))
+        // "CodeName" e do plugin (pos-processamento do .ifc): a extensao nao conhece.
+        foreach (IfcMapRow m in rows.Where(r => !string.IsNullOrWhiteSpace(r.Nome) && r.Mapeamento != "CodeName"))
         {
             if (existing.TryGetValue(m.Mapeamento + "|" + m.Nome, out XmlElement? row))
             {
