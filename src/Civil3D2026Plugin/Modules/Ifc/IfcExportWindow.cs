@@ -8,6 +8,7 @@ using Autodesk.AutoCAD.EditorInput;
 using SW = System.Windows;
 using WC = System.Windows.Controls;
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
+using Civil3D2026Plugin.Infrastructure;
 using Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 using Civil3D2026Plugin.UI.Common;
 

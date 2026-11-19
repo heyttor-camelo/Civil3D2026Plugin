@@ -428,7 +428,7 @@ public sealed class IfcExportCommands
         }
         catch (System.Exception ex)
         {
-            why = (ex is System.Reflection.TargetInvocationException { InnerException: not null } tie ? tie.InnerException : ex).Message;
+            why = (ex is System.Reflection.TargetInvocationException { InnerException: { } inner } ? inner : ex).Message;
             return false;
         }
     }
