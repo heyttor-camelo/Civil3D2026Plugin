@@ -132,18 +132,25 @@ C3DPlugin/
 Consulte `docs/DEVELOPMENT.md` antes de adicionar um novo modulo.
 
 
-## DLL avulsa: passagem semi-elevada + rampa de meio-fio (C3DPassagemRampa v1.8.0)
+## DLL avulsa do rebaixo de meio-fio (C3DPassagemRampa v1.28.0)
 
-Para quem precisa so da passagem semi-elevada e do rebaixo/rampa de meio-fio por Corridor Transition,
-sem o resto do plugin (Ribbon, Viario, Hydro, Layouts...). Projeto `src/C3DPassagemRampa`, compilado
-junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll` e copia no Drive
-(`G:\Meu Drive\Civil3D2026Plugin\atual\C3DPassagemRampa.dll` e na pasta `dll` da FDX).
+Para quem precisa so do fluxo do rebaixo de meio-fio, sem o resto do plugin (Ribbon, Viario, Hydro,
+Layouts...). Projeto `src/C3DPassagemRampa`, compilado junto com a solucao; saida `NETLOAD\C3DPassagemRampa.dll`
+e copia no Drive (`G:\Meu Drive\Civil3D2026Plugin\atual\C3DPassagemRampa-<versao>.dll` e na pasta `dll` da FDX).
+Carregue esta DLL OU o plugin completo, nunca as duas (os comandos sao os mesmos).
 
-- Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/RaisedCrossing`
-  e `Modules/CorridorTools/MFRebaixo`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
-- Comandos: `PASSAGEM`, `PASSAGEMEDITAR`, `PASSAGEMGRUPO`, `PASSAGEMATUALIZAR`, `PASSAGEMCFG`, `PASSAGEMHELP`,
-  `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOLIMPAR`, `MFREBAIXOAPAGAR`, `MFREBAIXOACERTAR`, `MFREBAIXORECONSTRUIR`, `MFREBAIXOMODOREBUILD`, `MFTRAVESSIAAPAGAR`, `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`, `MFREBAIXOCFG`, `MFREBAIXOHELP`,
-  `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER` e `C3DPASSAGEMRAMPA` (lista os comandos).
+- Nao tem codigo proprio dos modulos: compila os mesmos arquivos de `Modules/CorridorTools/MFRebaixo`,
+  `Modules/Ifc` e tres arquivos de `Modules/FeatureLines`. Corrigiu la, a DLL avulsa sai corrigida no proximo build.
+- Comandos (v1.28.0):
+  - Rebaixo: `MFREBAIXO`, `MFREBAIXOPAINEL`, `MFREBAIXOHACHURA`, `MFREBAIXOACERTAR`, `MFREBAIXOMODOREBUILD`,
+    `MFREBAIXORECONSTRUIR`, `MFREBAIXOAPAGAR`, `MFREBAIXOLIMPAR`, `MFREBAIXOSELECIONARPAINEL`, `MFREBAIXOCFG`, `MFREBAIXOHELP`.
+  - Travessia (lombofaixa): `MFTRAVESSIA`, `MFTRAVESSIAUNIR`, `MFTRAVESSIAREFAZER`, `MFTRAVESSIAAPAGAR`,
+    `MFTRAVESSIAPLANTA`, `MFTRAVESSIASELECIONAR`.
+  - IFC: `C3DIFC`, `-C3DIFC`, `C3DIFCRELATORIO`, `C3DCODESETIFC`.
+  - Feature lines do meio-fio/ilha usadas como baseline: `FLCOPIARGEOMETRIA`, `FLORIGEM`, `FLFECHADAS`.
+  - `C3DPASSAGEMRAMPA` lista os comandos.
+- A passagem semi-elevada antiga (`PASSAGEM*`, 4 Feature Lines) saiu desta DLL na v1.28.0 (o `MFTRAVESSIA` a substitui);
+  continua no plugin completo. O nome do arquivo ficou o mesmo para nao atrapalhar quem ja usa.
 - `MFTRAVESSIAUNIR` (MFREBAIXO v1.15): depois de lancar as travessias de um cruzamento, **une todas num plato so**,
   limitado pelo meio-fio (borda da pista lida do corredor; a sarjeta dos cantos fica livre, com tampa de concreto).
   Em cada travessia fica so a rampa de fora, com a faixa, as tampas e os triangulos. Opcao **Separar** desfaz.

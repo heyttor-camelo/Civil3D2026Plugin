@@ -1,8 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    DLL avulsa C3DPassagemRampa.dll: so a passagem semi-elevada (PASSAGEM*) e o rebaixo/rampa de
-    meio-fio por Corridor Transition (MFREBAIXO*). NAO tem codigo proprio dos modulos: compila os
+    DLL avulsa C3DPassagemRampa.dll: tudo do fluxo do rebaixo de meio-fio - MFREBAIXO* (rebaixo por
+    Corridor Transition, painel, hachura), MFTRAVESSIA* (lombofaixas entre rebaixos), C3DIFC/C3DCODESETIFC
+    (exportacao IFC) e FLCOPIARGEOMETRIA/FLORIGEM/FLFECHADAS (feature lines de meio-fio/ilha usadas como
+    baseline, que levam os rebaixos junto). A passagem semi-elevada antiga (PASSAGEM*) saiu em 1.28.0
+    (continua no plugin completo). NAO tem codigo proprio dos modulos: compila os
     MESMOS arquivos do Civil3D2026Plugin (links abaixo), entao toda correcao feita la vale aqui no
     proximo build. Os comandos tem os mesmos nomes do plugin completo: carregue uma DLL OU a outra.
 
@@ -72,9 +75,11 @@
 
   <!-- Arquivos do plugin principal usados aqui (links: nao ha copia, e o mesmo arquivo). -->
   <ItemGroup>
-    <Compile Include="$(MainSrc)\Modules\CorridorTools\RaisedCrossing\*.cs" Link="Modules\CorridorTools\RaisedCrossing\%(Filename)%(Extension)" />
     <Compile Include="$(MainSrc)\Modules\CorridorTools\MFRebaixo\*.cs" Link="Modules\CorridorTools\MFRebaixo\%(Filename)%(Extension)" />
     <Compile Include="$(MainSrc)\Modules\Ifc\*.cs" Link="Modules\Ifc\%(Filename)%(Extension)" />
+    <Compile Include="$(MainSrc)\Modules\FeatureLines\FeatureLineGeometry.cs" Link="Modules\FeatureLines\FeatureLineGeometry.cs" />
+    <Compile Include="$(MainSrc)\Modules\FeatureLines\FeatureLineGeometryCommands.cs" Link="Modules\FeatureLines\FeatureLineGeometryCommands.cs" />
+    <Compile Include="$(MainSrc)\Modules\FeatureLines\FeatureLineOriginCommands.cs" Link="Modules\FeatureLines\FeatureLineOriginCommands.cs" />
     <Compile Include="$(MainSrc)\Infrastructure\GlobalUsings.cs" Link="Infrastructure\GlobalUsings.cs" />
     <Compile Include="$(MainSrc)\Infrastructure\CommandNames.cs" Link="Infrastructure\CommandNames.cs" />
     <Compile Include="$(MainSrc)\Infrastructure\PluginVersions.cs" Link="Infrastructure\PluginVersions.cs" />
@@ -129,7 +134,7 @@
   </Target>
 
   <Target Name="ShowNetloadPath" AfterTargets="Build">
-    <Message Importance="high" Text="DLL avulsa (passagem + rampa) pronta para NETLOAD: $(TargetPath)" />
+    <Message Importance="high" Text="DLL avulsa do rebaixo (MFREBAIXO/MFTRAVESSIA/IFC) pronta para NETLOAD: $(TargetPath)" />
   </Target>
 
   <!--

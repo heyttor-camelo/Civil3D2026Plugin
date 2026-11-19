@@ -1,3 +1,12 @@
+## 2.128.1 - PassagemRampa v1.28.0: a DLL avulsa passa a ter todas as ferramentas do rebaixo; sai a passagem antiga
+
+Pedido do Heyvid em 19/11/2026 ("quero que essa dll tenha todas as ferramentas relacionadas a esse rebaixo; tem um comando antigo de travessia la que nao vai precisar").
+
+- C3DPassagemRampa.dll agora junta todo o fluxo do rebaixo: MFREBAIXO* (rebaixo, painel, hachura, acertar, rebuild manual/reconstruir, apagar, limpar), MFTRAVESSIA* (lombofaixas, unir, refazer, apagar, planta, selecionar), IFC (C3DIFC, -C3DIFC, C3DIFCRELATORIO, C3DCODESETIFC) e as feature lines usadas como baseline do meio-fio/ilha (FLCOPIARGEOMETRIA, FLORIGEM, FLFECHADAS; o FLORIGEM leva os rebaixos junto quando muda a origem).
+- Saiu da DLL avulsa a passagem semi-elevada antiga por 4 Feature Lines (PASSAGEM, PASSAGEMEDITAR, PASSAGEMGRUPO, PASSAGEMATUALIZAR, PASSAGEMCFG, PASSAGEMHELP), substituida pelo MFTRAVESSIA. Continua no plugin completo.
+- Lista de comandos do C3DPASSAGEMRAMPA agrupada (Rebaixo, Travessia, IFC, Feature line); entram tambem os que ja estavam na DLL e nao apareciam na lista (MFREBAIXOACERTAR, MFREBAIXOMODOREBUILD, MFREBAIXORECONSTRUIR, C3DCODESETIFC, C3DIFCRELATORIO, -C3DIFC).
+- O nome do arquivo continua C3DPassagemRampa.dll (quem ja usa nao precisa mudar nada). Plugin completo sem mudanca de comportamento.
+
 ## 2.128.0 - FEATURE LINES / PassagemRampa v1.27.2: FLORIGEM (nova origem da feature line fechada sem mexer no corredor) e FLFECHADAS
 
 Pedido do Heyvid em 18/11/2026 ("setar novo ponto de origem de feature line, mas sem f* todo o corredor"; "garantir que esteja fechada, as features as vezes parecem fechadas mas nao estao").
