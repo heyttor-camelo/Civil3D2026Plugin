@@ -31,9 +31,34 @@ internal static class IfcSolidFix
         public int Matched;
         public int Replaced;
         public double AreaRecovered;
+        public int RebaixoElements;
+        public int SplitFailed;
+        public HashSet<string> RebaixoCodes = new();
         public long Milliseconds;
         public List<string> Details = new();
         public string Error = "";
+    }
+
+    /// <summary>Rebaixo do MFREBAIXO: trecho da subassembly de meio-fio/sarjeta que vira elemento próprio no .ifc.</summary>
+    internal sealed class RebaixoCut
+    {
+        public string Corridor = "";
+        public string Baseline = "";
+        public string Subassembly = "";
+        public string Code = "";
+        public string Label = "";
+        public string Side = "";
+        public double S0, S1, S2, S3;
+        public double? FinalHeight, EntrySlope, ExitSlope;
+    }
+
+    internal sealed class Options
+    {
+        /// <summary>Troca a malha das peças cortadas pela exportação (ver resumo da classe).</summary>
+        public bool FixCut = true;
+
+        /// <summary>Rebaixos a separar (vazio = nenhum).</summary>
+        public List<RebaixoCut> Rebaixos = new();
     }
 
     /// <summary>Diferença mínima em planta para trocar a malha (m²), e a relativa (fração da área do sólido).</summary>
@@ -50,29 +75,31 @@ internal static class IfcSolidFix
     /// <summary>Propriedades que identificam a peça (iguais nos sólidos extraídos e no .ifc).</summary>
     private static readonly string[] KeyProps = { "corridorname", "baselinename", "regionname", "subassemblyhandle", "codename", "side" };
 
-    /// <summary>Lê o .ifc, corrige e grava de volta. Sem o que corrigir, o arquivo não é regravado.</summary>
-    public static Result ApplyToFile(string ifcPath, Database db, IEnumerable<ObjectId> corridorIds, Action<string>? log = null)
+    /// <summary>Lê o .ifc, corrige e grava de volta. Sem o que mudar, o arquivo não é regravado.</summary>
+    public static Result ApplyToFile(string ifcPath, Database db, IEnumerable<ObjectId> corridorIds, Options options, Action<string>? log = null)
     {
         var sw = Stopwatch.StartNew();
         var r = new Result();
         try
         {
             string text = File.ReadAllText(ifcPath, Encoding.ASCII);
-            string? fixedText = Apply(text, db, corridorIds, r, log);
+            string? fixedText = Apply(text, db, corridorIds, options, r, log);
             if (fixedText is not null)
                 File.WriteAllText(ifcPath, fixedText, Encoding.ASCII);
         }
         catch (System.Exception ex)
         {
             r.Error = ex.Message;
-            log?.Invoke("Correcao de pecas: " + ex);
+            log?.Invoke("Pecas do corredor: " + ex);
         }
         r.Milliseconds = sw.ElapsedMilliseconds;
         return r;
     }
 
-    /// <summary>Devolve o texto corrigido, ou null se nada mudou.</summary>
-    public static string? Apply(string text, Database db, IEnumerable<ObjectId> corridorIds, Result r, Action<string>? log)
+    private static bool Same(string a, string b) => string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Devolve o texto alterado, ou null se nada mudou.</summary>
+    public static string? Apply(string text, Database db, IEnumerable<ObjectId> corridorIds, Options options, Result r, Action<string>? log)
     {
         var step = new Step(text);
 
@@ -94,61 +121,123 @@ internal static class IfcSolidFix
         }
         if (products.Count == 0)
         {
-            log?.Invoke("Correcao de pecas: nenhuma peca de corredor com propriedades no .ifc.");
+            log?.Invoke("Pecas do corredor: nenhuma peca de corredor com propriedades no .ifc.");
             return null;
         }
         MapConversion map = step.Map();
 
-        // 2) Sólidos do corredor num banco temporário (o desenho não é tocado).
+        // 2) Sólidos do corredor num banco temporário (o desenho não é tocado). Os da subassembly de um rebaixo
+        //    são cortados nas estacas de início e fim dele; cada pedaço sabe a que rebaixo pertence (ou nenhum).
         var solids = new Dictionary<string, List<Mesh>>();
         foreach (ObjectId cid in corridorIds.Distinct())
         {
             using var side = new Database(true, true);
-            ObjectIdCollection ids;
-            using (Transaction tr = db.TransactionManager.StartTransaction())
+            using Transaction tr = db.TransactionManager.StartTransaction();
+            if (tr.GetObject(cid, OpenMode.ForRead) is not CivilCorridorType c)
+                continue;
+            var prm = new Autodesk.Civil.DatabaseServices.ExportCorridorSolidsParams
             {
-                if (tr.GetObject(cid, OpenMode.ForRead) is not CivilCorridorType c)
+                ExportShapes = true,
+                ExportLinks = false,
+                CreateSolidForShape = true,
+                SweepSolidForShape = false
+            };
+            ObjectIdCollection ids = c.ExportSolids(prm, side);
+            var cuts = options.Rebaixos.Where(x => Same(x.Corridor, c.Name)).ToList();
+            var paths = new Dictionary<string, BaselinePath?>(StringComparer.OrdinalIgnoreCase);
+            BaselinePath? PathOf(string baseline)
+            {
+                if (paths.TryGetValue(baseline, out var bp))
+                    return bp;
+                bp = null;
+                foreach (Autodesk.Civil.DatabaseServices.Baseline b in c.Baselines)
                 {
-                    tr.Commit();
-                    continue;
+                    if (Same(b.Name ?? "", baseline))
+                    {
+                        bp = BaselinePath.Of(b);
+                        break;
+                    }
                 }
-                var prm = new Autodesk.Civil.DatabaseServices.ExportCorridorSolidsParams
-                {
-                    ExportShapes = true,
-                    ExportLinks = false,
-                    CreateSolidForShape = true,
-                    SweepSolidForShape = false
-                };
-                ids = c.ExportSolids(prm, side);
-                tr.Commit();
+                if (bp is null)
+                    log?.Invoke($"Pecas do corredor: baseline '{baseline}' sem caminho; baselines do corredor: {string.Join(" | ", c.Baselines.Cast<Autodesk.Civil.DatabaseServices.Baseline>().Select(b => b.Name))}");
+                paths[baseline] = bp;
+                return bp;
             }
             using (Transaction st = side.TransactionManager.StartTransaction())
             {
                 bool first = r.Solids == 0;
                 foreach (ObjectId sid in ids)
                 {
-                    if (sid.IsNull || sid.IsErased || st.GetObject(sid, OpenMode.ForRead) is not Solid3d s)
+                    if (sid.IsNull || sid.IsErased || st.GetObject(sid, OpenMode.ForWrite) is not Solid3d s)
                         continue;
                     r.Solids++;
                     var sp = SolidProperties(s, st);
                     if (first)
                     {
-                        log?.Invoke("Correcao de pecas: propriedades do primeiro solido: " + string.Join("; ", sp.Select(kv => kv.Key + "=" + kv.Value)));
+                        log?.Invoke("Pecas do corredor: propriedades do primeiro solido: " + string.Join("; ", sp.Select(kv => kv.Key + "=" + kv.Value)));
                         first = false;
                     }
-                    Mesh? m = Facet(s);
-                    if (m is null)
-                        continue;
                     string k = Key(sp);
                     if (!solids.TryGetValue(k, out var l))
                         solids[k] = l = new List<Mesh>();
-                    l.Add(m);
-                }
-                st.Commit();
+                    string bl = sp.TryGetValue("baselinename", out string? x1) ? x1 : "";
+                    string sa = sp.TryGetValue("subassemblyname", out string? x2) ? x2 : "";
+                    var mine = cuts.Where(x => Same(x.Baseline, bl) && Same(x.Subassembly, sa)).ToList();
+                    BaselinePath? al = mine.Count > 0 ? PathOf(bl) : null;
+                    // Malha do sólido inteiro (antes de cortar: o corte altera o sólido).
+                    Mesh? whole = Facet(s);
+                    if (whole is null)
+                        continue;
+                    whole.Source = r.Solids;
+                    if (al is null)
+                    {
+                        l.Add(whole);
+                        continue;
+                    }
+                    var sliced = Slice(s, mine, al);
+                    var pieces = new List<Mesh>();
+                    bool ok = true;
+                    foreach ((Solid3d piece, int reb) in sliced)
+                    {
+                        Mesh? m = Facet(piece);
+                        if (!ReferenceEquals(piece, s))
+                            piece.Dispose();
+                        if (m is null)
+                        {
+                            ok = false;
+                            continue;
+                        }
+                        m.Rebaixo = reb >= 0 ? mine[reb] : null;
+                        m.Source = r.Solids;
+                        pieces.Add(m);
+                    }
+                    if (pieces.All(x => x.Rebaixo is null))
+                    {
+                        l.Add(whole);
+                        continue;
+                    }
+                    // Conferência do corte: os pedaços ficam dentro do sólido e somam a mesma área em planta.
+                    double[] wb = Box(whole.Points);
+                    double aw = PlanArea(whole.Points, whole.Tris), ap = pieces.Sum(x => PlanArea(x.Points, x.Tris));
+                    ok = ok && pieces.All(x =>
+                    {
+                        double[] pb = Box(x.Points);
+                        return pb[0] >= wb[0] - 0.05 && pb[1] >= wb[1] - 0.05 && pb[2] <= wb[2] + 0.05 && pb[3] <= wb[3] + 0.05;
+                    }) && Math.Abs(ap - aw) <= Math.Max(0.05, 0.01 * aw);
+                    if (!ok)
+                    {
+                        r.SplitFailed++;
+                        log?.Invoke($"Pecas do corredor: corte invalido em {bl} / {sa} / {(sp.TryGetValue("codename", out string? cn2) ? cn2 : "")} ({aw:F2} m2 inteiro, {ap:F2} m2 nos pedacos); solido mantido inteiro");
+                        l.Add(whole);
+                        continue;
+                    }
+                    l.AddRange(pieces);
+                }                st.Commit();
             }
+            tr.Commit();
         }
 
-        // 3) Comparação em planta e troca da malha.
+        // 3) Comparação em planta, troca da malha e separação dos rebaixos.
         var edits = new Step.Editor(step);
         foreach (var kv in products)
         {
@@ -163,9 +252,10 @@ internal static class IfcSolidFix
                 return (P: p, Place: place, Current: current, Box: Box(current.SelectMany(c => c.World)));
             }).Where(x => x.Current.Count > 0).ToList();
             var assigned = parts.Select(_ => new List<Mesh>()).ToList();
-            foreach (Mesh m in sl)
+            // Os pedaços de um mesmo sólido (cortes dos rebaixos) vão juntos para a mesma peça.
+            foreach (var grp in sl.GroupBy(m => m.Source))
             {
-                double[] mb = Box(m.Points);
+                double[] mb = Box(grp.SelectMany(m => m.Points));
                 int best = -1;
                 double bestOv = 0;
                 for (int i = 0; i < parts.Count; i++)
@@ -180,7 +270,7 @@ internal static class IfcSolidFix
                 if (best < 0 && parts.Count == 1)
                     best = 0;
                 if (best >= 0)
-                    assigned[best].Add(m);
+                    assigned[best].AddRange(grp);
             }
             for (int i = 0; i < parts.Count; i++)
             {
@@ -189,7 +279,44 @@ internal static class IfcSolidFix
                 r.Matched++;
                 Product p = parts[i].P;
                 double[] place = parts[i].Place;
+                double[] inv = Step.Inverse(place);
                 var current = parts[i].Current;
+                List<int> tfs = current.Select(c => c.Tfs).ToList();
+                List<double[]> Local(Mesh m) => m.Points.Select(w => Step.Xf(inv, map.ToIfc(w))).ToList();
+
+                var groups = assigned[i].Where(m => m.Rebaixo is not null).GroupBy(m => m.Rebaixo!).ToList();
+                if (groups.Count > 0)
+                {
+                    // Rebaixos: a peça original fica com o que está fora deles; cada rebaixo vira um elemento novo.
+                    var outside = assigned[i].Where(m => m.Rebaixo is null).ToList();
+                    int g0 = 0;
+                    if (outside.Count > 0)
+                    {
+                        Mesh o = Mesh.Merge(outside);
+                        edits.ReplaceBody(p.Shape, tfs, Local(o), o.Tris, o.Closed);
+                    }
+                    else
+                    {
+                        // A peça inteira está dentro de um rebaixo: ela mesma passa a ser o rebaixo.
+                        Mesh o = Mesh.Merge(groups[0].ToList());
+                        edits.ReplaceBody(p.Shape, tfs, Local(o), o.Tris, o.Closed);
+                        edits.MarkRebaixo(p.Id, $"{p.Name} - Rebaixo {groups[0].Key.Code}", Pset(groups[0].Key));
+                        r.RebaixoElements++;
+                        r.RebaixoCodes.Add(groups[0].Key.Code);
+                        g0 = 1;
+                    }
+                    for (int g = g0; g < groups.Count; g++)
+                    {
+                        Mesh o = Mesh.Merge(groups[g].ToList());
+                        int nid = edits.AddCopy(p.Id, p.Shape, tfs, $"{p.Name} - Rebaixo {groups[g].Key.Code}", Local(o), o.Tris, o.Closed, Pset(groups[g].Key));
+                        r.RebaixoElements++;
+                        r.RebaixoCodes.Add(groups[g].Key.Code);
+                        r.Details.Add($"#{nid} {p.Name} - Rebaixo {groups[g].Key.Code} (de #{p.Id})");
+                    }
+                    continue;
+                }
+                if (!options.FixCut)
+                    continue;
                 double aIfc = current.Sum(c => PlanArea(c.World, c.Tris));
                 var merged = Mesh.Merge(assigned[i]);
                 double aSolid = PlanArea(merged.Points, merged.Tris);
@@ -197,19 +324,171 @@ internal static class IfcSolidFix
                 if (!(diff >= MinArea || (diff >= MinAreaRatio && diff >= MinRatio * aSolid)))
                     continue;
                 // Pontos do sólido (desenho) -> coordenadas locais da peça no .ifc.
-                double[] inv = Step.Inverse(place);
-                var local = merged.Points.Select(w => Step.Xf(inv, map.ToIfc(w))).ToList();
-                edits.ReplaceBody(p.Shape, current.Select(c => c.Tfs).ToList(), local, merged.Tris, merged.Closed);
+                edits.ReplaceBody(p.Shape, tfs, Local(merged), merged.Tris, merged.Closed);
                 r.Replaced++;
                 r.AreaRecovered += diff;
                 r.Details.Add($"#{p.Id} {p.Name} [{kv.Key}]: {aIfc:F2} -> {aSolid:F2} m2");
             }
         }
         foreach (string d in r.Details)
-            log?.Invoke("Correcao de pecas: " + d);
-        return r.Replaced > 0 ? edits.Result() : null;
+            log?.Invoke("Pecas do corredor: " + d);
+        return edits.Changed ? edits.Result() : null;
     }
 
+    /// <summary>Propriedades do rebaixo para o property set C3D_REBAIXO.</summary>
+    private static List<(string Name, string Value)> Pset(RebaixoCut c)
+    {
+        static string L(double v) => "IFCLENGTHMEASURE(" + Step.F(v) + ")";
+        var l = new List<(string, string)>
+        {
+            ("Codigo", "IFCLABEL('" + c.Code + "')"),
+            ("Rebaixo", "IFCLABEL('" + IfcReport.Encode(c.Label) + "')"),
+            ("Lado", "IFCLABEL('" + c.Side + "')"),
+            ("Baseline", "IFCLABEL('" + IfcReport.Encode(c.Baseline) + "')"),
+            ("EstacaInicial", L(c.S0)),
+            ("InicioRebaixado", L(c.S1)),
+            ("FimRebaixado", L(c.S2)),
+            ("EstacaFinal", L(c.S3)),
+            ("ComprimentoTotal", L(c.S3 - c.S0))
+        };
+        if (c.FinalHeight is double h)
+            l.Add(("AlturaFinal", L(h)));
+        if (c.EntrySlope is double e)
+            l.Add(("RampaEntrada", "IFCRATIOMEASURE(" + Step.F(e) + ")"));
+        if (c.ExitSlope is double x)
+            l.Add(("RampaSaida", "IFCRATIOMEASURE(" + Step.F(x) + ")"));
+        return l;
+    }
+
+    /// <summary>
+    /// Corta o sólido por planos verticais perpendiculares ao alinhamento nas estacas de início e fim de cada rebaixo
+    /// e diz, para cada pedaço, a que rebaixo ele pertence (estaca do centro do pedaço; -1 = fora).
+    /// </summary>
+    private static List<(Solid3d Piece, int Rebaixo)> Slice(Solid3d s, List<RebaixoCut> cuts, BaselinePath al)
+    {
+        var pieces = new List<Solid3d> { s };
+        foreach (double st in cuts.SelectMany(x => new[] { x.S0, x.S3 }).Distinct())
+        {
+            Plane? plane = PlaneAt(al, st);
+            if (plane is null)
+                continue;
+            var next = new List<Solid3d>();
+            foreach (Solid3d p in pieces)
+            {
+                next.Add(p);
+                try
+                {
+                    Solid3d other = p.Slice(plane, true);
+                    if (other is not null && !other.IsNull)
+                        next.Add(other);
+                }
+                catch
+                {
+                    // O plano não corta este pedaço.
+                }
+            }
+            pieces = next;
+        }
+        var result = new List<(Solid3d, int)>();
+        foreach (Solid3d p in pieces)
+        {
+            int reb = -1;
+            try
+            {
+                Point3d c = p.MassProperties.Centroid;
+                double station = al.Station(c.X, c.Y);
+                for (int i = 0; i < cuts.Count; i++)
+                {
+                    if (station > cuts[i].S0 + 0.001 && station < cuts[i].S3 - 0.001)
+                    {
+                        reb = i;
+                        break;
+                    }
+                }
+            }
+            catch
+            {
+                // Sem centro: fica fora dos rebaixos.
+            }
+            result.Add((p, reb));
+        }
+        return result;
+    }
+
+    private static Plane? PlaneAt(BaselinePath bp, double station)
+    {
+        (Point3d? p, Vector3d? t) = bp.At(station);
+        return p is Point3d pt && t is Vector3d d ? new Plane(new Point3d(pt.X, pt.Y, 0), d) : null;
+    }
+
+    /// <summary>
+    /// Baseline do corredor (alinhamento ou feature line) amostrada a cada 0,25 m: ponto e direção numa estaca e a
+    /// estaca de um ponto (projeção no trecho mais próximo).
+    /// </summary>
+    internal sealed class BaselinePath
+    {
+        private readonly Autodesk.Civil.DatabaseServices.Baseline _b;
+        private readonly List<(double S, double X, double Y)> _p = new();
+
+        public double Start, End;
+
+        private BaselinePath(Autodesk.Civil.DatabaseServices.Baseline b) => _b = b;
+
+        public static BaselinePath? Of(Autodesk.Civil.DatabaseServices.Baseline b)
+        {
+            try
+            {
+                var bp = new BaselinePath(b) { Start = b.StartStation, End = b.EndStation };
+                int n = Math.Max(2, (int)Math.Ceiling((bp.End - bp.Start) / 0.25) + 1);
+                for (int i = 0; i < n; i++)
+                {
+                    double s = i == n - 1 ? bp.End : bp.Start + (i * 0.25);
+                    Point3d q = b.StationOffsetElevationToXYZ(new Point3d(s, 0, 0));
+                    bp._p.Add((s, q.X, q.Y));
+                }
+                return bp._p.Count >= 2 ? bp : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public (Point3d? Point, Vector3d? Dir) At(double station)
+        {
+            try
+            {
+                double s = Math.Min(End, Math.Max(Start, station));
+                Point3d q = _b.StationOffsetElevationToXYZ(new Point3d(s, 0, 0));
+                Vector3d d = _b.GetDirectionAtStation(s);
+                var h = new Vector3d(d.X, d.Y, 0);
+                return h.Length < 1e-9 ? (null, null) : (q, h.GetNormal());
+            }
+            catch
+            {
+                return (null, null);
+            }
+        }
+
+        public double Station(double x, double y)
+        {
+            double best = double.MaxValue, st = double.NaN;
+            for (int i = 0; i + 1 < _p.Count; i++)
+            {
+                var (s0, x0, y0) = _p[i];
+                var (s1, x1, y1) = _p[i + 1];
+                double dx = x1 - x0, dy = y1 - y0, l2 = (dx * dx) + (dy * dy);
+                double t = l2 < 1e-12 ? 0 : Math.Max(0, Math.Min(1, (((x - x0) * dx) + ((y - y0) * dy)) / l2));
+                double px = x0 + (t * dx) - x, py = y0 + (t * dy) - y, d2 = (px * px) + (py * py);
+                if (d2 < best)
+                {
+                    best = d2;
+                    st = s0 + (t * (s1 - s0));
+                }
+            }
+            return st;
+        }
+    }
     /// <summary>Caixa em planta [xmin, ymin, xmax, ymax].</summary>
     private static double[] Box(IEnumerable<double[]> pts)
     {
@@ -331,6 +610,8 @@ internal static class IfcSolidFix
         public List<double[]> Points = new();
         public List<int[]> Tris = new();
         public bool Closed = true;
+        public RebaixoCut? Rebaixo;
+        public int Source;
 
         public static Mesh Merge(List<Mesh> l)
         {
@@ -675,11 +956,170 @@ internal static class IfcSolidFix
                 }
             }
 
+            private readonly List<string> _added = new();
+            private int _next;
+            private Dictionary<int, List<int>>? _relsOf;
+
+            public bool Changed => _replace.Count > 0 || _remove.Count > 0 || _added.Count > 0;
+
+            private string Line(int id) => _replace.TryGetValue(id, out string? l) ? l : _s._lines[_s._index[id]];
+
+            private int NextId()
+            {
+                if (_next == 0)
+                    _next = _s._index.Keys.Max() + 1;
+                return _next++;
+            }
+
+            /// <summary>GUID novo no formato do IFC (22 caracteres, base 64 do padrão).</summary>
+            public static string NewGuid()
+            {
+                const string C = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_$";
+                var n = System.Numerics.BigInteger.Parse("0" + Guid.NewGuid().ToString("N"), NumberStyles.HexNumber, IC);
+                var r = new char[22];
+                for (int i = 21; i >= 0; i--)
+                {
+                    r[i] = C[(int)(n % 64)];
+                    n /= 64;
+                }
+                return new string(r);
+            }
+
+            private static readonly System.Text.RegularExpressions.Regex NameArg = new(@"^(#\d+=\s*IFC\w+\('[^']*',(?:#\d+|\$),)('(?:[^']|'')*'|\$)");
+
+            private static string SetName(string line, string name) =>
+                NameArg.Replace(line, m => m.Groups[1].Value + "'" + name.Replace("'", "''") + "'", 1);
+
+            private string OwnerOf(int prod) => _s.Args(prod)[1] is Ref oh ? "#" + oh.Id.ToString(IC) : "$";
+
+            /// <summary>Relações (contenção, agregação, propriedades exceto Quantities) que citam cada objeto.</summary>
+            private Dictionary<int, List<int>> RelsOf()
+            {
+                if (_relsOf is not null)
+                    return _relsOf;
+                _relsOf = new Dictionary<int, List<int>>();
+                foreach (int rel in _s.IdsOfTypes(new HashSet<string> { "IFCRELCONTAINEDINSPATIALSTRUCTURE", "IFCRELAGGREGATES", "IFCRELDEFINESBYPROPERTIES" }))
+                {
+                    List<object?> a = _s.Args(rel);
+                    string t = _s.TypeOf(rel);
+                    object? list = t == "IFCRELAGGREGATES" ? (a.Count > 5 ? a[5] : null) : (a.Count > 4 ? a[4] : null);
+                    if (t == "IFCRELDEFINESBYPROPERTIES" && a.Count > 5 && a[5] is Ref ps && _s.TypeOf(ps.Id) == "IFCPROPERTYSET" && Str(_s.Args(ps.Id)[2]) == "Quantities")
+                        continue;
+                    if (list is not List<object?> objs)
+                        continue;
+                    foreach (Ref o in objs.OfType<Ref>())
+                    {
+                        if (!_relsOf.TryGetValue(o.Id, out var l))
+                            _relsOf[o.Id] = l = new List<int>();
+                        l.Add(rel);
+                    }
+                }
+                return _relsOf;
+            }
+
+            /// <summary>Acrescenta o objeto à lista de objetos relacionados da relação.</summary>
+            private void AppendRel(int rel, int obj)
+            {
+                string l = Line(rel);
+                int i = l.IndexOf("(#", l.IndexOf('(') + 1, StringComparison.Ordinal);
+                int close = l.IndexOf(')', i);
+                _replace[rel] = l.Substring(0, close) + ",#" + obj.ToString(IC) + l.Substring(close);
+            }
+
+            private void AddPset(int prod, string oh, string psetName, List<(string Name, string Value)> values)
+            {
+                var ids = new List<int>();
+                foreach ((string n, string v) in values)
+                {
+                    int id = NextId();
+                    ids.Add(id);
+                    _added.Add($"#{id}= IFCPROPERTYSINGLEVALUE('{n}',$,{v},$);");
+                }
+                int ps = NextId();
+                _added.Add($"#{ps}= IFCPROPERTYSET('{NewGuid()}',{oh},'{psetName}',$,({string.Join(",", ids.Select(x => "#" + x.ToString(IC)))}));");
+                int rel = NextId();
+                _added.Add($"#{rel}= IFCRELDEFINESBYPROPERTIES('{NewGuid()}',{oh},$,$,(#{prod}),#{ps});");
+            }
+
+            /// <summary>A própria peça passa a ser o rebaixo: nome novo e property set C3D_REBAIXO.</summary>
+            public void MarkRebaixo(int prod, string newName, List<(string Name, string Value)> pset)
+            {
+                _replace[prod] = SetName(Line(prod), newName);
+                AddPset(prod, OwnerOf(prod), "C3D_REBAIXO", pset);
+            }
+
+            /// <summary>
+            /// Elemento novo copiado da peça (mesma classe, posicionamento, estilos, contenção e property sets; GUID e
+            /// nome novos), com a malha dada e o property set C3D_REBAIXO. Devolve o id do elemento.
+            /// </summary>
+            public int AddCopy(int prod, int pds, List<int> tfs, string name, List<double[]> local, List<int[]> tris, bool closed, List<(string Name, string Value)> pset)
+            {
+                int list = NextId(), face = NextId(), rep = NextId(), shape = NextId(), copy = NextId();
+                var sb = new StringBuilder();
+                sb.Append('#').Append(list).Append("= IFCCARTESIANPOINTLIST3D((");
+                for (int i = 0; i < local.Count; i++)
+                    sb.Append(i == 0 ? "(" : ",(").Append(F(local[i][0])).Append(',').Append(F(local[i][1])).Append(',').Append(F(local[i][2])).Append(')');
+                sb.Append("),$);");
+                _added.Add(sb.ToString());
+                var tb = new StringBuilder();
+                tb.Append('#').Append(face).Append("= IFCTRIANGULATEDFACESET(#").Append(list).Append(",$,").Append(closed ? ".T." : ".F.").Append(",(");
+                for (int i = 0; i < tris.Count; i++)
+                    tb.Append(i == 0 ? "(" : ",(").Append(tris[i][0] + 1).Append(',').Append(tris[i][1] + 1).Append(',').Append(tris[i][2] + 1).Append(')');
+                tb.Append("),$);");
+                _added.Add(tb.ToString());
+                int ctx = 0;
+                if (_s.Args(pds)[2] is List<object?> reps)
+                {
+                    foreach (Ref rr in reps.OfType<Ref>())
+                    {
+                        List<object?> ra = _s.Args(rr.Id);
+                        if (_s.TypeOf(rr.Id) == "IFCSHAPEREPRESENTATION" && Str(ra[1]) == "Body" && ra[0] is Ref cr)
+                        {
+                            ctx = cr.Id;
+                            break;
+                        }
+                    }
+                }
+                _added.Add($"#{rep}= IFCSHAPEREPRESENTATION(#{ctx},'Body','Tessellation',(#{face}));");
+                _added.Add($"#{shape}= IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}));");
+                string pl = Line(prod);
+                pl = "#" + copy.ToString(IC) + pl.Substring(pl.IndexOf('='));
+                pl = SetName(pl, name);
+                int g = pl.IndexOf("('", StringComparison.Ordinal);
+                int ge = pl.IndexOf('\'', g + 2);
+                pl = pl.Substring(0, g + 2) + NewGuid() + pl.Substring(ge);
+                pl = System.Text.RegularExpressions.Regex.Replace(pl, "#" + pds.ToString(IC) + @"(?!\d)", "#" + shape.ToString(IC));
+                _added.Add(pl);
+                // Estilo (cor/material) da malha original.
+                foreach (int id in _s.IdsOfTypes(new HashSet<string> { "IFCSTYLEDITEM" }))
+                {
+                    if (_s.Args(id)[0] is not Ref it || it.Id != tfs[0])
+                        continue;
+                    string sl = _s._lines[_s._index[id]];
+                    int a = sl.IndexOf('(');
+                    int b = sl.IndexOf(',', a);
+                    _added.Add("#" + NextId().ToString(IC) + "= IFCSTYLEDITEM(#" + face.ToString(IC) + sl.Substring(b));
+                }
+                if (RelsOf().TryGetValue(prod, out var rels))
+                {
+                    foreach (int rel in rels)
+                        AppendRel(rel, copy);
+                }
+                AddPset(copy, OwnerOf(prod), "C3D_REBAIXO", pset);
+                return copy;
+            }
+
             public string Result()
             {
-                var sb = new StringBuilder(_s._lines.Sum(l => l.Length + 2));
+                var sb = new StringBuilder(_s._lines.Sum(l => l.Length + 2) + _added.Sum(l => l.Length + 2));
+                int endData = _s._lines.FindLastIndex(l => l.Trim() == "ENDSEC;");
                 for (int i = 0; i < _s._lines.Count; i++)
                 {
+                    if (i == endData)
+                    {
+                        foreach (string a in _added)
+                            sb.Append(a).Append(_s._nl);
+                    }
                     string l = _s._lines[i];
                     int id = LineId(l);
                     if (id > 0 && _s._index.TryGetValue(id, out int ix) && ix == i)
@@ -705,7 +1145,7 @@ internal static class IfcSolidFix
             }
         }
 
-        private static string F(double v) => v.ToString("0.######", IC);
+        internal static string F(double v) => v.ToString("0.######", IC);
 
         // ---- matrizes 3x4 ----
 

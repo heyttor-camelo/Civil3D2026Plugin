@@ -89,6 +89,9 @@ internal sealed class IfcCriteria
     /// </summary>
     public bool CorrigirPecasCortadas { get; set; } = true;
 
+    /// <summary>Rebaixos do MFREBAIXO como elementos próprios no .ifc (trecho da guia/sarjeta entre as estacas do rebaixo). Ligado por padrão.</summary>
+    public bool SepararRebaixos { get; set; } = true;
+
     // Marcacoes da janela do C3DIFC (gravadas para a proxima vez). Nomes/ids; vazio = padrao.
     public List<string> CorredoresDesmarcados { get; set; } = new();
 

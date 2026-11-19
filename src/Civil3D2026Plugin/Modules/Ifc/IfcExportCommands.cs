@@ -575,16 +575,60 @@ public sealed class IfcExportCommands
                 return;
             }
             var extra = new List<string>();
-            if (p.Criteria.CorrigirPecasCortadas && p.Corridors.Count > 0)
+            var options = new IfcSolidFix.Options { FixCut = p.Criteria.CorrigirPecasCortadas };
+            if (p.Criteria.SepararRebaixos)
+            {
+                try
+                {
+                    options.Rebaixos = MFRebaixoData.ReadAll(doc.Database)
+                        .Where(x => p.Corridors.Contains(x.CorridorId))
+                        .Select(x => new IfcSolidFix.RebaixoCut
+                        {
+                            Corridor = x.CorridorName,
+                            Baseline = x.BaselineName,
+                            Subassembly = x.SubassemblyName,
+                            Code = x.Code,
+                            Label = x.Label,
+                            Side = x.SideLabel,
+                            S0 = x.S0,
+                            S1 = x.S1,
+                            S2 = x.S2,
+                            S3 = x.S3,
+                            FinalHeight = x.TargetFinal,
+                            EntrySlope = x.EntrySlope,
+                            ExitSlope = x.ExitSlope
+                        }).ToList();
+                }
+                catch (System.Exception ex)
+                {
+                    PluginLog.Aviso("IFC", "Rebaixos nao lidos: " + ex.Message);
+                }
+            }
+            if ((options.FixCut || options.Rebaixos.Count > 0) && p.Corridors.Count > 0)
             {
                 ed.WriteMessage("\nConferindo as peças do corredor com os sólidos...");
-                IfcSolidFix.Result fix = IfcSolidFix.ApplyToFile(p.IfcPath, doc.Database, p.Corridors, s => PluginLog.Info("IFC", s));
-                PluginLog.Info("IFC", $"Correcao de pecas: {fix.Solids} solidos, {fix.Products} pecas, {fix.Matched} casadas, {fix.Replaced} corrigidas, {fix.AreaRecovered:F2} m2 recuperados, {fix.Milliseconds} ms" + (fix.Error.Length > 0 ? " - erro: " + fix.Error : ""));
-                extra.Add(fix.Error.Length > 0
-                    ? "Peças corrigidas: não verificado (" + fix.Error + ")"
-                    : fix.Replaced > 0
-                        ? $"Peças corrigidas: {fix.Replaced} ({fix.AreaRecovered:0.0} m² em planta recuperados do sólido do corredor)"
-                        : "Peças corrigidas: 0");
+                IfcSolidFix.Result fix = IfcSolidFix.ApplyToFile(p.IfcPath, doc.Database, p.Corridors, options, s => PluginLog.Info("IFC", s));
+                PluginLog.Info("IFC", $"Pecas do corredor: {fix.Solids} solidos, {fix.Products} pecas, {fix.Matched} casadas, {fix.Replaced} corrigidas, {fix.AreaRecovered:F2} m2 recuperados, " +
+                    $"{options.Rebaixos.Count} rebaixos lidos, {fix.RebaixoCodes.Count} separados em {fix.RebaixoElements} elementos, {fix.Milliseconds} ms" + (fix.Error.Length > 0 ? " - erro: " + fix.Error : ""));
+                if (fix.Error.Length > 0)
+                {
+                    extra.Add("Peças do corredor: não verificadas (" + fix.Error + ")");
+                }
+                else
+                {
+                    if (options.FixCut)
+                    {
+                        extra.Add(fix.Replaced > 0
+                            ? $"Peças corrigidas: {fix.Replaced} ({fix.AreaRecovered:0.0} m² em planta recuperados do sólido do corredor)"
+                            : "Peças corrigidas: 0");
+                    }
+                    if (p.Criteria.SepararRebaixos)
+                    {
+                        extra.Add(fix.RebaixoCodes.Count > 0
+                            ? $"Rebaixos separados: {fix.RebaixoCodes.Count} ({fix.RebaixoElements} elementos, property set C3D_REBAIXO)" + (fix.SplitFailed > 0 ? $"; {fix.SplitFailed} sólidos mantidos inteiros (corte inválido, ver log)" : "")
+                            : "Rebaixos separados: 0");
+                    }
+                }
             }
             string report = IfcReport.Finish(p.IfcPath, p.Criteria, p.Selected, p.Selection, extra);
             _lastReport = report;

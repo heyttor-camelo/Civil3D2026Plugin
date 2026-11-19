@@ -1,3 +1,13 @@
+## 2.131.0 - IFC v1.4.0: rebaixos como elementos separados no IFC
+
+Pedido do Heyvid em 19/11/2026.
+
+- Nova opcao na janela, ligada por padrao: **Rebaixos como elementos separados** (`SepararRebaixos` nos criterios). Os rebaixos do MFREBAIXO dos corredores exportados (estaca inicial a final, com as rampas) sao lidos do desenho; os solidos da subassembly de meio-fio/sarjeta deles (guia, sarjeta, base), gerados no banco temporario da correcao de pecas, sao cortados por planos verticais perpendiculares a baseline nas estacas inicial e final (baseline por alinhamento ou por feature line). O pedaco de dentro vira elemento novo no .ifc: mesma classe, posicionamento, estilo, contencao e property sets da peca, GUID novo, nome `<peca> - Rebaixo R01` e property set `C3D_REBAIXO` (Codigo, Rebaixo, Lado, Baseline, EstacaInicial, InicioRebaixado, FimRebaixado, EstacaFinal, ComprimentoTotal, AlturaFinal, RampaEntrada, RampaSaida). A peca original fica com o resto. O desenho nao muda.
+- Cada corte e conferido (pedacos dentro do solido e mesma area em planta, 1%); corte invalido mantem a peca inteira e entra no resumo e no log.
+- Resumo: `Rebaixos separados: N (M elementos, property set C3D_REBAIXO)`.
+- Pecas com a mesma identificacao: o solido inteiro escolhe a peca antes do corte (os pedacos vao juntos).
+- Teste (copia do KM_01 no console do AutoCAD, sobre a exportacao do corredor): 42 rebaixos lidos e todos separados, 106 elementos novos (guia, sarjeta e base), 6 solidos mantidos inteiros por corte invalido (4 de base, 2 de guia); area em planta das pecas com rebaixo 2496,5 -> 2497,8 m2 (maior diferenca por peca 0,45 m2), sobreposicao nova 0,17 m2; demais pecas iguais; nenhuma referencia quebrada e GUIDs unicos; +46 s junto com a correcao de pecas; .ifc de 16,7 para 19,6 MB.
+- C3DPassagemRampa 1.31.0 (mesmos arquivos do IFC).
 ## 2.130.0 - IFC v1.3.0: pecas cortadas pela exportacao corrigidas com o solido do corredor
 
 Pedido do Heyvid em 19/11/2026 (KM_01: buracos triangulares no pavimento das SARJETA 12 a 15 no BIMvision; acontece tambem com a extensao IFC 4.3 da Autodesk sozinha).
