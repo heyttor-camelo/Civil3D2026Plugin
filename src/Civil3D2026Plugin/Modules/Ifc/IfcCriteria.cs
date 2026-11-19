@@ -83,6 +83,12 @@ internal sealed class IfcCriteria
     /// </summary>
     public bool GrelhaSimplificada { get; set; }
 
+    /// <summary>
+    /// Peças de corredor que a exportação da Autodesk grava incompletas (faixas descartadas onde seções vizinhas se
+    /// cruzam, em curvas fechadas) recebem a malha do sólido do corredor. Ligado por padrão. Ver IfcSolidFix.
+    /// </summary>
+    public bool CorrigirPecasCortadas { get; set; } = true;
+
     // Marcacoes da janela do C3DIFC (gravadas para a proxima vez). Nomes/ids; vazio = padrao.
     public List<string> CorredoresDesmarcados { get; set; } = new();
 

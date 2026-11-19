@@ -57,6 +57,7 @@ internal sealed class IfcExportWindow : SW.Window
     private readonly WC.ComboBox _axes = new();
     private readonly WC.ComboBox _refs = new();
     private readonly WC.CheckBox _simple = new();
+    private readonly WC.CheckBox _fixShapes = new();
     private readonly WC.TextBox _layers = new();
     private readonly WC.TextBlock _status = new();
     private bool _syncing;
@@ -99,7 +100,7 @@ internal sealed class IfcExportWindow : SW.Window
         var top = new WC.Grid { Margin = new SW.Thickness(0, 0, 0, 8) };
         top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(160) });
         top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
-        for (int i = 0; i < 6; i++)
+        for (int i = 0; i < 7; i++)
             top.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         void Row(int r, string label, SW.UIElement el, string tip)
         {
@@ -138,6 +139,9 @@ internal sealed class IfcExportWindow : SW.Window
         _simple.Content = "Simplificar grelhas";
         _simple.Foreground = T.Text;
         Row(5, "", _simple, "Exporta as grelhas como chapa com o mesmo contorno e espessura. Reduz bastante o tamanho do arquivo; o desenho não é alterado.");
+        _fixShapes.Content = "Corrigir peças cortadas pela exportação";
+        _fixShapes.Foreground = T.Text;
+        Row(6, "", _fixShapes, "A exportação da Autodesk omite trechos de peças em curvas fechadas (seções que se cruzam). Essas peças recebem a geometria do sólido do corredor, gerado sem alterar o desenho. Classe, nome e propriedades não mudam.");
         WC.DockPanel.SetDock(top, WC.Dock.Top);
         root.Children.Add(top);
 
@@ -212,6 +216,7 @@ internal sealed class IfcExportWindow : SW.Window
         string rm = (_c.CorredoresReferenciados ?? "Nao").ToLowerInvariant();
         _refs.SelectedIndex = rm.StartsWith("perg") ? 1 : rm.StartsWith("sim") ? 2 : 0;
         _simple.IsChecked = _c.GrelhaSimplificada;
+        _fixShapes.IsChecked = _c.CorrigirPecasCortadas;
         _layers.Text = string.Join("; ", _c.LayersExtras);
         _roots.Clear();
         Database db = _doc.Database;
@@ -670,6 +675,7 @@ internal sealed class IfcExportWindow : SW.Window
         _c.Eixos = _axes.SelectedIndex switch { 1 => "todos", 2 => "nenhum", _ => "principais" };
         _c.CorredoresReferenciados = _refs.SelectedIndex switch { 1 => "Perguntar", 2 => "Sim", _ => "Nao" };
         _c.GrelhaSimplificada = _simple.IsChecked == true;
+        _c.CorrigirPecasCortadas = _fixShapes.IsChecked == true;
         _c.LayersExtras = _layers.Text.Split(';').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
         if (_roots.Count > 0)
         {

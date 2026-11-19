@@ -1,3 +1,12 @@
+## 2.130.0 - IFC v1.3.0: pecas cortadas pela exportacao corrigidas com o solido do corredor
+
+Pedido do Heyvid em 19/11/2026 (KM_01: buracos triangulares no pavimento das SARJETA 12 a 15 no BIMvision; acontece tambem com a extensao IFC 4.3 da Autodesk sozinha).
+
+- Causa: a extensao da Autodesk monta a malha de cada peca faixa a faixa entre secoes e descarta, sem aviso no log, as faixas em que secoes vizinhas se cruzam (curvas fechadas de meio-fio e bico de ilha com pavimento mais largo que o raio). O solido do corredor (Extract Corridor Solids) nao tem o defeito.
+- Nova opcao na janela, ligada por padrao: **Corrigir pecas cortadas pela exportacao** (`CorrigirPecasCortadas` nos criterios). Depois da exportacao, os solidos dos corredores exportados sao gerados num banco temporario (`Corridor.ExportSolids`; o desenho nao muda), casados com as pecas do .ifc pelas mesmas propriedades (corredor, baseline, regiao, subassembly, codigo, lado; regiao repetida pela sobreposicao em planta) e, onde a peca do .ifc cobre em planta menos que o solido (diferenca >= 0,5 m2, ou >= 2% e >= 0,05 m2), a malha dela vira a do solido (facetada, fechada, normais para fora). GUID, nome, classe, estilos e propriedades ficam.
+- Resumo: `Pecas corrigidas: N (x m2 em planta recuperados do solido do corredor)`; detalhes por peca no log do plugin.
+- Teste (copia do KM_01 no console do AutoCAD, exportacao nova do corredor pela extensao + correcao): 250 solidos casados, 62 pecas corrigidas, 562 m2 em planta recuperados (pavimento e base), +16 s (a exportacao leva 60 s); .ifc do corredor de 16,7 para 18,6 MB. Pavimento que existe no solido e faltava no .ifc: 83,4 -> 0 m2 no corredor todo (81,5 -> 0 m2 no cruzamento das SARJETA 12 a 15). So mudaram as 62 malhas (IfcTriangulatedFaceSet e a lista de pontos de cada uma).
+- C3DPassagemRampa 1.30.0 (mesmos arquivos do IFC).
 ## 2.129.0 - IFC v1.2.0: um caminho so (lembrado), selecao marca as caixas, Classes IFC sem arquivo de texto, so o .ifc na pasta
 
 Pedidos do Heyvid em 19/11/2026.

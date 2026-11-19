@@ -40,6 +40,7 @@ public sealed class IfcExportCommands
         public string Selection = "";
         public DateTime Started;
         public object? FileDia;
+        public List<ObjectId> Corridors = new();
     }
 
     private static Pending? _pending;
@@ -339,7 +340,8 @@ public sealed class IfcExportCommands
             Criteria = criteria,
             Selected = ids.Count,
             Selection = selection,
-            Started = DateTime.Now
+            Started = DateTime.Now,
+            Corridors = CorridorIdsOf(ids)
         };
         _lastReport = "";
         ed.WriteMessage($"\nExportando {ids.Count} objetos para {ifc}...");
@@ -378,6 +380,13 @@ public sealed class IfcExportCommands
                 AcApp.SetSystemVariable("FILEDIA", fileDia);
         }
         return _lastReport;
+    }
+
+    /// <summary>Corredores entre os objetos exportados (para a correção das peças pelo sólido).</summary>
+    private static List<ObjectId> CorridorIdsOf(IEnumerable<ObjectId> ids)
+    {
+        RXClass corridor = RXObject.GetClass(typeof(CivilCorridor));
+        return ids.Where(id => !id.IsNull && !id.IsErased && id.ObjectClass.IsDerivedFrom(corridor)).Distinct().ToList();
     }
 
     private static string MappingPath(string ifc) =>
@@ -565,7 +574,19 @@ public sealed class IfcExportCommands
                 ed.WriteMessage($"\nExportação não concluída: {p.IfcPath} não foi gerado. Detalhes no log da Autodesk em {AuxFolder}.\n");
                 return;
             }
-            string report = IfcReport.Finish(p.IfcPath, p.Criteria, p.Selected, p.Selection);
+            var extra = new List<string>();
+            if (p.Criteria.CorrigirPecasCortadas && p.Corridors.Count > 0)
+            {
+                ed.WriteMessage("\nConferindo as peças do corredor com os sólidos...");
+                IfcSolidFix.Result fix = IfcSolidFix.ApplyToFile(p.IfcPath, doc.Database, p.Corridors, s => PluginLog.Info("IFC", s));
+                PluginLog.Info("IFC", $"Correcao de pecas: {fix.Solids} solidos, {fix.Products} pecas, {fix.Matched} casadas, {fix.Replaced} corrigidas, {fix.AreaRecovered:F2} m2 recuperados, {fix.Milliseconds} ms" + (fix.Error.Length > 0 ? " - erro: " + fix.Error : ""));
+                extra.Add(fix.Error.Length > 0
+                    ? "Peças corrigidas: não verificado (" + fix.Error + ")"
+                    : fix.Replaced > 0
+                        ? $"Peças corrigidas: {fix.Replaced} ({fix.AreaRecovered:0.0} m² em planta recuperados do sólido do corredor)"
+                        : "Peças corrigidas: 0");
+            }
+            string report = IfcReport.Finish(p.IfcPath, p.Criteria, p.Selected, p.Selection, extra);
             _lastReport = report;
             CleanUp(p.IfcPath);
             string reportPath = Path.Combine(AuxFolder, Path.GetFileNameWithoutExtension(p.IfcPath) + "-resumo.txt");
@@ -735,10 +756,10 @@ internal static class IfcGratings
 /// <summary>Pos-processamento do .ifc (texto STEP) e o resumo.</summary>
 internal static class IfcReport
 {
-    public static string Finish(string ifcPath, IfcCriteria c, int selected, string selection)
+    public static string Finish(string ifcPath, IfcCriteria c, int selected, string selection, IEnumerable<string>? extra = null)
     {
         string text = File.ReadAllText(ifcPath, Encoding.ASCII);
-        var notes = new List<string>();
+        var notes = new List<string>(extra ?? Enumerable.Empty<string>());
 
         // Nome do projeto e do local (a extensao grava "Unknown"/"UnknownName"): so essas duas entidades mudam.
         if (!string.IsNullOrWhiteSpace(c.ProjetoNome))
