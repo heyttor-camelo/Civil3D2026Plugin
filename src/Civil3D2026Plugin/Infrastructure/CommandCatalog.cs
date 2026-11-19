@@ -365,9 +365,9 @@ public static class CommandCatalog
                 new[]
                 {
                     new CommandDefinition(C3DCommands.Ifc.Exportar, "Exportar IFC 4.3",
-                        "Exporta IFC 4.3 pela extensao da Autodesk com criterios nossos (arquivo -C3DIFC.json ao lado do DWG): o que entra (corredores, eixos, lombofaixas, superficies, layers), a classe IFC de cada coisa e o que nao sai (cascas e laterais do corredor). Avisa corredor desatualizado, poe o nome do projeto e grava um resumo ao lado do .ifc."),
+                        "Exporta IFC 4.3 escolhendo os objetos (corredores, alinhamentos, lombofaixas, superfícies, redes) e a classe IFC de cada layer ou estilo. Grava apenas o arquivo .ifc."),
                     new CommandDefinition(C3DCommands.Ifc.Relatorio, "Resumo da exportacao IFC",
-                        "Roda sozinho depois do C3DIFC: nome do projeto/local no .ifc, conferencia das classes e resumo.", ShowInRibbon: false),
+                        "Executado pelo C3DIFC ao final da exportação: grava o nome do projeto e do local no IFC e gera o resumo.", ShowInRibbon: false),
                     new CommandDefinition(C3DCommands.Ifc.CodeSet, "Acertar Code Set para o IFC",
                         "Acerta o Code Set Style dos corredores para o IFC: cria o item da sarjeta (shape SARJETA, link BASICO) e poe Render Material (concreto no meio-fio, sarjeta e calcada; asfalto no pavimento). Mostra a lista antes e pede confirmacao; U desfaz.")
                 }),

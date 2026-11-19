@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using Autodesk.AutoCAD.ApplicationServices;
@@ -8,7 +7,6 @@ using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using SW = System.Windows;
 using WC = System.Windows.Controls;
-using WM = System.Windows.Media;
 using CivilCorridor = Autodesk.Civil.DatabaseServices.Corridor;
 using Civil3D2026Plugin.Modules.CorridorTools.MFRebaixo;
 using Civil3D2026Plugin.UI.Common;
@@ -16,10 +14,11 @@ using Civil3D2026Plugin.UI.Common;
 namespace Civil3D2026Plugin.Modules.Ifc;
 
 /// <summary>
-/// Janela do C3DIFC (pedido do Heyvid em 17/11/2026): o que exportar, com caixinhas e contagens
-/// (corredores, eixos, lombofaixas por peca e por travessia, superficies, redes de tubulacao,
-/// selecionados a mao no desenho), nome do projeto/local, corredor de referencia, grelha simplificada,
-/// mapeamento e criterios avancados. As marcacoes ficam no JSON do projeto.
+/// Janela do C3DIFC: arquivo de saída (lembrado), o que exportar em árvore com caixas de marcar
+/// (corredores, eixos, lombofaixas por peça e por travessia, superfícies, redes, objetos escolhidos no desenho),
+/// opções e as classes IFC (janela própria, sem arquivo de texto). Tudo fica gravado no JSON do projeto.
+/// 19/11/2026: "Selecionar no desenho" marca a caixa do que já está na lista (eixo, corredor, superfície, rede);
+/// caixa marcada = sai no IFC (eixo marcado sai mesmo com o corredor desmarcado).
 /// </summary>
 internal sealed class IfcExportWindow : SW.Window
 {
@@ -31,7 +30,7 @@ internal sealed class IfcExportWindow : SW.Window
 
     private readonly Document _doc;
     private readonly string _criteriaPath;
-    private IfcCriteria _c;
+    private readonly IfcCriteria _c;
     private readonly ToolTheme T = ToolTheme.Current;
     private readonly HashSet<ObjectId> _manual = new();
 
@@ -46,10 +45,12 @@ internal sealed class IfcExportWindow : SW.Window
         public bool IsReference;
         public bool OutOfDate;
         public string Extra = "";
+        public string Detail = "";
     }
 
     private readonly List<Node> _roots = new();
     private readonly WC.TreeView _tree = new();
+    private readonly WC.TextBox _file = new();
     private readonly WC.TextBox _project = new();
     private readonly WC.TextBox _site = new();
     private readonly WC.ComboBox _axes = new();
@@ -64,24 +65,26 @@ internal sealed class IfcExportWindow : SW.Window
         _doc = doc;
         _c = criteria;
         _criteriaPath = criteriaPath;
-        foreach (ObjectId id in pickfirst)
-            _manual.Add(id);
         foreach (string h in _c.ManuaisHandles)
         {
             if (TryHandle(h, out ObjectId id))
                 _manual.Add(id);
         }
-        Title = "Exportar IFC 4.3 (C3DIFC)";
-        Width = 760;
-        Height = 820;
-        MinWidth = 600;
-        MinHeight = 560;
+        Title = "Exportar IFC 4.3";
+        Width = 800;
+        Height = 840;
+        MinWidth = 640;
+        MinHeight = 580;
         WindowStartupLocation = SW.WindowStartupLocation.CenterOwner;
         Background = T.Back;
         Foreground = T.Text;
         ToolStyles.Aplicar(Resources, T);
         Content = BuildUi();
+        _file.Text = _c.SuggestedIfc(doc.Database.Filename);
         Fill();
+        List<ObjectId> pick = pickfirst.ToList();
+        if (pick.Count > 0)
+            ApplyPicked(pick);
     }
 
     // ------------------------------------------------------------------
@@ -93,9 +96,9 @@ internal sealed class IfcExportWindow : SW.Window
         var root = new WC.DockPanel { Margin = new SW.Thickness(10) };
 
         var top = new WC.Grid { Margin = new SW.Thickness(0, 0, 0, 8) };
-        top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(150) });
+        top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(160) });
         top.ColumnDefinitions.Add(new WC.ColumnDefinition { Width = new SW.GridLength(1, SW.GridUnitType.Star) });
-        for (int i = 0; i < 5; i++)
+        for (int i = 0; i < 6; i++)
             top.RowDefinitions.Add(new WC.RowDefinition { Height = SW.GridLength.Auto });
         void Row(int r, string label, SW.UIElement el, string tip)
         {
@@ -111,36 +114,43 @@ internal sealed class IfcExportWindow : SW.Window
             WC.Grid.SetColumn(el, 1);
             top.Children.Add(el);
         }
-        Row(0, "Nome do projeto", _project, "Vai para o IfcProject (a exportacao da Autodesk gravava \"Unknown\").");
-        Row(1, "Nome do local", _site, "Vai para o IfcSite.");
-        _axes.Items.Add("principais (so eixos centrais)");
-        _axes.Items.Add("todos");
-        _axes.Items.Add("nenhum");
+
+        var fileRow = new WC.DockPanel();
+        WC.Button browse = Button("Procurar...", Browse, "Escolher a pasta e o nome do arquivo IFC.");
+        browse.Margin = new SW.Thickness(6, 0, 0, 0);
+        WC.DockPanel.SetDock(browse, WC.Dock.Right);
+        fileRow.Children.Add(browse);
+        fileRow.Children.Add(_file);
+        Row(0, "Arquivo", fileRow, "Arquivo IFC de saída. O último usado neste desenho é lembrado.");
+        Row(1, "Projeto", _project, "Nome do projeto no IFC (IfcProject).");
+        Row(2, "Local", _site, "Nome do local da obra no IFC (IfcSite).");
+        _axes.Items.Add("Eixos centrais");
+        _axes.Items.Add("Todos");
+        _axes.Items.Add("Nenhum");
         _axes.SelectionChanged += (_, _) => { if (!_syncing) ApplyAxisRule(); };
-        Row(2, "Eixos dos corredores", _axes, "Principais: so os alinhamentos de baseline do tipo eixo central (fora bordos/offset, retornos de esquina). Pode marcar/desmarcar um a um na lista.");
-        _refs.Items.Add("nunca (padrao)");
-        _refs.Items.Add("perguntar ao exportar");
-        _refs.Items.Add("sempre");
+        Row(3, "Alinhamentos", _axes, "Alinhamentos dos corredores marcados automaticamente. Eixos centrais: sem bordos, offsets e retornos de esquina. Cada um pode ser alterado na lista.");
+        _refs.Items.Add("Excluir");
+        _refs.Items.Add("Perguntar");
+        _refs.Items.Add("Incluir");
         _refs.SelectionChanged += (_, _) => { if (!_syncing) ApplyReferenceRule(); };
-        Row(3, "Corredor de referencia", _refs, "Corredor por data shortcut (de outro desenho): normalmente e exportado no desenho de origem; aqui sairia duplicado.");
-        _simple.Content = "Grelha simplificada no IFC (chapa: o arquivo fica bem mais leve; o desenho nao muda)";
+        Row(4, "Referências externas", _refs, "Corredores vindos de outro desenho por data shortcut. Em geral são exportados no desenho de origem.");
+        _simple.Content = "Simplificar grelhas";
         _simple.Foreground = T.Text;
-        Row(4, "", _simple, "As grelhas em X tem milhares de vertices; a chapa simplificada tem o mesmo contorno e espessura.");
+        Row(5, "", _simple, "Exporta as grelhas como chapa com o mesmo contorno e espessura. Reduz bastante o tamanho do arquivo; o desenho não é alterado.");
         WC.DockPanel.SetDock(top, WC.Dock.Top);
         root.Children.Add(top);
 
-        // Rodape: botoes.
+        // Rodapé: botões.
         var bottom = new WC.DockPanel { Margin = new SW.Thickness(0, 8, 0, 0) };
         var left = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
-        left.Children.Add(Button("Selecionar no desenho", PickInDrawing, "Esconde a janela; clique ou faca janela nos objetos (Enter termina). Entram no grupo \"Selecionados a mao\"."));
-        left.Children.Add(Button("Limpar selecionados", () => { _manual.Clear(); Fill(); }, "Tira os objetos escolhidos a mao."));
-        left.Children.Add(Button("Mapeamento...", EditMapping, "Classe IFC por layer, estilo de shape ou de link, e o que nao sai."));
-        left.Children.Add(Button("Criterios avancados...", OpenJson, "Abre o arquivo de criterios do projeto no Bloco de Notas (salve e clique Reler)."));
-        left.Children.Add(Button("Reler", () => { _c = IfcCriteria.Read(_criteriaPath); Fill(); }, "Le de novo o arquivo de criterios."));
+        left.Children.Add(Button("Selecionar no desenho", PickInDrawing,
+            "Seleciona objetos no desenho. Os que já estão na lista são marcados; os demais entram em Outros objetos."));
+        left.Children.Add(Button("Limpar outros objetos", ClearManual, "Remove da lista os itens de Outros objetos."));
+        left.Children.Add(Button("Classes IFC...", EditMapping, "Classe IFC por layer ou estilo, e o que não é exportado."));
         WC.DockPanel.SetDock(left, WC.Dock.Left);
         bottom.Children.Add(left);
         var right = new WC.StackPanel { Orientation = WC.Orientation.Horizontal, HorizontalAlignment = SW.HorizontalAlignment.Right };
-        WC.Button export = Button("Exportar...", Export, "Escolhe o arquivo .ifc e exporta.");
+        WC.Button export = Button("Exportar", Export, "Exporta para o arquivo indicado.");
         export.FontWeight = SW.FontWeights.Bold;
         right.Children.Add(export);
         right.Children.Add(Button("Cancelar", () => { DialogResult = false; }, "Fecha sem exportar."));
@@ -155,10 +165,10 @@ internal sealed class IfcExportWindow : SW.Window
         root.Children.Add(_status);
 
         var layersRow = new WC.DockPanel { Margin = new SW.Thickness(0, 6, 0, 0) };
-        var ll = new WC.TextBlock { Text = "Layers extras (separadas por ;)", Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 8, 0) };
+        var ll = new WC.TextBlock { Text = "Layers adicionais", Foreground = T.Muted, VerticalAlignment = SW.VerticalAlignment.Center, Margin = new SW.Thickness(0, 0, 8, 0) };
         WC.DockPanel.SetDock(ll, WC.Dock.Left);
         layersRow.Children.Add(ll);
-        _layers.ToolTip = "Objetos dessas layers tambem entram (solidos, blocos...).";
+        _layers.ToolTip = "Objetos destas layers também são exportados. Separe os nomes com ponto e vírgula.";
         layersRow.Children.Add(_layers);
         WC.DockPanel.SetDock(layersRow, WC.Dock.Bottom);
         root.Children.Add(layersRow);
@@ -181,6 +191,7 @@ internal sealed class IfcExportWindow : SW.Window
             }
             catch (System.Exception ex)
             {
+                PluginLog.Erro("IFC", "Janela do C3DIFC: " + ex.Message, ex);
                 _status.Text = "Erro: " + ex.Message;
             }
         };
@@ -188,7 +199,7 @@ internal sealed class IfcExportWindow : SW.Window
     }
 
     // ------------------------------------------------------------------
-    // Arvore: o que existe no desenho
+    // Árvore: o que existe no desenho
     // ------------------------------------------------------------------
 
     private void Fill()
@@ -206,7 +217,7 @@ internal sealed class IfcExportWindow : SW.Window
 
         // Corredores e eixos.
         var corr = new Node { Key = "CORREDORES", Label = "Corredores", Kind = "grupo" };
-        var axes = new Node { Key = "EIXOS", Label = "Eixos dos corredores", Kind = "grupo" };
+        var axes = new Node { Key = "EIXOS", Label = "Alinhamentos dos corredores", Kind = "grupo" };
         using (Transaction tr = db.TransactionManager.StartTransaction())
         {
             foreach (ObjectId id in MFRebaixoData.CorridorIds(db, tr))
@@ -221,7 +232,7 @@ internal sealed class IfcExportWindow : SW.Window
                 }
                 catch
                 {
-                    // Sem a informacao.
+                    // Sem a informação.
                 }
                 int baselines = 0;
                 var n = new Node { Key = "C:" + c.Name, Kind = "corredor", IsReference = reference, OutOfDate = stale, Ids = { id } };
@@ -250,11 +261,12 @@ internal sealed class IfcExportWindow : SW.Window
                     }
                     catch
                     {
-                        // Nome nao lido.
+                        // Nome não lido.
                     }
-                    axes.Children.Add(new Node { Key = "A:" + an, Label = $"{an}  ({TypeName(type)}, de {c.Name})", Kind = "eixo", Ids = { aid }, Extra = type + "|" + c.Name });
+                    axes.Children.Add(new Node { Key = "A:" + an, Label = an, Detail = $"{TypeName(type)} · {c.Name}", Kind = "eixo", Ids = { aid }, Extra = type + "|" + c.Name });
                 }
-                n.Label = $"{c.Name}  ({baselines} baseline(s))" + (reference ? "  - referencia por data shortcut" : "") + (stale ? "  - desatualizado" : "");
+                n.Label = c.Name;
+                n.Detail = string.Join(" · ", new[] { reference ? "Referência externa" : "", stale ? "Desatualizado" : "" }.Where(x => x.Length > 0));
                 corr.Children.Add(n);
             }
             tr.Commit();
@@ -262,20 +274,20 @@ internal sealed class IfcExportWindow : SW.Window
         _roots.Add(corr);
         _roots.Add(axes);
 
-        // Lombofaixas: por peca e por travessia.
-        var lomb = new Node { Key = "LOMBOFAIXAS", Label = "Lombofaixas (travessias)", Kind = "grupo" };
-        var pecas = new Node { Key = "PECAS", Label = "Pecas", Kind = "grupo" };
-        foreach ((string key, string label) in new[] { ("Plato", "Plato"), ("Grelhas", "Grelhas / tampas"), ("Vigas", "Vigas baldrame"), ("Sinalizacao", "Sinalizacao 3D (faixa e triangulos)"), ("Planta", "Representacao em planta (hachuras)") })
+        // Lombofaixas: por peça e por travessia.
+        var lomb = new Node { Key = "LOMBOFAIXAS", Label = "Lombofaixas", Kind = "grupo" };
+        var pecas = new Node { Key = "PECAS", Label = "Componentes", Kind = "grupo" };
+        foreach ((string key, string label) in new[] { ("Plato", "Platô"), ("Grelhas", "Grelhas e tampas"), ("Vigas", "Vigas baldrame"), ("Sinalizacao", "Sinalização horizontal"), ("Planta", "Hachuras de planta") })
         {
             List<ObjectId> ids = MFTravessia.Objects(db, null, key);
             pecas.Children.Add(new Node { Key = "P:" + key, Label = label, Kind = "peca", Ids = ids });
         }
-        var travs = new Node { Key = "TRAVESSIAS", Label = "Travessias e unioes", Kind = "grupo" };
+        var travs = new Node { Key = "TRAVESSIAS", Label = "Travessias", Kind = "grupo" };
         List<MFTravessia.Stored> stored = MFTravessia.FindAll(db).Select(x => x.Data).GroupBy(x => x.Id).Select(g => g.First()).ToList();
         foreach (string tid in MFTravessia.AllIds(db))
         {
             MFTravessia.Stored? d = stored.FirstOrDefault(x => x.Id == tid);
-            string label = d is null ? $"Uniao de cruzamento {tid}" : $"{MFTravessia.CodeOf(db, d)}  {d.LabelA} - {d.LabelB}";
+            string label = d is null ? $"União {tid}" : $"{MFTravessia.CodeOf(db, d)}  {d.LabelA} – {d.LabelB}";
             travs.Children.Add(new Node { Key = "T:" + tid, Label = label, Kind = "travessia", Ids = MFTravessia.Objects(db, new List<string> { tid }, "Tudo") });
         }
         travs.Children.Sort((a, b) => string.CompareOrdinal(a.Label, b.Label));
@@ -283,9 +295,9 @@ internal sealed class IfcExportWindow : SW.Window
         lomb.Children.Add(travs);
         _roots.Add(lomb);
 
-        // Superficies e redes.
-        var surf = new Node { Key = "SUPERFICIES", Label = "Superficies", Kind = "grupo" };
-        var nets = new Node { Key = "REDES", Label = "Redes de tubulacao", Kind = "grupo" };
+        // Superfícies e redes.
+        var surf = new Node { Key = "SUPERFICIES", Label = "Superfícies", Kind = "grupo" };
+        var nets = new Node { Key = "REDES", Label = "Redes de tubulação", Kind = "grupo" };
         try
         {
             var civ = Autodesk.Civil.ApplicationServices.CivilDocument.GetCivilDocument(db);
@@ -304,21 +316,32 @@ internal sealed class IfcExportWindow : SW.Window
         }
         catch (System.Exception ex)
         {
-            _status.Text = "Superficies/redes nao lidas: " + ex.Message;
+            _status.Text = "Falha ao ler superfícies e redes: " + ex.Message;
         }
         _roots.Add(surf);
         if (nets.Children.Count > 0)
             _roots.Add(nets);
 
-        var manual = new Node { Key = "MANUAIS", Label = "Selecionados a mao no desenho", Kind = "manual", Ids = _manual.Where(x => !x.IsNull && !x.IsErased).ToList() };
+        // Outros objetos escolhidos no desenho: um por linha, com o tipo e o nome.
+        var manual = new Node { Key = "MANUAIS", Label = "Outros objetos", Kind = "grupo" };
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            foreach (ObjectId id in _manual.Where(x => !x.IsNull && !x.IsErased))
+                {
+                    (string label, string layer) = Describe(tr, id);
+                    manual.Children.Add(new Node { Key = "M:" + id.Handle, Label = label, Detail = layer, Kind = "manual", Ids = { id } });
+                }
+            tr.Commit();
+        }
+        manual.Children.Sort((a, b) => string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase));
         _roots.Add(manual);
 
-        // Marcacoes (criterios gravados ou padrao).
+        // Marcações (critérios gravados ou padrão).
         foreach (Node n in corr.Children)
             n.Extra = n.IsReference ? (_c.CorredoresReferenciaMarcados.Contains(KeyName(n)) || _refs.SelectedIndex == 2 ? "on" : "off") : (_c.CorredoresDesmarcados.Contains(KeyName(n)) ? "off" : "on");
         _tree.Items.Clear();
         foreach (Node r in _roots)
-            _tree.Items.Add(Item(r, null));
+            _tree.Items.Add(Item(r));
         foreach (Node n in corr.Children)
             n.Box.IsChecked = n.Extra == "on" && _c.Corredores;
         ApplyAxisRule(keepManual: true);
@@ -330,7 +353,8 @@ internal sealed class IfcExportWindow : SW.Window
             n.Box.IsChecked = _c.Superficies || _c.SuperficiesMarcadas.Contains(n.Key[2..], StringComparer.OrdinalIgnoreCase);
         foreach (Node n in nets.Children)
             n.Box.IsChecked = _c.RedesMarcadas.Contains(n.Key[2..], StringComparer.OrdinalIgnoreCase);
-        manual.Box.IsChecked = _c.ManuaisIncluir && manual.Ids.Count > 0;
+        foreach (Node n in manual.Children)
+            n.Box.IsChecked = !_c.ManuaisDesmarcados.Contains(n.Key[2..]);
         foreach (Node r in _roots)
             SyncParent(r);
         _syncing = false;
@@ -339,16 +363,23 @@ internal sealed class IfcExportWindow : SW.Window
 
     private static string KeyName(Node n) => n.Key.Length > 2 ? n.Key[2..] : n.Key;
 
-    private WC.TreeViewItem Item(Node n, Node? parent)
+    private WC.TreeViewItem Item(Node n)
     {
-        int count = Count(n);
+        // Nome na caixa; detalhe (tipo, corredor, quantidade) em cinza ao lado.
+        string detail = n.Detail;
+        if (n.Children.Count > 0 || n.Kind == "peca")
+            detail = Count(n).ToString(System.Globalization.CultureInfo.CurrentCulture);
         n.Box = new WC.CheckBox
         {
-            Content = $"{n.Label}   [{count}]",
+            Content = n.Label,
             Foreground = n.IsReference ? T.Muted : T.Text,
             IsThreeState = false,
             VerticalAlignment = SW.VerticalAlignment.Center
         };
+        var header = new WC.StackPanel { Orientation = WC.Orientation.Horizontal };
+        header.Children.Add(n.Box);
+        if (detail.Length > 0)
+            header.Children.Add(new WC.TextBlock { Text = detail, Foreground = T.Muted, Margin = new SW.Thickness(10, 0, 0, 0), VerticalAlignment = SW.VerticalAlignment.Center });
         n.Box.Click += (_, _) =>
         {
             if (_syncing)
@@ -356,14 +387,24 @@ internal sealed class IfcExportWindow : SW.Window
             _syncing = true;
             bool on = n.Box.IsChecked == true;
             SetAll(n, on);
+            // Corredor marcado/desmarcado leva junto os eixos dele (pela regra de eixos).
+            if (n.Kind == "corredor" || n.Key == "CORREDORES")
+            {
+                var names = new HashSet<string>((n.Kind == "corredor" ? new[] { n } : n.Children.ToArray()).Select(KeyName), StringComparer.OrdinalIgnoreCase);
+                foreach (Node a in Find("EIXOS")?.Children ?? new List<Node>())
+                {
+                    if (names.Contains(AxisCorridor(a)))
+                        a.Box.IsChecked = on && TypeRule(a);
+                }
+            }
             foreach (Node r in _roots)
                 SyncParent(r);
             _syncing = false;
             UpdateStatus();
         };
-        var item = new WC.TreeViewItem { Header = n.Box, IsExpanded = n.Kind == "grupo" && n.Key is not ("EIXOS" or "TRAVESSIAS"), Foreground = T.Text };
+        var item = new WC.TreeViewItem { Header = header, IsExpanded = n.Kind == "grupo" && n.Key is not ("EIXOS" or "TRAVESSIAS"), Foreground = T.Text };
         foreach (Node c in n.Children)
-            item.Items.Add(Item(c, n));
+            item.Items.Add(Item(c));
         return item;
     }
 
@@ -376,7 +417,7 @@ internal sealed class IfcExportWindow : SW.Window
             SetAll(c, on);
     }
 
-    /// <summary>Grupo marcado quando todos os filhos estao; meio-marcado (sem preenchimento) quando parte.</summary>
+    /// <summary>Grupo marcado quando todos os filhos estão; meio-marcado quando parte.</summary>
     private static bool? SyncParent(Node n)
     {
         if (n.Children.Count == 0)
@@ -402,6 +443,19 @@ internal sealed class IfcExportWindow : SW.Window
         }
     }
 
+    private static string AxisCorridor(Node a) => a.Extra.Split('|').ElementAtOrDefault(1) ?? "";
+
+    /// <summary>A regra de eixos (centrais/todos/nenhum) pelo tipo do alinhamento.</summary>
+    private bool TypeRule(Node a) =>
+        _axes.SelectedIndex switch { 1 => true, 2 => false, _ => a.Extra.Split('|')[0].Equals("Centerline", StringComparison.OrdinalIgnoreCase) };
+
+    /// <summary>Regra completa: o corredor do eixo está marcado e o tipo entra pela regra.</summary>
+    private bool AxisRule(Node a)
+    {
+        Node? c = Find("C:" + AxisCorridor(a));
+        return (c is null || c.Box.IsChecked == true) && TypeRule(a);
+    }
+
     private void ApplyAxisRule(bool keepManual = false)
     {
         Node? axes = Find("EIXOS");
@@ -411,8 +465,7 @@ internal sealed class IfcExportWindow : SW.Window
         _syncing = true;
         foreach (Node a in axes.Children)
         {
-            string type = a.Extra.Split('|')[0];
-            bool on = _axes.SelectedIndex switch { 1 => true, 2 => false, _ => type.Equals("Centerline", StringComparison.OrdinalIgnoreCase) };
+            bool on = AxisRule(a);
             if (keepManual)
             {
                 if (_c.EixosMarcados.Contains(KeyName(a)))
@@ -435,6 +488,7 @@ internal sealed class IfcExportWindow : SW.Window
         _syncing = true;
         foreach (Node n in corr.Children.Where(x => x.IsReference))
             n.Box.IsChecked = _refs.SelectedIndex == 2;
+        ApplyAxisRule();
         SyncParent(corr);
         _syncing = false;
         UpdateStatus();
@@ -450,15 +504,13 @@ internal sealed class IfcExportWindow : SW.Window
             var on = corr.Children.Where(n => n.Box.IsChecked == true).ToList();
             ids.AddRange(on.SelectMany(n => n.Ids));
             if (on.Count > 0)
-                parts.Add($"{on.Count} corredor(es)");
-            Node? axes = Find("EIXOS");
-            // Eixos so dos corredores que entram.
-            var names = new HashSet<string>(on.Select(KeyName), StringComparer.OrdinalIgnoreCase);
-            var ax = axes?.Children.Where(a => a.Box.IsChecked == true && names.Contains(a.Extra.Split('|')[1])).ToList() ?? new List<Node>();
-            ids.AddRange(ax.SelectMany(a => a.Ids));
-            if (ax.Count > 0)
-                parts.Add($"{ax.Count} eixo(s)");
+                parts.Add(Plural(on.Count, "corredor", "corredores"));
         }
+        // Caixa marcada = sai (eixo marcado sai mesmo com o corredor dele desmarcado).
+        var ax = Find("EIXOS")?.Children.Where(a => a.Box.IsChecked == true).ToList() ?? new List<Node>();
+        ids.AddRange(ax.SelectMany(a => a.Ids));
+        if (ax.Count > 0)
+            parts.Add(Plural(ax.Count, "alinhamento", "alinhamentos"));
         Node? pecas = Find("PECAS");
         Node? travs = Find("TRAVESSIAS");
         if (pecas is not null && travs is not null)
@@ -468,22 +520,19 @@ internal sealed class IfcExportWindow : SW.Window
             var both = pieceIds.Where(travIds.Contains).ToList();
             ids.AddRange(both);
             if (both.Count > 0)
-                parts.Add($"{both.Count} peca(s) de lombofaixa");
+                parts.Add(Plural(both.Count, "componente de lombofaixa", "componentes de lombofaixa"));
         }
-        foreach (string key in new[] { "SUPERFICIES", "REDES" })
+        foreach ((string key, string one, string many) in new[] { ("SUPERFICIES", "superfície", "superfícies"), ("REDES", "rede", "redes") })
         {
-            Node? g = Find(key);
-            var on = g?.Children.Where(n => n.Box.IsChecked == true).ToList() ?? new List<Node>();
+            var on = Find(key)?.Children.Where(n => n.Box.IsChecked == true).ToList() ?? new List<Node>();
             ids.AddRange(on.SelectMany(n => n.Ids));
             if (on.Count > 0)
-                parts.Add($"{on.Count} {(key == "REDES" ? "rede(s)" : "superficie(s)")}");
+                parts.Add(Plural(on.Count, one, many));
         }
-        Node? manual = Find("MANUAIS");
-        if (manual?.Box.IsChecked == true)
-        {
-            ids.AddRange(manual.Ids);
-            parts.Add($"{manual.Ids.Count} selecionado(s) a mao");
-        }
+        var man = Find("MANUAIS")?.Children.Where(n => n.Box.IsChecked == true).ToList() ?? new List<Node>();
+        ids.AddRange(man.SelectMany(n => n.Ids));
+        if (man.Count > 0)
+            parts.Add(Plural(man.Count, "outro objeto", "outros objetos"));
         return ids.Distinct().ToList();
     }
 
@@ -492,86 +541,127 @@ internal sealed class IfcExportWindow : SW.Window
         if (_roots.Count == 0)
             return;
         List<ObjectId> ids = Checked(out List<string> parts);
-        _status.Text = ids.Count == 0 ? "Nada marcado." : $"Vai exportar {ids.Count} objeto(s): {string.Join(", ", parts)}.";
+        _status.Text = ids.Count == 0
+            ? "Nenhum objeto selecionado."
+            : $"Objetos a exportar: {ids.Count}  ({string.Join(", ", parts)})";
     }
 
+    internal static string Plural(int n, string one, string many) => $"{n} {(n == 1 ? one : many)}";
+
+    internal static string Join(IList<string> parts) =>
+        parts.Count <= 1 ? string.Join("", parts) : string.Join(", ", parts.Take(parts.Count - 1)) + " e " + parts[^1];
+
     // ------------------------------------------------------------------
-    // Botoes
+    // Botões
     // ------------------------------------------------------------------
+
+    private void Browse()
+    {
+        string cur = _file.Text.Trim().Trim('"');
+        string? dir = null;
+        try
+        {
+            dir = Path.GetDirectoryName(cur);
+        }
+        catch
+        {
+            // Caminho inválido: usa a pasta do desenho.
+        }
+        var dlg = new Microsoft.Win32.SaveFileDialog
+        {
+            Title = "Arquivo IFC 4.3",
+            Filter = "IFC (*.ifc)|*.ifc",
+            InitialDirectory = !string.IsNullOrEmpty(dir) && Directory.Exists(dir) ? dir : Path.GetDirectoryName(_doc.Database.Filename),
+            FileName = Path.GetFileName(cur).Length > 0 ? Path.GetFileName(cur) : Path.GetFileNameWithoutExtension(_doc.Database.Filename) + ".ifc",
+            OverwritePrompt = false
+        };
+        if (dlg.ShowDialog(this) == true)
+            _file.Text = dlg.FileName;
+    }
 
     private void PickInDrawing()
     {
         Editor ed = _doc.Editor;
+        var picked = new List<ObjectId>();
         using (EditorUserInteraction ui = ed.StartUserInteraction(this))
         {
-            var po = new PromptSelectionOptions { MessageForAdding = "\nObjetos para o IFC (Enter termina): " };
+            var po = new PromptSelectionOptions { MessageForAdding = "\nSelecione os objetos para exportar: " };
             PromptSelectionResult r = ed.GetSelection(po);
             if (r.Status == PromptStatus.OK)
-            {
-                foreach (ObjectId id in r.Value.GetObjectIds())
-                    _manual.Add(id);
-            }
+                picked.AddRange(r.Value.GetObjectIds());
             ui.End();
         }
+        if (picked.Count > 0)
+            ApplyPicked(picked);
+    }
+
+    /// <summary>
+    /// Escolhidos no desenho: o que já está na lista (corredor, eixo, superfície, rede) fica com a caixa marcada;
+    /// o resto (alinhamento fora de corredor, sólido, bloco...) entra em "Outros objetos escolhidos no desenho".
+    /// </summary>
+    private void ApplyPicked(List<ObjectId> picked)
+    {
+        var leaves = All().Where(n => n.Kind is "corredor" or "eixo" or "superficie" or "rede").ToList();
+        int listed = 0, added = 0;
+        _syncing = true;
+        foreach (ObjectId id in picked.Distinct())
+        {
+            List<Node> hit = leaves.Where(n => n.Ids.Contains(id)).ToList();
+            if (hit.Count > 0)
+            {
+                foreach (Node n in hit)
+                {
+                    n.Box.IsChecked = true;
+                    if (n.Kind == "corredor")
+                    {
+                        foreach (Node a in Find("EIXOS")?.Children.Where(a => AxisCorridor(a).Equals(KeyName(n), StringComparison.OrdinalIgnoreCase)) ?? Enumerable.Empty<Node>())
+                            a.Box.IsChecked = TypeRule(a);
+                    }
+                }
+                listed++;
+                continue;
+            }
+            if (_manual.Add(id))
+                added++;
+            _c.ManuaisDesmarcados.Remove(id.Handle.ToString());
+        }
+        _syncing = false;
         SaveMarks();
         Fill();
-        _status.Text = $"{_manual.Count} objeto(s) escolhido(s) a mao. " + _status.Text;
+        _status.Text = (listed + added) switch
+        {
+            0 => _status.Text,
+            1 => "1 objeto marcado.",
+            int k => $"{k} objetos marcados."
+        };
+    }
+
+    private void ClearManual()
+    {
+        _manual.Clear();
+        _c.ManuaisDesmarcados.Clear();
+        SaveMarks();
+        Fill();
     }
 
     private void EditMapping()
     {
-        var rows = _c.Mapeamento.Select(r => new IfcMapRow { Mapeamento = r.Mapeamento, Nome = r.Nome, Exportar = r.Exportar, ClasseIfc = r.ClasseIfc, Observacao = r.Observacao }).ToList();
-        var grid = new WC.DataGrid
-        {
-            ItemsSource = rows,
-            AutoGenerateColumns = true,
-            CanUserAddRows = true,
-            CanUserDeleteRows = true,
-            Background = T.Pane,
-            Foreground = T.Text
-        };
-        var w = new SW.Window
-        {
-            Title = "Mapeamento IFC (classe por layer / estilo; Exportar desmarcado = nao sai)",
-            Owner = this,
-            Width = 900,
-            Height = 560,
-            Background = T.Back,
-            WindowStartupLocation = SW.WindowStartupLocation.CenterOwner
-        };
-        var panel = new WC.DockPanel { Margin = new SW.Thickness(8) };
-        var ok = new WC.Button { Content = "Guardar", Padding = new SW.Thickness(12, 3, 12, 3), Margin = new SW.Thickness(0, 8, 0, 0), HorizontalAlignment = SW.HorizontalAlignment.Right };
-        ok.Click += (_, _) => { w.DialogResult = true; };
-        var help = new WC.TextBlock
-        {
-            Text = "Mapeamento: LayerName, ShapeStyleName, LinkStyleName, AlignmentStyleName, SurfaceStyleName.  Nome: nome da layer ou do estilo.  ClasseIfc: ex. IfcKerb, IfcPavement, IfcCourse, IfcPlate.COVER_PLATE.",
-            Foreground = T.Muted,
-            TextWrapping = SW.TextWrapping.Wrap,
-            Margin = new SW.Thickness(0, 0, 0, 6)
-        };
-        WC.DockPanel.SetDock(help, WC.Dock.Top);
-        WC.DockPanel.SetDock(ok, WC.Dock.Bottom);
-        panel.Children.Add(help);
-        panel.Children.Add(ok);
-        panel.Children.Add(grid);
-        w.Content = panel;
-        if (w.ShowDialog() == true)
-        {
-            grid.CommitEdit();
-            _c.Mapeamento = rows.Where(r => !string.IsNullOrWhiteSpace(r.Nome)).ToList();
-            SaveMarks();
-            _status.Text = $"Mapeamento guardado ({_c.Mapeamento.Count} linha(s)).";
-        }
-    }
-
-    private void OpenJson()
-    {
         SaveMarks();
-        Process.Start(new ProcessStartInfo("notepad.exe", "\"" + _criteriaPath + "\"") { UseShellExecute = false });
-        _status.Text = "Aberto no Bloco de Notas. Salve e clique Reler.";
+        var w = new IfcMappingWindow(_doc.Database, _c.Mapeamento) { Owner = this };
+        if (w.ShowDialog() != true)
+            return;
+        _c.Mapeamento = w.Result;
+        SaveMarks();
+        if (w.SaveAsDefault)
+        {
+            IfcCriteria def = File.Exists(IfcCriteria.DefaultPath) ? IfcCriteria.Read(IfcCriteria.DefaultPath) : new IfcCriteria { Eixos = "principais" };
+            def.Mapeamento = w.Result;
+            IfcCriteria.Save(def, IfcCriteria.DefaultPath);
+        }
+        _status.Text = "Classes IFC atualizadas.";
     }
 
-    /// <summary>Grava no JSON do projeto o que esta marcado na janela.</summary>
+    /// <summary>Grava no JSON do projeto o que está marcado na janela.</summary>
     private void SaveMarks()
     {
         _c.ProjetoNome = _project.Text.Trim();
@@ -586,13 +676,11 @@ internal sealed class IfcExportWindow : SW.Window
             _c.Corredores = corr.Children.Count == 0 || corr.Children.Any(n => n.Box.IsChecked == true);
             _c.CorredoresDesmarcados = corr.Children.Where(n => !n.IsReference && n.Box.IsChecked != true).Select(KeyName).ToList();
             _c.CorredoresReferenciaMarcados = corr.Children.Where(n => n.IsReference && n.Box.IsChecked == true).Select(KeyName).ToList();
-            Node axes = Find("EIXOS")!;
             _c.EixosMarcados = new List<string>();
             _c.EixosDesmarcados = new List<string>();
-            foreach (Node a in axes.Children)
+            foreach (Node a in Find("EIXOS")!.Children)
             {
-                string type = a.Extra.Split('|')[0];
-                bool rule = _axes.SelectedIndex switch { 1 => true, 2 => false, _ => type.Equals("Centerline", StringComparison.OrdinalIgnoreCase) };
+                bool rule = AxisRule(a);
                 bool on = a.Box.IsChecked == true;
                 if (on && !rule)
                     _c.EixosMarcados.Add(KeyName(a));
@@ -607,7 +695,8 @@ internal sealed class IfcExportWindow : SW.Window
             _c.SuperficiesMarcadas = Find("SUPERFICIES")!.Children.Where(n => n.Box.IsChecked == true).Select(KeyName).ToList();
             _c.Superficies = false;
             _c.RedesMarcadas = Find("REDES")?.Children.Where(n => n.Box.IsChecked == true).Select(KeyName).ToList() ?? new List<string>();
-            _c.ManuaisIncluir = Find("MANUAIS")!.Box.IsChecked == true;
+            _c.ManuaisDesmarcados = Find("MANUAIS")!.Children.Where(n => n.Box.IsChecked != true).Select(KeyName).ToList();
+            _c.ManuaisIncluir = true;
         }
         _c.ManuaisHandles = _manual.Where(x => !x.IsNull && !x.IsErased).Select(x => x.Handle.ToString()).ToList();
         IfcCriteria.Save(_c, _criteriaPath);
@@ -615,49 +704,72 @@ internal sealed class IfcExportWindow : SW.Window
 
     private void Export()
     {
-        SaveMarks();
-        // Corredor de referencia: "perguntar".
+        // Arquivo: um caminho só, o do alto da janela (lembrado para a próxima vez).
+        string ifc = _file.Text.Trim().Trim('"');
+        if (ifc.Length == 0)
+        {
+            _status.Text = "Informe o arquivo de saída.";
+            return;
+        }
+        if (!ifc.EndsWith(".ifc", StringComparison.OrdinalIgnoreCase))
+            ifc += ".ifc";
+        string? dir;
+        try
+        {
+            ifc = Path.GetFullPath(ifc);
+            dir = Path.GetDirectoryName(ifc);
+        }
+        catch (System.Exception)
+        {
+            _status.Text = "Caminho de arquivo inválido.";
+            return;
+        }
+        if (string.IsNullOrEmpty(dir) || !Directory.Exists(dir))
+        {
+            _status.Text = $"Pasta não encontrada: {dir}";
+            return;
+        }
+        if (File.Exists(ifc) && SW.MessageBox.Show(this, $"{Path.GetFileName(ifc)} já existe. Deseja substituí-lo?", "Exportar IFC",
+                SW.MessageBoxButton.YesNo, SW.MessageBoxImage.Question) != SW.MessageBoxResult.Yes)
+            return;
+        _file.Text = ifc;
+
+        // Corredor de referência: "perguntar".
         Node corr = Find("CORREDORES")!;
         List<Node> refsOff = corr.Children.Where(n => n.IsReference && n.Box.IsChecked != true).ToList();
         if (_refs.SelectedIndex == 1 && refsOff.Count > 0)
         {
             SW.MessageBoxResult a = SW.MessageBox.Show(this,
-                $"Incluir o(s) corredor(es) de referencia (data shortcut) {string.Join(", ", refsOff.Select(KeyName))}?\n\nNormalmente ele e exportado no desenho de origem; aqui sairia duplicado.",
-                "Corredor de referencia", SW.MessageBoxButton.YesNoCancel, SW.MessageBoxImage.Question);
+                $"Incluir as referências externas na exportação?\n\n{string.Join("\n", refsOff.Select(KeyName))}",
+                "Referências externas", SW.MessageBoxButton.YesNoCancel, SW.MessageBoxImage.Question);
             if (a == SW.MessageBoxResult.Cancel)
                 return;
             if (a == SW.MessageBoxResult.Yes)
+            {
+                _syncing = true;
                 refsOff.ForEach(n => n.Box.IsChecked = true);
+                _syncing = false;
+            }
         }
         List<ObjectId> ids = Checked(out List<string> parts);
         if (ids.Count == 0)
         {
-            _status.Text = "Nada marcado para exportar.";
+            _status.Text = "Nenhum objeto selecionado.";
             return;
         }
 
-        string dwg = _doc.Database.Filename;
-        var dlg = new Microsoft.Win32.SaveFileDialog
-        {
-            Title = "Arquivo IFC 4.3",
-            Filter = "IFC (*.ifc)|*.ifc",
-            InitialDirectory = Path.GetDirectoryName(dwg),
-            FileName = Path.GetFileNameWithoutExtension(dwg) + ".ifc",
-            OverwritePrompt = true
-        };
-        if (dlg.ShowDialog(this) != true)
-            return;
-
-        // Desatualizados: so os do proprio desenho podem ter Rebuild; referencia se atualiza na origem.
+        // Desatualizados: só os do próprio desenho podem ter Rebuild; referência se atualiza na origem.
         List<Node> on = corr.Children.Where(n => n.Box.IsChecked == true).ToList();
         List<Node> stale = on.Where(n => n.OutOfDate && !n.IsReference).ToList();
         List<Node> staleRef = on.Where(n => n.OutOfDate && n.IsReference).ToList();
+        string refNote = staleRef.Count > 0
+            ? $"\n\nReferências externas desatualizadas (atualize no desenho de origem):\n{string.Join("\n", staleRef.Select(KeyName))}"
+            : "";
         if (stale.Count > 0)
         {
             SW.MessageBoxResult a = SW.MessageBox.Show(this,
-                $"Corredor(es) desatualizado(s): {string.Join(", ", stale.Select(KeyName))}.\n\nFazer Rebuild antes de exportar? (Nao = exporta como esta)" +
-                (staleRef.Count > 0 ? $"\n\nReferencia desatualizada ({string.Join(", ", staleRef.Select(KeyName))}): atualize no desenho de origem e sincronize o data shortcut; aqui sai como esta." : ""),
-                "Corredor desatualizado", SW.MessageBoxButton.YesNoCancel, SW.MessageBoxImage.Warning);
+                $"Os corredores abaixo estão desatualizados. Reconstruir antes de exportar?\n\n{string.Join("\n", stale.Select(KeyName))}" + refNote,
+                "Corredores desatualizados", SW.MessageBoxButton.YesNoCancel, SW.MessageBoxImage.Warning);
             if (a == SW.MessageBoxResult.Cancel)
                 return;
             if (a == SW.MessageBoxResult.Yes)
@@ -665,14 +777,16 @@ internal sealed class IfcExportWindow : SW.Window
         }
         else if (staleRef.Count > 0)
         {
-            SW.MessageBox.Show(this, $"Referencia desatualizada ({string.Join(", ", staleRef.Select(KeyName))}): atualize no desenho de origem e sincronize o data shortcut; aqui sai como esta.",
-                "Corredor de referencia", SW.MessageBoxButton.OK, SW.MessageBoxImage.Information);
+            SW.MessageBox.Show(this, refNote.Trim(), "Referências externas", SW.MessageBoxButton.OK, SW.MessageBoxImage.Information);
         }
 
-        IfcPath = dlg.FileName;
+        _c.UltimoArquivoIfc = ifc;
+        IfcCriteria.LastFolder = dir;
+        SaveMarks();
+        IfcPath = ifc;
         Ids.AddRange(ids);
         List<string> refsLeft = corr.Children.Where(n => n.IsReference && n.Box.IsChecked != true).Select(KeyName).ToList();
-        Selection = string.Join(", ", parts) + (refsLeft.Count > 0 ? Environment.NewLine + $"Corredor(es) de referencia fora: {string.Join(", ", refsLeft)} (para incluir: Corredor de referencia = sempre, na janela)." : "");
+        Selection = Join(parts) + (refsLeft.Count > 0 ? Environment.NewLine + $"Referências externas não exportadas: {string.Join(", ", refsLeft)}." : "");
         DialogResult = true;
     }
 
@@ -690,6 +804,34 @@ internal sealed class IfcExportWindow : SW.Window
         catch
         {
             return false;
+        }
+    }
+
+    /// <summary>("Alinhamento EIXO 01", "layer") ...</summary>
+    private static (string Label, string Layer) Describe(Transaction tr, ObjectId id)
+    {
+        try
+        {
+            DBObject o = tr.GetObject(id, OpenMode.ForRead);
+            string? name = o.GetType().GetProperty("Name")?.GetValue(o) as string;
+            string layer = o is Entity e ? e.Layer : "";
+            string kind = o switch
+            {
+                Autodesk.Civil.DatabaseServices.Alignment => "Alinhamento",
+                CivilCorridor => "Corredor",
+                Autodesk.Civil.DatabaseServices.Surface => "Superfície",
+                Autodesk.Civil.DatabaseServices.FeatureLine => "Feature line",
+                Autodesk.Civil.DatabaseServices.Pipe => "Tubo",
+                Autodesk.Civil.DatabaseServices.Structure => "Estrutura",
+                Solid3d => "Sólido 3D",
+                BlockReference br => "Bloco " + br.Name,
+                _ => o.GetRXClass().DxfName is { Length: > 0 } dxf ? dxf : o.GetType().Name
+            };
+            return (string.IsNullOrWhiteSpace(name) ? kind : $"{kind} {name}", layer);
+        }
+        catch
+        {
+            return ("Objeto " + id.Handle, "");
         }
     }
 
@@ -712,11 +854,11 @@ internal sealed class IfcExportWindow : SW.Window
 
     private static string TypeName(string type) => type switch
     {
-        "Centerline" => "eixo central",
-        "Offset" => "bordo/offset",
-        "CurbReturn" => "retorno de esquina",
-        "Rail" => "ferrovia",
-        "Miscellaneous" => "diversos",
+        "Centerline" => "Eixo central",
+        "Offset" => "Offset",
+        "CurbReturn" => "Retorno de esquina",
+        "Rail" => "Ferrovia",
+        "Miscellaneous" => "Diversos",
         _ => type
     };
 }

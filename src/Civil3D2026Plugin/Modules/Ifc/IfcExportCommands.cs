@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -40,6 +39,7 @@ public sealed class IfcExportCommands
         public int Selected;
         public string Selection = "";
         public DateTime Started;
+        public object? FileDia;
     }
 
     private static Pending? _pending;
@@ -90,7 +90,7 @@ public sealed class IfcExportCommands
             }
             string report = RunExport(doc, criteria, criteriaPath, w.IfcPath, w.Ids, w.Selection);
             if (report.Length > 0)
-                System.Windows.MessageBox.Show(report, "C3DIFC - resumo da exportacao", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
+                System.Windows.MessageBox.Show(report, "Exportar IFC 4.3", System.Windows.MessageBoxButton.OK, System.Windows.MessageBoxImage.Information);
         }
         catch (System.Exception ex)
         {
@@ -127,30 +127,8 @@ public sealed class IfcExportCommands
             if (created)
                 ed.WriteMessage($"\nCriterios do projeto criados a partir do padrao: {criteriaPath}");
 
-            while (true)
-            {
-                var ko = new PromptKeywordOptions(
-                    $"\nC3DIFC: projeto \"{criteria.ProjetoNome}\", corredores {(criteria.Corredores ? (criteria.CorredoresNomes.Count == 0 ? "todos" : string.Join(", ", criteria.CorredoresNomes)) : "nao")}, " +
-                    $"eixos {criteria.EixosModo}, lombofaixas {(criteria.Lombofaixas ? criteria.LombofaixasPecas.ToLowerInvariant() : "nao")}, superficies {(criteria.Superficies ? "sim" : "nao")}. " +
-                    "Exportar, abrir os Criterios do projeto ou o Padrao [Exportar/Criterios/Padrao] <Exportar>: ")
-                { AllowNone = true, AppendKeywordsToMessage = false };
-                ko.Keywords.Add("Exportar");
-                ko.Keywords.Add("Criterios");
-                ko.Keywords.Add("Padrao");
-                PromptResult kr = ed.GetKeywords(ko);
-                if (kr.Status == PromptStatus.Cancel)
-                    return;
-                if (kr.Status == PromptStatus.OK && kr.StringResult is "Criterios" or "Padrao")
-                {
-                    string file = kr.StringResult == "Padrao" ? IfcCriteria.DefaultPath : criteriaPath;
-                    if (!File.Exists(file))
-                        IfcCriteria.Save(new IfcCriteria(), file);
-                    Process.Start(new ProcessStartInfo("notepad.exe", "\"" + file + "\"") { UseShellExecute = false });
-                    ed.WriteMessage($"\nAberto no Bloco de Notas: {file}. Salve e responda Exportar (o arquivo e lido de novo).");
-                    continue;
-                }
-                break;
-            }
+            // Criterios: so pela janela do C3DIFC (sem arquivo de texto, pedido do Heyvid em 19/11/2026).
+            ed.WriteMessage($"\nExportar IFC 4.3 com os critérios gravados pela janela do {C3DCommands.Ifc.Exportar}.");
             criteria = IfcCriteria.Read(criteriaPath);
 
             // Corredores desatualizados: avisa e pergunta (nunca faz Rebuild sozinho).
@@ -176,7 +154,7 @@ public sealed class IfcExportCommands
             var refNotes = new List<string>();
             if (criteria.Corredores && skippedReferences.Count > 0)
             {
-                string n = $"Corredor(es) de referencia (data shortcut) fora da exportacao, com os eixos so deles: {string.Join(", ", skippedReferences)}. Sao exportados no desenho de origem; para incluir aqui: CorredoresReferenciados = \"Sim\" (ou \"Perguntar\") nos criterios.";
+                string n = $"Referências externas não exportadas: {string.Join(", ", skippedReferences)}.";
                 refNotes.Add(n);
                 ed.WriteMessage("\n" + n);
             }
@@ -209,8 +187,8 @@ public sealed class IfcExportCommands
             }
 
             // Arquivo de saida.
-            string defaultIfc = Path.Combine(Path.GetDirectoryName(dwg)!, projectName + ".ifc");
-            var po = new PromptStringOptions($"\nArquivo IFC de saida <{defaultIfc}>: ") { AllowSpaces = true };
+            string defaultIfc = criteria.SuggestedIfc(dwg);
+            var po = new PromptStringOptions($"\nArquivo IFC <{defaultIfc}>: ") { AllowSpaces = true };
             PromptResult pr = ed.GetString(po);
             if (pr.Status == PromptStatus.Cancel)
                 return;
@@ -287,7 +265,7 @@ public sealed class IfcExportCommands
                     what.Add($"{axesIn} eixo(s) ({mode})");
                     axisNote = axesOut == 0
                         ? $"Eixos: {axesIn} entraram ({mode})."
-                        : $"Eixos: {axesIn} entraram ({mode}); {axesOut} ficaram de fora ({string.Join(", ", outTypes.Select(kv => $"{kv.Value} {TypeName(kv.Key)}"))}). Para mudar: Eixos = \"todos\" ou \"nenhum\" nos criterios.";
+                        : $"Alinhamentos: {axesIn} exportados, {axesOut} não exportados ({string.Join(", ", outTypes.Select(kv => $"{kv.Value} {TypeName(kv.Key)}"))}).";
                     ed.WriteMessage("\n" + axisNote);
                 }
                 if (criteria.Superficies)
@@ -330,6 +308,9 @@ public sealed class IfcExportCommands
                 return;
             }
 
+            criteria.UltimoArquivoIfc = ifc;
+            IfcCriteria.LastFolder = Path.GetDirectoryName(ifc) ?? "";
+            IfcCriteria.Save(criteria, criteriaPath);
             RunExport(doc, criteria, criteriaPath, ifc, ids,
                 string.Join(", ", what) + (axisNote.Length > 0 ? Environment.NewLine + axisNote : "") + (refNotes.Count > 0 ? Environment.NewLine + string.Join(Environment.NewLine, refNotes) : ""));
         }
@@ -348,8 +329,9 @@ public sealed class IfcExportCommands
     {
         Editor ed = doc.Editor;
         // A extensao le sozinha "<nome do ifc>-IfcInfraExportMapping-IFC4X3_ADD2.xlsx" ao lado do .ifc.
-        string mapping = Path.Combine(Path.GetDirectoryName(ifc)!, Path.GetFileNameWithoutExtension(ifc) + IfcMappingWriter.MappingSuffix);
-        (int changed, int added) = IfcMappingWriter.Write(mapping, criteria.Mapeamento);
+        // A planilha e temporaria: apagada depois da exportacao (pedido do Heyvid em 19/11/2026: so o .ifc na pasta).
+        string mapping = MappingPath(ifc);
+        IfcMappingWriter.Write(mapping, criteria.Mapeamento);
         _pending = new Pending
         {
             IfcPath = ifc,
@@ -360,22 +342,95 @@ public sealed class IfcExportCommands
             Started = DateTime.Now
         };
         _lastReport = "";
-        ed.WriteMessage($"\nPlanilha de mapeamento: {mapping} ({changed} linha(s) mudada(s), {added} acrescentada(s)).");
-        ed.WriteMessage($"\nSelecionado(s) {ids.Count} objeto(s). Chamando a exportacao IFC 4.3 da Autodesk...");
+        ed.WriteMessage($"\nExportando {ids.Count} objetos para {ifc}...");
         ed.SetImpliedSelection(ids.Distinct().ToArray());
+
+        // 1) Direto na classe da extensao (aceita o caminho e nao abre janela nenhuma).
+        if (TryExportDirect(ifc, out string why))
+        {
+            new IfcExportCommands().Relatorio();
+            return _lastReport;
+        }
+        PluginLog.Aviso("IFC", "C3DIFC: exportacao direta indisponivel (" + why + "); usando o comando IFCInfraExportSelected com FILEDIA=0.");
+
+        // 2) Pelo comando. Com FILEDIA=1 o comando da Autodesk ignora o caminho e abre o "Salvar como" dele
+        //    (era o segundo caminho pedido a cada exportacao); com FILEDIA=0 ele le o caminho na linha de comando.
+        object fileDia = AcApp.GetSystemVariable("FILEDIA");
+        AcApp.SetSystemVariable("FILEDIA", 0);
+        bool queued = false;
         try
         {
-            // Exportacao da Autodesk chamada daqui mesmo (sem janela: ela pede so o caminho do arquivo).
             ed.Command("IFCInfraExportSelected", ifc);
             new IfcExportCommands().Relatorio();
         }
         catch (System.Exception ex)
         {
             // Sem chamada direta: a exportacao roda logo depois deste comando, com a selecao pronta.
-            PluginLog.Aviso("IFC", "C3DIFC: chamada direta da exportacao falhou (" + ex.Message + "); seguindo pela fila de comandos.");
+            PluginLog.Aviso("IFC", "C3DIFC: chamada do comando falhou (" + ex.Message + "); seguindo pela fila de comandos.");
+            if (_pending is not null)
+                _pending.FileDia = fileDia;
+            queued = true;
             doc.SendStringToExecute("IFCInfraExportSelected\n" + Quote(ifc) + "\n" + C3DCommands.Ifc.Relatorio + "\n", true, false, false);
         }
+        finally
+        {
+            if (!queued)
+                AcApp.SetSystemVariable("FILEDIA", fileDia);
+        }
         return _lastReport;
+    }
+
+    private static string MappingPath(string ifc) =>
+        Path.Combine(Path.GetDirectoryName(ifc)!, Path.GetFileNameWithoutExtension(ifc) + IfcMappingWriter.MappingSuffix);
+
+    /// <summary>Pasta dos arquivos auxiliares (log da Autodesk, resumo): fora da pasta do .ifc.</summary>
+    internal static string AuxFolder
+    {
+        get
+        {
+            string d = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Civil3D2026Plugin", "logs", "ifc");
+            Directory.CreateDirectory(d);
+            return d;
+        }
+    }
+
+    /// <summary>
+    /// Exportacao pela classe ExportSelectedIfcCommand da extensao (metodo Export(string)), por reflexao:
+    /// usa a selecao implicita e grava no caminho dado, sem janela. Falso se a extensao nao expoe isso.
+    /// </summary>
+    private static bool TryExportDirect(string ifc, out string why)
+    {
+        why = "";
+        try
+        {
+            System.Reflection.Assembly? asm = AppDomain.CurrentDomain.GetAssemblies()
+                .FirstOrDefault(a => string.Equals(a.GetName().Name, "Civil3D_IFC", StringComparison.OrdinalIgnoreCase));
+            if (asm is null)
+            {
+                string dll = Path.Combine(IfcMappingWriter.BundleFolder, "Contents", "Civil3D_IFC.dll");
+                asm = System.Reflection.Assembly.LoadFrom(dll);
+            }
+            Type? type = asm.GetTypes().FirstOrDefault(t => t.Name == "ExportSelectedIfcCommand");
+            if (type is null)
+            {
+                why = "classe ExportSelectedIfcCommand nao encontrada";
+                return false;
+            }
+            System.Reflection.MethodInfo? export = type.GetMethod("Export", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance, null, new[] { typeof(string) }, null);
+            if (export is null)
+            {
+                why = "metodo Export(string) nao encontrado";
+                return false;
+            }
+            object? cmd = Activator.CreateInstance(type, true);
+            export.Invoke(cmd, new object[] { ifc });
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            why = (ex is System.Reflection.TargetInvocationException { InnerException: not null } tie ? tie.InnerException : ex).Message;
+            return false;
+        }
     }
 
     private static string _lastReport = "";
@@ -448,7 +503,35 @@ public sealed class IfcExportCommands
         return list;
     }
 
-    /// <summary>Depois da exportacao: nome do projeto/local no .ifc, conferencia e resumo ao lado do .ifc.</summary>
+    /// <summary>
+    /// So o .ifc fica na pasta: a planilha de mapeamento (temporaria) e apagada e o log da Autodesk
+    /// ("&lt;ifc&gt;_log.json") vai para %LOCALAPPDATA%\Civil3D2026Plugin\logs\ifc.
+    /// </summary>
+    private static void CleanUp(string ifc)
+    {
+        try
+        {
+            string map = MappingPath(ifc);
+            if (File.Exists(map))
+                File.Delete(map);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("IFC", "Planilha de mapeamento nao apagada: " + ex.Message);
+        }
+        try
+        {
+            string log = Path.Combine(Path.GetDirectoryName(ifc)!, Path.GetFileNameWithoutExtension(ifc) + "_log.json");
+            if (File.Exists(log))
+                File.Move(log, Path.Combine(AuxFolder, Path.GetFileName(log)), true);
+        }
+        catch (System.Exception ex)
+        {
+            PluginLog.Aviso("IFC", "Log da exportacao nao movido: " + ex.Message);
+        }
+    }
+
+    /// <summary>Depois da exportacao: nome do projeto/local no .ifc, conferencia e resumo (na pasta de logs).</summary>
     [CommandMethod(C3DCommands.Ifc.Relatorio, CommandFlags.Modal)]
     public void Relatorio()
     {
@@ -463,19 +546,32 @@ public sealed class IfcExportCommands
             ed.WriteMessage("\nC3DIFCRELATORIO roda sozinho depois do C3DIFC.\n");
             return;
         }
+        if (p.FileDia is not null)
+        {
+            try
+            {
+                AcApp.SetSystemVariable("FILEDIA", p.FileDia);
+            }
+            catch
+            {
+                // FILEDIA fica 0; o usuario pode voltar com FILEDIA 1.
+            }
+        }
         try
         {
             if (!File.Exists(p.IfcPath) || File.GetLastWriteTime(p.IfcPath) < p.Started.AddSeconds(-2))
             {
-                ed.WriteMessage($"\nO arquivo {p.IfcPath} nao foi gerado (a exportacao foi cancelada ou deu erro; veja o log *_log.json da Autodesk).\n");
+                CleanUp(p.IfcPath);
+                ed.WriteMessage($"\nExportação não concluída: {p.IfcPath} não foi gerado. Detalhes no log da Autodesk em {AuxFolder}.\n");
                 return;
             }
             string report = IfcReport.Finish(p.IfcPath, p.Criteria, p.Selected, p.Selection);
             _lastReport = report;
-            string reportPath = Path.Combine(Path.GetDirectoryName(p.IfcPath)!, Path.GetFileNameWithoutExtension(p.IfcPath) + "-C3DIFC-resumo.txt");
+            CleanUp(p.IfcPath);
+            string reportPath = Path.Combine(AuxFolder, Path.GetFileNameWithoutExtension(p.IfcPath) + "-resumo.txt");
             File.WriteAllText(reportPath, report, new UTF8Encoding(true));
-            ed.WriteMessage("\n" + report.Replace("\r\n", "\n") + $"\nResumo gravado em {reportPath}\n");
-            PluginLog.Info("IFC", "C3DIFC: " + p.IfcPath);
+            ed.WriteMessage("\n" + report.Replace("\r\n", "\n") + "\n");
+            PluginLog.Info("IFC", "C3DIFC: " + p.IfcPath + " (resumo em " + reportPath + ")");
         }
         catch (System.Exception ex)
         {
@@ -654,8 +750,8 @@ internal static class IfcReport
             (string simplified, int plates, int before, int after) = IfcGratings.Simplify(text);
             text = simplified;
             notes.Add(plates > 0
-                ? $"Grelhas simplificadas (chapa): {plates}, vertices delas {before} -> {after} (o desenho continua com a grelha em X)."
-                : "Grelha simplificada pedida, mas nenhuma grelha (MF-TRAVESSIA-GRELHA) no arquivo.");
+                ? $"Grelhas simplificadas: {plates}"
+                : "Grelhas simplificadas: nenhuma grelha encontrada");
         }
         File.WriteAllText(ifcPath, text, Encoding.ASCII);
 
@@ -670,27 +766,27 @@ internal static class IfcReport
         int alignments = Regex.Matches(text, @"=\s*IFCALIGNMENT\(").Count;
 
         var sb = new StringBuilder();
-        sb.AppendLine($"C3DIFC - resumo da exportacao IFC 4.3 ({DateTime.Now:dd/MM/yyyy HH:mm})");
-        sb.AppendLine($"Arquivo: {ifcPath} ({new FileInfo(ifcPath).Length / 1048576.0:0.0} MB)");
-        sb.AppendLine($"Selecionado: {selected} objeto(s) - {selection}");
+        sb.AppendLine("Exportação concluída.");
+        sb.AppendLine();
+        sb.AppendLine($"Arquivo:  {ifcPath}");
+        sb.AppendLine($"Tamanho:  {new FileInfo(ifcPath).Length / 1048576.0:0.0} MB");
+        sb.AppendLine($"Objetos:  {selected}  ({selection})");
         foreach (string n in notes)
             sb.AppendLine(n);
-        sb.AppendLine("Pecas por classe IFC:");
+        sb.AppendLine();
+        sb.AppendLine("Elementos por classe IFC");
         foreach (var g in classes)
-            sb.AppendLine($"  {g.Count(),5}  {Friendly(g.Key)}");
-        sb.AppendLine($"Eixos (IfcAlignment): {alignments}");
-        sb.AppendLine($"Pecas da lombofaixa com os dados do plugin (Property Set C3D_TRAVESSIA): {psets}");
-        if (generic.Count == 0)
+            sb.AppendLine($"  {g.Count(),6}  {Friendly(g.Key)}");
+        sb.AppendLine($"  {alignments,6}  IfcAlignment  ·  Alinhamento");
+        if (psets > 0)
+            sb.AppendLine($"Componentes de lombofaixa com propriedades C3D_TRAVESSIA: {psets}");
+        if (generic.Count > 0)
         {
-            sb.AppendLine("Nenhuma peca generica (IfcBuiltElement): tudo saiu com classe.");
-        }
-        else
-        {
-            sb.AppendLine($"Ainda sairam {generic.Sum(g => g.Count())} peca(s) generica(s) (IfcBuiltElement). Para dar classe, mapeie o estilo/layer delas nos criterios:");
+            sb.AppendLine();
+            sb.AppendLine($"Elementos sem classe (IfcBuiltElement): {generic.Sum(g => g.Count())}. Defina a classe em Classes IFC.");
             foreach (var g in generic.Take(12))
-                sb.AppendLine($"  {g.Count(),5}  {g.Key}");
+                sb.AppendLine($"  {g.Count(),6}  {g.Key}");
         }
-        sb.AppendLine("Criterios usados: arquivo -C3DIFC.json ao lado do DWG; planilha de mapeamento ao lado do .ifc.");
         return sb.ToString();
     }
 
@@ -703,17 +799,17 @@ internal static class IfcReport
 
     private static string Friendly(string k) => k switch
     {
-        "IFCKERB" => "IfcKerb (meio-fio)",
-        "IFCPAVEMENT" => "IfcPavement (pavimento / plato da lombofaixa)",
-        "IFCCOURSE" => "IfcCourse (camadas: base, sub-base)",
-        "IFCPLATE" => "IfcPlate (grelha / tampa)",
-        "IFCFOOTING" => "IfcFooting (viga baldrame)",
-        "IFCSURFACEFEATURE" => "IfcSurfaceFeature (faixa e triangulos)",
-        "IFCEARTHWORKSFILL" => "IfcEarthworksFill (subleito)",
-        "IFCBUILTELEMENT" => "IfcBuiltElement (generico, sem classe)",
-        "IFCROAD" => "IfcRoad (corredor)",
-        "IFCROADPART" => "IfcRoadPart (baselines, regions, pecas)",
-        "IFCANNOTATION" => "IfcAnnotation (anotacoes/levantamento)",
+        "IFCKERB" => "IfcKerb  ·  Meio-fio",
+        "IFCPAVEMENT" => "IfcPavement  ·  Pavimento",
+        "IFCCOURSE" => "IfcCourse  ·  Camada",
+        "IFCPLATE" => "IfcPlate  ·  Grelha / tampa",
+        "IFCFOOTING" => "IfcFooting  ·  Viga baldrame",
+        "IFCSURFACEFEATURE" => "IfcSurfaceFeature  ·  Sinalização horizontal",
+        "IFCEARTHWORKSFILL" => "IfcEarthworksFill  ·  Aterro / subleito",
+        "IFCBUILTELEMENT" => "IfcBuiltElement  ·  Sem classe",
+        "IFCROAD" => "IfcRoad  ·  Via (corredor)",
+        "IFCROADPART" => "IfcRoadPart  ·  Trecho de via",
+        "IFCANNOTATION" => "IfcAnnotation  ·  Anotação",
         _ => k
     };
 
@@ -724,13 +820,12 @@ internal static class IfcReport
         Match m = rx.Match(text);
         if (!m.Success)
         {
-            notes.Add($"Nome do {what}: {type} nao encontrado no arquivo (nada mudou).");
+            notes.Add($"Nome do {what} não gravado: {type} não encontrado.");
             return text;
         }
-        string old = Decode(m.Groups[2].Value.Trim('\''));
         string desc = string.IsNullOrWhiteSpace(description) ? m.Groups[3].Value : "'" + Encode(description!) + "'";
         string repl = m.Groups[1].Value + "'" + Encode(name) + "'," + desc;
-        notes.Add($"Nome do {what}: \"{old}\" -> \"{name}\" (gravado no .ifc).");
+
         return text.Substring(0, m.Index) + repl + text.Substring(m.Index + m.Length);
     }
 

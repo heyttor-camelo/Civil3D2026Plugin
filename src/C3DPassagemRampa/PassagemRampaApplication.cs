@@ -49,7 +49,7 @@ public sealed class PassagemRampaApplication : IExtensionApplication
         ("Travessia", C3DCommands.Corridor.MfTravessiaApagar, "Apagar travessias clicando nelas no desenho."),
         ("Travessia", C3DCommands.Corridor.MfTravessiaPlanta, "Ocultar ou mostrar as lombofaixas em planta (o 3D fica)."),
         ("Travessia", C3DCommands.Corridor.MfTravessiaSelecionar, "Selecionar no desenho as pecas das lombofaixas (para IFC, layer, isolar)."),
-        ("IFC", C3DCommands.Ifc.Exportar, "Exportar IFC 4.3 com criterios (corredor, eixos, lombofaixas; classes e o que nao sai)."),
+        ("IFC", C3DCommands.Ifc.Exportar, "Exportar IFC 4.3 (objetos, classes IFC; grava so o .ifc)."),
         ("IFC", C3DCommands.Ifc.ExportarLinha, "Exportar IFC pela linha de comando, sem janela."),
         ("IFC", C3DCommands.Ifc.Relatorio, "Depois da exportacao: nome do projeto/local no .ifc, conferencia e resumo."),
         ("IFC", C3DCommands.Ifc.CodeSet, "Acertar o Code Set Style do corredor para o IFC (meio-fio, sarjeta, pavimento)."),

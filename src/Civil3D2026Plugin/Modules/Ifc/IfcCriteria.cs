@@ -108,6 +108,12 @@ internal sealed class IfcCriteria
 
     public bool ManuaisIncluir { get; set; } = true;
 
+    /// <summary>Selecionados a mao que ficaram desmarcados na janela (por handle).</summary>
+    public List<string> ManuaisDesmarcados { get; set; } = new();
+
+    /// <summary>Ultimo arquivo .ifc exportado neste projeto (a janela abre com ele).</summary>
+    public string UltimoArquivoIfc { get; set; } = "";
+
     /// <summary>Layers extras com objetos que tambem entram (solidos, blocos...).</summary>
     public List<string> LayersExtras { get; set; } = new();
 
@@ -143,6 +149,48 @@ internal sealed class IfcCriteria
 
     public static string DefaultPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "Ifc", "criterios-padrao.json");
+
+    private static string LastFolderFile =>
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Civil3D2026Plugin", "Ifc", "ultima-pasta.txt");
+
+    /// <summary>Ultima pasta usada em qualquer projeto (para desenho novo, que ainda nao exportou).</summary>
+    public static string LastFolder
+    {
+        get
+        {
+            try
+            {
+                string f = File.Exists(LastFolderFile) ? File.ReadAllText(LastFolderFile).Trim() : "";
+                return f.Length > 0 && Directory.Exists(f) ? f : "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+        set
+        {
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(LastFolderFile)!);
+                File.WriteAllText(LastFolderFile, value ?? "");
+            }
+            catch
+            {
+                // Sem gravar: a janela so nao lembra a pasta em outro projeto.
+            }
+        }
+    }
+
+    /// <summary>Arquivo .ifc proposto: o ultimo do projeto; senao, nome do DWG na ultima pasta usada; senao, ao lado do DWG.</summary>
+    public string SuggestedIfc(string dwgPath)
+    {
+        if (!string.IsNullOrWhiteSpace(UltimoArquivoIfc) && Directory.Exists(System.IO.Path.GetDirectoryName(UltimoArquivoIfc) ?? ""))
+            return UltimoArquivoIfc;
+        string name = System.IO.Path.GetFileNameWithoutExtension(dwgPath) + ".ifc";
+        string folder = LastFolder;
+        return System.IO.Path.Combine(folder.Length > 0 ? folder : System.IO.Path.GetDirectoryName(dwgPath) ?? "", name);
+    }
 
     public static string ProjectPath(string dwgPath) =>
         Path.Combine(Path.GetDirectoryName(dwgPath) ?? "", Path.GetFileNameWithoutExtension(dwgPath) + "-C3DIFC.json");

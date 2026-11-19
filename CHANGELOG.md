@@ -1,3 +1,15 @@
+## 2.129.0 - IFC v1.2.0: um caminho so (lembrado), selecao marca as caixas, Classes IFC sem arquivo de texto, so o .ifc na pasta
+
+Pedidos do Heyvid em 19/11/2026.
+
+- Dois caminhos por exportacao: o segundo era o "Salvar como" da propria extensao da Autodesk, que com FILEDIA=1 ignora o caminho recebido. Agora a exportacao e chamada direto na classe da extensao (ExportSelectedIfcCommand.Export, por reflexao), sem janela; se nao der, pelo comando com FILEDIA=0 (restaurado no fim).
+- Arquivo na propria janela (campo + Procurar...), lembrado por desenho (`UltimoArquivoIfc`) e, para desenho novo, a ultima pasta usada. Pergunta antes de substituir.
+- Selecionar no desenho (e a selecao feita antes do comando): corredor, alinhamento, superficie e rede que ja estao na lista ficam marcados; o resto entra em "Outros objetos", um por linha com tipo e nome. Caixa marcada = sai (alinhamento marcado sai mesmo com o corredor desmarcado; marcar/desmarcar corredor leva os alinhamentos dele).
+- Classes IFC... (antes Mapeamento...): tabela com listas (tipo, nome do desenho, classe com descricao), Adicionar/Remover, Restaurar padrao, Definir como padrao. Sairam Criterios avancados... e Reler (Bloco de Notas); -C3DIFC nao abre mais o JSON.
+- So o .ifc na pasta de saida: planilha de mapeamento apagada no fim; log da Autodesk (`_log.json`) e resumo em `%LOCALAPPDATA%\Civil3D2026Plugin\logs\ifc`.
+- Textos da janela, das mensagens e do resumo reescritos (rotulos curtos, explicacoes nas dicas, sem contagens entre colchetes).
+- C3DPassagemRampa 1.29.0 (mesmos arquivos do IFC).
+
 ## 2.128.1 - PassagemRampa v1.28.0: a DLL avulsa passa a ter todas as ferramentas do rebaixo; sai a passagem antiga
 
 Pedido do Heyvid em 19/11/2026 ("quero que essa dll tenha todas as ferramentas relacionadas a esse rebaixo; tem um comando antigo de travessia la que nao vai precisar").
