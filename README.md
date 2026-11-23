@@ -454,7 +454,7 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.23.0)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.23.1)
 
 Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir, replicar objetos nas pranchas), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
 

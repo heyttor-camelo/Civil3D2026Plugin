@@ -1,3 +1,8 @@
+## 2.132.1 - LAYOUTS v1.23.1: C3DREPLICAR, selecao sem filtro
+
+Retorno do Heyvid em 23/11/2026: o comando nao deixava selecionar os objetos.
+
+- A selecao deixou de usar o filtro `<not VIEWPORT not>` do AutoCAD; agora aceita qualquer objeto do papel e as viewports sao tiradas depois, com aviso. Mensagem quando nada e selecionado. Log de diagnostico (layout, TILEMODE, CVPORT, status e quantidade da selecao) no C3DLOG.
 ## 2.132.0 - LAYOUTS v1.23.0: replicar objetos nas pranchas
 
 Pedido do Heyvid em 22/11/2026: inserir um mesmo objeto em determinadas pranchas, numa posicao.

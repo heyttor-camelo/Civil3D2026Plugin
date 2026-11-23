@@ -475,18 +475,36 @@ public sealed class LayoutCommands
         {
             MessageForAdding = remover
                 ? "\nSelecione os objetos cujas copias devem sair das outras pranchas: "
-                : "\nSelecione os objetos do layout atual para replicar nas outras pranchas: "
+                : "\nSelecione os objetos do layout atual para replicar nas outras pranchas: ",
+            AllowDuplicates = false,
+            RejectObjectsFromNonCurrentSpace = true
         };
-        var filtro = new SelectionFilter(new[]
-        {
-            new TypedValue((int)DxfCode.Operator, "<not"),
-            new TypedValue((int)DxfCode.Start, "VIEWPORT"),
-            new TypedValue((int)DxfCode.Operator, "not>")
-        });
-        PromptSelectionResult psr = ed.GetSelection(pso, filtro);
+        PluginLog.Diag("Layouts", $"Replicar: selecao em {LayoutManager.Current.CurrentLayout} (TILEMODE={AcApp.GetSystemVariable("TILEMODE")}, CVPORT={AcApp.GetSystemVariable("CVPORT")})");
+        PromptSelectionResult psr = ed.GetSelection(pso);
+        PluginLog.Diag("Layouts", $"Replicar: selecao {psr.Status}, {(psr.Value?.Count ?? 0)} objetos");
         if (psr.Status != PromptStatus.OK || psr.Value.Count == 0)
+        {
+            if (psr.Status == PromptStatus.Error)
+                ed.WriteMessage("\nNada selecionado. Selecione os objetos no papel do layout (viewports nao entram).");
             return;
-        System.Collections.Generic.List<ObjectId> objetos = psr.Value.GetObjectIds().ToList();
+        }
+        // Viewports nao sao replicadas (copiariam a vista); o resto do papel vai inteiro.
+        System.Collections.Generic.List<ObjectId> objetos;
+        int viewports;
+        using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
+        {
+            ObjectId[] todos = psr.Value.GetObjectIds();
+            objetos = todos.Where(id => tr.GetObject(id, OpenMode.ForRead) is not Viewport).ToList();
+            viewports = todos.Length - objetos.Count;
+            tr.Commit();
+        }
+        if (viewports > 0)
+            ed.WriteMessage($"\n{viewports} viewport(s) deixada(s) de fora da selecao.");
+        if (objetos.Count == 0)
+        {
+            ed.WriteMessage("\nSo viewports foram selecionadas; nao ha o que replicar.");
+            return;
+        }
 
         Vector3d desloc = new Vector3d(0, 0, 0);
         string posicao = "a mesma do layout atual";
