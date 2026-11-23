@@ -8,6 +8,14 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 ---
 
+## 2026-11-22 — nuvem + CAMELO (Remote Control), 2.132.0: replicar objetos nas pranchas
+
+- Pedido do Heyvid: inserir um mesmo objeto em determinadas pranchas, numa posicao. Novo `C3DREPLICAR` [Inserir/Remover] + botao "Replicar nas pranchas" (categoria Layouts do explorador). Logica e janela em `Modules/Layouts/LayoutReplicar.cs`: `DeepCloneObjects` no bloco de cada layout, deslocamento opcional (ponto base/destino), XData `C3DREPLICAR` com chave do grupo (SHA1 dos handles) para Substituir/Remover. Janela ja vem com os layouts marcados no painel (`LayoutReplicar.MarcadosNoPainel`).
+- Compilacao no CAMELO: `Vector3d.ZeroVector` nao existe na API do AutoCAD (trocado por `new Vector3d(0,0,0)`, commit 83e1454). 0 erros, so avisos antigos. Civil fechado: `atual\Civil3D2026Plugin.dll` atualizada tambem; `atual\` limpa para as 5 versionadas mais recentes.
+- Pendente: teste do Heyvid (Mesma/Deslocar, Substituir, Remover, blocos com atributos).
+
+---
+
 ## 2026-11-18 — LAPTOP-11TNS6P8 (Remote Control), 2.122.0 a 2.126.0: lombofaixas (união pela superfície) e Rebuild manual
 
 - 2.122.0–2.124.1: união das lombofaixas nivelada com o meio-fio rebaixado (borda pelo topo do meio-fio só dentro de S1–S2 de um rebaixo), grelha só no meio-fio rebaixado (sem a perimétrica), Refazer acerta os rebaixos à plataforma, coluna "Desnível MF".
