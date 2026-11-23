@@ -488,7 +488,7 @@ public sealed class LayoutCommands
             return;
         System.Collections.Generic.List<ObjectId> objetos = psr.Value.GetObjectIds().ToList();
 
-        Vector3d desloc = Vector3d.ZeroVector;
+        Vector3d desloc = new Vector3d(0, 0, 0);
         string posicao = "a mesma do layout atual";
         if (!remover)
         {
