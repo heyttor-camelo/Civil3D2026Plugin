@@ -481,8 +481,9 @@ public sealed class LayoutCommands
         };
         PluginLog.Diag("Layouts", $"Replicar: selecao em {LayoutManager.Current.CurrentLayout} (TILEMODE={AcApp.GetSystemVariable("TILEMODE")}, CVPORT={AcApp.GetSystemVariable("CVPORT")})");
         PromptSelectionResult psr = ed.GetSelection(pso);
-        PluginLog.Diag("Layouts", $"Replicar: selecao {psr.Status}, {(psr.Value?.Count ?? 0)} objetos");
-        if (psr.Status != PromptStatus.OK || psr.Value.Count == 0)
+        int selecionados = psr.Value?.Count ?? 0;
+        PluginLog.Diag("Layouts", $"Replicar: selecao {psr.Status}, {selecionados} objetos");
+        if (psr.Status != PromptStatus.OK || selecionados == 0)
         {
             if (psr.Status == PromptStatus.Error)
                 ed.WriteMessage("\nNada selecionado. Selecione os objetos no papel do layout (viewports nao entram).");

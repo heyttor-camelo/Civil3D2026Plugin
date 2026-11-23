@@ -12,7 +12,8 @@ Máquinas: **trabalho** (Civil 3D 2026 build 25.1.179, .NET 10) · **PC de casa*
 
 - Pedido do Heyvid: inserir um mesmo objeto em determinadas pranchas, numa posicao. Novo `C3DREPLICAR` [Inserir/Remover] + botao "Replicar nas pranchas" (categoria Layouts do explorador). Logica e janela em `Modules/Layouts/LayoutReplicar.cs`: `DeepCloneObjects` no bloco de cada layout, deslocamento opcional (ponto base/destino), XData `C3DREPLICAR` com chave do grupo (SHA1 dos handles) para Substituir/Remover. Janela ja vem com os layouts marcados no painel (`LayoutReplicar.MarcadosNoPainel`).
 - Compilacao no CAMELO: `Vector3d.ZeroVector` nao existe na API do AutoCAD (trocado por `new Vector3d(0,0,0)`, commit 83e1454). 0 erros, so avisos antigos. Civil fechado: `atual\Civil3D2026Plugin.dll` atualizada tambem; `atual\` limpa para as 5 versionadas mais recentes.
-- Pendente: teste do Heyvid (Mesma/Deslocar, Substituir, Remover, blocos com atributos).
+- 23/11, 2.132.1: o Heyvid disse que o comando nao deixava selecionar. Suspeita: filtro `<not VIEWPORT not>` do GetSelection; tirado (viewports saem depois, com aviso), mensagem quando nada e selecionado e log Diag (layout, TILEMODE, CVPORT, status/quantidade). Compilado e entregue no CAMELO (Civil fechado, `atual\` atualizada). O teste dele nao rodou no CAMELO (nenhum log de hoje la): deve ter sido no notebook; o log de la ainda nao foi lido.
+- Pendente: teste do Heyvid na 2.132.1 (Mesma/Deslocar, Substituir, Remover); se falhar de novo, ler o log do notebook (linhas "Replicar: selecao").
 
 ---
 
