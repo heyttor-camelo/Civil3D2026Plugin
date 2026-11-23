@@ -6,7 +6,7 @@ namespace Civil3D2026Plugin.Infrastructure;
 /// </summary>
 public static class PluginVersions
 {
-    public const string Plugin = "2.131.1";
+    public const string Plugin = "2.132.0";
 
     public const string Hydro = "0.19.7";
     public const string DrenExcel = "5.2";
@@ -25,7 +25,7 @@ public static class PluginVersions
     public const string CorridorSplit = "1.6.0";
     public const string LispTools = "1.1.0";
     public const string Utilitarios = "1.8.0";
-    public const string Layouts = "1.22.1";
+    public const string Layouts = "1.23.0";
     public const string Secao = "0.3.1";
     public const string Ifc = "1.4.1";
     public const string Peds = "1.4.0";

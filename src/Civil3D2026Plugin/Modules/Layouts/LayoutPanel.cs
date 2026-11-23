@@ -215,6 +215,9 @@ internal sealed partial class LayoutPanel : SW.Window
         new("COPIAR", "copiar", "Copiar layouts", "Layouts",
             "Copia os layouts marcados; a copia fica logo depois do original (as abas seguintes andam uma posicao).", new[] { "Marque os layouts." },
             p => p.ExecutarLongo("Copiando layouts", () => LayoutOps.Copiar(p.Doc!, p.Marcados()), confirmar: p.ConfLayouts("Criar uma copia de cada layout marcado. Cada copia fica logo depois do original, com a mesma vista nas viewports (e uma copia: a vista dela e igual a do original ate voce mudar)."))),
+        new("REPLICAR", "copiar", "Replicar nas pranchas", "Layouts",
+            "Copia objetos do layout atual (textos, blocos, notas, carimbos...) para as pranchas marcadas, na mesma posicao do papel ou deslocados. A janela ja vem com os layouts marcados aqui; Substituir refaz as copias anteriores dos mesmos objetos (comando C3DREPLICAR; Remover apaga so as copias).",
+            new[] { "Marque os layouts que recebem.", "Abra o layout de origem e selecione os objetos.", "Posicao: Mesma ou Deslocar (ponto base e destino).", "Confira a lista de pranchas e Replicar." }, p => p.Enviar(C3DCommands.Layouts.Replicar)),
         new("EXCLUIR", "excluir", "Excluir layouts", "Layouts",
             "Exclui os layouts marcados (pede confirmacao).", new[] { "Marque os layouts." }, p => p.Excluir()),
         new("TRAVAR", "travar", "Travar viewports", "Viewports",
@@ -307,6 +310,7 @@ internal sealed partial class LayoutPanel : SW.Window
         if (_instance is null)
         {
             _instance = new LayoutPanel();
+            LayoutReplicar.MarcadosNoPainel = () => _instance?.Marcados() ?? new List<string>();
             _instance.Closed += (_, _) =>
             {
                 LayoutPanel fechado = _instance!;

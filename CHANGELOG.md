@@ -1,3 +1,10 @@
+## 2.132.0 - LAYOUTS v1.23.0: replicar objetos nas pranchas
+
+Pedido do Heyvid em 22/11/2026: inserir um mesmo objeto em determinadas pranchas, numa posicao.
+
+- Novo comando `C3DREPLICAR` [Inserir/Remover] e botao "Replicar nas pranchas" na categoria Layouts do explorador. Seleciona objetos do layout atual (viewports nao entram), escolhe a posicao (Mesma = mesmas coordenadas do papel; Deslocar = ponto base e ponto de destino) e marca as pranchas numa janela (ja vem com os layouts marcados no explorador; botoes Marcar todas / Desmarcar / Marcadas no explorador; a prancha de origem e as que ja tem copia ficam indicadas).
+- Cada copia recebe um XData `C3DREPLICAR` com a chave do grupo de objetos. "Substituir copias anteriores" (ligado por padrao) refaz as copias do mesmo grupo nas pranchas marcadas, em vez de acumular. Remover apaga so as copias do plugin nas pranchas marcadas, mantendo os objetos selecionados. Ctrl+Z tambem desfaz.
+- A copia e feita por `DeepCloneObjects` no bloco de cada layout, sem abrir as pranchas; blocos com atributos, textos, cotas e hachuras vao inteiros, na mesma layer.
 ## 2.131.1 - IFC v1.4.1: meio-fio sem buracos, sarjeta com classe, alinhamentos dos corredores marcados
 
 Retorno do Heyvid em 19/11/2026 (KM_01 na 2.131.0: restavam buracos no meio-fio, sarjeta como IfcBuiltElement, nenhum alinhamento exportado).

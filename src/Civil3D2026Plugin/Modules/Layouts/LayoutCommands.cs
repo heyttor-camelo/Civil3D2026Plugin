@@ -446,6 +446,100 @@ public sealed class LayoutCommands
     }
 
     /// <summary>
+    /// Replicar nas pranchas: [Inserir/Remover]. Seleciona objetos do layout atual (viewports nao
+    /// entram), escolhe a posicao (Mesma ou Deslocar: ponto base e destino) e marca as pranchas numa
+    /// janela. Remover apaga nas pranchas marcadas so as copias feitas pelo plugin.
+    /// </summary>
+    [CommandMethod(C3DCommands.Layouts.Replicar, CommandFlags.Modal | CommandFlags.UsePickSet)]
+    public void Replicar()
+    {
+        Document? doc = AcApp.DocumentManager.MdiActiveDocument;
+        if (doc is null)
+            return;
+        Editor ed = doc.Editor;
+        if (Convert.ToInt32(AcApp.GetSystemVariable("TILEMODE")) == 1)
+        {
+            ed.WriteMessage("\nAbra o layout de origem (Paper Space) e selecione os objetos nele.");
+            return;
+        }
+        if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
+            ed.SwitchToPaperSpace();
+
+        var pko = new PromptKeywordOptions("\nReplicar nas pranchas [Inserir/Remover] <Inserir>: ", "Inserir Remover") { AllowNone = true };
+        PromptResult pk = ed.GetKeywords(pko);
+        if (pk.Status != PromptStatus.OK && pk.Status != PromptStatus.None)
+            return;
+        bool remover = pk.Status == PromptStatus.OK && pk.StringResult == "Remover";
+
+        var pso = new PromptSelectionOptions
+        {
+            MessageForAdding = remover
+                ? "\nSelecione os objetos cujas copias devem sair das outras pranchas: "
+                : "\nSelecione os objetos do layout atual para replicar nas outras pranchas: "
+        };
+        var filtro = new SelectionFilter(new[]
+        {
+            new TypedValue((int)DxfCode.Operator, "<not"),
+            new TypedValue((int)DxfCode.Start, "VIEWPORT"),
+            new TypedValue((int)DxfCode.Operator, "not>")
+        });
+        PromptSelectionResult psr = ed.GetSelection(pso, filtro);
+        if (psr.Status != PromptStatus.OK || psr.Value.Count == 0)
+            return;
+        System.Collections.Generic.List<ObjectId> objetos = psr.Value.GetObjectIds().ToList();
+
+        Vector3d desloc = Vector3d.ZeroVector;
+        string posicao = "a mesma do layout atual";
+        if (!remover)
+        {
+            var pp = new PromptKeywordOptions("\nPosicao nas pranchas [Mesma/Deslocar] <Mesma>: ", "Mesma Deslocar") { AllowNone = true };
+            PromptResult rp = ed.GetKeywords(pp);
+            if (rp.Status != PromptStatus.OK && rp.Status != PromptStatus.None)
+                return;
+            if (rp.Status == PromptStatus.OK && rp.StringResult == "Deslocar")
+            {
+                PromptPointResult pb = ed.GetPoint("\nPonto base nos objetos selecionados: ");
+                if (pb.Status != PromptStatus.OK)
+                    return;
+                var pdo = new PromptPointOptions("\nPonto de destino no papel (onde o ponto base fica nas outras pranchas): ")
+                {
+                    BasePoint = pb.Value, UseBasePoint = true, UseDashedLine = true
+                };
+                PromptPointResult pd = ed.GetPoint(pdo);
+                if (pd.Status != PromptStatus.OK)
+                    return;
+                Matrix3d ucs = ed.CurrentUserCoordinateSystem;
+                desloc = pd.Value.TransformBy(ucs) - pb.Value.TransformBy(ucs);
+                posicao = $"deslocada {desloc.X:0.##}, {desloc.Y:0.##} mm";
+            }
+        }
+
+        string atual = LayoutManager.Current.CurrentLayout;
+        string chave = LayoutReplicar.Chave(doc.Database, objetos);
+        var alvos = LayoutReplicar.Alvos(doc.Database, chave, atual);
+        if (alvos.Count(a => !a.EhOrigem) == 0)
+        {
+            ed.WriteMessage("\nO desenho so tem este layout.");
+            return;
+        }
+        LayoutReplicar.Escolha? esc = LayoutReplicar.Escolher(alvos, objetos.Count, posicao, remover);
+        if (esc is null)
+        {
+            ed.WriteMessage("\nCancelado: nada foi alterado.");
+            return;
+        }
+
+        OpResult r = remover
+            ? LayoutReplicar.Remover(doc, objetos, esc.Layouts)
+            : LayoutReplicar.Replicar(doc, objetos, esc.Layouts, desloc, esc.Substituir);
+        ed.WriteMessage("\n" + r.Mensagem + (remover ? "" : " Para voltar: Ctrl+Z, ou C3DREPLICAR > Remover."));
+        if (r.Falhas > 0)
+            PluginLog.Aviso("Layouts", "Replicar: " + r.Mensagem);
+        else
+            PluginLog.Info("Layouts", "Replicar: " + r.Mensagem);
+    }
+
+    /// <summary>
     /// Numeracao de pranchas direto na linha de comando (ex-NP):
     /// [Configurar/Atualizar] como na LISP original.
     /// </summary>

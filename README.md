@@ -454,9 +454,9 @@ planta (um ou mais trechos) + profundidade a frente/atras + faixa de elevacao + 
 Convencao: o inicio da linha fica a esquerda da tela; "frente" e o lado esquerdo da
 linha (alem do plano), "atras" o direito. Inverter sentido troca os dois.
 
-## Explorador de layouts (C3DLAYOUT, Layouts v1.8.1)
+## Explorador de layouts (C3DLAYOUT, Layouts v1.23.0)
 
-Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
+Modulo em `Modules/Layouts`, no mesmo molde do explorador da rede viaria. Categorias: Layouts (abrir, renomear em lote, reordenar, ordenar pelo nome, copiar, excluir, replicar objetos nas pranchas), Viewports (travar, ligar, escala), Page setup (nomeado ou direto, importar de DWG/DWT), Numeracao de pranchas (ex-NP), Layer state nas viewports (ex-LSLAYOUTS), Carimbo em lote, Mapa-chave e Pranchas do eixo.
 
 Vista grafica: um layout (miniatura com textos, cotas, tabelas, hachuras e blocos, inclusive dinamicos, sobre a folha branca do page setup com a area de impressao; zoom e pan) ou todos os layouts como cartoes. Clique no cabecalho de uma coluna da lista para filtrar/ordenar (como no Excel). Clique nas viewports para marcar; "repetir nos demais" marca a mesma posicao nos outros layouts; botao direito na viewport abre informacoes e edicoes rapidas (travar, ligar, escala, layer state, zoom, selecionar). Escalas no formato Custom scale do AutoCAD (2 = 1:500 em metros). Zoom na vista "Todos" com Ctrl+roda.
 
@@ -470,6 +470,7 @@ C3DLAYOUTVP        -> explorador na categoria Viewports
 C3DLAYOUTPS        -> explorador na categoria Page setup
 C3DLAYOUTLS        -> explorador na categoria Layer state (LSLAYOUTS faz o mesmo)
 C3DLAYOUTCARIMBO   -> explorador na categoria Carimbo
+C3DREPLICAR        -> [Inserir/Remover] copia os objetos selecionados no layout atual para as pranchas marcadas numa lista, na mesma posicao do papel ou deslocados (ponto base e destino); Substituir refaz as copias anteriores; Remover apaga so as copias do plugin. No painel: botao "Replicar nas pranchas" (vem com os layouts marcados)
 C3DMAPACHAVE       -> [Base/Area/Inserir/preVia/Mover/Gerar/Atualizar/Remover/Painel] mapa-chave automatico (Inserir/Mover = lugar proprio no layout atual, vale em prancha sem viewport; preVia = so para ver; MOVE/SCALE na base tambem valem). No painel: marque layouts, ajuste a aparencia e "Aplicar nos marcados" (aparencia por layout)
 C3DPRANCHAS        -> [Painel/Atualizar/PontoPerfis] pranchas planta e perfil ao longo do eixo (frames proprios)
 C3DPRANCHA         -> insere bloco de prancha (A0..A4 ou livre, com estendimentos) na origem ou no ponto clicado

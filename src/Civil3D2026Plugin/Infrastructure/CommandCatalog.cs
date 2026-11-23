@@ -412,7 +412,9 @@ public static class CommandCatalog
                     new CommandDefinition(C3DCommands.Layouts.EscalaGrafica, "Escala grafica",
                         "Escala grafica pela escala da viewport escolhida (ex-ESCALAGRAF_V2.LSP): ate quantos metros, altura do texto e o canto inferior esquerdo da barra."),
                     new CommandDefinition(C3DCommands.Layouts.Conjunto, "Malha, norte e escala",
-                        "Malha de coordenadas, norte e escala grafica de uma vez, direto no layout, pelo padrao lido de uma viewport ajustada a mao.")
+                        "Malha de coordenadas, norte e escala grafica de uma vez, direto no layout, pelo padrao lido de uma viewport ajustada a mao."),
+                    new CommandDefinition(C3DCommands.Layouts.Replicar, "Replicar nas pranchas",
+                        "[Inserir/Remover]: copia os objetos selecionados no layout atual para as pranchas marcadas numa lista, na mesma posicao do papel ou deslocados (ponto base e destino); Substituir refaz as copias anteriores; Remover apaga so as copias do plugin.")
                 }),
 
             new(

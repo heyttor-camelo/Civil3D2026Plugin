@@ -242,6 +242,8 @@ public static class CommandNames
         public const string EscalaGrafica = "ESCALAGRAF";
         /// <summary>Malha de coordenadas, norte e escala grafica de uma vez, pelo padrao do usuario.</summary>
         public const string Conjunto = "C3DMNE";
+        /// <summary>Replicar objetos do layout atual em outras pranchas (mesma posicao ou deslocados).</summary>
+        public const string Replicar = "C3DREPLICAR";
     }
 
     public static class Peds
