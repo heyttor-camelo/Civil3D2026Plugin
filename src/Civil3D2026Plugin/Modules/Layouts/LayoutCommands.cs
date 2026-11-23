@@ -446,11 +446,11 @@ public sealed class LayoutCommands
     }
 
     /// <summary>
-    /// Replicar nas pranchas: [Inserir/Remover]. Seleciona objetos do layout atual (viewports nao
-    /// entram), escolhe a posicao (Mesma ou Deslocar: ponto base e destino) e marca as pranchas numa
-    /// janela. Remover apaga nas pranchas marcadas so as copias feitas pelo plugin.
+    /// Replicar nas pranchas: seleciona objetos do layout atual (viewports nao entram; palavra-chave
+    /// Remover na selecao), escolhe a posicao (Mesma ou Deslocar: ponto base e destino) e marca as
+    /// pranchas numa janela. Remover apaga nas pranchas marcadas so as copias feitas pelo plugin.
     /// </summary>
-    [CommandMethod(C3DCommands.Layouts.Replicar, CommandFlags.Modal | CommandFlags.UsePickSet)]
+    [CommandMethod(C3DCommands.Layouts.Replicar, CommandFlags.Modal)]
     public void Replicar()
     {
         Document? doc = AcApp.DocumentManager.MdiActiveDocument;
@@ -465,24 +465,28 @@ public sealed class LayoutCommands
         if (Convert.ToInt32(AcApp.GetSystemVariable("CVPORT")) != 1)
             ed.SwitchToPaperSpace();
 
-        var pko = new PromptKeywordOptions("\nReplicar nas pranchas [Inserir/Remover] <Inserir>: ", "Inserir Remover") { AllowNone = true };
-        PromptResult pk = ed.GetKeywords(pko);
-        if (pk.Status != PromptStatus.OK && pk.Status != PromptStatus.None)
-            return;
-        bool remover = pk.Status == PromptStatus.OK && pk.StringResult == "Remover";
-
+        // Seleciona primeiro (e o que o usuario espera ao chamar o comando); "Remover" e uma
+        // palavra-chave dentro da propria selecao. Sem UsePickSet: a selecao e sempre pedida.
+        bool remover = false;
         var pso = new PromptSelectionOptions
         {
-            MessageForAdding = remover
-                ? "\nSelecione os objetos cujas copias devem sair das outras pranchas: "
-                : "\nSelecione os objetos do layout atual para replicar nas outras pranchas: ",
+            MessageForAdding = "\nSelecione os objetos do layout atual para replicar nas outras pranchas ou [Remover copias]: ",
             AllowDuplicates = false,
             RejectObjectsFromNonCurrentSpace = true
+        };
+        pso.Keywords.Add("Remover");
+        pso.KeywordInput += (_, e) =>
+        {
+            if (e.Input == "Remover")
+            {
+                remover = true;
+                ed.WriteMessage("\nModo Remover: selecione os objetos cujas copias devem sair das outras pranchas.");
+            }
         };
         PluginLog.Diag("Layouts", $"Replicar: selecao em {LayoutManager.Current.CurrentLayout} (TILEMODE={AcApp.GetSystemVariable("TILEMODE")}, CVPORT={AcApp.GetSystemVariable("CVPORT")})");
         PromptSelectionResult psr = ed.GetSelection(pso);
         int selecionados = psr.Value?.Count ?? 0;
-        PluginLog.Diag("Layouts", $"Replicar: selecao {psr.Status}, {selecionados} objetos");
+        PluginLog.Diag("Layouts", $"Replicar: selecao {psr.Status}, {selecionados} objetos, remover={remover}");
         if (psr.Status != PromptStatus.OK || selecionados == 0)
         {
             if (psr.Status == PromptStatus.Error)
@@ -494,7 +498,7 @@ public sealed class LayoutCommands
         int viewports;
         using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
-            ObjectId[] todos = psr.Value.GetObjectIds();
+            ObjectId[] todos = psr.Value!.GetObjectIds();
             objetos = todos.Where(id => tr.GetObject(id, OpenMode.ForRead) is not Viewport).ToList();
             viewports = todos.Length - objetos.Count;
             tr.Commit();

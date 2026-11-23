@@ -1,3 +1,6 @@
+## 2.132.2 - LAYOUTS v1.23.2: C3DREPLICAR pede a selecao logo de inicio
+
+- O comando comecava com a pergunta [Inserir/Remover]; clicar nos objetos nesse momento nao selecionava nada. Agora a selecao e o primeiro passo (como o usuario espera), e "Remover" virou palavra-chave dentro da selecao. Tambem saiu o UsePickSet: a selecao e sempre pedida, mesmo com algo selecionado antes do comando.
 ## 2.132.1 - LAYOUTS v1.23.1: C3DREPLICAR, selecao sem filtro
 
 Retorno do Heyvid em 23/11/2026: o comando nao deixava selecionar os objetos.
